@@ -177,33 +177,26 @@
   <h3>Créer un nouveau poste</h3>
   
   <!-- Sélection Structure (déclenche la cascade) -->
-  <label>Structure :</label>
-  <div class="search-select" 
-       data-field="npp-Structure2" 
-       data-table="Structures" 
-       data-display="Nom_Structure">
+  <div class="form-group">
+    <label for="npp-Structure2">Structure :</label>
+    <div class="search-select" 
+         id="npp-Structure2-container"
+         data-field="npp-Structure2" 
+         data-table="Structures" 
+         data-display="Acronyme">
+    </div>
   </div>
 
   <!-- Sélection Tutelle (filtrée en fonction de la Structure) -->
-  <label>Tutelle :</label>
-  <div class="search-select" 
-       data-field="npp-Tutuelle" 
-       data-table="Etablissements" 
-       data-display="Acronyme">
+  <div class="form-group">
+    <label for="npp-Tutuelle">Tutelle :</label>
+    <div class="search-select" 
+         id="npp-Tutuelle-container"
+         data-field="npp-Tutuelle" 
+         data-table="Etablissements" 
+         data-display="Acronyme">
+    </div>
   </div>
-
-  <!-- Autres champs... -->
-  <label>Titre :</label>
-  <input type="text" id="npp-Titre" placeholder="Titre du poste">
-  
-  <label>Précisions sur le poste :</label>
-  <input type="text" id="npp-Precisions_Poste" placeholder="...">
-  
-  <label>Mission principale :</label>
-  <textarea id="npp-Mission_Principale"></textarea>
-  
-  <label>Date de fin :</label>
-  <input type="date" id="npp-Date_de_fin">
 </div>
     <div class="form-group full">
       <label>Mission principale</label>
