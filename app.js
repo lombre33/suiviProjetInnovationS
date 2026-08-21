@@ -172,6 +172,41 @@ function getTutellesForStructure(structureId) {
   
   return tutelleRefs;
 }
+function updateCascadeTarget(targetField, sourceRecId) {
+  debugLog('updateCascadeTarget', { targetField, sourceRecId });
+  
+  if (targetField !== 'npp-Tutelle' && targetField !== 'npp-Tutuelle') {
+    return; // Pas une cascade Tutelle
+  }
+
+  // 1. Récupère les tutelles autorisées
+  const tutelles = getTutellesForStructure(sourceRecId);
+  debugLog('Tutelles trouvées pour cascade', { count: tutelles.length, tutelles });
+
+  if (tutelles.length === 0) {
+    debugLog('❌ Aucune tutelle trouvée', { sourceRecId });
+    // Optionnel : afficher un message
+    return;
+  }
+
+  // 2. Trouve le container du champ Tutelle
+  const tutelleContainer = document.querySelector(`.search-select[data-field="${targetField}"]`);
+  if (!tutelleContainer) {
+    debugLog('Container Tutelle non trouvé', { targetField });
+    return;
+  }
+
+  // 3. Stocke les IDs autorisés dans le container (sera utilisé par getOptions)
+  tutelleContainer._allowedTutelleIds = tutelles.map(t => t.id);
+  
+  debugLog('Tutelles autorisées stockées', { 
+    targetField,
+    allowedIds: tutelleContainer._allowedTutelleIds 
+  });
+
+  // 4. Optionnel : Vider et rafraîchir le champ
+  // (le filtre s'appliquera au prochain focus/input grâce à _allowedTutelleIds)
+}
 
 /* =========================================================
    COMPOSANT GENERIQUE : SearchSelect
