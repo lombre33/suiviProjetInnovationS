@@ -7,6 +7,7 @@ const state = {
   formValues: {},
   currentProjectId: null,
   personTargetField: null,
+  isReady: false,
 };
 
 // ============================================================
@@ -23,6 +24,7 @@ async function loadAllTables() {
     state.tables.Programmes = await grist.docApi.fetchTable('Programmes');
     state.tables.Etablissements = await grist.docApi.fetchTable('Etablissements');
     console.log('Tables chargées :', state.tables);
+    state.isReady = true;
     renderProjectsList();
   } catch (err) {
     console.error('Erreur de chargement des tables :', err);
@@ -30,12 +32,14 @@ async function loadAllTables() {
   }
 }
 
+// Init Grist avec le callback onRecord
 grist.ready({
   requiredAccess: 'full',
-  onRecord: (record) => {},
-}).then(() => {
-  console.log('Grist ready');
-  loadAllTables();
+  onRecord: (record) => {
+    if (!state.isReady) {
+      loadAllTables();
+    }
+  },
 });
 
 // ============================================================
