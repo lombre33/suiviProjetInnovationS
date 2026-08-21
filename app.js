@@ -122,48 +122,56 @@ function findLabelForRef(tableName, id, displayField) {
    ========================================================= */
 
 function getTutellesForStructure(structureId) {
-  const records = toRecords(state.tables.Structures);
-  const structure = records.find(s => s.id === structureId);
+  debugLog('=== DEBUG DEBUT getTutellesForStructure ===', { structureId });
   
+  // ⭐ Debug 1: Vérifie que la table existe
+  debugLog('state.tables.Structures existe ?', { 
+    exists: !!state.tables.Structures,
+    type: typeof state.tables.Structures,
+    keys: state.tables.Structures ? Object.keys(state.tables.Structures).slice(0, 5) : 'N/A'
+  });
+
+  const records = toRecords(state.tables.Structures);
+  
+  // ⭐ Debug 2: Affiche tous les records
+  debugLog('Toutes les Structures après toRecords()', { 
+    count: records.length,
+    allRecords: records.map(s => ({ 
+      id: s.id, 
+      Nom_Structure: s.Nom_Structure,
+      Nom_Complet: s.Nom_Complet,
+      Acronyme: s.Acronyme,
+      keys: Object.keys(s).slice(0, 10)
+    }))
+  });
+
+  // ⭐ Debug 3: Cherche la structure 78
+  debugLog('Cherche structure ID 78...', {});
+  const structure = records.find(s => {
+    debugLog(`Compare: s.id=${s.id} vs structureId=${structureId}`, { match: s.id === structureId });
+    return s.id === structureId;
+  });
+
+  debugLog('Résultat de la recherche', { found: !!structure, structure });
+
   if (!structure) {
-    debugLog('getTutellesForStructure: structure non trouvée', { structureId });
+    debugLog('❌ Structure non trouvée !', { structureId });
     return [];
   }
 
-  // ⭐ CORRECTION: Toutes_les_tutueles retourne déjà les objets Etablissements !
-  // C'est une ReferenceList, donc les valeurs sont déjà des IDs ou des objets
-  const tutelleRefs = structure.Toutes_les_tutueles || [];
-  
-  debugLog('getTutellesForStructure', { 
-    structureId, 
-    structureName: structure.Nom_Structure,
-    tutelleRefs,
-    tutelleCount: tutelleRefs.length
+  // ⭐ Debug 4: Affiche TOUTES les colonnes de la structure
+  debugLog('Colonnes de la structure trouvée', { 
+    allKeys: Object.keys(structure),
+    allValues: structure
   });
 
-  // ⭐ Si ce sont des IDs, on les résout ; si ce sont des objets, on les utilise directement
-  const etablissements = toRecords(state.tables.Etablissements);
-  const tutelles = tutelleRefs
-    .map(ref => {
-      // ref peut être un ID ou un objet déjà chargé
-      if (typeof ref === 'object' && ref.id) {
-        return ref; // C'est déjà un objet
-      } else {
-        // C'est un ID, on cherche l'objet
-        return etablissements.find(e => e.id === ref);
-      }
-    })
-    .filter(e => e !== undefined && e !== null)
-    .sort((a, b) => (a.Acronyme || '').localeCompare(b.Acronyme || ''));
-
-  debugLog('getTutellesForStructure: tutelles résolues', { 
-    count: tutelles.length,
-    tutelles: tutelles.map(t => ({ id: t.id, acronyme: t.Acronyme }))
-  });
+  // ⭐ Debug 5: Cherche la colonne tutelles
+  const tutelleRefs = structure.Toutes_les_tutueles || structure.Toutes_les_tutelles || [];
   
-  return tutelles;
+  debugLog('Tutelles trouvées', { tutelleRefs, count: tutelleRefs.length });
+  
+  return tutelleRefs;
 }
-
 
 /* =========================================================
    COMPOSANT GENERIQUE : SearchSelect
