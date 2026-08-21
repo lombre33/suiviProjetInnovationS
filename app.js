@@ -1,24 +1,23 @@
-/* =========================================================
-   ETAT GLOBAL
-   ========================================================= */
+// ============================================================
+// STATE MANAGEMENT
+// ============================================================
+
 const state = {
-  tables: {
-    Projets: [],
-    Annuaire: [],
-    Postes2: [],
-    Structures: [],
-    Programmes: [],
-  },
-  currentProjectId: null,   // null => création
-  formValues: {},           // valeurs du formulaire projet en cours
-  personTargetField: null,  // quel champ (Porteur_1, etc.) est en cours de création
+  tables: {},
+  formValues: {},
+  currentProjectId: null,
+  personTargetField: null,
 };
 
-/* =========================================================
-   INITIALISATION GRIST
-   ========================================================= */
+// ============================================================
+// GRIST INIT
+// ============================================================
+
 grist.ready({
   requiredAccess: 'full',
+  onRecord: (record) => {
+    // Widget peut être utilisé avec un record spécifique
+  },
 });
 
 async function loadAllTables() {
@@ -28,61 +27,118 @@ async function loadAllTables() {
     state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
     state.tables.Structures = await grist.docApi.fetchTable('Structures');
     state.tables.Programmes = await grist.docApi.fetchTable('Programmes');
+    state.tables.Etablissements = await grist.docApi.fetchTable('Etablissements');
     renderProjectsList();
   } catch (err) {
     showToast('Erreur de chargement des tables : ' + err.message, true);
   }
 }
 
-grist.onRecords(() => {}); // placeholder si vous voulez écouter les changements de vue liée
-loadAllTables();
+grist.onRecords(loadAllTables);
 
-/* =========================================================
-   HELPERS GENERIQUES
-   ========================================================= */
+// ============================================================
+// UTILITIES
+// ============================================================
 
-function showToast(msg, isError = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.remove('hidden');
-  t.classList.toggle('error', isError);
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => t.classList.add('hidden'), 4000);
+function toRecords(table) {
+  if (!table) return [];
+  return Object.values(table).filter(row => row.id !== undefined);
 }
 
-/** Convertit une colonne fetchTable (columnar) en liste de records {id, ...cols} */
-function toRecords(columnarTable) {
-  if (!columnarTable || !columnarTable.id) return [];
-  const ids = columnarTable.id;
-  const records = [];
-  for (let i = 0; i < ids.length; i++) {
-    const rec = { id: ids[i] };
-    for (const col of Object.keys(columnarTable)) {
-      if (col === 'id') continue;
-      rec[col] = columnarTable[col][i];
+function showToast(message, isError = false) {
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + (isError ? 'toast-error' : 'toast-success');
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('show');
+  }, 10);
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function getTutelleOptionsForStructure(structureId) {
+  if (!structureId) return [];
+
+  const structures = toRecords(state.tables.Structures);
+  const structure = structures.find(s => s.id === structureId);
+  if (!structure) return [];
+
+  const tutelleFields = [
+    'Etablissement_Tutuelle_gestionaire',
+    'Co_tutelle_1_Principale',
+    'Co_tutuelle_2_Principale',
+    'Tutuelle_Secondaire_1',
+    'Tutuelle_Secondaire_2',
+  ];
+
+  const etablissements = toRecords(state.tables.Etablissements || []);
+  const seen = new Set();
+  const options = [];
+
+  tutelleFields.forEach(field => {
+    const etabId = structure[field];
+    if (!etabId || seen.has(etabId)) return;
+    seen.add(etabId);
+
+    const etab = etablissements.find(e => e.id === etabId);
+    const label = etab ? (etab.Acronyme || etab.Nom || `#${etabId}`) : `#${etabId}`;
+    options.push({ id: etabId, label });
+  });
+
+  return options;
+}
+
+function checkEmployeurWarning() {
+  const warning = document.getElementById('warning-employeur');
+  const porteurs = ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2'];
+  const ubEstablishments = new Set(); // À définir selon votre logique UB
+
+  let hasExternalEmployeur = false;
+
+  porteurs.forEach(field => {
+    const personId = state.formValues[field];
+    if (!personId) return;
+
+    const annuaire = toRecords(state.tables.Annuaire);
+    const person = annuaire.find(p => p.id === personId);
+    if (!person || !person.Poste2) return;
+
+    const postes = toRecords(state.tables.Postes2);
+    const poste = postes.find(po => po.id === person.Poste2);
+    if (!poste || !poste.Employeur_tutelle) return;
+
+    // Logique : si l'employeur n'est pas UB, afficher l'alerte
+    // Pour l'instant, on suppose qu'il faut une convention si employeur externe
+    // À adapter selon votre logique métier
+    const etablissements = toRecords(state.tables.Etablissements);
+    const etab = etablissements.find(e => e.id === poste.Employeur_tutelle);
+    if (etab && etab.Acronyme && !etab.Acronyme.includes('UB')) {
+      hasExternalEmployeur = true;
     }
-    records.push(rec);
+  });
+
+  if (hasExternalEmployeur) {
+    warning.classList.remove('hidden');
+  } else {
+    warning.classList.add('hidden');
   }
-  return records;
 }
 
-function findLabelForRef(tableName, id, displayField) {
-  if (!id) return '';
-  const records = toRecords(state.tables[tableName]);
-  const rec = records.find(r => r.id === id);
-  if (!rec) return '';
-  return rec[displayField] ?? '';
-}
+// ============================================================
+// SEARCH SELECT COMPONENT
+// ============================================================
 
-/* =========================================================
-   COMPOSANT GENERIQUE : SearchSelect (réf. Grist ou Choice)
-   ========================================================= */
-
-function initSearchSelect(container) {
+function initSearchSelect(container, dynamicOptions = null) {
   const field = container.dataset.field;
   const tableName = container.dataset.table;
   const displayField = container.dataset.display;
   const isChoice = tableName === '__choice__';
+  const isDynamic = tableName === '__dynamic__';
   const choices = isChoice ? container.dataset.choices.split(',') : null;
   const defaultVal = container.dataset.default || '';
 
@@ -94,11 +150,7 @@ function initSearchSelect(container) {
   const input = container.querySelector('.ss-input');
   const dropdown = container.querySelector('.ss-dropdown');
 
-  let selectedId = null;
-  let selectedLabel = '';
-
   if (defaultVal) {
-    selectedLabel = defaultVal;
     input.value = defaultVal;
     input.classList.add('has-value');
     state.formValues[field] = defaultVal;
@@ -109,6 +161,10 @@ function initSearchSelect(container) {
       return choices
         .filter(c => c.toLowerCase().includes(query.toLowerCase()))
         .map(c => ({ id: c, label: c }));
+    }
+    if (isDynamic) {
+      const opts = container._dynamicOptions || [];
+      return opts.filter(o => o.label.toLowerCase().includes(query.toLowerCase()));
     }
     const records = toRecords(state.tables[tableName]);
     return records
@@ -131,12 +187,11 @@ function initSearchSelect(container) {
         div.className = 'ss-option';
         div.textContent = opt.label;
         div.addEventListener('click', () => {
-          selectedId = opt.id;
-          selectedLabel = opt.label;
           input.value = opt.label;
           input.classList.add('has-value');
-          state.formValues[field] = isChoice ? opt.id : opt.id; // id Grist ou valeur choice
+          state.formValues[field] = opt.id;
           dropdown.classList.add('hidden');
+          if (container._onSelect) container._onSelect(opt.id, opt.label);
         });
         dropdown.appendChild(div);
       });
@@ -145,84 +200,7 @@ function initSearchSelect(container) {
     dropdown.classList.remove('hidden');
   }
 
-  input.addEventListener('focus', () => renderDropdown(input.value === selectedLabel ? '' : input.value));
-  input.addEventListener('input', () => {
-    input.classList.remove('has-value');
-    selectedId = null;
-    state.formValues[field] = null;
-    renderDropdown(input.value);
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!container.contains(e.target)) {
-      dropdown.classList.add('hidden');
-    }
-  });
-
-  container._getValue = () => state.formValues[field];
-  container._setValue = (id, label) => {
-    selectedId = id;
-    selectedLabel = label;
-    input.value = label;
-    input.classList.add('has-value');
-    state.formValues[field] = id;
-  };
-}
-
-function initAllSearchSelects(root = document) {
-  root.querySelectorAll('.search-select').forEach(initSearchSelect);
-}
-
-/* =========================================================
-   COMPOSANT : PersonSelect (Annuaire + création à la volée)
-   ========================================================= */
-
-function initPersonSelect(container) {
-  const field = container.dataset.field;
-
-  container.innerHTML = `
-    <input type="text" class="ss-input" placeholder="Rechercher une personne..." autocomplete="off">
-    <div class="ss-dropdown hidden"></div>
-  `;
-
-  const input = container.querySelector('.ss-input');
-  const dropdown = container.querySelector('.ss-dropdown');
-
-  function renderDropdown(query) {
-    const records = toRecords(state.tables.Annuaire);
-    const filtered = records.filter(r =>
-      (r.nom_et_Prenom || `${r.Prenom} ${r.NOM}`).toLowerCase().includes(query.toLowerCase())
-    );
-
-    dropdown.innerHTML = '';
-
-    filtered.slice(0, 20).forEach(rec => {
-      const div = document.createElement('div');
-      div.className = 'ss-option';
-      div.textContent = rec.nom_et_Prenom || `${rec.Prenom} ${rec.NOM}`;
-      div.addEventListener('click', () => {
-        input.value = div.textContent;
-        input.classList.add('has-value');
-        state.formValues[field] = rec.id;
-        dropdown.classList.add('hidden');
-      });
-      dropdown.appendChild(div);
-    });
-
-    // Option "créer une nouvelle personne"
-    const createOpt = document.createElement('div');
-    createOpt.className = 'ss-option ss-create';
-    createOpt.textContent = `+ Créer une nouvelle personne${query ? ' "' + query + '"' : ''}`;
-    createOpt.addEventListener('click', () => {
-      dropdown.classList.add('hidden');
-      openPersonModal(field, query);
-    });
-    dropdown.appendChild(createOpt);
-
-    dropdown.classList.remove('hidden');
-  }
-
-  input.addEventListener('focus', () => renderDropdown(''));
+  input.addEventListener('focus', () => renderDropdown(input.value));
   input.addEventListener('input', () => {
     input.classList.remove('has-value');
     state.formValues[field] = null;
@@ -233,20 +211,30 @@ function initPersonSelect(container) {
     if (!container.contains(e.target)) dropdown.classList.add('hidden');
   });
 
+  container._getValue = () => state.formValues[field];
   container._setValue = (id, label) => {
-    input.value = label;
-    input.classList.add('has-value');
+    input.value = label || '';
+    input.classList.toggle('has-value', !!label);
     state.formValues[field] = id;
+  };
+  container._setDynamicOptions = (opts) => {
+    container._dynamicOptions = opts;
+    input.value = '';
+    input.classList.remove('has-value');
+    state.formValues[field] = null;
   };
 }
 
-function initAllPersonSelects(root = document) {
-  root.querySelectorAll('.person-select').forEach(initPersonSelect);
+function initAllSearchSelects(parentEl) {
+  const containers = parentEl.querySelectorAll('.search-select:not([data-table="__dynamic__"])');
+  containers.forEach(container => {
+    initSearchSelect(container);
+  });
 }
 
-/* =========================================================
-   MODALE : CREATION D'UNE PERSONNE (+ poste en cascade)
-   ========================================================= */
+// ============================================================
+// PERSON MODAL (Créer une personne + poste)
+// ============================================================
 
 function openPersonModal(targetField, prefillQuery) {
   state.personTargetField = targetField;
@@ -254,7 +242,7 @@ function openPersonModal(targetField, prefillQuery) {
   const modal = document.getElementById('modal-person');
   modal.classList.remove('hidden');
 
-  // reset champs
+  // Reset champs
   document.getElementById('np-Prenom').value = '';
   document.getElementById('np-NOM').value = '';
   document.getElementById('np-Email').value = '';
@@ -264,7 +252,6 @@ function openPersonModal(targetField, prefillQuery) {
   document.getElementById('npp-Mission_Principale').value = '';
   document.getElementById('npp-Date_de_fin').value = '';
 
-  // pré-remplissage grossier si l'utilisateur a tapé "Prenom Nom"
   if (prefillQuery) {
     const parts = prefillQuery.trim().split(' ');
     if (parts.length >= 2) {
@@ -279,17 +266,37 @@ function openPersonModal(targetField, prefillQuery) {
   document.getElementById('poste-existing-block').classList.remove('hidden');
   document.getElementById('poste-new-block').classList.add('hidden');
 
-  // (re)initialise les search-select internes à la modale
+  // Initialise les search-select statiques
   initAllSearchSelects(modal);
-}
 
-document.querySelectorAll('input[name="poste-mode"]').forEach(radio => {
-  radio.addEventListener('change', (e) => {
-    const isNew = e.target.value === 'new';
-    document.getElementById('poste-existing-block').classList.toggle('hidden', isNew);
-    document.getElementById('poste-new-block').classList.toggle('hidden', !isNew);
-  });
-});
+  // Branchement dynamique structure -> tutelle
+  const structureContainer = modal.querySelector('.search-select[data-field="npp-Structure2"]');
+  const employeurContainer = document.getElementById('npp-employeur-container');
+  const employeurPlaceholder = document.getElementById('npp-employeur-placeholder');
+
+  initSearchSelect(employeurContainer);
+  employeurContainer.classList.add('hidden');
+  employeurPlaceholder.classList.remove('hidden');
+
+  structureContainer._onSelect = (structureId) => {
+    const options = getTutelleOptionsForStructure(structureId);
+
+    if (options.length === 0) {
+      employeurContainer.classList.add('hidden');
+      employeurPlaceholder.textContent = "Aucune tutelle trouvée pour cette structure.";
+      employeurPlaceholder.classList.remove('hidden');
+      return;
+    }
+
+    employeurContainer._setDynamicOptions(options);
+    employeurContainer.classList.remove('hidden');
+    employeurPlaceholder.classList.add('hidden');
+
+    if (options.length === 1) {
+      employeurContainer._setValue(options[0].id, options[0].label);
+    }
+  };
+}
 
 document.getElementById('btn-cancel-person').addEventListener('click', () => {
   document.getElementById('modal-person').classList.add('hidden');
@@ -311,10 +318,17 @@ document.getElementById('btn-save-person').addEventListener('click', async () =>
     if (posteMode === 'new') {
       const titre = document.getElementById('npp-Titre').value.trim();
       const structureContainer = document.querySelector('#poste-new-block .search-select[data-field="npp-Structure2"]');
-      const structureId = structureContainer ? structureContainer._getValue?.() ?? state.formValues['npp-Structure2'] : null;
+      const employeurContainer = document.getElementById('npp-employeur-container');
+
+      const structureId = structureContainer?._getValue?.();
+      const employeurId = employeurContainer?._getValue?.();
 
       if (!titre || !structureId) {
-        showToast('Titre du poste et Structure sont obligatoires pour créer un nouveau poste.', true);
+        showToast('Titre du poste et Structure sont obligatoires.', true);
+        return;
+      }
+      if (!employeurId) {
+        showToast('Merci de sélectionner l\'employeur / tutelle.', true);
         return;
       }
 
@@ -322,9 +336,7 @@ document.getElementById('btn-save-person').addEventListener('click', async () =>
         Titre: titre,
         Precisions_Poste: document.getElementById('npp-Precisions_Poste').value.trim(),
         Structure2: structureId,
-        Type_de_poste: state.formValues['npp-Type_de_poste'] || '',
-        Categorie: state.formValues['npp-Categorie'] || '',
-        type_de_contrat: state.formValues['npp-type_de_contrat'] || '',
+        Employeur_tutelle: employeurId,
         Mission_Principale: document.getElementById('npp-Mission_Principale').value.trim(),
       };
 
@@ -343,7 +355,6 @@ document.getElementById('btn-save-person').addEventListener('click', async () =>
       posteId = existingContainer?._getValue?.() ?? null;
     }
 
-    // Création de la personne dans Annuaire
     const annuaireFields = {
       Prenom: prenom,
       NOM: nom,
@@ -357,11 +368,9 @@ document.getElementById('btn-save-person').addEventListener('click', async () =>
     ]);
     const newPersonId = resultPerson.retValues[0];
 
-    // Rafraîchir la table Annuaire / Postes2 en mémoire
     state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
     state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
 
-    // Injecter la sélection dans le champ d'origine du formulaire projet
     const label = `${prenom} ${nom.toUpperCase()}`;
     const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
     if (targetContainer && targetContainer._setValue) {
@@ -377,206 +386,347 @@ document.getElementById('btn-save-person').addEventListener('click', async () =>
   }
 });
 
-/* =========================================================
-   VUE LISTE DES PROJETS
-   ========================================================= */
+// Radio toggle poste existing/new
+document.querySelectorAll('input[name="poste-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    if (radio.value === 'existing') {
+      document.getElementById('poste-existing-block').classList.remove('hidden');
+      document.getElementById('poste-new-block').classList.add('hidden');
+      initAllSearchSelects(document.getElementById('poste-existing-block'));
+    } else {
+      document.getElementById('poste-existing-block').classList.add('hidden');
+      document.getElementById('poste-new-block').classList.remove('hidden');
+      initAllSearchSelects(document.getElementById('poste-new-block'));
+    }
+  });
+});
 
-function renderProjectsList(filterText = '') {
+// ============================================================
+// PROJECT LIST VIEW
+// ============================================================
+
+function renderProjectsList() {
+  const view = document.getElementById('view-list');
   const projects = toRecords(state.tables.Projets);
-  const tbody = document.getElementById('projects-tbody');
-  tbody.innerHTML = '';
+  const searchQuery = document.getElementById('search-projects')?.value || '';
 
   const filtered = projects.filter(p => {
-    const haystack = `${p.Acronyme || ''} ${p.Projet || ''}`.toLowerCase();
-    return haystack.includes(filterText.toLowerCase());
+    const q = searchQuery.toLowerCase();
+    return (p.Acronyme || '').toLowerCase().includes(q) ||
+           (p.Projet || '').toLowerCase().includes(q);
   });
 
-  if (filtered.length === 0) {
+  const tbody = view.querySelector('tbody');
+  tbody.innerHTML = '';
+
+  filtered.forEach(project => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="5" class="ss-empty">Aucun projet trouvé.</td>`;
-    tbody.appendChild(tr);
-    return;
-  }
-
-  filtered.forEach(p => {
-    const tr = document.createElement('tr');
-    tr.className = 'row-clickable';
-
-    const programmeLabel = findLabelForRef('Programmes', p.Programme, 'Programme');
-    const porteurLabel = findLabelForRef('Annuaire', p.Porteur_1, 'nom_et_Prenom')
-      || findLabelForRef('Annuaire', p.Porteur_1, 'NOM');
-
     tr.innerHTML = `
-      <td>${p.Acronyme || ''}</td>
-      <td>${p.Projet || ''}</td>
-      <td>${programmeLabel}</td>
-      <td>${porteurLabel}</td>
-      <td>${p.Statut_operationnel_projet || ''}</td>
+      <td>${project.Acronyme || '-'}</td>
+      <td>${project.Projet || '-'}</td>
+      <td>${project.Statut_operationnel_projet || '-'}</td>
+      <td>
+        <button class="btn-icon" title="Éditer">✎</button>
+        <button class="btn-icon" title="Supprimer">🗑</button>
+      </td>
     `;
-    tr.addEventListener('click', () => openProjectView(p.id));
+
+    tr.querySelector('button:first-of-type').addEventListener('click', () => {
+      openProjectForm(project.id);
+    });
+
+    tr.querySelector('button:last-of-type').addEventListener('click', async () => {
+      if (confirm(`Supprimer le projet ${project.Acronyme} ?`)) {
+        try {
+          await grist.docApi.applyUserActions([
+            ['RemoveRecord', 'Projets', project.id]
+          ]);
+          state.tables.Projets = await grist.docApi.fetchTable('Projets');
+          renderProjectsList();
+          showToast('Projet supprimé.');
+        } catch (err) {
+          showToast('Erreur : ' + err.message, true);
+        }
+      }
+    });
+
     tbody.appendChild(tr);
   });
 }
 
-document.getElementById('search-projects').addEventListener('input', (e) => {
-  renderProjectsList(e.target.value);
+document.getElementById('search-projects').addEventListener('input', renderProjectsList);
+
+document.getElementById('btn-new-project').addEventListener('click', () => {
+  state.currentProjectId = null;
+  state.formValues = {};
+  document.getElementById('view-list').classList.add('hidden');
+  document.getElementById('view-project').classList.remove('hidden');
+  renderProjectForm();
 });
 
-/* =========================================================
-   VUE FICHE PROJET (création / édition)
-   ========================================================= */
+// ============================================================
+// PROJECT FORM VIEW
+// ============================================================
 
-function openProjectView(projectId = null) {
+function openProjectForm(projectId) {
   state.currentProjectId = projectId;
-  state.formValues = {};
+  const project = toRecords(state.tables.Projets).find(p => p.id === projectId);
+
+  if (project) {
+    state.formValues = {
+      Programme: project.Programme,
+      Projet: project.Projet,
+      Acronyme: project.Acronyme,
+      comentaire_general_Suivi_projet: project.comentaire_general_Suivi_projet,
+      Statut_operationnel_projet: project.Statut_operationnel_projet,
+      Type_projet: project.Type_projet,
+      Porteur_1: project.Porteur_1,
+      Porteur_2: project.Porteur_2,
+      Porteur_3: project.Porteur_3,
+      VP_porteur_2: project.VP_porteur_2,
+      Accompagnateur: project.Accompagnateur,
+    };
+  } else {
+    state.formValues = {
+      Statut_operationnel_projet: 'En attente des dispo des fonds',
+      Type_projet: 'projet',
+    };
+  }
 
   document.getElementById('view-list').classList.add('hidden');
   document.getElementById('view-project').classList.remove('hidden');
-
-  const title = document.getElementById('project-title');
-
-  // reset champs texte simples
-  document.getElementById('f-Projet').value = '';
-  document.getElementById('f-Acronyme').value = '';
-  document.getElementById('f-comentaire_general_Suivi_projet').value = '';
-
-  // (ré)initialise tous les composants search-select / person-select
-  initAllSearchSelects(document.getElementById('view-project'));
-  initAllPersonSelects(document.getElementById('view-project'));
-
-  if (projectId) {
-    title.textContent = 'Édition du projet';
-    const rec = toRecords(state.tables.Projets).find(p => p.id === projectId);
-    if (rec) fillProjectForm(rec);
-  } else {
-    title.textContent = 'Nouveau projet';
-  }
-
-  document.getElementById('employeur-warning').classList.add('hidden');
+  renderProjectForm();
 }
 
-function fillProjectForm(rec) {
-  document.getElementById('f-Projet').value = rec.Projet || '';
-  document.getElementById('f-Acronyme').value = rec.Acronyme || '';
-  document.getElementById('f-comentaire_general_Suivi_projet').value = rec.comentaire_general_Suivi_projet || '';
+function renderProjectForm() {
+  const form = document.getElementById('form-project');
+  form.innerHTML = `
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Programme *</label>
+        <div class="search-select" data-field="Programme" data-table="Programmes" data-display="Programme"></div>
+      </div>
+      <div class="form-group">
+        <label>Nom du projet *</label>
+        <input type="text" id="Projet" placeholder="Ex: InnovationS 2024">
+      </div>
+      <div class="form-group">
+        <label>Acronyme *</label>
+        <input type="text" id="Acronyme" placeholder="Ex: INV24">
+      </div>
+      <div class="form-group full">
+        <label>Commentaire général suivi</label>
+        <textarea id="comentaire_general_Suivi_projet" placeholder="Notes générales..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Statut opérationnel *</label>
+        <div class="search-select"
+             data-field="Statut_operationnel_projet"
+             data-table="__choice__"
+             data-choices="En attente des dispo des fonds,En cours,Terminé,Suspendu"
+             data-default="En attente des dispo des fonds"></div>
+      </div>
+      <div class="form-group">
+        <label>Type de projet *</label>
+        <div class="search-select"
+             data-field="Type_projet"
+             data-table="__choice__"
+             data-choices="projet,Ingenierie_creation,Ingenierie_renouvellement,reattribution,prolongation,myphd+"
+             data-default="projet"></div>
+      </div>
+    </div>
 
-  const setRef = (field, id, tableName, displayField) => {
-    const container = document.querySelector(`.search-select[data-field="${field}"]`);
-    if (!container) return;
-    const label = findLabelForRef(tableName, id, displayField);
-    if (container._setValue) container._setValue(id, label);
-  };
+    <div id="warning-employeur" class="warning-box hidden">
+      ⚠️ Au moins un porteur a un employeur hors UB. Une convention sera probablement nécessaire.
+    </div>
 
-  setRef('Programme', rec.Programme, 'Programmes', 'Programme');
-  if (container_TypeProjet()) container_TypeProjet()._setValue(rec.Type_projet, rec.Type_projet);
-  if (container_Statut()) container_Statut()._setValue(rec.Statut_operationnel_projet, rec.Statut_operationnel_projet);
+    <h3>Porteurs et accompagnateurs</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Porteur 1 *</label>
+        <div class="person-select" data-field="Porteur_1"></div>
+      </div>
+      <div class="form-group">
+        <label>Porteur 2</label>
+        <div class="person-select" data-field="Porteur_2"></div>
+      </div>
+      <div class="form-group">
+        <label>Porteur 3</label>
+        <div class="person-select" data-field="Porteur_3"></div>
+      </div>
+      <div class="form-group">
+        <label>VP Porteur 2</label>
+        <div class="person-select" data-field="VP_porteur_2"></div>
+      </div>
+      <div class="form-group">
+        <label>Accompagnateur</label>
+        <div class="person-select" data-field="Accompagnateur"></div>
+      </div>
+    </div>
 
-  const setPerson = (field, id) => {
-    const container = document.querySelector(`.person-select[data-field="${field}"]`);
-    if (!container) return;
-    const label = findLabelForRef('Annuaire', id, 'nom_et_Prenom') || '';
-    if (container._setValue) container._setValue(id, label);
-  };
+    <div class="form-actions">
+      <button id="btn-cancel-project" class="btn btn-secondary">Annuler</button>
+      <button id="btn-save-project" class="btn btn-primary">Enregistrer</button>
+    </div>
+  `;
 
-  setPerson('Porteur_1', rec.Porteur_1);
-  setPerson('Porteur_2', rec.Porteur_2);
-  setPerson('Porteur_3', rec.Porteur_3);
-  setPerson('VP_porteur_2', rec.VP_porteur_2);
-  setPerson('Accompagnateur', rec.Accompagnateur);
+  // Charge les valeurs du formulaire
+  Object.keys(state.formValues).forEach(field => {
+    const value = state.formValues[field];
+    const input = document.getElementById(field);
+    if (input && typeof value === 'string' || typeof value === 'number') {
+      input.value = value || '';
+    }
+  });
 
-  checkEmployeurWarning();
-}
+  // Initialise les search-select classiques
+  initAllSearchSelects(form);
 
-function container_TypeProjet() {
-  return document.querySelector('.search-select[data-field="Type_projet"]');
-}
-function container_Statut() {
-  return document.querySelector('.search-select[data-field="Statut_operationnel_projet"]');
-}
+  // Initialise les person-select
+  form.querySelectorAll('.person-select').forEach(container => {
+    const field = container.dataset.field;
+    const personId = state.formValues[field];
 
-document.getElementById('btn-back').addEventListener('click', () => {
-  document.getElementById('view-project').classList.add('hidden');
-  document.getElementById('view-list').classList.remove('hidden');
-});
+    container.innerHTML = `
+      <div class="person-input-wrapper">
+        <input type="text" class="person-input" placeholder="Chercher une personne..." autocomplete="off">
+        <button type="button" class="btn-person-add">+ Ajouter</button>
+        <div class="person-dropdown hidden"></div>
+      </div>
+    `;
 
-document.getElementById('btn-new-project').addEventListener('click', () => openProjectView(null));
+    const input = container.querySelector('.person-input');
+    const dropdown = container.querySelector('.person-dropdown');
+    const btnAdd = container.querySelector('.btn-person-add');
 
-/* Vérifie si un des porteurs a un employeur hors UB, affiche un bandeau non bloquant */
-function checkEmployeurWarning() {
-  const banner = document.getElementById('employeur-warning');
-  const porteurFields = ['Porteur_1', 'Porteur_2', 'Porteur_3'];
-  let hasExternal = false;
-
-  for (const field of porteurFields) {
-    const id = state.formValues[field];
-    if (!id) continue;
-    const personne = toRecords(state.tables.Annuaire).find(r => r.id === id);
-    if (!personne || !personne.Poste2) continue;
-    const poste = toRecords(state.tables.Postes2).find(p => p.id === personne.Poste2);
-    if (!poste || !poste.Employeur_tutelle) continue;
-    // Hypothèse: un id d'établissement != celui de l'UB (id à ajuster selon vos données réelles)
-    // Pour la POC on considère juste "un employeur est renseigné et différent du 1er établissement de la table"
-    hasExternal = true; // simplifié pour la POC — cf. note ci-dessous
-  }
-
-  banner.classList.toggle('hidden', !hasExternal);
-}
-
-/* =========================================================
-   ENREGISTREMENT DU PROJET
-   ========================================================= */
-
-document.getElementById('btn-save-project').addEventListener('click', async () => {
-  const projetNom = document.getElementById('f-Projet').value.trim();
-  const acronyme = document.getElementById('f-Acronyme').value.trim();
-  const programmeId = document.querySelector('.search-select[data-field="Programme"]')?._getValue?.();
-  const porteur1Id = state.formValues['Porteur_1'];
-
-  if (!projetNom || !acronyme || !programmeId || !porteur1Id) {
-    showToast('Merci de renseigner au minimum : Nom du projet, Acronyme, Programme et Porteur 1.', true);
-    return;
-  }
-
-  const fields = {
-    Projet: projetNom,
-    Acronyme: acronyme,
-    comentaire_general_Suivi_projet: document.getElementById('f-comentaire_general_Suivi_projet').value.trim(),
-    Programme: programmeId,
-    Type_projet: state.formValues['Type_projet'] || '',
-    Statut_operationnel_projet: state.formValues['Statut_operationnel_projet'] || 'En attente des dispo des fonds',
-    Porteur_1: state.formValues['Porteur_1'] || null,
-    Porteur_2: state.formValues['Porteur_2'] || null,
-    Porteur_3: state.formValues['Porteur_3'] || null,
-    VP_porteur_2: state.formValues['VP_porteur_2'] || null,
-    Accompagnateur: state.formValues['Accompagnateur'] || null,
-  };
-
-  try {
-    if (state.currentProjectId) {
-      await grist.docApi.applyUserActions([
-        ['UpdateRecord', 'Projets', state.currentProjectId, fields]
-      ]);
-      showToast('Projet mis à jour.');
-    } else {
-      await grist.docApi.applyUserActions([
-        ['AddRecord', 'Projets', null, fields]
-      ]);
-      showToast('Projet créé.');
+    // Affiche la personne sélectionnée
+    if (personId) {
+      const annuaire = toRecords(state.tables.Annuaire);
+      const person = annuaire.find(p => p.id === personId);
+      if (person) {
+        input.value = `${person.Prenom} ${person.NOM}`;
+        input.classList.add('has-value');
+      }
     }
 
-    state.tables.Projets = await grist.docApi.fetchTable('Projets');
+    input.addEventListener('focus', () => {
+      const query = input.value.toLowerCase();
+      const annuaire = toRecords(state.tables.Annuaire);
+      const matches = annuaire
+        .filter(p => {
+          const fullName = `${p.Prenom || ''} ${p.NOM || ''}`.toLowerCase();
+          return fullName.includes(query) || p.Email?.toLowerCase().includes(query);
+        })
+        .slice(0, 20);
+
+      dropdown.innerHTML = '';
+      if (matches.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'person-option empty';
+        emptyDiv.textContent = 'Aucune correspondance';
+        dropdown.appendChild(emptyDiv);
+      } else {
+        matches.forEach(person => {
+          const div = document.createElement('div');
+          div.className = 'person-option';
+          div.textContent = `${person.Prenom} ${person.NOM}`;
+          div.addEventListener('click', () => {
+            input.value = `${person.Prenom} ${person.NOM}`;
+            input.classList.add('has-value');
+            state.formValues[field] = person.id;
+            dropdown.classList.add('hidden');
+            checkEmployeurWarning();
+          });
+          dropdown.appendChild(div);
+        });
+      }
+      dropdown.classList.remove('hidden');
+    });
+
+    input.addEventListener('input', () => {
+      input.classList.remove('has-value');
+      state.formValues[field] = null;
+      // Simulate focus to re-render dropdown
+      input.dispatchEvent(new Event('focus'));
+    });
+
+    btnAdd.addEventListener('click', (e) => {
+      e.preventDefault();
+      openPersonModal(field, input.value);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!container.contains(e.target)) {
+        dropdown.classList.add('hidden');
+      }
+    });
+
+    container._setValue = (id, label) => {
+      input.value = label;
+      input.classList.add('has-value');
+      state.formValues[field] = id;
+      dropdown.classList.add('hidden');
+    };
+  });
+
+  // Event listeners
+  document.getElementById('btn-cancel-project').addEventListener('click', () => {
     document.getElementById('view-project').classList.add('hidden');
     document.getElementById('view-list').classList.remove('hidden');
     renderProjectsList();
+  });
 
-  } catch (err) {
-    showToast('Erreur lors de l\'enregistrement : ' + err.message, true);
-  }
-});
+  document.getElementById('btn-save-project').addEventListener('click', async () => {
+    const programmeId = state.formValues['Programme'];
+    const projet = document.getElementById('Projet').value.trim();
+    const acronyme = document.getElementById('Acronyme').value.trim();
 
-/* =========================================================
-   ONGLETS (les 3 autres sont désactivés dans cette POC)
-   ========================================================= */
+    if (!programmeId || !projet || !acronyme) {
+      showToast('Programme, Nom et Acronyme sont obligatoires.', true);
+      return;
+    }
+
+    const fields = {
+      Programme: programmeId,
+      Projet: projet,
+      Acronyme: acronyme,
+      comentaire_general_Suivi_projet: document.getElementById('comentaire_general_Suivi_projet').value.trim(),
+      Statut_operationnel_projet: state.formValues['Statut_operationnel_projet'] || 'En attente des dispo des fonds',
+      Type_projet: state.formValues['Type_projet'] || 'projet',
+      Porteur_1: state.formValues['Porteur_1'] || null,
+      Porteur_2: state.formValues['Porteur_2'] || null,
+      Porteur_3: state.formValues['Porteur_3'] || null,
+      VP_porteur_2: state.formValues['VP_porteur_2'] || null,
+      Accompagnateur: state.formValues['Accompagnateur'] || null,
+    };
+
+    try {
+      if (state.currentProjectId) {
+        await grist.docApi.applyUserActions([
+          ['UpdateRecord', 'Projets', state.currentProjectId, fields]
+        ]);
+        showToast('Projet mis à jour.');
+      } else {
+        await grist.docApi.applyUserActions([
+          ['AddRecord', 'Projets', null, fields]
+        ]);
+        showToast('Projet créé.');
+      }
+
+      state.tables.Projets = await grist.docApi.fetchTable('Projets');
+      document.getElementById('view-project').classList.add('hidden');
+      document.getElementById('view-list').classList.remove('hidden');
+      renderProjectsList();
+
+    } catch (err) {
+      showToast('Erreur lors de l\'enregistrement : ' + err.message, true);
+    }
+  });
+}
+
+// ============================================================
+// TABS
+// ============================================================
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
