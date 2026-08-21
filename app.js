@@ -119,7 +119,7 @@ function findLabelForRef(tableName, id, displayField) {
 }
 
 /* =========================================================
-   CASCADE STRUCTURE → TUTELLE (Collecte 5 colonnes)
+   CASCADE STRUCTURE → TUTELLE (Utilise Toutes_les_tutelles)
    ========================================================= */
 
 function getTutellesForStructure(structureId) {
@@ -131,32 +131,18 @@ function getTutellesForStructure(structureId) {
     return [];
   }
 
-  // ⭐ Collecte les IDs depuis les 5 colonnes
-  const tutelleIds = new Set();
-  const tutelleColumns = [
-    'Etablissement_Tutuelle_gestionaire',
-    'Co_tutuelle_1_Principale',
-    'Co_tutuelle_2_Principale',
-    'Tutuelle_Secondaire_1',
-    'Tutuelle_Secondaire_2'
-  ];
-
-  tutelleColumns.forEach(col => {
-    const id = structure[col];
-    if (id) {
-      tutelleIds.add(id);
-    }
-  });
-
-  debugLog('getTutellesForStructure: IDs collectés', { 
+  // ⭐ Récupère directement la liste Toutes_les_tutelles
+  const tutelleIds = structure.Toutes_les_tutelles || [];
+  
+  debugLog('getTutellesForStructure', { 
     structureId, 
     structureName: structure.Nom_Structure,
-    tutelleIds: Array.from(tutelleIds)
+    tutelleCount: tutelleIds.length
   });
 
-  // ⭐ Convertit les IDs en records d'Établissements
+  // Convertit les IDs en records d'Établissements
   const etablissements = toRecords(state.tables.Etablissements);
-  const tutelles = Array.from(tutelleIds)
+  const tutelles = tutelleIds
     .map(id => etablissements.find(e => e.id === id))
     .filter(e => e !== undefined)
     .sort((a, b) => (a.Acronyme || '').localeCompare(b.Acronyme || ''));
@@ -176,7 +162,7 @@ function updateCascadeTarget(targetField, sourceRecId) {
 
   const tutelles = getTutellesForStructure(sourceRecId);
   
-  // ⭐ Stock les IDs de tutelles autorisées pour filtrer
+  // Stock les IDs de tutelles autorisées pour filtrer
   targetContainer._allowedTutelleIds = tutelles.map(t => t.id);
   
   debugLog(`updateCascadeTarget: ${tutelles.length} tutelle(s) trouvée(s)`, { 
@@ -187,7 +173,7 @@ function updateCascadeTarget(targetField, sourceRecId) {
   targetContainer._setValue(null, '');
   state.formValues[targetField] = null;
 
-  // ⭐ Si une seule tutelle, auto-sélectionne
+  // Si une seule tutelle, auto-sélectionne
   if (tutelles.length === 1) {
     const single = tutelles[0];
     const label = single.Acronyme || single.Nom || `#${single.id}`;
@@ -199,6 +185,7 @@ function updateCascadeTarget(targetField, sourceRecId) {
     const input = targetContainer.querySelector('.ss-input');
     if (input) {
       input.value = '';
+      input.placeholder = `${tutelles.length} tutelles disponibles`;
       input.focus();
     }
   } else {
