@@ -353,3 +353,7 @@ body {
 }
 
 .toast.error { background: #a8321e; }
+#npp-employeur-placeholder {
+  padding: 8px 0;
+  font-style: italic;
+}
