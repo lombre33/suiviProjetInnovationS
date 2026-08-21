@@ -33,6 +33,7 @@ function debugError(msg, err) {
    ========================================================= */
 debugLog('Script chargé, initialisation Grist...');
 
+// ⭐ PAS de callback, pas d'objet complexe
 grist.ready({
   requiredAccess: 'full',
 });
@@ -70,7 +71,7 @@ async function loadAllTables() {
   }
 }
 
-// ⭐ IMPORTANT : Appel direct (synchrone) car grist.ready() n'est pas async
+// ⭐ Appel direct, sans .then(), sans callback
 debugLog('Appel de loadAllTables()...');
 loadAllTables();
 
@@ -94,7 +95,6 @@ function showToast(msg, isError = false) {
   showToast._timer = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 
-/** Convertit une colonne fetchTable (columnar) en liste de records {id, ...cols} */
 function toRecords(columnarTable) {
   if (!columnarTable || !columnarTable.id) {
     return [];
@@ -121,7 +121,7 @@ function findLabelForRef(tableName, id, displayField) {
 }
 
 /* =========================================================
-   COMPOSANT GENERIQUE : SearchSelect (réf. Grist ou Choice)
+   COMPOSANT GENERIQUE : SearchSelect
    ========================================================= */
 
 function initSearchSelect(container) {
@@ -188,7 +188,7 @@ function initSearchSelect(container) {
           selectedLabel = opt.label;
           input.value = opt.label;
           input.classList.add('has-value');
-          state.formValues[field] = isChoice ? opt.id : opt.id;
+          state.formValues[field] = opt.id;
           dropdown.classList.add('hidden');
         });
         dropdown.appendChild(div);
@@ -212,6 +212,7 @@ function initSearchSelect(container) {
     }
   });
 
+  // ⭐ Store les méthodes directement, pas dans state
   container._getValue = () => state.formValues[field];
   container._setValue = (id, label) => {
     selectedId = id;
@@ -230,7 +231,7 @@ function initAllSearchSelects(root = document) {
 }
 
 /* =========================================================
-   COMPOSANT : PersonSelect (Annuaire + création à la volée)
+   COMPOSANT : PersonSelect
    ========================================================= */
 
 function initPersonSelect(container) {
@@ -270,7 +271,6 @@ function initPersonSelect(container) {
       dropdown.appendChild(div);
     });
 
-    // Option "créer une nouvelle personne"
     const createOpt = document.createElement('div');
     createOpt.className = 'ss-option ss-create';
     createOpt.textContent = `+ Créer une nouvelle personne${query ? ' "' + query + '"' : ''}`;
@@ -309,7 +309,7 @@ function initAllPersonSelects(root = document) {
 }
 
 /* =========================================================
-   MODALE : CREATION D'UNE PERSONNE (+ poste en cascade)
+   MODALE : CREATION D'UNE PERSONNE
    ========================================================= */
 
 function openPersonModal(targetField, prefillQuery) {
@@ -323,14 +323,12 @@ function openPersonModal(targetField, prefillQuery) {
   }
   modal.classList.remove('hidden');
 
-  // reset champs
   const fields = ['np-Prenom', 'np-NOM', 'np-Email', 'np-Telephone', 'npp-Titre', 'npp-Precisions_Poste', 'npp-Mission_Principale', 'npp-Date_de_fin'];
   fields.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
 
-  // pré-remplissage grossier
   if (prefillQuery) {
     const parts = prefillQuery.trim().split(' ');
     if (parts.length >= 2) {
@@ -352,7 +350,6 @@ function openPersonModal(targetField, prefillQuery) {
   if (existingBlock) existingBlock.classList.remove('hidden');
   if (newBlock) newBlock.classList.add('hidden');
 
-  // (re)initialise les search-select internes à la modale
   initAllSearchSelects(modal);
 }
 
@@ -360,7 +357,8 @@ const btnCancelPerson = document.getElementById('btn-cancel-person');
 if (btnCancelPerson) {
   btnCancelPerson.addEventListener('click', () => {
     debugLog('Fermeture modal personne');
-    document.getElementById('modal-person').classList.add('hidden');
+    const modal = document.getElementById('modal-person');
+    if (modal) modal.classList.add('hidden');
   });
 }
 
@@ -394,7 +392,7 @@ if (btnSavePerson) {
       if (posteMode === 'new') {
         const titre = (document.getElementById('npp-Titre')?.value || '').trim();
         const structureContainer = document.querySelector('#poste-new-block .search-select[data-field="npp-Structure2"]');
-        const structureId = structureContainer ? structureContainer._getValue?.() : null;
+        const structureId = structureContainer?._getValue?.();
 
         if (!titre || !structureId) {
           showToast('Titre du poste et Structure sont obligatoires pour créer un nouveau poste.', true);
@@ -422,10 +420,9 @@ if (btnSavePerson) {
 
       } else {
         const existingContainer = document.querySelector('#poste-existing-block .search-select[data-field="np-Poste2"]');
-        posteId = existingContainer?._getValue?.() ?? null;
+        posteId = existingContainer?._getValue?.();
       }
 
-      // Création personne Annuaire
       const annuaireFields = {
         Prenom: prenom,
         NOM: nom,
@@ -441,11 +438,9 @@ if (btnSavePerson) {
       const newPersonId = resultPerson.retValues[0];
       debugLog('✅ Personne créée', { newPersonId });
 
-      // Rafraîchir les tables
       state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
       state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
 
-      // Injecter dans le formulaire projet
       const label = `${prenom} ${nom.toUpperCase()}`;
       const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
       if (targetContainer && targetContainer._setValue) {
@@ -518,12 +513,10 @@ if (searchInput) {
   searchInput.addEventListener('input', (e) => {
     renderProjectsList(e.target.value);
   });
-} else {
-  console.warn('search-projects input non trouvé');
 }
 
 /* =========================================================
-   VUE FICHE PROJET (création / édition)
+   VUE FICHE PROJET
    ========================================================= */
 
 function openProjectView(projectId = null) {
@@ -543,7 +536,6 @@ function openProjectView(projectId = null) {
     return;
   }
 
-  // reset champs
   const fProjet = document.getElementById('f-Projet');
   const fAcronyme = document.getElementById('f-Acronyme');
   const fCommentaire = document.getElementById('f-comentaire_general_Suivi_projet');
@@ -551,7 +543,6 @@ function openProjectView(projectId = null) {
   if (fAcronyme) fAcronyme.value = '';
   if (fCommentaire) fCommentaire.value = '';
 
-  // réinitialise les composants
   initAllSearchSelects(viewProject);
   initAllPersonSelects(viewProject);
 
@@ -633,7 +624,6 @@ if (btnNewProject) {
   });
 }
 
-/* Vérifie si un des porteurs a un employeur hors UB */
 function checkEmployeurWarning() {
   const banner = document.getElementById('employeur-warning');
   if (!banner) return;
