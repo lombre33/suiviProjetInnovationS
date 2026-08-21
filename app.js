@@ -13,13 +13,6 @@ const state = {
 // GRIST INIT
 // ============================================================
 
-grist.ready({
-  requiredAccess: 'full',
-  onRecord: (record) => {
-    // Widget peut être utilisé avec un record spécifique
-  },
-});
-
 async function loadAllTables() {
   try {
     console.log('Chargement des tables...');
@@ -37,8 +30,13 @@ async function loadAllTables() {
   }
 }
 
-// Lance le chargement au démarrage
-document.addEventListener('DOMContentLoaded', loadAllTables);
+grist.ready({
+  requiredAccess: 'full',
+  onRecord: (record) => {},
+}).then(() => {
+  console.log('Grist ready');
+  loadAllTables();
+});
 
 // ============================================================
 // UTILITIES
@@ -116,7 +114,6 @@ function checkEmployeurWarning() {
     const poste = postes.find(po => po.id === person.Poste2);
     if (!poste || !poste.Employeur_tutelle) return;
 
-    // Logique : si l'employeur n'est pas UB, afficher l'alerte
     const etablissements = toRecords(state.tables.Etablissements);
     const etab = etablissements.find(e => e.id === poste.Employeur_tutelle);
     if (etab && etab.Acronyme && !etab.Acronyme.includes('UB')) {
@@ -136,12 +133,14 @@ function checkEmployeurWarning() {
 // ============================================================
 
 function initSearchSelect(container, dynamicOptions = null) {
+  if (!container) return;
+  
   const field = container.dataset.field;
   const tableName = container.dataset.table;
   const displayField = container.dataset.display;
   const isChoice = tableName === '__choice__';
   const isDynamic = tableName === '__dynamic__';
-  const choices = isChoice ? container.dataset.choices.split(',') : null;
+  const choices = isChoice ? (container.dataset.choices || '').split(',') : null;
   const defaultVal = container.dataset.default || '';
 
   container.innerHTML = `
@@ -168,7 +167,7 @@ function initSearchSelect(container, dynamicOptions = null) {
       const opts = container._dynamicOptions || [];
       return opts.filter(o => o.label.toLowerCase().includes(query.toLowerCase()));
     }
-    const records = toRecords(state.tables[tableName]);
+    const records = toRecords(state.tables[tableName] || {});
     return records
       .filter(r => (r[displayField] || '').toLowerCase().includes(query.toLowerCase()))
       .map(r => ({ id: r.id, label: r[displayField] || `#${r.id}` }));
@@ -228,6 +227,7 @@ function initSearchSelect(container, dynamicOptions = null) {
 }
 
 function initAllSearchSelects(parentEl) {
+  if (!parentEl) return;
   const containers = parentEl.querySelectorAll('.search-select:not([data-table="__dynamic__"])');
   containers.forEach(container => {
     initSearchSelect(container);
@@ -242,31 +242,44 @@ function openPersonModal(targetField, prefillQuery) {
   state.personTargetField = targetField;
 
   const modal = document.getElementById('modal-person');
+  if (!modal) {
+    showToast('Modal non trouvée', true);
+    return;
+  }
+
   modal.classList.remove('hidden');
 
   // Reset champs
-  document.getElementById('np-Prenom').value = '';
-  document.getElementById('np-NOM').value = '';
-  document.getElementById('np-Email').value = '';
-  document.getElementById('np-Telephone').value = '';
-  document.getElementById('npp-Titre').value = '';
-  document.getElementById('npp-Precisions_Poste').value = '';
-  document.getElementById('npp-Mission_Principale').value = '';
-  document.getElementById('npp-Date_de_fin').value = '';
+  const resetFields = [
+    'np-Prenom', 'np-NOM', 'np-Email', 'np-Telephone',
+    'npp-Titre', 'npp-Precisions_Poste', 'npp-Mission_Principale', 'npp-Date_de_fin'
+  ];
+  
+  resetFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
 
   if (prefillQuery) {
     const parts = prefillQuery.trim().split(' ');
     if (parts.length >= 2) {
-      document.getElementById('np-Prenom').value = parts[0];
-      document.getElementById('np-NOM').value = parts.slice(1).join(' ');
+      const prenomEl = document.getElementById('np-Prenom');
+      const nomEl = document.getElementById('np-NOM');
+      if (prenomEl) prenomEl.value = parts[0];
+      if (nomEl) nomEl.value = parts.slice(1).join(' ');
     } else {
-      document.getElementById('np-NOM').value = prefillQuery;
+      const nomEl = document.getElementById('np-NOM');
+      if (nomEl) nomEl.value = prefillQuery;
     }
   }
 
-  document.querySelector('input[name="poste-mode"][value="existing"]').checked = true;
-  document.getElementById('poste-existing-block').classList.remove('hidden');
-  document.getElementById('poste-new-block').classList.add('hidden');
+  const existingRadio = document.querySelector('input[name="poste-mode"][value="existing"]');
+  if (existingRadio) existingRadio.checked = true;
+
+  const existingBlock = document.getElementById('poste-existing-block');
+  const newBlock = document.getElementById('poste-new-block');
+  if (existingBlock) existingBlock.classList.remove('hidden');
+  if (newBlock) newBlock.classList.add('hidden');
 
   // Initialise les search-select statiques
   initAllSearchSelects(modal);
@@ -276,129 +289,143 @@ function openPersonModal(targetField, prefillQuery) {
   const employeurContainer = document.getElementById('npp-employeur-container');
   const employeurPlaceholder = document.getElementById('npp-employeur-placeholder');
 
-  initSearchSelect(employeurContainer);
-  employeurContainer.classList.add('hidden');
-  employeurPlaceholder.classList.remove('hidden');
+  if (structureContainer && employeurContainer && employeurPlaceholder) {
+    initSearchSelect(employeurContainer);
+    employeurContainer.classList.add('hidden');
+    employeurPlaceholder.classList.remove('hidden');
 
-  structureContainer._onSelect = (structureId) => {
-    const options = getTutelleOptionsForStructure(structureId);
+    structureContainer._onSelect = (structureId) => {
+      const options = getTutelleOptionsForStructure(structureId);
 
-    if (options.length === 0) {
-      employeurContainer.classList.add('hidden');
-      employeurPlaceholder.textContent = "Aucune tutelle trouvée pour cette structure.";
-      employeurPlaceholder.classList.remove('hidden');
+      if (options.length === 0) {
+        employeurContainer.classList.add('hidden');
+        employeurPlaceholder.textContent = "Aucune tutelle trouvée pour cette structure.";
+        employeurPlaceholder.classList.remove('hidden');
+        return;
+      }
+
+      employeurContainer._setDynamicOptions(options);
+      employeurContainer.classList.remove('hidden');
+      employeurPlaceholder.classList.add('hidden');
+
+      if (options.length === 1) {
+        employeurContainer._setValue(options[0].id, options[0].label);
+      }
+    };
+  }
+}
+
+const btnCancelPerson = document.getElementById('btn-cancel-person');
+if (btnCancelPerson) {
+  btnCancelPerson.addEventListener('click', () => {
+    const modal = document.getElementById('modal-person');
+    if (modal) modal.classList.add('hidden');
+  });
+}
+
+const btnSavePerson = document.getElementById('btn-save-person');
+if (btnSavePerson) {
+  btnSavePerson.addEventListener('click', async () => {
+    const prenom = (document.getElementById('np-Prenom')?.value || '').trim();
+    const nom = (document.getElementById('np-NOM')?.value || '').trim();
+
+    if (!prenom || !nom) {
+      showToast('Le prénom et le nom sont obligatoires.', true);
       return;
     }
 
-    employeurContainer._setDynamicOptions(options);
-    employeurContainer.classList.remove('hidden');
-    employeurPlaceholder.classList.add('hidden');
+    const posteMode = document.querySelector('input[name="poste-mode"]:checked')?.value;
+    let posteId = null;
 
-    if (options.length === 1) {
-      employeurContainer._setValue(options[0].id, options[0].label);
-    }
-  };
-}
+    try {
+      if (posteMode === 'new') {
+        const titre = (document.getElementById('npp-Titre')?.value || '').trim();
+        const structureContainer = document.querySelector('#poste-new-block .search-select[data-field="npp-Structure2"]');
+        const employeurContainer = document.getElementById('npp-employeur-container');
 
-document.getElementById('btn-cancel-person').addEventListener('click', () => {
-  document.getElementById('modal-person').classList.add('hidden');
-});
+        const structureId = structureContainer?._getValue?.();
+        const employeurId = employeurContainer?._getValue?.();
 
-document.getElementById('btn-save-person').addEventListener('click', async () => {
-  const prenom = document.getElementById('np-Prenom').value.trim();
-  const nom = document.getElementById('np-NOM').value.trim();
+        if (!titre || !structureId) {
+          showToast('Titre du poste et Structure sont obligatoires.', true);
+          return;
+        }
+        if (!employeurId) {
+          showToast('Merci de sélectionner l\'employeur / tutelle.', true);
+          return;
+        }
 
-  if (!prenom || !nom) {
-    showToast('Le prénom et le nom sont obligatoires.', true);
-    return;
-  }
+        const posteFields = {
+          Titre: titre,
+          Precisions_Poste: (document.getElementById('npp-Precisions_Poste')?.value || '').trim(),
+          Structure2: structureId,
+          Employeur_tutelle: employeurId,
+          Mission_Principale: (document.getElementById('npp-Mission_Principale')?.value || '').trim(),
+        };
 
-  const posteMode = document.querySelector('input[name="poste-mode"]:checked').value;
-  let posteId = null;
+        const dateFin = document.getElementById('npp-Date_de_fin')?.value;
+        if (dateFin) {
+          posteFields.Date_de_fin = Math.floor(new Date(dateFin).getTime() / 1000);
+        }
 
-  try {
-    if (posteMode === 'new') {
-      const titre = document.getElementById('npp-Titre').value.trim();
-      const structureContainer = document.querySelector('#poste-new-block .search-select[data-field="npp-Structure2"]');
-      const employeurContainer = document.getElementById('npp-employeur-container');
+        const result = await grist.docApi.applyUserActions([
+          ['AddRecord', 'Postes2', null, posteFields]
+        ]);
+        posteId = result.retValues[0];
 
-      const structureId = structureContainer?._getValue?.();
-      const employeurId = employeurContainer?._getValue?.();
-
-      if (!titre || !structureId) {
-        showToast('Titre du poste et Structure sont obligatoires.', true);
-        return;
+      } else {
+        const existingContainer = document.querySelector('#poste-existing-block .search-select[data-field="np-Poste2"]');
+        posteId = existingContainer?._getValue?.() ?? null;
       }
-      if (!employeurId) {
-        showToast('Merci de sélectionner l\'employeur / tutelle.', true);
-        return;
-      }
 
-      const posteFields = {
-        Titre: titre,
-        Precisions_Poste: document.getElementById('npp-Precisions_Poste').value.trim(),
-        Structure2: structureId,
-        Employeur_tutelle: employeurId,
-        Mission_Principale: document.getElementById('npp-Mission_Principale').value.trim(),
+      const annuaireFields = {
+        Prenom: prenom,
+        NOM: nom,
+        Email: (document.getElementById('np-Email')?.value || '').trim(),
+        Telephone: (document.getElementById('np-Telephone')?.value || '').trim(),
       };
+      if (posteId) annuaireFields.Poste2 = posteId;
 
-      const dateFin = document.getElementById('npp-Date_de_fin').value;
-      if (dateFin) {
-        posteFields.Date_de_fin = Math.floor(new Date(dateFin).getTime() / 1000);
+      const resultPerson = await grist.docApi.applyUserActions([
+        ['AddRecord', 'Annuaire', null, annuaireFields]
+      ]);
+      const newPersonId = resultPerson.retValues[0];
+
+      state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
+      state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
+
+      const label = `${prenom} ${nom.toUpperCase()}`;
+      const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
+      if (targetContainer && targetContainer._setValue) {
+        targetContainer._setValue(newPersonId, label);
       }
 
-      const result = await grist.docApi.applyUserActions([
-        ['AddRecord', 'Postes2', null, posteFields]
-      ]);
-      posteId = result.retValues[0];
+      const modal = document.getElementById('modal-person');
+      if (modal) modal.classList.add('hidden');
+      showToast(`${label} a été ajouté(e) à l'annuaire.`);
+      checkEmployeurWarning();
 
-    } else {
-      const existingContainer = document.querySelector('#poste-existing-block .search-select[data-field="np-Poste2"]');
-      posteId = existingContainer?._getValue?.() ?? null;
+    } catch (err) {
+      showToast('Erreur lors de la création : ' + err.message, true);
     }
-
-    const annuaireFields = {
-      Prenom: prenom,
-      NOM: nom,
-      Email: document.getElementById('np-Email').value.trim(),
-      Telephone: document.getElementById('np-Telephone').value.trim(),
-    };
-    if (posteId) annuaireFields.Poste2 = posteId;
-
-    const resultPerson = await grist.docApi.applyUserActions([
-      ['AddRecord', 'Annuaire', null, annuaireFields]
-    ]);
-    const newPersonId = resultPerson.retValues[0];
-
-    state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
-    state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
-
-    const label = `${prenom} ${nom.toUpperCase()}`;
-    const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
-    if (targetContainer && targetContainer._setValue) {
-      targetContainer._setValue(newPersonId, label);
-    }
-
-    document.getElementById('modal-person').classList.add('hidden');
-    showToast(`${label} a été ajouté(e) à l'annuaire.`);
-    checkEmployeurWarning();
-
-  } catch (err) {
-    showToast('Erreur lors de la création : ' + err.message, true);
-  }
-});
+  });
+}
 
 // Radio toggle poste existing/new
 document.querySelectorAll('input[name="poste-mode"]').forEach(radio => {
   radio.addEventListener('change', () => {
     if (radio.value === 'existing') {
-      document.getElementById('poste-existing-block').classList.remove('hidden');
-      document.getElementById('poste-new-block').classList.add('hidden');
-      initAllSearchSelects(document.getElementById('poste-existing-block'));
+      const existingBlock = document.getElementById('poste-existing-block');
+      const newBlock = document.getElementById('poste-new-block');
+      if (existingBlock) existingBlock.classList.remove('hidden');
+      if (newBlock) newBlock.classList.add('hidden');
+      initAllSearchSelects(existingBlock);
     } else {
-      document.getElementById('poste-existing-block').classList.add('hidden');
-      document.getElementById('poste-new-block').classList.remove('hidden');
-      initAllSearchSelects(document.getElementById('poste-new-block'));
+      const existingBlock = document.getElementById('poste-existing-block');
+      const newBlock = document.getElementById('poste-new-block');
+      if (existingBlock) existingBlock.classList.add('hidden');
+      if (newBlock) newBlock.classList.remove('hidden');
+      initAllSearchSelects(newBlock);
     }
   });
 });
@@ -415,9 +442,10 @@ function renderProjectsList() {
   }
 
   const projects = toRecords(state.tables.Projets || {});
-  console.log('Projets à afficher :', projects);
+  console.log('Projets à afficher :', projects.length, projects);
 
-  const searchQuery = document.getElementById('search-projects')?.value || '';
+  const searchInput = document.getElementById('search-projects');
+  const searchQuery = searchInput ? searchInput.value : '';
 
   const filtered = projects.filter(p => {
     const q = searchQuery.toLowerCase();
@@ -475,15 +503,23 @@ function renderProjectsList() {
   });
 }
 
-document.getElementById('search-projects')?.addEventListener('input', renderProjectsList);
+const searchInput = document.getElementById('search-projects');
+if (searchInput) {
+  searchInput.addEventListener('input', renderProjectsList);
+}
 
-document.getElementById('btn-new-project')?.addEventListener('click', () => {
-  state.currentProjectId = null;
-  state.formValues = {};
-  document.getElementById('view-list').classList.add('hidden');
-  document.getElementById('view-project').classList.remove('hidden');
-  renderProjectForm();
-});
+const btnNewProject = document.getElementById('btn-new-project');
+if (btnNewProject) {
+  btnNewProject.addEventListener('click', () => {
+    state.currentProjectId = null;
+    state.formValues = {};
+    const viewList = document.getElementById('view-list');
+    const viewProject = document.getElementById('view-project');
+    if (viewList) viewList.classList.add('hidden');
+    if (viewProject) viewProject.classList.remove('hidden');
+    renderProjectForm();
+  });
+}
 
 // ============================================================
 // PROJECT FORM VIEW
@@ -514,13 +550,20 @@ function openProjectForm(projectId) {
     };
   }
 
-  document.getElementById('view-list').classList.add('hidden');
-  document.getElementById('view-project').classList.remove('hidden');
+  const viewList = document.getElementById('view-list');
+  const viewProject = document.getElementById('view-project');
+  if (viewList) viewList.classList.add('hidden');
+  if (viewProject) viewProject.classList.remove('hidden');
   renderProjectForm();
 }
 
 function renderProjectForm() {
   const form = document.getElementById('form-project');
+  if (!form) {
+    console.error('form-project introuvable');
+    return;
+  }
+
   form.innerHTML = `
     <div class="form-grid">
       <div class="form-group">
@@ -636,7 +679,7 @@ function renderProjectForm() {
       const matches = annuaire
         .filter(p => {
           const fullName = `${p.Prenom || ''} ${p.NOM || ''}`.toLowerCase();
-          return fullName.includes(query) || p.Email?.toLowerCase().includes(query);
+          return fullName.includes(query) || (p.Email || '').toLowerCase().includes(query);
         })
         .slice(0, 20);
 
@@ -667,7 +710,6 @@ function renderProjectForm() {
     input.addEventListener('input', () => {
       input.classList.remove('has-value');
       state.formValues[field] = null;
-      // Simulate focus to re-render dropdown
       input.dispatchEvent(new Event('focus'));
     });
 
@@ -691,58 +733,68 @@ function renderProjectForm() {
   });
 
   // Event listeners
-  document.getElementById('btn-cancel-project').addEventListener('click', () => {
-    document.getElementById('view-project').classList.add('hidden');
-    document.getElementById('view-list').classList.remove('hidden');
-    renderProjectsList();
-  });
+  const btnCancel = document.getElementById('btn-cancel-project');
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      const viewList = document.getElementById('view-list');
+      const viewProject = document.getElementById('view-project');
+      if (viewProject) viewProject.classList.add('hidden');
+      if (viewList) viewList.classList.remove('hidden');
+      renderProjectsList();
+    });
+  }
 
-  document.getElementById('btn-save-project').addEventListener('click', async () => {
-    const programmeId = state.formValues['Programme'];
-    const projet = document.getElementById('Projet').value.trim();
-    const acronyme = document.getElementById('Acronyme').value.trim();
+  const btnSave = document.getElementById('btn-save-project');
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const programmeId = state.formValues['Programme'];
+      const projet = (document.getElementById('Projet')?.value || '').trim();
+      const acronyme = (document.getElementById('Acronyme')?.value || '').trim();
 
-    if (!programmeId || !projet || !acronyme) {
-      showToast('Programme, Nom et Acronyme sont obligatoires.', true);
-      return;
-    }
-
-    const fields = {
-      Programme: programmeId,
-      Projet: projet,
-      Acronyme: acronyme,
-      comentaire_general_Suivi_projet: document.getElementById('comentaire_general_Suivi_projet').value.trim(),
-      Statut_operationnel_projet: state.formValues['Statut_operationnel_projet'] || 'En attente des dispo des fonds',
-      Type_projet: state.formValues['Type_projet'] || 'projet',
-      Porteur_1: state.formValues['Porteur_1'] || null,
-      Porteur_2: state.formValues['Porteur_2'] || null,
-      Porteur_3: state.formValues['Porteur_3'] || null,
-      VP_porteur_2: state.formValues['VP_porteur_2'] || null,
-      Accompagnateur: state.formValues['Accompagnateur'] || null,
-    };
-
-    try {
-      if (state.currentProjectId) {
-        await grist.docApi.applyUserActions([
-          ['UpdateRecord', 'Projets', state.currentProjectId, fields]
-        ]);
-        showToast('Projet mis à jour.');
-      } else {
-        await grist.docApi.applyUserActions([
-          ['AddRecord', 'Projets', null, fields]
-        ]);
-        showToast('Projet créé.');
+      if (!programmeId || !projet || !acronyme) {
+        showToast('Programme, Nom et Acronyme sont obligatoires.', true);
+        return;
       }
 
-      state.tables.Projets = await grist.docApi.fetchTable('Projets');
-      document.getElementById('view-project').classList.add('hidden');
-      document.getElementById('view-list').classList.remove('hidden');
-      renderProjectsList();
+      const fields = {
+        Programme: programmeId,
+        Projet: projet,
+        Acronyme: acronyme,
+        comentaire_general_Suivi_projet: (document.getElementById('comentaire_general_Suivi_projet')?.value || '').trim(),
+        Statut_operationnel_projet: state.formValues['Statut_operationnel_projet'] || 'En attente des dispo des fonds',
+        Type_projet: state.formValues['Type_projet'] || 'projet',
+        Porteur_1: state.formValues['Porteur_1'] || null,
+        Porteur_2: state.formValues['Porteur_2'] || null,
+        Porteur_3: state.formValues['Porteur_3'] || null,
+        VP_porteur_2: state.formValues['VP_porteur_2'] || null,
+        Accompagnateur: state.formValues['Accompagnateur'] || null,
+      };
 
-    } catch (err) {
-      showToast('Erreur lors de l\'enregistrement : ' + err.message, true);
-    }
-  });
+      try {
+        if (state.currentProjectId) {
+          await grist.docApi.applyUserActions([
+            ['UpdateRecord', 'Projets', state.currentProjectId, fields]
+          ]);
+          showToast('Projet mis à jour.');
+        } else {
+          await grist.docApi.applyUserActions([
+            ['AddRecord', 'Projets', null, fields]
+          ]);
+          showToast('Projet créé.');
+        }
+
+        state.tables.Projets = await grist.docApi.fetchTable('Projets');
+        const viewList = document.getElementById('view-list');
+        const viewProject = document.getElementById('view-project');
+        if (viewProject) viewProject.classList.add('hidden');
+        if (viewList) viewList.classList.remove('hidden');
+        renderProjectsList();
+
+      } catch (err) {
+        showToast('Erreur lors de l\'enregistrement : ' + err.message, true);
+      }
+    });
+  }
 }
 
 // ============================================================
@@ -758,6 +810,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    const tabId = 'tab-' + btn.dataset.tab;
+    const tabContent = document.getElementById(tabId);
+    if (tabContent) tabContent.classList.add('active');
   });
 });
