@@ -22,19 +22,23 @@ grist.ready({
 
 async function loadAllTables() {
   try {
+    console.log('Chargement des tables...');
     state.tables.Projets = await grist.docApi.fetchTable('Projets');
     state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
     state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
     state.tables.Structures = await grist.docApi.fetchTable('Structures');
     state.tables.Programmes = await grist.docApi.fetchTable('Programmes');
     state.tables.Etablissements = await grist.docApi.fetchTable('Etablissements');
+    console.log('Tables chargées :', state.tables);
     renderProjectsList();
   } catch (err) {
+    console.error('Erreur de chargement des tables :', err);
     showToast('Erreur de chargement des tables : ' + err.message, true);
   }
 }
 
-grist.onRecords(loadAllTables);
+// Lance le chargement au démarrage
+document.addEventListener('DOMContentLoaded', loadAllTables);
 
 // ============================================================
 // UTILITIES
@@ -71,7 +75,7 @@ function getTutelleOptionsForStructure(structureId) {
   const tutelleFields = [
     'Etablissement_Tutuelle_gestionaire',
     'Co_tutelle_1_Principale',
-    'Co_tutuelle_2_Principale',
+    'Co_tutelle_2_Principale',
     'Tutuelle_Secondaire_1',
     'Tutuelle_Secondaire_2',
   ];
@@ -95,9 +99,9 @@ function getTutelleOptionsForStructure(structureId) {
 
 function checkEmployeurWarning() {
   const warning = document.getElementById('warning-employeur');
-  const porteurs = ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2'];
-  const ubEstablishments = new Set(); // À définir selon votre logique UB
+  if (!warning) return;
 
+  const porteurs = ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2'];
   let hasExternalEmployeur = false;
 
   porteurs.forEach(field => {
@@ -113,8 +117,6 @@ function checkEmployeurWarning() {
     if (!poste || !poste.Employeur_tutelle) return;
 
     // Logique : si l'employeur n'est pas UB, afficher l'alerte
-    // Pour l'instant, on suppose qu'il faut une convention si employeur externe
-    // À adapter selon votre logique métier
     const etablissements = toRecords(state.tables.Etablissements);
     const etab = etablissements.find(e => e.id === poste.Employeur_tutelle);
     if (etab && etab.Acronyme && !etab.Acronyme.includes('UB')) {
@@ -407,7 +409,14 @@ document.querySelectorAll('input[name="poste-mode"]').forEach(radio => {
 
 function renderProjectsList() {
   const view = document.getElementById('view-list');
-  const projects = toRecords(state.tables.Projets);
+  if (!view) {
+    console.error('view-list introuvable');
+    return;
+  }
+
+  const projects = toRecords(state.tables.Projets || {});
+  console.log('Projets à afficher :', projects);
+
   const searchQuery = document.getElementById('search-projects')?.value || '';
 
   const filtered = projects.filter(p => {
@@ -417,7 +426,19 @@ function renderProjectsList() {
   });
 
   const tbody = view.querySelector('tbody');
+  if (!tbody) {
+    console.error('tbody introuvable');
+    return;
+  }
+
   tbody.innerHTML = '';
+
+  if (filtered.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" style="text-align: center; padding: 20px;">Aucun projet trouvé</td>';
+    tbody.appendChild(tr);
+    return;
+  }
 
   filtered.forEach(project => {
     const tr = document.createElement('tr');
@@ -454,9 +475,9 @@ function renderProjectsList() {
   });
 }
 
-document.getElementById('search-projects').addEventListener('input', renderProjectsList);
+document.getElementById('search-projects')?.addEventListener('input', renderProjectsList);
 
-document.getElementById('btn-new-project').addEventListener('click', () => {
+document.getElementById('btn-new-project')?.addEventListener('click', () => {
   state.currentProjectId = null;
   state.formValues = {};
   document.getElementById('view-list').classList.add('hidden');
@@ -470,7 +491,7 @@ document.getElementById('btn-new-project').addEventListener('click', () => {
 
 function openProjectForm(projectId) {
   state.currentProjectId = projectId;
-  const project = toRecords(state.tables.Projets).find(p => p.id === projectId);
+  const project = toRecords(state.tables.Projets || {}).find(p => p.id === projectId);
 
   if (project) {
     state.formValues = {
@@ -574,7 +595,7 @@ function renderProjectForm() {
   Object.keys(state.formValues).forEach(field => {
     const value = state.formValues[field];
     const input = document.getElementById(field);
-    if (input && typeof value === 'string' || typeof value === 'number') {
+    if (input && (typeof value === 'string' || typeof value === 'number')) {
       input.value = value || '';
     }
   });
