@@ -33,7 +33,6 @@ function debugError(msg, err) {
    ========================================================= */
 debugLog('Script chargé, initialisation Grist...');
 
-// ⭐ PAS de callback, pas d'objet complexe
 grist.ready({
   requiredAccess: 'full',
 });
@@ -71,7 +70,6 @@ async function loadAllTables() {
   }
 }
 
-// ⭐ Appel direct, sans .then(), sans callback
 debugLog('Appel de loadAllTables()...');
 loadAllTables();
 
@@ -121,8 +119,51 @@ function findLabelForRef(tableName, id, displayField) {
 }
 
 /* =========================================================
-   CASCADE STRUCTURE → TUTELLE
+   CASCADE STRUCTURE → TUTELLE (Collecte 5 colonnes)
    ========================================================= */
+
+function getTutellesForStructure(structureId) {
+  const records = toRecords(state.tables.Structures);
+  const structure = records.find(s => s.id === structureId);
+  
+  if (!structure) {
+    debugLog('getTutellesForStructure: structure non trouvée', { structureId });
+    return [];
+  }
+
+  // ⭐ Collecte les IDs depuis les 5 colonnes
+  const tutelleIds = new Set();
+  const tutelleColumns = [
+    'Etablissement_Tutuelle_gestionaire',
+    'Co_tutuelle_1_Principale',
+    'Co_tutuelle_2_Principale',
+    'Tutuelle_Secondaire_1',
+    'Tutuelle_Secondaire_2'
+  ];
+
+  tutelleColumns.forEach(col => {
+    const id = structure[col];
+    if (id) {
+      tutelleIds.add(id);
+    }
+  });
+
+  debugLog('getTutellesForStructure: IDs collectés', { 
+    structureId, 
+    structureName: structure.Nom_Structure,
+    tutelleIds: Array.from(tutelleIds)
+  });
+
+  // ⭐ Convertit les IDs en records d'Établissements
+  const etablissements = toRecords(state.tables.Etablissements);
+  const tutelles = Array.from(tutelleIds)
+    .map(id => etablissements.find(e => e.id === id))
+    .filter(e => e !== undefined)
+    .sort((a, b) => (a.Acronyme || '').localeCompare(b.Acronyme || ''));
+
+  debugLog('getTutellesForStructure: tutelles résolues', { count: tutelles.length });
+  return tutelles;
+}
 
 function updateCascadeTarget(targetField, sourceRecId) {
   debugLog('updateCascadeTarget', { targetField, sourceRecId });
@@ -133,67 +174,42 @@ function updateCascadeTarget(targetField, sourceRecId) {
     return;
   }
 
-  // Récupère la structure sélectionnée
-  const sourceRecord = toRecords(state.tables.Structures).find(r => r.id === sourceRecId);
-  if (!sourceRecord) {
-    debugLog(`updateCascadeTarget: structure non trouvée`, { sourceRecId });
-    return;
-  }
-
-  // ⭐ Récupère TOUS les IDs de tutelles de la structure
-  const tutelleIds = [];
-  const tutelleColumns = [
-    'Etablissement_Tutuelle_gestionaire',
-    'Co_tutuelle_1_Principale',
-    'Co_tutuelle_2_Principale',
-    'Tutuelle_Secondaire_1',
-    'Tutuelle_Secondaire_2'
-  ];
-
-  tutelleColumns.forEach(col => {
-    const id = sourceRecord[col];
-    if (id && !tutelleIds.includes(id)) {
-      tutelleIds.push(id);
-    }
+  const tutelles = getTutellesForStructure(sourceRecId);
+  
+  // ⭐ Stock les IDs de tutelles autorisées pour filtrer
+  targetContainer._allowedTutelleIds = tutelles.map(t => t.id);
+  
+  debugLog(`updateCascadeTarget: ${tutelles.length} tutelle(s) trouvée(s)`, { 
+    tutelleIds: targetContainer._allowedTutelleIds 
   });
 
-  debugLog(`updateCascadeTarget: tutelles trouvées`, { tutelleIds, structureName: sourceRecord.Nom_Structure });
-
-  // ⭐ Récupère les labels des tutelles
-  const etablissements = toRecords(state.tables.Etablissements);
-  const tutelleLabels = tutelleIds
-    .map(id => {
-      const etab = etablissements.find(e => e.id === id);
-      if (!etab) return null;
-      // Affiche Acronyme en priorité, repli sur Nom
-      const label = etab.Acronyme || etab.Nom || `#${id}`;
-      return { id, label };
-    })
-    .filter(t => t !== null);
-
-  debugLog(`Tutelles résolues`, tutelleLabels);
-
-  // ⭐ Réinitialise le champ
+  // Réinitialise le champ
   targetContainer._setValue(null, '');
   state.formValues[targetField] = null;
 
   // ⭐ Si une seule tutelle, auto-sélectionne
-  if (tutelleLabels.length === 1) {
-    const single = tutelleLabels[0];
-    targetContainer._setValue(single.id, single.label);
+  if (tutelles.length === 1) {
+    const single = tutelles[0];
+    const label = single.Acronyme || single.Nom || `#${single.id}`;
+    targetContainer._setValue(single.id, label);
     state.formValues[targetField] = single.id;
-    debugLog(`Auto-sélection tutelle unique`, { id: single.id, label: single.label });
-  } else if (tutelleLabels.length > 1) {
+    debugLog(`Auto-sélection tutelle unique`, { id: single.id, label });
+  } else if (tutelles.length > 1) {
     // Sinon, force le focus pour afficher le dropdown
     const input = targetContainer.querySelector('.ss-input');
     if (input) {
       input.value = '';
       input.focus();
     }
+  } else {
+    // Pas de tutelle
+    const input = targetContainer.querySelector('.ss-input');
+    if (input) {
+      input.value = '';
+      input.placeholder = 'Aucune tutelle disponible';
+      input.disabled = true;
+    }
   }
-
-  // ⭐ Stock les IDs autorisés pour filtrer les options
-  targetContainer._allowedTutelleIds = tutelleIds;
 }
 
 /* =========================================================
@@ -242,11 +258,11 @@ function initSearchSelect(container) {
     
     let records = toRecords(state.tables[tableName] || {});
     
-    // ⭐ Si on a des tutelles filtrées, ne montrer que celles-ci
+    // ⭐ Si c'est un champ Tutelle, filtrer par les tutelles autorisées
     const isTutelleField = field.includes('Tutuelle') || field.includes('Tutelle');
     if (isTutelleField && container._allowedTutelleIds && container._allowedTutelleIds.length > 0) {
       records = records.filter(r => container._allowedTutelleIds.includes(r.id));
-      debugLog(`getOptions filtrées pour Tutelle`, { count: records.length, allowed: container._allowedTutelleIds });
+      debugLog(`getOptions filtrées pour Tutelle`, { count: records.length });
     }
     
     return records
@@ -276,9 +292,9 @@ function initSearchSelect(container) {
           state.formValues[field] = opt.id;
           dropdown.classList.add('hidden');
 
-          // ⭐ Si c'est le champ Structure, déclenche la cascade vers Tutelle
+          // ⭐ Si c'est Structure, déclenche la cascade vers Tutelle
           if (field === 'npp-Structure2' || field.includes('Structure')) {
-            debugLog(`Cascade triggered: ${field} → Tutelle`, { structureId: selectedId });
+            debugLog(`Cascade triggered: ${field} → npp-Tutuelle`, { structureId: selectedId });
             updateCascadeTarget('npp-Tutuelle', selectedId);
           }
         });
@@ -303,13 +319,16 @@ function initSearchSelect(container) {
     }
   });
 
-  // ⭐ Store les méthodes directement, pas dans state
   container._getValue = () => state.formValues[field];
   container._setValue = (id, label) => {
     selectedId = id;
     selectedLabel = label;
-    input.value = label;
-    input.classList.add('has-value');
+    input.value = label || '';
+    if (label) {
+      input.classList.add('has-value');
+    } else {
+      input.classList.remove('has-value');
+    }
     state.formValues[field] = id;
   };
 }
@@ -461,6 +480,11 @@ document.querySelectorAll('input[name="poste-mode"]').forEach(radio => {
     const newBlock = document.getElementById('poste-new-block');
     if (existingBlock) existingBlock.classList.toggle('hidden', isNew);
     if (newBlock) newBlock.classList.toggle('hidden', !isNew);
+    
+    // ⭐ Réinitialiser les search-selects du bloc new
+    if (isNew) {
+      initAllSearchSelects(newBlock);
+    }
   });
 });
 
