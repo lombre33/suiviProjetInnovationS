@@ -248,10 +248,17 @@ function initSearchSelect(container) {
     
     // ⭐ Si c'est un champ Tutelle, filtrer par les tutelles autorisées
     const isTutelleField = field.includes('Tutuelle') || field.includes('Tutelle');
-    if (isTutelleField && container._allowedTutelleIds && container._allowedTutelleIds.length > 0) {
-      records = records.filter(r => container._allowedTutelleIds.includes(r.id));
-      debugLog(`getOptions filtrées pour Tutelle`, { count: records.length });
-    }
+if (isTutelleField && container._allowedTutelleIds && container._allowedTutelleIds.length > 0) {
+  // ⭐ Convertir les références en IDs si nécessaire
+  const allowedIds = container._allowedTutelleIds.map(t => 
+    typeof t === 'object' ? t.id : t
+  );
+  
+  debugLog('Filtre Tutelle - IDs autorisés', { allowedIds, recordsCount: records.length });
+  
+  records = records.filter(r => allowedIds.includes(r.id));
+  debugLog(`getOptions filtrées pour Tutelle`, { count: records.length, filtered: records.map(r => r.Acronyme) });
+}
     
     return records
       .filter(r => (r[displayField] || '').toLowerCase().includes(query.toLowerCase()))
