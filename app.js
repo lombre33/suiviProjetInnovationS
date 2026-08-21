@@ -173,39 +173,31 @@ function getTutellesForStructure(structureId) {
   return tutelleRefs;
 }
 function updateCascadeTarget(targetField, sourceRecId) {
-  debugLog('updateCascadeTarget', { targetField, sourceRecId });
+  // 1. Trouve la structure
+  const structures = toRecords(state.tables.Structures);
+  const structure = structures.find(s => s.id === sourceRecId);
   
-  if (targetField !== 'npp-Tutelle' && targetField !== 'npp-Tutuelle') {
-    return; // Pas une cascade Tutelle
-  }
-
-  // 1. Récupère les tutelles autorisées
-  const tutelles = getTutellesForStructure(sourceRecId);
-  debugLog('Tutelles trouvées pour cascade', { count: tutelles.length, tutelles });
-
-  if (tutelles.length === 0) {
-    debugLog('❌ Aucune tutelle trouvée', { sourceRecId });
-    // Optionnel : afficher un message
+  if (!structure) {
+    debugLog('❌ Structure non trouvée', { sourceRecId });
     return;
   }
 
-  // 2. Trouve le container du champ Tutelle
-  const tutelleContainer = document.querySelector(`.search-select[data-field="${targetField}"]`);
-  if (!tutelleContainer) {
-    debugLog('Container Tutelle non trouvé', { targetField });
-    return;
-  }
-
-  // 3. Stocke les IDs autorisés dans le container (sera utilisé par getOptions)
-  tutelleContainer._allowedTutelleIds = tutelles.map(t => t.id);
-  
-  debugLog('Tutelles autorisées stockées', { 
-    targetField,
-    allowedIds: tutelleContainer._allowedTutelleIds 
+  debugLog('Structure trouvée', { 
+    id: structure.id,
+    name: structure.Nom_Structure,
+    tutellesRaw: structure.Toutes_les_tutelles
   });
 
-  // 4. Optionnel : Vider et rafraîchir le champ
-  // (le filtre s'appliquera au prochain focus/input grâce à _allowedTutelleIds)
+  // 2. Récupère les tutelles (peu importe le format)
+  const tutelles = structure.Toutes_les_tutelles || [];
+  
+  debugLog('Tutelles à filtrer', { count: tutelles.length, tutelles });
+
+  // 3. Stocke dans le container
+  const tutelleContainer = document.querySelector(`.search-select[data-field="${targetField}"]`);
+  if (tutelleContainer) {
+    tutelleContainer._allowedTutelleIds = tutelles;
+  }
 }
 
 /* =========================================================
