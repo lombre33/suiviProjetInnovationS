@@ -117,7 +117,6 @@ function findLabelForRef(tableName, id, displayField) {
   if (!rec) return '';
   return rec[displayField] ?? '';
 }
-
 /* =========================================================
    CASCADE STRUCTURE → TUTELLE (Utilise Toutes_les_tutelles)
    ========================================================= */
@@ -131,23 +130,33 @@ function getTutellesForStructure(structureId) {
     return [];
   }
 
-  // ⭐ Récupère directement la liste Toutes_les_tutelles
-  const tutelleIds = structure.Toutes_les_tutelles || [];
+  // ⭐ Récupère la liste Toutes_les_tutelles (liste d'acronymes/références)
+  const tutelleAcronymes = structure.Toutes_les_tutelles || [];
   
   debugLog('getTutellesForStructure', { 
     structureId, 
     structureName: structure.Nom_Structure,
-    tutelleCount: tutelleIds.length
+    tutelleAcronymes,
+    tutelleCount: tutelleAcronymes.length
   });
 
-  // Convertit les IDs en records d'Établissements
+  // ⭐ Convertit les acronymes en records d'Établissements
   const etablissements = toRecords(state.tables.Etablissements);
-  const tutelles = tutelleIds
-    .map(id => etablissements.find(e => e.id === id))
+  const tutelles = tutelleAcronymes
+    .map(acronyme => {
+      // Cherche par Acronyme au lieu de par ID
+      const etab = etablissements.find(e => e.Acronyme === acronyme);
+      debugLog(`Recherche tutelle ${acronyme}`, { found: !!etab });
+      return etab;
+    })
     .filter(e => e !== undefined)
     .sort((a, b) => (a.Acronyme || '').localeCompare(b.Acronyme || ''));
 
-  debugLog('getTutellesForStructure: tutelles résolues', { count: tutelles.length });
+  debugLog('getTutellesForStructure: tutelles résolues', { 
+    count: tutelles.length,
+    tutelles: tutelles.map(t => t.Acronyme)
+  });
+  
   return tutelles;
 }
 
@@ -162,11 +171,12 @@ function updateCascadeTarget(targetField, sourceRecId) {
 
   const tutelles = getTutellesForStructure(sourceRecId);
   
-  // Stock les IDs de tutelles autorisées pour filtrer
+  // ⭐ Stock les IDs (pas les acronymes) pour le filtrage
   targetContainer._allowedTutelleIds = tutelles.map(t => t.id);
   
   debugLog(`updateCascadeTarget: ${tutelles.length} tutelle(s) trouvée(s)`, { 
-    tutelleIds: targetContainer._allowedTutelleIds 
+    tutelleIds: targetContainer._allowedTutelleIds,
+    tutelleAcronymes: tutelles.map(t => t.Acronyme)
   });
 
   // Réinitialise le champ
