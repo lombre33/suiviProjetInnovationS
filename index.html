@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Suivi Projets InnovationS</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- HEADER -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      Suivi des Projets — InnovationS
+    </div>
+    <button id="btn-new-project" class="btn btn-primary">+ Nouveau projet</button>
+  </header>
+
+  <!-- LISTE DES PROJETS -->
+  <section id="view-list" class="view">
+    <div class="list-toolbar">
+      <input id="search-projects" type="text" placeholder="Rechercher un projet, un acronyme, un porteur...">
+    </div>
+    <table class="grid-table" id="projects-table">
+      <thead>
+        <tr>
+          <th>Acronyme</th>
+          <th>Projet</th>
+          <th>Programme</th>
+          <th>Porteur 1</th>
+          <th>Statut opérationnel</th>
+        </tr>
+      </thead>
+      <tbody id="projects-tbody">
+        <!-- rempli en JS -->
+      </tbody>
+    </table>
+  </section>
+
+  <!-- FICHE PROJET (création / édition) -->
+  <section id="view-project" class="view hidden">
+
+    <div class="project-header">
+      <button id="btn-back" class="btn btn-secondary">← Retour à la liste</button>
+      <h2 id="project-title">Nouveau projet</h2>
+    </div>
+
+    <!-- ONGLETS -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="administratif">1. Administratif</button>
+      <button class="tab-btn disabled" data-tab="fonds" title="Bientôt disponible">2. Installation des fonds</button>
+      <button class="tab-btn disabled" data-tab="operationnel" title="Bientôt disponible">3. Suivi opérationnel</button>
+      <button class="tab-btn disabled" data-tab="financier" title="Bientôt disponible">4. Suivi financier</button>
+    </nav>
+
+    <!-- ONGLET ADMINISTRATIF -->
+    <div class="tab-content active" id="tab-administratif">
+
+      <div class="form-grid">
+
+        <div class="form-group">
+          <label>Programme *</label>
+          <div class="search-select" data-field="Programme" data-table="Programmes" data-display="Programme"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Nom du projet *</label>
+          <input type="text" id="f-Projet" placeholder="Nom complet du projet">
+        </div>
+
+        <div class="form-group">
+          <label>Acronyme *</label>
+          <input type="text" id="f-Acronyme" placeholder="Ex: ANR-XYZ">
+        </div>
+
+        <div class="form-group">
+          <label>Type de projet *</label>
+          <div class="search-select" data-field="Type_projet" data-table="__choice__" data-choices="Ingenierie_creation,Ingenierie_renouvellement,reattribution,prolongation,myphd+"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Statut opérationnel</label>
+          <div class="search-select" data-field="Statut_operationnel_projet" data-table="__choice__" data-choices="En attente des dispo des fonds,En cours,Terminé,Suspendu" data-default="En attente des dispo des fonds"></div>
+        </div>
+
+        <div class="form-group full">
+          <label>Commentaire général de suivi</label>
+          <textarea id="f-comentaire_general_Suivi_projet" rows="2" placeholder="Facultatif"></textarea>
+        </div>
+
+      </div>
+
+      <h3 class="section-title">Personnes liées au projet</h3>
+
+      <div class="people-grid">
+        <div class="person-block" data-role="Porteur_1">
+          <label>Porteur 1 *</label>
+          <div class="person-select" data-field="Porteur_1"></div>
+        </div>
+        <div class="person-block" data-role="Porteur_2">
+          <label>Porteur 2</label>
+          <div class="person-select" data-field="Porteur_2"></div>
+        </div>
+        <div class="person-block" data-role="Porteur_3">
+          <label>Porteur 3</label>
+          <div class="person-select" data-field="Porteur_3"></div>
+        </div>
+        <div class="person-block" data-role="VP_porteur_2">
+          <label>VP Porteur</label>
+          <div class="person-select" data-field="VP_porteur_2"></div>
+        </div>
+        <div class="person-block" data-role="Accompagnateur">
+          <label>Accompagnateur</label>
+          <div class="person-select" data-field="Accompagnateur"></div>
+        </div>
+      </div>
+
+      <div id="employeur-warning" class="warning-banner hidden">
+        ⚠️ Au moins un porteur a un employeur hors UB : une convention de reversement sera probablement nécessaire.
+      </div>
+
+      <div class="form-actions">
+        <button id="btn-save-project" class="btn btn-primary">Enregistrer le projet</button>
+      </div>
+
+    </div>
+
+  </section>
+
+</div>
+
+<!-- MODALE CREATION PERSONNE -->
+<div id="modal-person" class="modal hidden">
+  <div class="modal-box">
+    <h3>Ajouter une personne à l'annuaire</h3>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Prénom *</label>
+        <input type="text" id="np-Prenom">
+      </div>
+      <div class="form-group">
+        <label>Nom *</label>
+        <input type="text" id="np-NOM">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="np-Email">
+      </div>
+      <div class="form-group">
+        <label>Téléphone</label>
+        <input type="text" id="np-Telephone">
+      </div>
+    </div>
+
+    <h4 class="section-title-sm">Poste associé</h4>
+    <div class="poste-toggle">
+      <label><input type="radio" name="poste-mode" value="existing" checked> Sélectionner un poste existant</label>
+      <label><input type="radio" name="poste-mode" value="new"> Créer un nouveau poste</label>
+    </div>
+
+    <div id="poste-existing-block">
+      <div class="form-group">
+        <label>Poste</label>
+        <div class="search-select" data-field="np-Poste2" data-table="Postes2" data-display="Nom_du_poste"></div>
+      </div>
+    </div>
+
+    <div id="poste-new-block" class="hidden">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Titre du poste *</label>
+          <input type="text" id="npp-Titre" placeholder="Ex: Ingénieur de recherche">
+        </div>
+        <div class="form-group">
+          <label>Précisions poste</label>
+          <input type="text" id="npp-Precisions_Poste">
+        </div>
+        <div class="form-group">
+          <label>Structure *</label>
+          <div class="search-select" data-field="npp-Structure2" data-table="Structures" data-display="Nom"></div>
+        </div>
+        <div class="form-group">
+          <label>Type de poste</label>
+          <div class="search-select" data-field="npp-Type_de_poste" data-table="__choice__" data-choices="Titulaire,CDD,CDI,Vacataire,Doctorant"></div>
+        </div>
+        <div class="form-group">
+          <label>Catégorie</label>
+          <div class="search-select" data-field="npp-Categorie" data-table="__choice__" data-choices="A,B,C"></div>
+        </div>
+        <div class="form-group">
+          <label>Type de contrat</label>
+          <div class="search-select" data-field="npp-type_de_contrat" data-table="__choice__" data-choices="CDD,CDI,Titulaire,Autre"></div>
+        </div>
+        <div class="form-group">
+          <label>Date de fin</label>
+          <input type="date" id="npp-Date_de_fin">
+        </div>
+        <div class="form-group full">
+          <label>Mission principale</label>
+          <textarea id="npp-Mission_Principale" rows="2"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="btn-cancel-person" class="btn btn-secondary">Annuler</button>
+      <button id="btn-save-person" class="btn btn-primary">Créer la personne</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- TOAST erreurs / infos -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
