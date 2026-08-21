@@ -130,84 +130,40 @@ function getTutellesForStructure(structureId) {
     return [];
   }
 
-  // ⭐ Récupère la liste Toutes_les_tutelles (liste d'acronymes/références)
-  const tutelleAcronymes = structure.Toutes_les_tutelles || [];
+  // ⭐ CORRECTION: Toutes_les_tutueles retourne déjà les objets Etablissements !
+  // C'est une ReferenceList, donc les valeurs sont déjà des IDs ou des objets
+  const tutelleRefs = structure.Toutes_les_tutueles || [];
   
   debugLog('getTutellesForStructure', { 
     structureId, 
     structureName: structure.Nom_Structure,
-    tutelleAcronymes,
-    tutelleCount: tutelleAcronymes.length
+    tutelleRefs,
+    tutelleCount: tutelleRefs.length
   });
 
-  // ⭐ Convertit les acronymes en records d'Établissements
+  // ⭐ Si ce sont des IDs, on les résout ; si ce sont des objets, on les utilise directement
   const etablissements = toRecords(state.tables.Etablissements);
-  const tutelles = tutelleAcronymes
-    .map(acronyme => {
-      // Cherche par Acronyme au lieu de par ID
-      const etab = etablissements.find(e => e.Acronyme === acronyme);
-      debugLog(`Recherche tutelle ${acronyme}`, { found: !!etab });
-      return etab;
+  const tutelles = tutelleRefs
+    .map(ref => {
+      // ref peut être un ID ou un objet déjà chargé
+      if (typeof ref === 'object' && ref.id) {
+        return ref; // C'est déjà un objet
+      } else {
+        // C'est un ID, on cherche l'objet
+        return etablissements.find(e => e.id === ref);
+      }
     })
-    .filter(e => e !== undefined)
+    .filter(e => e !== undefined && e !== null)
     .sort((a, b) => (a.Acronyme || '').localeCompare(b.Acronyme || ''));
 
   debugLog('getTutellesForStructure: tutelles résolues', { 
     count: tutelles.length,
-    tutelles: tutelles.map(t => t.Acronyme)
+    tutelles: tutelles.map(t => ({ id: t.id, acronyme: t.Acronyme }))
   });
   
   return tutelles;
 }
 
-function updateCascadeTarget(targetField, sourceRecId) {
-  debugLog('updateCascadeTarget', { targetField, sourceRecId });
-  
-  const targetContainer = document.querySelector(`.search-select[data-field="${targetField}"]`);
-  if (!targetContainer) {
-    debugLog(`updateCascadeTarget: container non trouvé pour ${targetField}`);
-    return;
-  }
-
-  const tutelles = getTutellesForStructure(sourceRecId);
-  
-  // ⭐ Stock les IDs (pas les acronymes) pour le filtrage
-  targetContainer._allowedTutelleIds = tutelles.map(t => t.id);
-  
-  debugLog(`updateCascadeTarget: ${tutelles.length} tutelle(s) trouvée(s)`, { 
-    tutelleIds: targetContainer._allowedTutelleIds,
-    tutelleAcronymes: tutelles.map(t => t.Acronyme)
-  });
-
-  // Réinitialise le champ
-  targetContainer._setValue(null, '');
-  state.formValues[targetField] = null;
-
-  // Si une seule tutelle, auto-sélectionne
-  if (tutelles.length === 1) {
-    const single = tutelles[0];
-    const label = single.Acronyme || single.Nom || `#${single.id}`;
-    targetContainer._setValue(single.id, label);
-    state.formValues[targetField] = single.id;
-    debugLog(`Auto-sélection tutelle unique`, { id: single.id, label });
-  } else if (tutelles.length > 1) {
-    // Sinon, force le focus pour afficher le dropdown
-    const input = targetContainer.querySelector('.ss-input');
-    if (input) {
-      input.value = '';
-      input.placeholder = `${tutelles.length} tutelles disponibles`;
-      input.focus();
-    }
-  } else {
-    // Pas de tutelle
-    const input = targetContainer.querySelector('.ss-input');
-    if (input) {
-      input.value = '';
-      input.placeholder = 'Aucune tutelle disponible';
-      input.disabled = true;
-    }
-  }
-}
 
 /* =========================================================
    COMPOSANT GENERIQUE : SearchSelect
