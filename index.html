@@ -174,28 +174,37 @@
     </div>
 
     <div id="poste-new-block" class="hidden">
-  <div class="form-grid">
-    <div class="form-group">
-      <label>Titre du poste *</label>
-      <input type="text" id="npp-Titre" placeholder="Ex: Ingénieur de recherche">
-    </div>
-    <div class="form-group">
-      <label>Précisions poste</label>
-      <input type="text" id="npp-Precisions_Poste">
-    </div>
-    <div class="form-group">
-      <label>Structure *</label>
-      <div class="search-select" data-field="npp-Structure2" data-table="Structures" data-display="Acronyme"></div>
-    </div>
-    <div class="form-group">
-      <label>Employeur / Tutelle *</label>
-      <div class="search-select" id="npp-employeur-container" data-field="npp-Employeur_tutelle" data-table="__dynamic__"></div>
-      <div id="npp-employeur-placeholder" class="ss-empty">Sélectionnez d'abord une structure</div>
-    </div>
-    <div class="form-group">
-      <label>Date de fin</label>
-      <input type="date" id="npp-Date_de_fin">
-    </div>
+  <h3>Créer un nouveau poste</h3>
+  
+  <!-- Sélection Structure (déclenche la cascade) -->
+  <label>Structure :</label>
+  <div class="search-select" 
+       data-field="npp-Structure2" 
+       data-table="Structures" 
+       data-display="Nom_Structure">
+  </div>
+
+  <!-- Sélection Tutelle (filtrée en fonction de la Structure) -->
+  <label>Tutelle :</label>
+  <div class="search-select" 
+       data-field="npp-Tutuelle" 
+       data-table="Etablissements" 
+       data-display="Acronyme">
+  </div>
+
+  <!-- Autres champs... -->
+  <label>Titre :</label>
+  <input type="text" id="npp-Titre" placeholder="Titre du poste">
+  
+  <label>Précisions sur le poste :</label>
+  <input type="text" id="npp-Precisions_Poste" placeholder="...">
+  
+  <label>Mission principale :</label>
+  <textarea id="npp-Mission_Principale"></textarea>
+  
+  <label>Date de fin :</label>
+  <input type="date" id="npp-Date_de_fin">
+</div>
     <div class="form-group full">
       <label>Mission principale</label>
       <textarea id="npp-Mission_Principale" rows="2"></textarea>
