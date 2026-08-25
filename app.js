@@ -14,6 +14,7 @@ const state = {
   currentProjectId: null,
   formValues: {},
   personTargetField: null,
+  editingPersonId: null,
 };
 
 /* =========================================================
@@ -392,7 +393,30 @@ function initPersonSelect(container) {
     dropdown.classList.remove('hidden');
   }
 
-  input.addEventListener('focus', () => renderDropdown(''));
+  let openedEditOnFocus = false;
+  const openSelectedPersonForEdit = (e) => {
+    const personId = state.formValues[field];
+    if (input.classList.contains('has-value') && personId) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropdown.classList.add('hidden');
+      openPersonModal(field, null, personId);
+      return true;
+    }
+    return false;
+  };
+
+  input.addEventListener('focus', (e) => {
+    if (openSelectedPersonForEdit(e)) openedEditOnFocus = true;
+    else renderDropdown('');
+  });
+  input.addEventListener('click', (e) => {
+    if (openedEditOnFocus) {
+      openedEditOnFocus = false;
+      return;
+    }
+    openSelectedPersonForEdit(e);
+  });
   input.addEventListener('input', () => {
     input.classList.remove('has-value');
     state.formValues[field] = null;
@@ -421,9 +445,10 @@ function initAllPersonSelects(root = document) {
    MODALE : CREATION D'UNE PERSONNE
    ========================================================= */
 
-function openPersonModal(targetField, prefillQuery) {
-  debugLog(`openPersonModal: ${targetField}`, { prefillQuery });
+function openPersonModal(targetField, prefillQuery, editPersonId = null) {
+  debugLog(`openPersonModal: ${targetField}`, { prefillQuery, editPersonId });
   state.personTargetField = targetField;
+  state.editingPersonId = editPersonId || null;
 
   const modal = document.getElementById('modal-person');
   if (!modal) {
@@ -438,28 +463,45 @@ function openPersonModal(targetField, prefillQuery) {
     if (el) el.value = '';
   });
 
-  if (prefillQuery) {
-    const parts = prefillQuery.trim().split(' ');
-    if (parts.length >= 2) {
-      const prenomEl = document.getElementById('np-Prenom');
-      if (prenomEl) prenomEl.value = parts[0];
-      const nomEl = document.getElementById('np-NOM');
-      if (nomEl) nomEl.value = parts.slice(1).join(' ');
-    } else {
-      const nomEl = document.getElementById('np-NOM');
-      if (nomEl) nomEl.value = prefillQuery;
-    }
-  }
-
   const existingRadio = document.querySelector('input[name="poste-mode"][value="existing"]');
   if (existingRadio) existingRadio.checked = true;
-  
   const existingBlock = document.getElementById('poste-existing-block');
   const newBlock = document.getElementById('poste-new-block');
   if (existingBlock) existingBlock.classList.remove('hidden');
   if (newBlock) newBlock.classList.add('hidden');
 
   initAllSearchSelects(modal);
+
+  const modalTitle = document.getElementById('modal-person-title');
+  const saveButton = document.getElementById('btn-save-person');
+  if (editPersonId) {
+    const person = toRecords(state.tables.Annuaire).find(r => r.id === editPersonId);
+    if (person) {
+      document.getElementById('np-Prenom').value = person.Prenom || '';
+      document.getElementById('np-NOM').value = person.NOM || '';
+      document.getElementById('np-Email').value = person.Email || '';
+      document.getElementById('np-Telephone').value = person.Telephone || '';
+      const poste = toRecords(state.tables.Postes2).find(r => r.id === person.Poste2);
+      const posteContainer = document.querySelector('#poste-existing-block .search-select[data-field="np-Poste2"]');
+      if (poste && posteContainer?._setValue) {
+        posteContainer._setValue(poste.id, poste.Nom_du_poste || poste.Titre || `#${poste.id}`);
+      }
+    }
+    if (modalTitle) modalTitle.textContent = 'Modifier la personne';
+    if (saveButton) saveButton.textContent = 'Enregistrer les modifications';
+  } else {
+    if (prefillQuery) {
+      const parts = prefillQuery.trim().split(' ');
+      if (parts.length >= 2) {
+        document.getElementById('np-Prenom').value = parts[0];
+        document.getElementById('np-NOM').value = parts.slice(1).join(' ');
+      } else {
+        document.getElementById('np-NOM').value = prefillQuery;
+      }
+    }
+    if (modalTitle) modalTitle.textContent = "Ajouter une personne";
+    if (saveButton) saveButton.textContent = 'Créer la personne';
+  }
 }
 
 const btnCancelPerson = document.getElementById('btn-cancel-person');
@@ -468,6 +510,8 @@ if (btnCancelPerson) {
     debugLog('Fermeture modal personne');
     const modal = document.getElementById('modal-person');
     if (modal) modal.classList.add('hidden');
+    state.editingPersonId = null;
+    state.personTargetField = null;
   });
 }
 
@@ -552,12 +596,22 @@ if (btnSavePerson) {
       };
       if (posteId) annuaireFields.Poste2 = posteId;
 
-      debugLog('Création nouvelle personne', annuaireFields);
-      const resultPerson = await grist.docApi.applyUserActions([
-        ['AddRecord', 'Annuaire', null, annuaireFields]
-      ]);
-      const newPersonId = resultPerson.retValues[0];
-      debugLog('✅ Personne créée', { newPersonId });
+      const editingPersonId = state.editingPersonId;
+      let savedPersonId;
+      if (editingPersonId !== null) {
+        debugLog('Mise à jour personne', { editingPersonId, annuaireFields });
+        await grist.docApi.applyUserActions([
+          ['UpdateRecord', 'Annuaire', editingPersonId, annuaireFields]
+        ]);
+        savedPersonId = editingPersonId;
+      } else {
+        debugLog('Création nouvelle personne', annuaireFields);
+        const resultPerson = await grist.docApi.applyUserActions([
+          ['AddRecord', 'Annuaire', null, annuaireFields]
+        ]);
+        savedPersonId = resultPerson.retValues[0];
+      }
+      debugLog(editingPersonId !== null ? '✅ Personne mise à jour' : '✅ Personne créée', { savedPersonId });
 
       state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
       state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
@@ -565,17 +619,19 @@ if (btnSavePerson) {
       const label = `${prenom} ${nom.toUpperCase()}`;
       const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
       if (targetContainer && targetContainer._setValue) {
-        targetContainer._setValue(newPersonId, label);
+        targetContainer._setValue(savedPersonId, label);
       }
 
       const modal = document.getElementById('modal-person');
       if (modal) modal.classList.add('hidden');
-      showToast(`${label} a été ajouté(e) à l'annuaire.`);
+      showToast(editingPersonId !== null ? `${label} a été modifié(e).` : `${label} a été ajouté(e) à l'annuaire.`);
+      state.editingPersonId = null;
+      state.personTargetField = null;
       checkEmployeurWarning();
 
     } catch (err) {
       debugError('Erreur sauvegarde personne', err);
-      showToast('Erreur lors de la création : ' + err.message, true);
+      showToast('Erreur lors de la sauvegarde : ' + err.message, true);
     }
   });
 }
