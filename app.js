@@ -568,7 +568,7 @@ if (btnSavePerson) {
 
         // ⭐ Ajoute la tutelle si elle est sélectionnée
         if (tutelleId) {
-          posteFields.Etablissement_Tutuelle_gestionaire = tutelleId;
+          posteFields.Employeur_tutelle = tutelleId;
         }
 
         const dateFin = document.getElementById('npp-Date_de_fin')?.value;
