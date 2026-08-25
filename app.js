@@ -9,6 +9,7 @@ const state = {
     Structures: [],
     Programmes: [],
     Etablissements: [],
+    Suivi_Instance: [],
   },
   currentProjectId: null,
   formValues: {},
@@ -60,6 +61,9 @@ async function loadAllTables() {
     
     state.tables.Etablissements = await grist.docApi.fetchTable('Etablissements');
     debugLog('✅ Etablissements chargés', { count: state.tables.Etablissements.id?.length || 0 });
+
+    state.tables.Suivi_Instance = await grist.docApi.fetchTable('Suivi_Instance');
+    debugLog('✅ Suivi_Instance chargé', { count: state.tables.Suivi_Instance.id?.length || 0 });
     
     debugLog('🎉 Tous les chargements terminés, rendu de la liste...');
     renderProjectsList();
@@ -632,6 +636,50 @@ if (searchInput) {
   });
 }
 
+function gristDateToInput(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const date = new Date(Number(value) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function inputDateToGrist(id) {
+  const value = document.getElementById(id)?.value;
+  return value ? Math.floor(new Date(`${value}T00:00:00Z`).getTime() / 1000) : null;
+}
+
+const FINANCIAL_FIELDS = {
+  2026: ['c2026_M10_Fonctionnement', 'c2026_M20_Investissement', 'c2026_M30_Personnel'],
+  2027: ['c2027_M10_Fonctionnement', 'c2027_M20_Investissement', 'c2027_M30_Personnel'],
+  2028: ['c2028_M10_Fonctionnement', 'c2028_M20_Investissement', 'c2028_M30_Personnel'],
+};
+
+function updateFinancialTotals() {
+  Object.entries(FINANCIAL_FIELDS).forEach(([year, fields]) => {
+    const total = fields.reduce((sum, field) => {
+      const value = Number(document.getElementById(`f-${field}`)?.value);
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+    const output = document.getElementById(`financial-total-${year}`);
+    if (output) output.textContent = total.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  });
+}
+
+function resetProjectExtraFields() {
+  ['f-Date_limite_financement', 'f-Date_debut_Projet', 'f-Date_de_fin_Projet'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  const defaults = {
+    'f-Details_depense_s_Fonctionnement': 'Depenses de fonctionnement',
+    'f-Details_depense_s_Investissement': "Dépenses d'investissement",
+    'f-Details_depense_s_Personnel': 'Depenses de personnel',
+  };
+  Object.entries(defaults).forEach(([id, value]) => { const input = document.getElementById(id); if (input) input.value = value; });
+  Object.values(FINANCIAL_FIELDS).flat().forEach(field => { const input = document.getElementById(`f-${field}`); if (input) input.value = ''; });
+  updateFinancialTotals();
+}
+
 /* =========================================================
    VUE FICHE PROJET
    ========================================================= */
@@ -659,6 +707,7 @@ function openProjectView(projectId = null) {
   if (fProjet) fProjet.value = '';
   if (fAcronyme) fAcronyme.value = '';
   if (fCommentaire) fCommentaire.value = '';
+  resetProjectExtraFields();
 
   initAllSearchSelects(viewProject);
   initAllPersonSelects(viewProject);
@@ -684,6 +733,18 @@ function fillProjectForm(rec) {
   if (fProjet) fProjet.value = rec.Projet || '';
   if (fAcronyme) fAcronyme.value = rec.Acronyme || '';
   if (fCommentaire) fCommentaire.value = rec.comentaire_general_Suivi_projet || '';
+  document.getElementById('f-Date_limite_financement').value = gristDateToInput(rec.Date_limite_financement);
+  document.getElementById('f-Date_debut_Projet').value = gristDateToInput(rec.Date_debut_Projet);
+  document.getElementById('f-Date_de_fin_Projet').value = gristDateToInput(rec.Date_de_fin_Projet);
+  ['Details_depense_s_Fonctionnement', 'Details_depense_s_Investissement', 'Details_depense_s_Personnel'].forEach(field => {
+    const input = document.getElementById(`f-${field}`);
+    if (input) input.value = rec[field] || input.value;
+  });
+  Object.values(FINANCIAL_FIELDS).flat().forEach(field => {
+    const input = document.getElementById(`f-${field}`);
+    if (input) input.value = rec[field] ?? '';
+  });
+  updateFinancialTotals();
 
   const setRef = (field, id, tableName, displayField) => {
     const container = document.querySelector(`.search-select[data-field="${field}"]`);
@@ -696,6 +757,7 @@ function fillProjectForm(rec) {
   };
 
   setRef('Programme', rec.Programme, 'Programmes', 'Programme');
+  setRef('Instance_ratachee', rec.Instance_ratachee, 'Suivi_Instance', 'Nom');
   
   const containerType = document.querySelector('.search-select[data-field="Type_projet"]');
   if (containerType && containerType._setValue) containerType._setValue(rec.Type_projet, rec.Type_projet);
@@ -793,6 +855,18 @@ if (btnSaveProject) {
       Porteur_3: state.formValues['Porteur_3'] || null,
       VP_porteur_2: state.formValues['VP_porteur_2'] || null,
       Accompagnateur: state.formValues['Accompagnateur'] || null,
+      Instance_ratachee: state.formValues['Instance_ratachee'] || null,
+      Date_limite_financement: inputDateToGrist('f-Date_limite_financement'),
+      Date_debut_Projet: inputDateToGrist('f-Date_debut_Projet'),
+      Date_de_fin_Projet: inputDateToGrist('f-Date_de_fin_Projet'),
+      Details_depense_s_Fonctionnement: document.getElementById('f-Details_depense_s_Fonctionnement')?.value || 'Depenses de fonctionnement',
+      Details_depense_s_Investissement: document.getElementById('f-Details_depense_s_Investissement')?.value || "Dépenses d'investissement",
+      Details_depense_s_Personnel: document.getElementById('f-Details_depense_s_Personnel')?.value || 'Depenses de personnel',
+      ...Object.values(FINANCIAL_FIELDS).flat().reduce((result, field) => {
+        const value = document.getElementById(`f-${field}`)?.value;
+        result[field] = value === '' || value === undefined ? null : Number(value);
+        return result;
+      }, {}),
     };
 
     try {
@@ -823,6 +897,9 @@ if (btnSaveProject) {
     }
   });
 }
+
+document.querySelectorAll('.financial-amount').forEach(input => input.addEventListener('input', updateFinancialTotals));
+updateFinancialTotals();
 
 /* =========================================================
    ONGLETS
