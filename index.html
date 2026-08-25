@@ -5,6 +5,17 @@
 <title>Suivi Projets InnovationS</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 <link rel="stylesheet" href="style.css">
+<style>
+.form-grid input[type="date"] { width: 100%; box-sizing: border-box; }
+.financial-table-wrap { overflow-x: auto; margin: 0 0 24px; }
+.financial-table { width: 100%; min-width: 650px; border-collapse: collapse; background: #fff; }
+.financial-table th, .financial-table td { border: 1px solid #d9e0e7; padding: 8px; text-align: right; vertical-align: middle; }
+.financial-table thead th { background: #f3f6f9; color: #334155; text-align: center; font-weight: 600; }
+.financial-table tbody th { width: 34%; text-align: left; background: #fafbfc; }
+.financial-table input { width: 100%; box-sizing: border-box; }
+.financial-table .financial-detail { min-width: 210px; }
+.financial-total th, .financial-total td { background: #eef3f7; font-weight: 700; color: #1f2937; }
+</style>
 </head>
 <body>
 
@@ -90,11 +101,62 @@
           <div class="search-select" data-field="Statut_operationnel_projet" data-table="__choice__" data-choices="En attente des dispo des fonds,En cours,Terminé,Suspendu" data-default="En attente des dispo des fonds"></div>
         </div>
 
+        <div class="form-group">
+          <label>Instance rattachée</label>
+          <div class="search-select" data-field="Instance_ratachee" data-table="Suivi_Instance" data-display="Nom"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="f-Date_limite_financement">Date limite de financement</label>
+          <input type="date" id="f-Date_limite_financement">
+        </div>
+
+        <div class="form-group">
+          <label for="f-Date_debut_Projet">Date de début du projet</label>
+          <input type="date" id="f-Date_debut_Projet">
+        </div>
+
+        <div class="form-group">
+          <label for="f-Date_de_fin_Projet">Date de fin du projet</label>
+          <input type="date" id="f-Date_de_fin_Projet">
+        </div>
+
         <div class="form-group full">
           <label>Commentaire général de suivi</label>
           <textarea id="f-comentaire_general_Suivi_projet" rows="2" placeholder="Facultatif"></textarea>
         </div>
 
+      </div>
+
+      <h3 class="section-title">Prévisionnel financier</h3>
+      <div class="financial-table-wrap">
+        <table class="financial-table" aria-label="Prévisionnel financier par année et type de dépense">
+          <thead>
+            <tr><th scope="col">Type de dépense</th><th scope="col">2026</th><th scope="col">2027</th><th scope="col">2028</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row"><input type="text" class="financial-detail" id="f-Details_depense_s_Fonctionnement" list="financial-detail-options" value="Depenses de fonctionnement" aria-label="Détail fonctionnement"></th>
+              <td><input type="number" class="financial-amount" id="f-c2026_M10_Fonctionnement" min="0" step="any" inputmode="decimal" aria-label="Fonctionnement 2026"></td>
+              <td><input type="number" class="financial-amount" id="f-c2027_M10_Fonctionnement" min="0" step="any" inputmode="decimal" aria-label="Fonctionnement 2027"></td>
+              <td><input type="number" class="financial-amount" id="f-c2028_M10_Fonctionnement" min="0" step="any" inputmode="decimal" aria-label="Fonctionnement 2028"></td>
+            </tr>
+            <tr>
+              <th scope="row"><input type="text" class="financial-detail" id="f-Details_depense_s_Investissement" list="financial-detail-options" value="Dépenses d'investissement" aria-label="Détail investissement"></th>
+              <td><input type="number" class="financial-amount" id="f-c2026_M20_Investissement" min="0" step="any" inputmode="decimal" aria-label="Investissement 2026"></td>
+              <td><input type="number" class="financial-amount" id="f-c2027_M20_Investissement" min="0" step="any" inputmode="decimal" aria-label="Investissement 2027"></td>
+              <td><input type="number" class="financial-amount" id="f-c2028_M20_Investissement" min="0" step="any" inputmode="decimal" aria-label="Investissement 2028"></td>
+            </tr>
+            <tr>
+              <th scope="row"><input type="text" class="financial-detail" id="f-Details_depense_s_Personnel" list="financial-detail-options" value="Depenses de personnel" aria-label="Détail personnel"></th>
+              <td><input type="number" class="financial-amount" id="f-c2026_M30_Personnel" min="0" step="any" inputmode="decimal" aria-label="Personnel 2026"></td>
+              <td><input type="number" class="financial-amount" id="f-c2027_M30_Personnel" min="0" step="any" inputmode="decimal" aria-label="Personnel 2027"></td>
+              <td><input type="number" class="financial-amount" id="f-c2028_M30_Personnel" min="0" step="any" inputmode="decimal" aria-label="Personnel 2028"></td>
+            </tr>
+            <tr class="financial-total"><th scope="row">TOTAL</th><td id="financial-total-2026">0</td><td id="financial-total-2027">0</td><td id="financial-total-2028">0</td></tr>
+          </tbody>
+        </table>
+        <datalist id="financial-detail-options"><option value="Depenses de fonctionnement"></option><option value="Dépenses d'investissement"></option><option value="Depenses de personnel"></option></datalist>
       </div>
 
       <h3 class="section-title">Personnes liées au projet</h3>
@@ -202,8 +264,6 @@
       <label>Mission principale</label>
       <textarea id="npp-Mission_Principale" rows="2"></textarea>
     </div>
-  </div>
-</div>
 
     <div class="modal-actions">
       <button id="btn-cancel-person" class="btn btn-secondary">Annuler</button>
@@ -217,5 +277,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
 </body>
 </html>
