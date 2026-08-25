@@ -92,8 +92,8 @@
           <div class="search-select"
                data-field="Type_projet"
                data-table="__choice__"
-               data-choices="projet,Ingenierie_creation,Ingenierie_renouvellement,reattribution,prolongation,myphd+"
-               data-default="projet"></div>
+               data-choices="Projet,Ingenierie_creation,Ingenierie_renouvellement,reattribution,prolongation,myphd+"
+               data-default="Projet"></div>
         </div>
 
         <div class="form-group">
@@ -201,7 +201,7 @@
 <!-- MODALE CREATION PERSONNE -->
 <div id="modal-person" class="modal hidden">
   <div class="modal-box">
-    <h3>Ajouter une personne à l'annuaire</h3>
+    <h3 id="modal-person-title">Ajouter une personne</h3>
 
     <div class="form-grid">
       <div class="form-group">
@@ -231,18 +231,22 @@
     <div id="poste-existing-block">
       <div class="form-group">
         <label>Poste</label>
-        <div class="search-select" data-field="np-Poste2" data-table="Postes2" data-display="Nom_du_poste"></div>
+        <div id="np-Poste2" class="search-select" data-field="np-Poste2" data-table="Postes2" data-display="Nom_du_poste"></div>
       </div>
     </div>
 
     <div id="poste-new-block" class="hidden">
   <h3>Créer un nouveau poste</h3>
+  <div class="form-group">
+    <label for="npp-Titre">Titre du poste :</label>
+    <input type="text" id="npp-Titre">
+  </div>
   
   <!-- Sélection Structure (déclenche la cascade) -->
   <div class="form-group">
     <label for="npp-Structure2">Structure :</label>
     <div class="search-select" 
-         id="npp-Structure2-container"
+         id="npp-Structure2"
          data-field="npp-Structure2" 
          data-table="Structures" 
          data-display="Acronyme">
@@ -253,17 +257,25 @@
   <div class="form-group">
     <label for="npp-Tutuelle">Tutelle :</label>
     <div class="search-select" 
-         id="npp-Tutuelle-container"
+         id="npp-Tutuelle"
          data-field="npp-Tutuelle" 
          data-table="Etablissements" 
          data-display="Acronyme">
     </div>
   </div>
+  <div class="form-group full">
+    <label for="npp-Precisions_Poste">Précisions sur le poste :</label>
+    <textarea id="npp-Precisions_Poste" rows="2"></textarea>
+  </div>
+  <div class="form-group">
+    <label for="npp-Date_de_fin">Date de fin :</label>
+    <input type="date" id="npp-Date_de_fin">
+  </div>
+  <div class="form-group full">
+    <label for="npp-Mission_Principale">Mission principale</label>
+    <textarea id="npp-Mission_Principale" rows="2"></textarea>
+  </div>
 </div>
-    <div class="form-group full">
-      <label>Mission principale</label>
-      <textarea id="npp-Mission_Principale" rows="2"></textarea>
-    </div>
 
     <div class="modal-actions">
       <button id="btn-cancel-person" class="btn btn-secondary">Annuler</button>
@@ -277,6 +289,7 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
 </body>
 </html>
