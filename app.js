@@ -70,10 +70,7 @@ async function loadAllTables() {
 function initializeUI() {
   debugLog('🎨 Initialisation UI...');
   
-  // Remplir la liste des projets
   populateProjectList();
-  
-  // Attacher les listeners
   attachEventListeners();
   
   debugLog('🎊 UI initialisée');
@@ -115,19 +112,16 @@ function openProject(projectId, fields) {
   state.currentProjectId = projectId;
   state.formValues = { ...fields };
   
-  // Afficher la vue projet
   const viewList = document.getElementById('view-list');
   const viewProject = document.getElementById('view-project');
   
   if (viewList) viewList.classList.add('hidden');
   if (viewProject) viewProject.classList.remove('hidden');
   
-  // Remplir les formulaires
   populateProjectForm(fields);
   populateAdminForm(fields);
   populateFinanceForm(fields);
   
-  // Charger les postes liés
   loadProjectPostes(projectId);
 }
 
@@ -475,14 +469,11 @@ function openPosteModal() {
   
   modal.classList.remove('hidden');
   
-  // Déterminer le mode (nouveau ou édition)
   const isNew = !state.formValues.posteId;
   document.getElementById('poste-modal-title').textContent = isNew ? 'Nouveau poste' : 'Éditer le poste';
   
-  // Remplir le formulaire
   populatePosteForm();
   
-  // Attacher les listeners
   document.getElementById('btn-save-poste')?.addEventListener('click', savePoste);
   document.getElementById('btn-cancel-poste')?.addEventListener('click', closePosteModal);
 }
@@ -735,7 +726,6 @@ function getStructureName(structureId) {
 }
 
 function getChoicesForField(tableName, fieldName) {
-  // Récupérer les choix uniques d'un champ dans une table
   const table = state.tables[tableName] || [];
   const choices = new Set();
   
@@ -749,7 +739,6 @@ function getChoicesForField(tableName, fieldName) {
 
 function formatDateForInput(dateStr) {
   if (!dateStr) return '';
-  // Convertir format français ou ISO en format input (YYYY-MM-DD)
   if (typeof dateStr === 'string' && dateStr.includes('/')) {
     const parts = dateStr.split('/');
     if (parts.length === 3) {
@@ -763,32 +752,45 @@ function formatDateForInput(dateStr) {
    EVENT LISTENERS
    ========================================================= */
 function attachEventListeners() {
-  // Bouton retour
   const btnBack = document.getElementById('btn-back');
   if (btnBack) {
     btnBack.addEventListener('click', closeProject);
   }
   
-  // Bouton nouveau projet
   const btnNewProject = document.getElementById('btn-new-project');
   if (btnNewProject) {
     btnNewProject.addEventListener('click', () => {
       debugLog('Création nouveau projet');
-      // À implémenter selon vos besoins
       showToast('Création de projet: à implémenter', false);
     });
   }
   
-  // Charger les personnes
   loadPersons();
 }
 
 /* =========================================================
-   INITIALIZATION
+   INITIALIZATION - WITH GRIST READY CHECK
    ========================================================= */
 debugLog('🚀 Script en cours de chargement...');
 
-grist.ready();
-loadAllTables();
+// 🔑 Attendre que grist soit disponible
+if (typeof grist !== 'undefined') {
+  debugLog('✅ Grist API détectée');
+  grist.ready();
+  loadAllTables();
+} else {
+  debugLog('⏳ Grist API pas encore disponible, attente...');
+  // Essayer à nouveau après un délai
+  setTimeout(() => {
+    if (typeof grist !== 'undefined') {
+      debugLog('✅ Grist API détectée (deuxième tentative)');
+      grist.ready();
+      loadAllTables();
+    } else {
+      debugLog('❌ ERREUR: Grist API introuvable');
+      showToast('Erreur: l\'API Grist n\'est pas disponible', true);
+    }
+  }, 500);
+}
 
 debugLog('✨ Script initialisé');
