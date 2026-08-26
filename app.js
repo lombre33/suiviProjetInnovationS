@@ -77,7 +77,8 @@ async function loadAllTables() {
     state.tables.OPE = await grist.docApi.fetchTable('OPE');
     debugLog('✅ OPE chargés', { count: state.tables.OPE.records?.length || 0 });
     
-    debugLog('🎉 Tous les chargements terminés');
+    debugLog('🎉 Tous les chargements terminés, rendu de la liste...');
+    renderProjectsList();
     
   } catch (err) {
     debugError('loadAllTables', err);
@@ -86,555 +87,403 @@ async function loadAllTables() {
 }
 
 /* =========================================================
-   RENDU - LISTE PROJETS
+   RENDU LISTE PROJETS
    ========================================================= */
 function renderProjectsList(filterText = '') {
+  debugLog('renderProjectsList', { filterText });
+  
   const container = document.getElementById('projects-list');
-  if (!container) {
-    debugLog('⚠️ #projects-list introuvable');
-    return;
-  }
-
-  const filter = filterText.toLowerCase();
-  const filtered = state.tables.Projets.records.filter(p => {
-    const titre = (p.fields.Titre || '').toLowerCase();
-    const acronyme = (p.fields.Acronyme || '').toLowerCase();
-    return titre.includes(filter) || acronyme.includes(filter);
+  if (!container) return;
+  
+  const projects = state.tables.Projets.records || [];
+  const filtered = projects.filter(p => {
+    const titre = String(p.Titre || '').toLowerCase();
+    const acronyme = String(p.Acronyme || '').toLowerCase();
+    const search = filterText.toLowerCase();
+    return titre.includes(search) || acronyme.includes(search);
   });
-
-  debugLog(`📊 ${filtered.length} projets à afficher`);
-
+  
+  debugLog(`${filtered.length} projets à afficher`, { filterText });
+  
   if (filtered.length === 0) {
-    container.innerHTML = '<p class="empty-state">Aucun projet trouvé</p>';
+    container.innerHTML = '<p class="empty-state">Aucun projet ne correspond à votre recherche.</p>';
     return;
   }
-
+  
   container.innerHTML = filtered.map(project => `
-    <div class="project-card" data-project-id="${project.id}">
-      <div class="project-header">
-        <h3>${project.fields.Titre || 'Sans titre'}</h3>
-        <span class="badge badge-${project.fields.Statut_operationnel_projet?.toLowerCase() || 'default'}">
-          ${project.fields.Statut_operationnel_projet || 'Inconnu'}
-        </span>
+    <div class="project-card" data-id="${project.id}">
+      <h3>${escapeHtml(project.Titre || 'Sans titre')}</h3>
+      <p class="acronyme">${escapeHtml(project.Acronyme || '-')}</p>
+      <p class="description">${escapeHtml((project.Description || '').substring(0, 100))}</p>
+      <div class="project-meta">
+        <span class="status">${escapeHtml(project.Statut_operationnel_projet || '-')}</span>
       </div>
-      <div class="project-info">
-        <p><strong>Acronyme:</strong> ${project.fields.Acronyme || '-'}</p>
-        <p><strong>Type:</strong> ${project.fields.Type_projet || '-'}</p>
-        <p><strong>Budget:</strong> ${project.fields.Budget_total || '-'} €</p>
-      </div>
-      <button class="btn btn-primary btn-view-project" data-project-id="${project.id}">
-        Voir détails
-      </button>
     </div>
   `).join('');
+  
+  container.querySelectorAll('.project-card').forEach(card => {
+    card.addEventListener('click', () => openProject(parseInt(card.dataset.id)));
+  });
+}
 
-  document.querySelectorAll('.btn-view-project').forEach(btn => {
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/* =========================================================
+   OUVERTURE PROJET
+   ========================================================= */
+function openProject(projectId) {
+  debugLog('openProject', { projectId });
+  
+  const project = state.tables.Projets.records.find(p => p.id === projectId);
+  if (!project) {
+    showToast('Projet non trouvé', true);
+    return;
+  }
+  
+  state.currentProjectId = projectId;
+  
+  // Mettre à jour le formulaire
+  document.getElementById('proj-Titre').value = project.Titre || '';
+  document.getElementById('proj-Acronyme').value = project.Acronyme || '';
+  document.getElementById('proj-Description').value = project.Description || '';
+  document.getElementById('proj-Type_projet').value = project.Type_projet || '';
+  document.getElementById('proj-Statut_operationnel_projet').value = project.Statut_operationnel_projet || '';
+  document.getElementById('proj-Budget_total').value = project.Budget_total || '';
+  
+  // Basculer les vues
+  document.getElementById('view-list').classList.add('hidden');
+  document.getElementById('view-project').classList.remove('hidden');
+  
+  // Charger les postes et l'historique
+  loadProjectPosts(projectId);
+  loadProjectHistory(projectId);
+}
+
+function loadProjectPosts(projectId) {
+  debugLog('loadProjectPosts', { projectId });
+  
+  const container = document.getElementById('project-posts');
+  const posts = (state.tables.Postes2.records || []).filter(p => p.Projet === projectId);
+  
+  if (posts.length === 0) {
+    container.innerHTML = '<p class="empty-state">Aucun poste pour ce projet.</p>';
+    return;
+  }
+  
+  container.innerHTML = posts.map(post => `
+    <div class="post-card" data-id="${post.id}">
+      <h4>${escapeHtml(post.Intitule || 'Poste sans titre')}</h4>
+      <p><strong>Type:</strong> ${escapeHtml(post.Type || '-')}</p>
+      <p><strong>Statut:</strong> ${escapeHtml(post.Statut || '-')}</p>
+      <div class="post-actions">
+        <button class="btn btn-sm btn-edit" data-id="${post.id}">Éditer</button>
+        <button class="btn btn-sm btn-danger" data-id="${post.id}">Supprimer</button>
+      </div>
+    </div>
+  `).join('');
+  
+  // Événements
+  container.querySelectorAll('.btn-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const projectId = parseInt(e.target.dataset.projectId);
-      openProjectView(projectId);
+      e.stopPropagation();
+      editPoste(parseInt(btn.dataset.id));
+    });
+  });
+  
+  container.querySelectorAll('.btn-danger').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deletePoste(parseInt(btn.dataset.id));
     });
   });
 }
 
-/* =========================================================
-   RENDU - DETAIL PROJET
-   ========================================================= */
-function openProjectView(projectId) {
-  debugLog('openProjectView', { projectId });
-
-  if (projectId === null) {
-    // Mode création
-    state.currentProjectId = null;
-    const viewList = document.getElementById('view-list');
-    const viewProject = document.getElementById('view-project');
-    if (viewList) viewList.classList.add('hidden');
-    if (viewProject) viewProject.classList.remove('hidden');
-    
-    // Reset form
-    if (document.getElementById('proj-Titre')) document.getElementById('proj-Titre').value = '';
-    if (document.getElementById('proj-Acronyme')) document.getElementById('proj-Acronyme').value = '';
-    if (document.getElementById('proj-Description')) document.getElementById('proj-Description').value = '';
-    
-    showToast('Mode création de projet');
-    return;
-  }
-
-  state.currentProjectId = projectId;
-  const project = state.tables.Projets.records.find(p => p.id === projectId);
-
-  if (!project) {
-    showToast('Projet introuvable', true);
-    return;
-  }
-
-  const viewList = document.getElementById('view-list');
-  const viewProject = document.getElementById('view-project');
-
-  if (viewList) viewList.classList.add('hidden');
-  if (viewProject) viewProject.classList.remove('hidden');
-
-  // Remplir le formulaire
-  document.getElementById('proj-Titre').value = project.fields.Titre || '';
-  document.getElementById('proj-Acronyme').value = project.fields.Acronyme || '';
-  document.getElementById('proj-Description').value = project.fields.Description || '';
-  document.getElementById('proj-Type_projet').value = project.fields.Type_projet || '';
-  document.getElementById('proj-Statut_operationnel_projet').value = project.fields.Statut_operationnel_projet || '';
-  document.getElementById('proj-Budget_total').value = project.fields.Budget_total || '';
-
-  // Charger les postes du projet
-  loadProjectPosts(projectId);
+function loadProjectHistory(projectId) {
+  debugLog('loadProjectHistory', { projectId });
   
-  // Charger l'historique
-  loadProjectHistory(projectId);
-}
-
-function closeProject() {
-  debugLog('closeProject');
-  state.currentProjectId = null;
-  const viewList = document.getElementById('view-list');
-  const viewProject = document.getElementById('view-project');
-
-  if (viewProject) viewProject.classList.add('hidden');
-  if (viewList) viewList.classList.remove('hidden');
-
-  renderProjectsList();
+  const container = document.getElementById('project-history');
+  const history = (state.tables.Suivi_Instance.records || []).filter(h => h.Projet === projectId);
+  
+  if (history.length === 0) {
+    container.innerHTML = '<p class="empty-state">Aucun historique pour ce projet.</p>';
+    return;
+  }
+  
+  container.innerHTML = history.map(item => `
+    <div class="history-item">
+      <p><strong>${escapeHtml(item.Titre || '-')}</strong></p>
+      <p>${escapeHtml(item.Description || '')}</p>
+      <small>${item.Date || '-'}</small>
+    </div>
+  `).join('');
 }
 
 /* =========================================================
    GESTION POSTES
    ========================================================= */
-function loadProjectPosts(projectId) {
-  debugLog('loadProjectPosts', { projectId });
-
-  const postesContainer = document.getElementById('project-posts');
-  if (!postesContainer) return;
-
-  const postes = state.tables.Postes2.records.filter(p => p.fields.Projet === projectId);
-  debugLog(`📍 ${postes.length} postes trouvés`);
-
-  if (postes.length === 0) {
-    postesContainer.innerHTML = '<p class="empty-state">Aucun poste pour ce projet</p>';
-    return;
-  }
-
-  postesContainer.innerHTML = postes.map(poste => `
-    <div class="poste-card">
-      <h4>${poste.fields.Intitule || 'Sans titre'}</h4>
-      <p><strong>Type:</strong> ${poste.fields.Type_poste || '-'}</p>
-      <p><strong>Statut:</strong> ${poste.fields.Statut || '-'}</p>
-      <button class="btn btn-secondary btn-edit-poste" data-poste-id="${poste.id}">
-        Éditer
-      </button>
-      <button class="btn btn-danger btn-delete-poste" data-poste-id="${poste.id}">
-        Supprimer
-      </button>
-    </div>
-  `).join('');
-
-  document.querySelectorAll('.btn-edit-poste').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const posteId = parseInt(e.target.dataset.posteId);
-      editPoste(posteId);
-    });
-  });
-
-  document.querySelectorAll('.btn-delete-poste').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const posteId = parseInt(e.target.dataset.posteId);
-      if (confirm('Êtes-vous sûr de vouloir supprimer ce poste ?')) {
-        try {
-          await grist.docApi.removeRecord('Postes2', [posteId]);
-          state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
-          loadProjectPosts(state.currentProjectId);
-          showToast('Poste supprimé');
-        } catch (err) {
-          debugError('deletePoste', err);
-          showToast('Erreur: ' + err.message, true);
-        }
-      }
-    });
-  });
-}
-
 function editPoste(posteId) {
   debugLog('editPoste', { posteId });
+  
   const poste = state.tables.Postes2.records.find(p => p.id === posteId);
-  if (!poste) {
-    showToast('Poste introuvable', true);
-    return;
-  }
-
-  // Ouvrir modal d'édition
+  if (!poste) return;
+  
+  document.getElementById('edit-poste-intitule').value = poste.Intitule || '';
+  document.getElementById('edit-poste-type').value = poste.Type || '';
+  document.getElementById('edit-poste-statut').value = poste.Statut || '';
+  
   const modal = document.getElementById('modal-poste-edit');
-  if (modal) {
-    document.getElementById('edit-poste-intitule').value = poste.fields.Intitule || '';
-    document.getElementById('edit-poste-type').value = poste.fields.Type_poste || '';
-    document.getElementById('edit-poste-statut').value = poste.fields.Statut || '';
-    
-    const saveBtn = document.getElementById('btn-save-poste-edit');
-    if (saveBtn) {
-      saveBtn.onclick = () => savePosteEdit(posteId);
+  modal.classList.remove('hidden');
+  
+  const saveBtn = document.getElementById('btn-save-poste-edit');
+  saveBtn.onclick = async () => {
+    try {
+      await grist.docApi.applyUserActions([
+        ['UpdateRecord', 'Postes2', posteId, {
+          Intitule: document.getElementById('edit-poste-intitule').value,
+          Type: document.getElementById('edit-poste-type').value,
+          Statut: document.getElementById('edit-poste-statut').value,
+        }]
+      ]);
+      
+      showToast('Poste mis à jour');
+      modal.classList.add('hidden');
+      loadProjectPosts(state.currentProjectId);
+    } catch (err) {
+      debugError('editPoste save', err);
+      showToast('Erreur: ' + err.message, true);
     }
-    
-    modal.classList.remove('hidden');
-  }
+  };
 }
 
-async function savePosteEdit(posteId) {
-  debugLog('savePosteEdit', { posteId });
-
-  const intitule = document.getElementById('edit-poste-intitule').value;
-  const type = document.getElementById('edit-poste-type').value;
-  const statut = document.getElementById('edit-poste-statut').value;
-
-  if (!intitule) {
-    showToast('Intitulé obligatoire', true);
-    return;
-  }
-
-  try {
-    await grist.docApi.updateRecord('Postes2', [posteId], {
-      Intitule: intitule,
-      Type_poste: type,
-      Statut: statut,
-    });
-
-    state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
+function deletePoste(posteId) {
+  if (!confirm('Êtes-vous sûr de vouloir supprimer ce poste ?')) return;
+  
+  debugLog('deletePoste', { posteId });
+  
+  grist.docApi.applyUserActions([
+    ['RemoveRecord', 'Postes2', posteId]
+  ]).then(() => {
+    showToast('Poste supprimé');
     loadProjectPosts(state.currentProjectId);
-    
-    const modal = document.getElementById('modal-poste-edit');
-    if (modal) modal.classList.add('hidden');
-    
-    showToast('Poste mis à jour');
-  } catch (err) {
-    debugError('savePosteEdit', err);
+  }).catch(err => {
+    debugError('deletePoste', err);
     showToast('Erreur: ' + err.message, true);
-  }
+  });
 }
 
 /* =========================================================
-   GESTION ANNUAIRE / PERSONNES
+   GESTION PERSONNES
    ========================================================= */
+function openPersonModal() {
+  debugLog('openPersonModal');
+  
+  document.getElementById('np-Prenom').value = '';
+  document.getElementById('np-NOM').value = '';
+  document.getElementById('np-Email').value = '';
+  document.getElementById('np-Structure').value = '';
+  
+  document.getElementById('modal-person').classList.remove('hidden');
+}
+
 function loadPersons() {
   debugLog('loadPersons');
-
+  
   const container = document.getElementById('persons-list');
-  if (!container) return;
-
-  const filtered = state.tables.Annuaire.records;
-  debugLog(`👥 ${filtered.length} personnes`);
-
-  if (filtered.length === 0) {
-    container.innerHTML = '<p class="empty-state">Aucune personne</p>';
+  const persons = state.tables.Annuaire.records || [];
+  
+  if (persons.length === 0) {
+    container.innerHTML = '<p class="empty-state">Aucune personne dans l\'annuaire.</p>';
     return;
   }
-
-  container.innerHTML = filtered.map(person => `
-    <div class="person-card">
-      <h4>${person.fields.Prenom || ''} ${person.fields.Nom || ''}</h4>
-      <p><strong>Email:</strong> ${person.fields.Email || '-'}</p>
-      <p><strong>Structure:</strong> ${person.fields.Structure || '-'}</p>
-      <button class="btn btn-secondary btn-edit-person" data-person-id="${person.id}">
-        Éditer
-      </button>
-      <button class="btn btn-danger btn-delete-person" data-person-id="${person.id}">
-        Supprimer
-      </button>
+  
+  container.innerHTML = persons.map(person => `
+    <div class="person-card" data-id="${person.id}">
+      <h4>${escapeHtml(person.Prenom || '')} ${escapeHtml(person.NOM || '')}</h4>
+      <p><strong>Email:</strong> ${escapeHtml(person.Email || '-')}</p>
+      <p><strong>Structure:</strong> ${escapeHtml(person.Structure || '-')}</p>
+      <div class="person-actions">
+        <button class="btn btn-sm btn-edit" data-id="${person.id}">Éditer</button>
+        <button class="btn btn-sm btn-danger" data-id="${person.id}">Supprimer</button>
+      </div>
     </div>
   `).join('');
-
-  document.querySelectorAll('.btn-edit-person').forEach(btn => {
+  
+  container.querySelectorAll('.btn-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const personId = parseInt(e.target.dataset.personId);
-      editPerson(personId);
+      e.stopPropagation();
+      editPerson(parseInt(btn.dataset.id));
     });
   });
-
-  document.querySelectorAll('.btn-delete-person').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const personId = parseInt(e.target.dataset.personId);
-      if (confirm('Êtes-vous sûr de vouloir supprimer cette personne ?')) {
-        try {
-          await grist.docApi.removeRecord('Annuaire', [personId]);
-          state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
-          loadPersons();
-          showToast('Personne supprimée');
-        } catch (err) {
-          debugError('deletePerson', err);
-          showToast('Erreur: ' + err.message, true);
-        }
-      }
+  
+  container.querySelectorAll('.btn-danger').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deletePerson(parseInt(btn.dataset.id));
     });
   });
-}
-
-function initPersonModal() {
-  debugLog('initPersonModal');
-
-  const btnNewPerson = document.getElementById('btn-new-person');
-  if (btnNewPerson) {
-    btnNewPerson.addEventListener('click', () => {
-      const modal = document.getElementById('modal-person');
-      if (modal) {
-        document.getElementById('np-Prenom').value = '';
-        document.getElementById('np-NOM').value = '';
-        document.getElementById('np-Email').value = '';
-        document.getElementById('np-Structure').value = '';
-        modal.classList.remove('hidden');
-      }
-    });
-  }
-
-  const btnCancelPerson = document.getElementById('btn-cancel-person');
-  if (btnCancelPerson) {
-    btnCancelPerson.addEventListener('click', () => {
-      const modal = document.getElementById('modal-person');
-      if (modal) modal.classList.add('hidden');
-    });
-  }
-
-  const btnSavePerson = document.getElementById('btn-save-person');
-  if (btnSavePerson) {
-    btnSavePerson.addEventListener('click', savePerson);
-  }
-}
-
-async function savePerson() {
-  debugLog('savePerson');
-
-  const prenom = (document.getElementById('np-Prenom')?.value || '').trim();
-  const nom = (document.getElementById('np-NOM')?.value || '').trim();
-  const email = (document.getElementById('np-Email')?.value || '').trim();
-  const structure = (document.getElementById('np-Structure')?.value || '').trim();
-
-  if (!prenom || !nom) {
-    showToast('Prénom et nom obligatoires', true);
-    return;
-  }
-
-  try {
-    await grist.docApi.addRecord('Annuaire', {
-      Prenom: prenom,
-      Nom: nom,
-      Email: email,
-      Structure: structure,
-    });
-
-    state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
-
-    const modal = document.getElementById('modal-person');
-    if (modal) modal.classList.add('hidden');
-
-    loadPersons();
-    showToast(`${prenom} ${nom} ajouté(e) à l'annuaire`);
-
-  } catch (err) {
-    debugError('savePerson', err);
-    showToast('Erreur: ' + err.message, true);
-  }
 }
 
 function editPerson(personId) {
   debugLog('editPerson', { personId });
-
+  
   const person = state.tables.Annuaire.records.find(p => p.id === personId);
-  if (!person) {
-    showToast('Personne introuvable', true);
-    return;
-  }
-
+  if (!person) return;
+  
+  document.getElementById('edit-person-prenom').value = person.Prenom || '';
+  document.getElementById('edit-person-nom').value = person.NOM || '';
+  document.getElementById('edit-person-email').value = person.Email || '';
+  document.getElementById('edit-person-structure').value = person.Structure || '';
+  
   const modal = document.getElementById('modal-person-edit');
-  if (modal) {
-    document.getElementById('edit-person-prenom').value = person.fields.Prenom || '';
-    document.getElementById('edit-person-nom').value = person.fields.Nom || '';
-    document.getElementById('edit-person-email').value = person.fields.Email || '';
-    document.getElementById('edit-person-structure').value = person.fields.Structure || '';
-
-    const saveBtn = document.getElementById('btn-save-person-edit');
-    if (saveBtn) {
-      saveBtn.onclick = () => savePersonEdit(personId);
+  modal.classList.remove('hidden');
+  
+  const saveBtn = document.getElementById('btn-save-person-edit');
+  saveBtn.onclick = async () => {
+    try {
+      await grist.docApi.applyUserActions([
+        ['UpdateRecord', 'Annuaire', personId, {
+          Prenom: document.getElementById('edit-person-prenom').value,
+          NOM: document.getElementById('edit-person-nom').value,
+          Email: document.getElementById('edit-person-email').value,
+          Structure: document.getElementById('edit-person-structure').value,
+        }]
+      ]);
+      
+      showToast('Personne mise à jour');
+      modal.classList.add('hidden');
+      loadPersons();
+    } catch (err) {
+      debugError('editPerson save', err);
+      showToast('Erreur: ' + err.message, true);
     }
-
-    modal.classList.remove('hidden');
-  }
+  };
 }
 
-async function savePersonEdit(personId) {
-  debugLog('savePersonEdit', { personId });
-
-  const prenom = document.getElementById('edit-person-prenom').value;
-  const nom = document.getElementById('edit-person-nom').value;
-  const email = document.getElementById('edit-person-email').value;
-  const structure = document.getElementById('edit-person-structure').value;
-
-  if (!prenom || !nom) {
-    showToast('Prénom et nom obligatoires', true);
-    return;
-  }
-
-  try {
-    await grist.docApi.updateRecord('Annuaire', [personId], {
-      Prenom: prenom,
-      Nom: nom,
-      Email: email,
-      Structure: structure,
-    });
-
-    state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
+function deletePerson(personId) {
+  if (!confirm('Êtes-vous sûr de vouloir supprimer cette personne ?')) return;
+  
+  debugLog('deletePerson', { personId });
+  
+  grist.docApi.applyUserActions([
+    ['RemoveRecord', 'Annuaire', personId]
+  ]).then(() => {
+    showToast('Personne supprimée');
     loadPersons();
-
-    const modal = document.getElementById('modal-person-edit');
-    if (modal) modal.classList.add('hidden');
-
-    showToast('Personne mise à jour');
-
-  } catch (err) {
-    debugError('savePersonEdit', err);
+  }).catch(err => {
+    debugError('deletePerson', err);
     showToast('Erreur: ' + err.message, true);
-  }
-}
-
-/* =========================================================
-   GESTION HISTORIQUE / SUIVI
-   ========================================================= */
-function loadProjectHistory(projectId) {
-  debugLog('loadProjectHistory', { projectId });
-
-  const container = document.getElementById('project-history');
-  if (!container) return;
-
-  const history = state.tables.Suivi_Instance.records.filter(h => h.fields.Projet === projectId);
-  debugLog(`📜 ${history.length} événements`);
-
-  if (history.length === 0) {
-    container.innerHTML = '<p class="empty-state">Aucun historique</p>';
-    return;
-  }
-
-  container.innerHTML = history.map(event => `
-    <div class="history-item">
-      <div class="history-date">${formatDate(event.fields.Date || new Date())}</div>
-      <div class="history-content">
-        <strong>${event.fields.Type_evenement || 'Événement'}</strong>
-        <p>${event.fields.Description || '-'}</p>
-        <small>Par: ${event.fields.Auteur || 'Inconnu'}</small>
-      </div>
-    </div>
-  `).join('');
-}
-
-function formatDate(dateString) {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR');
-  } catch {
-    return dateString;
-  }
-}
-
-/* =========================================================
-   AUTOCOMPLETE STRUCTURES
-   ========================================================= */
-function initStructuresAutocomplete() {
-  debugLog('initStructuresAutocomplete');
-
-  const input = document.getElementById('filter-structures');
-  const dropdown = document.getElementById('structures-dropdown');
-
-  if (!input || !dropdown) return;
-
-  input.addEventListener('input', (e) => {
-    const filter = e.target.value.toLowerCase();
-
-    if (filter.length === 0) {
-      dropdown.innerHTML = '';
-      dropdown.classList.add('hidden');
-      return;
-    }
-
-    const filtered = state.tables.Structures.records.filter(s => {
-      const name = (s.fields.name || '').toLowerCase();
-      return name.includes(filter);
-    });
-
-    if (filtered.length === 0) {
-      dropdown.innerHTML = '<div class="autocomplete-item">Aucune structure</div>';
-    } else {
-      dropdown.innerHTML = filtered.map(s => `
-        <div class="autocomplete-item" data-structure-id="${s.id}">
-          ${s.fields.name || 'Sans nom'}
-        </div>
-      `).join('');
-
-      dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const structureId = item.dataset.structureId;
-          input.value = item.textContent;
-          dropdown.classList.add('hidden');
-          debugLog('Structure sélectionnée', { structureId });
-        });
-      });
-    }
-
-    dropdown.classList.remove('hidden');
   });
 }
 
 /* =========================================================
-   EVENT LISTENERS PRINCIPAUX
+   EVENT LISTENERS
    ========================================================= */
 function attachEventListeners() {
   debugLog('attachEventListeners');
-
-  // Navigation
+  
+  // Retour liste
   const btnBack = document.getElementById('btn-back');
   if (btnBack) {
-    btnBack.addEventListener('click', closeProject);
+    btnBack.addEventListener('click', () => {
+      document.getElementById('view-project').classList.add('hidden');
+      document.getElementById('view-list').classList.remove('hidden');
+    });
   }
-
-  const btnNewProject = document.getElementById('btn-new-project');
-  if (btnNewProject) {
-    btnNewProject.addEventListener('click', () => openProjectView(null));
-  }
-
-  // Filtre projets
+  
+  // Recherche projets
   const filterInput = document.getElementById('filter-projects');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
       renderProjectsList(e.target.value);
     });
   }
-
-  // Onglets
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      if (btn.classList.contains('disabled')) {
-        showToast('Onglet non disponible');
+  
+  // Nouveau projet
+  const btnNewProject = document.getElementById('btn-new-project');
+  if (btnNewProject) {
+    btnNewProject.addEventListener('click', () => {
+      showToast('Fonctionnalité à implémenter', false);
+    });
+  }
+  
+  // Ajouter personne
+  const btnNewPerson = document.getElementById('btn-new-person');
+  if (btnNewPerson) {
+    btnNewPerson.addEventListener('click', openPersonModal);
+  }
+  
+  // Sauvegarder personne
+  const btnSavePerson = document.getElementById('btn-save-person');
+  if (btnSavePerson) {
+    btnSavePerson.addEventListener('click', async () => {
+      const prenom = document.getElementById('np-Prenom')?.value.trim();
+      const nom = document.getElementById('np-NOM')?.value.trim();
+      const email = document.getElementById('np-Email')?.value.trim();
+      const structure = document.getElementById('np-Structure')?.value.trim();
+      
+      if (!prenom || !nom) {
+        showToast('Prénom et nom requis', true);
         return;
       }
-
-      // Active tab
+      
+      try {
+        await grist.docApi.applyUserActions([
+          ['AddRecord', 'Annuaire', null, {
+            Prenom: prenom,
+            NOM: nom,
+            Email: email,
+            Structure: structure,
+          }]
+        ]);
+        
+        showToast('Personne ajoutée');
+        document.getElementById('modal-person').classList.add('hidden');
+        
+        state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
+        loadPersons();
+      } catch (err) {
+        debugError('savePerson', err);
+        showToast('Erreur: ' + err.message, true);
+      }
+    });
+  }
+  
+  // Fermer modals
+  document.querySelectorAll('.btn-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.target.closest('.modal').classList.add('hidden');
+    });
+  });
+  
+  document.querySelectorAll('.btn-close-modal').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.modal').classList.add('hidden');
+    });
+  });
+  
+  // Onglets
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
+      
       btn.classList.add('active');
       const tabId = 'tab-' + btn.dataset.tab;
       const tabContent = document.getElementById(tabId);
       if (tabContent) {
         tabContent.classList.add('active');
         
-        // Load data when tab is opened
         if (btn.dataset.tab === 'personnes') {
           loadPersons();
         }
       }
     });
   });
-
-  // Modals
-  initPersonModal();
-  initStructuresAutocomplete();
-
+  
   // Fermeture modals au clic dehors
   document.querySelectorAll('.modal').forEach(modal => {
     modal.addEventListener('click', (e) => {
@@ -650,39 +499,38 @@ function attachEventListeners() {
    ========================================================= */
 async function initializeApp() {
   debugLog('🚀 Attente de l\'API Grist...');
-
+  
   // Attendre que grist soit disponible
   let retries = 0;
   while (typeof grist === 'undefined' && retries < 50) {
     await new Promise(resolve => setTimeout(resolve, 100));
     retries++;
   }
-
+  
   if (typeof grist === 'undefined') {
     debugError('initializeApp', 'Grist API non trouvée après 5 secondes');
     showToast('Erreur: API Grist non disponible', true);
     return;
   }
-
+  
   debugLog('✅ Grist API disponible !');
-
+  
   try {
-    // Appeler grist.ready() une seule fois
+    // Appeler grist.ready()
     await grist.ready({
       requiredAccess: 'full',
     });
-
+    
     debugLog('✅ grist.ready() complété');
-
+    
     // Charger les tables
     await loadAllTables();
-
+    
     // Initialiser UI
-    renderProjectsList();
     attachEventListeners();
-
+    
     debugLog('✨ Application initialisée avec succès');
-
+    
   } catch (err) {
     debugError('Erreur initialisation', err);
     showToast('Erreur d\'initialisation: ' + err.message, true);
