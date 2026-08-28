@@ -4,143 +4,115 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi Projet Innovation S</title>
-    <link rel="stylesheet" href="styles.css">
+    <!-- Fix: Corrected CSS path from styles.css to style.css -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="app-container">
-        <!-- Navigation -->
-        <nav class="navbar">
-            <div class="nav-content">
-                <h1>📊 Suivi Projet Innovation S</h1>
-                <div class="nav-buttons">
-                    <button id="btn-new-project" class="btn btn-primary">➕ Nouveau Projet</button>
+    <!-- Main Container -->
+    <div id="main-container" class="container">
+        <!-- Header -->
+        <header id="header" class="header">
+            <h1>📊 Suivi Projet Innovation S</h1>
+            <nav class="nav">
+                <button id="btn-projects" class="nav-btn active">Projets</button>
+                <button id="btn-tasks" class="nav-btn">Tâches</button>
+                <button id="btn-team" class="nav-btn">Équipe</button>
+                <button id="btn-timeline" class="nav-btn">Timeline</button>
+            </nav>
+        </header>
+
+        <!-- Error Display -->
+        <div id="error-container" class="error-container hidden">
+            <div class="error-message">
+                <span id="error-text"></span>
+                <button id="error-close" class="error-close">&times;</button>
+            </div>
+        </div>
+
+        <!-- View: Projects List -->
+        <div id="view-list" class="view">
+            <div class="view-header">
+                <h2>📋 Liste des Projets</h2>
+                <button id="btn-create-project" class="btn btn-primary">+ Nouveau Projet</button>
+            </div>
+            <div class="table-container">
+                <table id="projects-table" class="table">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Statut</th>
+                            <th>Progression</th>
+                            <th>Propriétaire</th>
+                            <th>Budget</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projects-tbody">
+                        <!-- Projects will be rendered here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- View: Project Details -->
+        <div id="view-project" class="view hidden">
+            <div class="view-header">
+                <button id="btn-back" class="btn btn-secondary">← Retour</button>
+                <h2 id="project-title"></h2>
+            </div>
+            <div class="project-details">
+                <div class="project-info">
+                    <p><strong>Statut:</strong> <span id="project-status"></span></p>
+                    <p><strong>Progression:</strong> <span id="project-progress"></span>%</p>
+                    <p><strong>Propriétaire:</strong> <span id="project-owner"></span></p>
+                    <p><strong>Budget:</strong> <span id="project-budget"></span></p>
+                    <p><strong>Description:</strong> <span id="project-description"></span></p>
+                </div>
+                <div class="project-tasks">
+                    <h3>📌 Tâches</h3>
+                    <div id="tasks-list"></div>
                 </div>
             </div>
-        </nav>
+        </div>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Vue Liste -->
-            <div id="view-list" class="view active">
-                <div class="view-header">
-                    <h2>📋 Liste des Projets</h2>
-                    <div class="filters">
-                        <select id="filter-status" class="filter-select">
-                            <option value="">Tous les statuts</option>
-                            <option value="En cours">En cours</option>
-                            <option value="Planifié">Planifié</option>
-                            <option value="Terminé">Terminé</option>
-                            <option value="En attente">En attente</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="projects-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Nom</th>
-                                <th>Statut</th>
-                                <th>Progression</th>
-                                <th>Propriétaire</th>
-                                <th>Budget</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="projects-tbody">
-                            <!-- Les projets seront insérés ici -->
-                        </tbody>
-                    </table>
-                </div>
+        <!-- View: Tasks -->
+        <div id="view-tasks" class="view hidden">
+            <div class="view-header">
+                <h2>📌 Tâches</h2>
             </div>
+            <div id="tasks-container"></div>
+        </div>
 
-            <!-- Vue Projet -->
-            <div id="view-project" class="view">
-                <div class="view-header">
-                    <button id="btn-back" class="btn btn-secondary">← Retour</button>
-                    <h2 id="project-title">Détails du Projet</h2>
-                </div>
-
-                <div class="project-details">
-                    <div class="detail-section">
-                        <h3>Information Générale</h3>
-                        <div class="detail-grid">
-                            <div class="detail-item">
-                                <label>Nom</label>
-                                <p id="detail-name"></p>
-                            </div>
-                            <div class="detail-item">
-                                <label>Statut</label>
-                                <p id="detail-status"></p>
-                            </div>
-                            <div class="detail-item">
-                                <label>Progression</label>
-                                <div class="progress-bar">
-                                    <div id="detail-progress" class="progress-fill"></div>
-                                </div>
-                                <span id="detail-progress-text">0%</span>
-                            </div>
-                            <div class="detail-item">
-                                <label>Propriétaire</label>
-                                <p id="detail-owner"></p>
-                            </div>
-                            <div class="detail-item">
-                                <label>Budget</label>
-                                <p id="detail-budget"></p>
-                            </div>
-                            <div class="detail-item">
-                                <label>Dates</label>
-                                <p id="detail-dates"></p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="detail-section">
-                        <h3>Description</h3>
-                        <p id="detail-description"></p>
-                    </div>
-
-                    <div class="detail-section">
-                        <h3>Tâches</h3>
-                        <div id="tasks-list" class="tasks-list">
-                            <!-- Les tâches seront insérées ici -->
-                        </div>
-                    </div>
-
-                    <div class="detail-section">
-                        <h3>Équipe</h3>
-                        <div id="team-list" class="team-list">
-                            <!-- L'équipe sera insérée ici -->
-                        </div>
-                    </div>
-
-                    <div class="detail-section">
-                        <h3>Chronologie</h3>
-                        <div id="timeline-list" class="timeline-list">
-                            <!-- La chronologie sera insérée ici -->
-                        </div>
-                    </div>
-                </div>
+        <!-- View: Team -->
+        <div id="view-team" class="view hidden">
+            <div class="view-header">
+                <h2>👥 Équipe</h2>
             </div>
+            <div id="team-container"></div>
+        </div>
 
-            <!-- Zone d'erreur -->
-            <div id="error-container" class="error-container"></div>
-        </main>
+        <!-- View: Timeline -->
+        <div id="view-timeline" class="view hidden">
+            <div class="view-header">
+                <h2>📅 Timeline</h2>
+            </div>
+            <div id="timeline-container"></div>
+        </div>
     </div>
 
-    <!-- Scripts - Ordre important ! -->
-    <!-- 1. Grist Plugin API (REQUIRED - must be first) -->
+    <!-- Scripts in correct order -->
+    <!-- 1. Grist Plugin API - MUST be first -->
     <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-
-    <!-- 2. Core modules (in order) -->
+    
+    <!-- 2. Core modules - in dependency order -->
     <script src="js/core/utils.js"></script>
     <script src="js/core/state.js"></script>
     <script src="js/core/grist-api.js"></script>
-
-    <!-- 3. Application -->
+    
+    <!-- 3. App - depends on all core modules -->
     <script src="js/app.js"></script>
-
-    <!-- 4. External (Cloudflare Insights - optional) -->
-    <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925"></script>
+    
+    <!-- 4. Analytics (optional, at the end) -->
+    <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg==" data-cf-beacon='{"token": "a6e2e8b2db1946eba87bab67cbb906be"}' async></script>
 </body>
 </html>
