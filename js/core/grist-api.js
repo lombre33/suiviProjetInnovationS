@@ -1,69 +1,70 @@
 /**
  * Grist API Module
- * Loads the tables used by the application through the Grist widget API.
+ * Loads the real Grist tables and normalizes them for the UI.
  */
+(function (global) {
+  'use strict';
 
-class CoreGrist {
-  static ready() {
-    return Promise.resolve(window.grist);
+  const TABLE_NAMES = ['Projets', 'Annuaire', 'Postes2', 'Structures',
+    'Programmes', 'Etablissements', 'Suivi_Instance', 'EcritureComptables'];
+
+  // docApi.fetchTable returns column-oriented data; the UI consumes records.
+  function toRecords(table) {
+    if (!table || !Array.isArray(table.id)) return [];
+    const columns = Object.keys(table).filter(key => key !== 'id');
+    return table.id.map((id, index) => {
+      const record = { id };
+      columns.forEach(column => { record[column] = table[column]?.[index]; });
+      return record;
+    });
   }
 
-  static async getTable(tableName) {
-    const grist = window.grist;
-    if (!grist) {
-      console.error('❌ Grist API not available');
-      return null;
-    }
-    console.log(`📋 Getting table: ${tableName}`);
-    return grist.getTable(tableName);
-  }
-
-  static async fetchTable(tableName) {
-    const table = await this.getTable(tableName);
-    if (!table) throw new Error(`Table not found: ${tableName}`);
-    return table.fetchSelectedTable();
-  }
-
-  /** Fetch the application tables, retaining an empty array for unavailable optional tables. */
-  static async loadAllTables() {
-    const tables = {
-      Projets: 'Projets',
-      Taches: 'Tâches',
-      Equipe: 'Annuaire',
-      Timeline: 'Timeline'
-    };
-    const result = {};
-    await Promise.all(Object.entries(tables).map(async ([key, name]) => {
-      try {
-        result[key] = await this.fetchTable(name);
-      } catch (error) {
-        console.warn(`⚠️ [CoreGrist] Table unavailable (${name}):`, error.message);
-        result[key] = [];
-      }
+  function mapProjects(rows, annuaire) {
+    const people = new Map(annuaire.map(person => [person.id, person.nom_et_Prenom ||
+      [person.Prenom, person.NOM].filter(Boolean).join(' ')]));
+    return rows.map(project => ({
+      ...project,
+      // Display aliases keep the existing renderer independent from Grist names.
+      Nom: project.Projet || project.Acronyme || '',
+      Statut: project.Statut_Macro || project.Statut_operationnel_projet || '',
+      Progression: Number(project.Progression ?? 0),
+      Propriétaire: people.get(project.Porteur_1) || '',
+      Budget: project.Total_2026 || project.Montant_annuel_charge_attribue || 0
     }));
-    return result;
   }
 
-  static async fetchProjects() {
-    try { return await this.fetchTable('Projets'); }
-    catch (error) { console.error('❌ [CoreGrist] Error fetching projects:', error); return null; }
-  }
-
-  static async fetchTasks(projectId = null) {
-    try { return await this.fetchTable('Tâches'); }
-    catch (error) { console.error('❌ [CoreGrist] Error fetching tasks:', error); return null; }
-  }
-
-  static async fetchTeamMembers() {
-    try { return await this.fetchTable('Annuaire'); }
-    catch (error) { console.error('❌ [CoreGrist] Error fetching team members:', error); return null; }
-  }
-
-  static async fetchTimeline() {
-    try { return await this.fetchTable('Timeline'); }
-    catch (error) { console.error('❌ [CoreGrist] Error fetching timeline:', error); return null; }
-  }
-}
-
-window.CoreGrist = CoreGrist;
-console.log('✅ [CoreGrist] Module loaded');
+  let gristInstance = null;
+  let readyPromise = null;
+  const CoreGrist = {
+    get gristInstance() { return gristInstance; },
+    ready(timeoutMs = 10000) {
+      if (readyPromise) return readyPromise;
+      readyPromise = (async () => {
+        const maxWait = Date.now() + timeoutMs;
+        while (!window.grist && Date.now() < maxWait) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        if (!window.grist) throw new Error(`Grist API non disponible après ${timeoutMs} ms`);
+        await window.grist.ready({ requiredAccess: 'full' });
+        gristInstance = window.grist;
+        return gristInstance;
+      })();
+      return readyPromise;
+    },
+    async getTable(name) {
+      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      const data = await gristInstance.docApi.fetchTable(name);
+      return toRecords(data);
+    },
+    async loadAllTables() {
+      const entries = await Promise.all(TABLE_NAMES.map(async name => {
+        try { return [name, await this.getTable(name)]; }
+        catch (err) { console.warn(`Table ${name} failed:`, err.message); return [name, []]; }
+      }));
+      const result = Object.fromEntries(entries);
+      result.Projets = mapProjects(result.Projets || [], result.Annuaire || []);
+      return result;
+    }
+  };
+  global.CoreGrist = CoreGrist;
+})(window);
