@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi Projet Innovation S</title>
-    <!-- Fix: Corrected CSS path from styles.css to style.css -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,10 +13,11 @@
         <header id="header" class="header">
             <h1>📊 Suivi Projet Innovation S</h1>
             <nav class="nav">
-                <button id="btn-projects" class="nav-btn active">Projets</button>
-                <button id="btn-tasks" class="nav-btn">Tâches</button>
-                <button id="btn-team" class="nav-btn">Équipe</button>
-                <button id="btn-timeline" class="nav-btn">Timeline</button>
+                <button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button>
+                <button id="btn-administratif" class="nav-btn" data-view="view-administratif">Administratif</button>
+                <button id="btn-installation-fonds" class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button>
+                <button id="btn-suivi-operationnel" class="nav-btn" data-view="view-suivi-operationnel">Suivi opérationnel</button>
+                <button id="btn-todo" class="nav-btn" data-view="view-todo">To Do</button>
             </nav>
         </header>
 
@@ -30,7 +30,7 @@
         </div>
 
         <!-- View: Projects List -->
-        <div id="view-list" class="view">
+        <div id="view-projects" class="view">
             <div class="view-header">
                 <h2>📋 Liste des Projets</h2>
                 <button id="btn-create-project" class="btn btn-primary">+ Nouveau Projet</button>
@@ -39,17 +39,10 @@
                 <table id="projects-table" class="table">
                     <thead>
                         <tr>
-                            <th>Nom</th>
-                            <th>Statut</th>
-                            <th>Progression</th>
-                            <th>Propriétaire</th>
-                            <th>Budget</th>
-                            <th>Actions</th>
+                            <th>Nom</th><th>Statut</th><th>Progression</th><th>Propriétaire</th><th>Budget</th><th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="projects-tbody">
-                        <!-- Projects will be rendered here -->
-                    </tbody>
+                    <tbody id="projects-tbody"></tbody>
                 </table>
             </div>
         </div>
@@ -68,51 +61,37 @@
                     <p><strong>Budget:</strong> <span id="project-budget"></span></p>
                     <p><strong>Description:</strong> <span id="project-description"></span></p>
                 </div>
-                <div class="project-tasks">
-                    <h3>📌 Tâches</h3>
-                    <div id="tasks-list"></div>
-                </div>
+                <div class="project-tasks"><h3>📌 Tâches</h3><div id="tasks-list"></div></div>
             </div>
         </div>
 
-        <!-- View: Tasks -->
-        <div id="view-tasks" class="view hidden">
-            <div class="view-header">
-                <h2>📌 Tâches</h2>
-            </div>
-            <div id="tasks-container"></div>
-        </div>
-
-        <!-- View: Team -->
-        <div id="view-team" class="view hidden">
-            <div class="view-header">
-                <h2>👥 Équipe</h2>
-            </div>
-            <div id="team-container"></div>
-        </div>
-
-        <!-- View: Timeline -->
-        <div id="view-timeline" class="view hidden">
-            <div class="view-header">
-                <h2>📅 Timeline</h2>
-            </div>
-            <div id="timeline-container"></div>
-        </div>
+        <!-- Navigation socle : contenus fonctionnels ajoutés dans les étapes suivantes -->
+        <section id="view-administratif" class="view hidden placeholder-view" aria-labelledby="administratif-title">
+            <div class="view-header"><h2 id="administratif-title">📁 Administratif</h2></div>
+            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
+        </section>
+        <section id="view-installation-fonds" class="view hidden placeholder-view" aria-labelledby="installation-fonds-title">
+            <div class="view-header"><h2 id="installation-fonds-title">💶 Installation des fonds</h2></div>
+            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
+        </section>
+        <section id="view-suivi-operationnel" class="view hidden placeholder-view" aria-labelledby="suivi-operationnel-title">
+            <div class="view-header"><h2 id="suivi-operationnel-title">📈 Suivi opérationnel</h2></div>
+            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
+        </section>
+        <section id="view-todo" class="view hidden placeholder-view" aria-labelledby="todo-title">
+            <div class="view-header"><h2 id="todo-title">✅ To Do</h2></div>
+            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
+        </section>
     </div>
 
     <!-- Scripts in correct order -->
     <!-- 1. Grist Plugin API - MUST be first -->
     <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-    
     <!-- 2. Core modules - in dependency order -->
     <script src="js/core/utils.js"></script>
     <script src="js/core/state.js"></script>
     <script src="js/core/grist-api.js"></script>
-    
     <!-- 3. App - depends on all core modules -->
     <script src="js/app.js"></script>
-    
-    <!-- 4. Analytics (optional, at the end) -->
-    <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg==" data-cf-beacon='{"token": "a6e2e8b2db1946eba87bab67cbb906be"}' async></script>
 </body>
 </html>

@@ -1,95 +1,65 @@
 1. Contexte & objectif
 
-Custom widget Grist (HTML/CSS/JS vanilla, sans build), hébergé sur GitHub Pages, chargé dans une vue Grist via URL de déploiement. Objectif : offrir une interface de suivi et de saisie plus agréable que les vues natives Grist pour le pilotage des projets d'innovation de l'Université de Bordeaux, sur tout le cycle : instruction administrative → notifications → convention → installation des fonds → suivi opérationnel/financier.
-
-Il n'y a pas de gestion de permissions côté widget : Grist gère déjà les droits ; le widget doit simplement afficher un message clair si une donnée/action est inaccessible.
 2. Architecture applicative cible
-
-Multi-pages, sans routeur lourd, sans bundler, pour rester simple à héberger sur GitHub Pages et facile à déboguer :
-
-    Une seule connexion Grist (grist.ready() + chargement des tables) exécutée une fois, dans un module dédié, avec un cache de données partagé exposé aux pages.
-    Chaque page = un module JS indépendant qui ne fait que lire le cache et écrire via grist.docApi.applyUserActions().
-    Navigation par onglets horizontaux (show/hide de sections, pas de rechargement de page), pour ne jamais perdre le contexte de chargement Grist.
-    Les popups (fiche projet, fiche personne, fiche poste) sont des composants globaux réutilisables, invocables depuis n'importe quelle page.
 
 Arborescence proposée
 
-/index.html                 → structure DOM de toutes les pages + modales (une seule page HTML)
-/style.css                  → styles globaux (thème bleu)
 /js/
   core/
-    grist-api.js            → wrapper grist.ready(), fetchTable, applyUserActions, cache des tables
-    state.js                → état global minimal (table cache, filtres actifs, projet en cours d'édition)
-    utils.js                → toRecords, findLabelForRef, formatDate, debugLog/Error
-    router.js                → gestion simple d'affichage des 5 onglets (show/hide + init page au switch)
   components/
-    toast.js
-    modal.js                 → moteur générique d'ouverture/fermeture de modale (évite duplication)
-    search-select.js         → composant liste déroulante/autocomplétion référence Grist
-    person-select.js         → sélecteur de porteur/personne + création à la volée
-    project-modal.js         → popup complète fiche projet (saisie/édition), réutilisée par toutes les pages
-    person-modal.js          → popup fiche personne/poste
   pages/
-    page-projets.js          → Kanban 5 colonnes + filtres
-    page-administratif.js    → 4 volets repliables + filtres
-    page-installation-fonds.js
-    page-suivi-operationnel.js
-    page-todo.js              → coquille Kanban vide (V1)
+
 docs/
   SPEC.md                    → ce document
-  grist_structure             → export schéma Grist (déjà en place)
-
-Pourquoi cette séparation limite la casse : une erreur dans page-todo.js ne peut pas empêcher page-projets.js de fonctionner, puisque chaque page est un module isolé n'écrivant que dans son propre espace de noms, et le cache de données (core/state.js) est en lecture seule pour les pages.
-3. Chargement des données (point critique de stabilité)
-
-    core/grist-api.js appelle grist.ready() une seule fois au démarrage, avant tout autre script, puis charge en parallèle (Promise.all) toutes les tables nécessaires : Projets, Annuaire, Postes2, Structures, Programmes, Etablissements, Suivi_Instance, EcritureComptables, Notifications.
-    Une fois le chargement terminé, un événement interne (onDataReady) déclenche l'initialisation de la page active uniquement.
-    Après chaque écriture (AddRecord/UpdateRecord), seule la table concernée est re-fetchée et le cache mis à jour, puis un re-render ciblé est déclenché (pas de rechargement complet systématique).
 
 4. Pages — spécification fonctionnelle
 4.1 Page Projets
 
-    Bandeau de filtre : Programme, Instance rattachée, recherche libre sur Acronyme.
-    Kanban 5 colonnes en lecture seule côté rangement (pas de drag & drop) : Instruction, Notifications, Conventions, Installation des fonds, Projet en cours, alimentées par la colonne formule Statut_Macro.
-    Carte projet : Acronyme, nom du porteur principal (Porteur_1), sous-statut pertinent selon la colonne (Notifications/Conventions/Financier), badge visuel si Convention_de_reversement = true.
-    Clic sur carte → ouvre project-modal.js en mode édition.
-    Bouton "Nouveau projet" → ouvre project-modal.js en mode création (UI déjà quasi finalisée, pas de changement macro).
-
-Mapping statut macro → colonne Kanban (à coder en dur côté JS à partir de la valeur de Statut_Macro, cf. valeurs listées par l'utilisateur : Pré-instruction, Notifications (+ sous-cas Convention), Installation des fonds, Projet en cours).
 4.2 Page Administratif
 
-    Même bandeau de filtre.
-    4 volets accordéon horizontaux : To do (ouvert par défaut, vide pour l'instant), Suivi Convention, Suivi Notifications, Pré-instruction (repliés par défaut).
-    Chaque volet déplié affiche un tableau des projets correspondant à son statut, ligne cliquable → ouvre project-modal.js.
+Même bandeau de filtre.
 
 4.3 Page Installation des fonds
 
-    Filtre + liste des projets dont Statut_Macro = Installation des fonds, avec distinction visuelle des 3 sous-statuts (Finance_En Attente Gestionnaire Porteur, Finance_En_Attention_gestionnaire_DR, Finance_Demande IGEO Faite en attente DF), qui serviront aussi de clé de répartition pour le Kanban To Do (V2).
-
 4.4 Page Suivi Opérationnel
-
-    Filtre + liste des projets Statut_Macro = Projet en cours, basée sur Statut_operationnel_projet.
 
 4.5 Page To Do (coquille V1)
 
-    Filtre + Kanban 5 colonnes fixes : Accompagnateur de l'innovation, Équipe InnovationS, Gestionnaire Porteur, Direction des Ressources, Direction des Finances.
-    Mapping (à implémenter en V1 comme structure, sans critère de date en V2) :
-        Pré-instruction → Accompagnateur
-        Notifications/Convention → Équipe InnovationS
-        Installation des fonds / Gestionnaire Porteur → Gestionnaire Porteur
-        Installation des fonds / DR → Direction des Ressources
-        Installation des fonds / DF → Direction des Finances
-    Aucune logique de priorisation par date en V1 : juste le rangement par statut macro/sous-statut, prêt à être affiné en V2.
+Pré-instruction → Accompagnateur
+Notifications/Convention → Équipe InnovationS
 
 5. Composant transverse : popup Fiche Projet
 
-Réutilisé sur toutes les pages, ouvert en superposition (modal), sans perte du contexte de la page appelante (filtres, scroll Kanban conservés). Contenu repris de l'existant : onglets internes (Administratif actif, Fonds/Opérationnel/Financier à activer progressivement), champs déjà spécifiés dans les échanges précédents (porteurs, programme, instance, dates, budget prévisionnel par nature/année, OPE, convention).
 6. Schéma Grist de référence
 
-Le détail complet des tables Projets, Annuaire, Postes2, Structures, Programmes, Etablissements, Suivi_Instance, EcritureComptables, Notifications (colonnes, types, références, formules) est documenté dans docs/grist_structure. Point d'attention relevé : les valeurs autorisées des colonnes Choice/ChoiceList n'y sont pas listées explicitement — elles devront être confirmées au fil de l'implémentation (plusieurs sont déjà connues par l'usage : Statut_Macro, Statut_operationnel_projet, Type_projet, etc.).
-7. Dette technique identifiée à corriger dans la refonte
+Chargement séquentiel des tables → paralléliser.
 
-    Chargement séquentiel des tables → paralléliser.
-    IDs DOM et état global très couplés → conserver la convention de nommage (f-, np-, npp-) mais l'encapsuler derrière des fonctions d'accès plutôt que des getElementById épars.
-    requiredAccess: 'full' : à garder tel quel puisque le widget écrit dans plusieurs tables, mais à documenter explicitement.
-    Pas de destruction des event listeners lors de réouvertures répétées de modales → passer par le composant modal.js générique avec cleanup systématique.
+---
+
+## Journal technique / État d'avancement
+
+### 28 août 2026 — Étape 1 : socle navigation
+
+**État fonctionnel constaté avant modification**
+
+- L'interface statique se charge depuis `index.html` avec `style.css` et la chaîne de scripts Grist/core/app dans l'ordre attendu.
+- La navigation proposait quatre vues côté client, sans rechargement de page : Projets, Tâches, Équipe et Timeline.
+- Le démarrage attendait `CoreUtils`, `CoreState` et `CoreGrist`, réalisait le handshake Grist, chargeait les tables via `CoreGrist.loadAllTables()`, puis les enregistrait dans `CoreState`.
+- La vue Projets rendait un tableau simple (nom, statut, progression, propriétaire, budget et actions Voir/Éditer/Supprimer), avec fiche projet accessible par Voir.
+- `CoreUtils.escapeHtml` et `CoreUtils.formatCurrency` étaient utilisés par le rendu des projets.
+
+**Travail réalisé dans cette étape**
+
+- Remplacement des quatre boutons par cinq onglets conformes au cahier des charges : Projets, Administratif, Installation des fonds, Suivi opérationnel et To Do.
+- Mise en place d'un routeur JS minimal par affichage/masquage des sections (`data-view` + `showView`), sans rechargement de page.
+- Conservation temporaire du tableau Projets existant ; les quatre nouvelles rubriques affichent un placeholder en attendant les étapes fonctionnelles dédiées.
+
+**Périmètre volontairement non modifié**
+
+- Les modules de chargement Grist (`js/core/grist-api.js`, `js/core/state.js`) n'ont pas été modifiés.
+- `js/core/utils.js` et `CoreUtils.escapeHtml` / `CoreUtils.formatCurrency` n'ont pas été modifiés.
+- Aucun nom de colonne Grist n'a été changé ; le Kanban et les adaptations au schéma réel sont reportés à l'étape 2.
+
+**À tester manuellement**
+
+Après publication GitHub Pages, effectuer `Ctrl+Shift+R`, vérifier l'absence d'erreur JavaScript dans la console, le chargement des projets depuis Grist et le basculement entre les cinq onglets.
