@@ -96,4 +96,5 @@ class CoreGrist {
   }
 }
 
+window.CoreGrist = CoreGrist;
 console.log('✅ [CoreGrist] Module loaded');
