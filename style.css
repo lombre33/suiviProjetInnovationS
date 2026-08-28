@@ -1,4 +1,4 @@
-/* Existing styles retained. */
+/* Base stylesheet retained for existing views. */
 
 /* Étape 1 — navigation socle et vues placeholder */
 .nav { display: flex; flex-wrap: wrap; gap: 8px; }
