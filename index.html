@@ -1,280 +1,146 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gestion Projets et Personnes</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi Projet Innovation S</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <!-- Navigation par onglets -->
-    <div class="tabs">
-      <button class="tab-button active" data-tab="tab-projets">Projets</button>
-      <button class="tab-button" data-tab="tab-personnes">Personnes</button>
-    </div>
+    <div id="app-container">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-content">
+                <h1>📊 Suivi Projet Innovation S</h1>
+                <div class="nav-buttons">
+                    <button id="btn-new-project" class="btn btn-primary">➕ Nouveau Projet</button>
+                </div>
+            </div>
+        </nav>
 
-    <!-- TAB PROJETS -->
-    <div id="tab-projets" class="tab-content active">
-      <div class="section-header">
-        <h2>Gestion des Projets</h2>
-        <button id="btn-create-project" class="btn btn-primary">+ Créer un projet</button>
-      </div>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Vue Liste -->
+            <div id="view-list" class="view active">
+                <div class="view-header">
+                    <h2>📋 Liste des Projets</h2>
+                    <div class="filters">
+                        <select id="filter-status" class="filter-select">
+                            <option value="">Tous les statuts</option>
+                            <option value="En cours">En cours</option>
+                            <option value="Planifié">Planifié</option>
+                            <option value="Terminé">Terminé</option>
+                            <option value="En attente">En attente</option>
+                        </select>
+                    </div>
+                </div>
 
-      <div id="projects-list" class="list-container">
-        <!-- Les projets seront affichés ici -->
-      </div>
-    </div>
-
-    <!-- TAB PERSONNES -->
-    <div id="tab-personnes" class="tab-content">
-      <div class="section-header">
-        <h2>Gestion des Personnes</h2>
-        <button id="btn-create-person" class="btn btn-primary">+ Créer une personne</button>
-      </div>
-
-      <div id="persons-list" class="list-container">
-        <!-- Les personnes seront affichées ici -->
-      </div>
-    </div>
-  </div>
-
-  <!-- ========== MODALES ========== -->
-
-  <!-- MODALE FORMULAIRE PROJET -->
-  <div id="modal-project-form" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Formulaire Projet</h2>
-        <button class="modal-close">&times;</button>
-      </div>
-
-      <form id="project-form" class="form">
-        <!-- SECTION GENERAL -->
-        <fieldset class="form-section">
-          <legend>Informations Générales</legend>
-
-          <div class="form-group">
-            <label for="project-programme">Programme *</label>
-            <select id="project-programme" required>
-              <option value="">Sélectionner un programme...</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-name">Nom du projet *</label>
-            <input type="text" id="project-name" required>
-          </div>
-
-          <div class="form-group">
-            <label for="project-acronyme">Acronyme *</label>
-            <input type="text" id="project-acronyme" required>
-          </div>
-
-          <div class="form-group">
-            <label for="project-commentaire">Commentaire général (facultatif)</label>
-            <textarea id="project-commentaire" rows="3"></textarea>
-          </div><div class="form-group">
-            <label for="project-statut">Statut opérationnel projet *</label>
-            <select id="project-statut" required>
-              <option value="En attente des dispo des fonds">En attente des dispo des fonds</option>
-              <option value="En cours">En cours</option>
-              <option value="Terminé">Terminé</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-type">Type projet *</label>
-            <select id="project-type" required>
-              <option value="Projet">Projet</option>
-              <option value="Prolongation">Prolongation</option>
-            </select>
-          </div>
-        </fieldset>
-
-        <!-- SECTION PORTEURS -->
-        <fieldset class="form-section">
-          <legend>Porteurs et Accompagnateur</legend>
-
-          <div class="form-group">
-            <label for="project-porteur-1">Porteur 1</label>
-            <input type="text" id="project-porteur-1" placeholder="Chercher un porteur...">
-          </div>
-
-          <div class="form-group">
-            <label for="project-vp-porteur-2">VP Porteur 2</label>
-            <input type="text" id="project-vp-porteur-2" placeholder="Chercher un VP...">
-          </div><div class="form-group">
-            <label for="project-accompagnateur">Accompagnateur</label>
-            <input type="text" id="project-accompagnateur" placeholder="Chercher un accompagnateur...">
-          </div>
-        </fieldset>
-
-        <!-- SECTION ADMINISTRATIF -->
-        <fieldset class="form-section">
-          <legend>Administratif</legend>
-
-          <div class="form-group">
-            <label for="project-instance">Instance rattachée</label>
-            <select id="project-instance">
-              <option value="">Sélectionner une instance...</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-date-limite">Date limite de financement</label>
-            <input type="date" id="project-date-limite">
-            <small>Format : jj/mm/aaaa ou sélecteur calendrier</small>
-          </div>
-
-          <!-- BLOC OPE -->
-          <div class="sub-section">
-            <h4>Gestion des OPE</h4>
-
-            <div class="form-group">
-              <label for="project-ope">Numéro OPE</label>
-              <input type="text" id="project-ope" placeholder="Chercher une OPE..." autocomplete="off">
-              <small>Sélectionner une OPE existante ou créer une nouvelle</small>
-            </div><div class="form-group">
-              <label>Structure d'installation</label>
-              <div id="project-ope-structure-display" class="readonly-field">
-                <!-- Rempli automatiquement -->
-              </div>
+                <div class="projects-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nom</th>
+                                <th>Statut</th>
+                                <th>Progression</th>
+                                <th>Propriétaire</th>
+                                <th>Budget</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="projects-tbody">
+                            <!-- Les projets seront insérés ici -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
-            <div class="form-group">
-              <label for="project-commentaire-ope">Commentaire ligne OPE</label>
-              <textarea id="project-commentaire-ope" rows="2"></textarea>
+            <!-- Vue Projet -->
+            <div id="view-project" class="view">
+                <div class="view-header">
+                    <button id="btn-back" class="btn btn-secondary">← Retour</button>
+                    <h2 id="project-title">Détails du Projet</h2>
+                </div>
+
+                <div class="project-details">
+                    <div class="detail-section">
+                        <h3>Information Générale</h3>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <label>Nom</label>
+                                <p id="detail-name"></p>
+                            </div>
+                            <div class="detail-item">
+                                <label>Statut</label>
+                                <p id="detail-status"></p>
+                            </div>
+                            <div class="detail-item">
+                                <label>Progression</label>
+                                <div class="progress-bar">
+                                    <div id="detail-progress" class="progress-fill"></div>
+                                </div>
+                                <span id="detail-progress-text">0%</span>
+                            </div>
+                            <div class="detail-item">
+                                <label>Propriétaire</label>
+                                <p id="detail-owner"></p>
+                            </div>
+                            <div class="detail-item">
+                                <label>Budget</label>
+                                <p id="detail-budget"></p>
+                            </div>
+                            <div class="detail-item">
+                                <label>Dates</label>
+                                <p id="detail-dates"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Description</h3>
+                        <p id="detail-description"></p>
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Tâches</h3>
+                        <div id="tasks-list" class="tasks-list">
+                            <!-- Les tâches seront insérées ici -->
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Équipe</h3>
+                        <div id="team-list" class="team-list">
+                            <!-- L'équipe sera insérée ici -->
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Chronologie</h3>
+                        <div id="timeline-list" class="timeline-list">
+                            <!-- La chronologie sera insérée ici -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="form-group">
-              <label for="project-action-ope">Action à faire</label>
-              <select id="project-action-ope">
-                <option value="à determiner">à determiner</option>
-                <option value="Creation de ligne">Creation de ligne</option>
-                <option value="Prolongation de ligne">Prolongation de ligne</option>
-                <option value="re-Abondement de ligne">re-Abondement de ligne</option>
-                <option value="ligné validée">ligné validée</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- BLOC CONVENTION -->
-          <div class="sub-section">
-            <h4>Convention de reversement (Facultatif)</h4>
-
-            <div class="form-group">
-              <label for="project-convention-bool">Convention nécessaire</label>
-              <input type="checkbox" id="project-convention-bool">
-            </div><div class="form-group" id="convention-partenaires-group" style="display: none;">
-              <label for="project-convention-partenaires">Partenaires convention</label>
-              <input type="text" id="project-convention-partenaires" placeholder="Chercher des établissements..." autocomplete="off">
-              <small>Sélectionner les établissements partenaires (références multiples)</small>
-            </div>
-          </div>
-        </fieldset>
-
-        <!-- BOUTONS -->
-        <div class="form-actions">
-          <button type="button" id="btn-save-project" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-project" class="btn btn-secondary">Annuler</button>
-        </div>
-      </form>
+            <!-- Zone d'erreur -->
+            <div id="error-container" class="error-container"></div>
+        </main>
     </div>
-  </div>
 
-  <!-- MODALE FORMULAIRE PERSONNE -->
-  <div id="modal-person-form" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Formulaire Personne</h2>
-        <button class="modal-close">&times;</button>
-      </div>
+    <!-- Scripts - Ordre important ! -->
+    <!-- 1. Grist Plugin API (REQUIRED - must be first) -->
+    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 
-      <form id="person-form" class="form">
-        <div class="form-group">
-          <label for="person-nom">Nom *</label>
-          <input type="text" id="person-nom" required>
-        </div>
+    <!-- 2. Core modules (in order) -->
+    <script src="js/core/utils.js"></script>
+    <script src="js/core/state.js"></script>
+    <script src="js/core/grist-api.js"></script>
 
-        <div class="form-group">
-          <label for="person-prenom">Prénom *</label>
-          <input type="text" id="person-prenom" required>
-        </div><div class="form-group">
-          <label for="person-email">Email</label>
-          <input type="email" id="person-email">
-        </div>
+    <!-- 3. Application -->
+    <script src="js/app.js"></script>
 
-        <div class="form-group">
-          <label for="person-telephone">Téléphone</label>
-          <input type="tel" id="person-telephone">
-        </div>
-
-        <div class="form-group">
-          <label>Poste associé</label>
-          <div id="person-poste" class="poste-display">
-            <!-- Affichage du poste avec bouton édition -->
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button type="button" id="btn-save-person" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-person" class="btn btn-secondary">Annuler</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- MODALE FORMULAIRE POSTE -->
-  <div id="modal-post-form" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Formulaire Poste</h2>
-        <button class="modal-close">&times;</button>
-      </div>
-
-      <form id="post-form" class="form">
-        <div class="form-group">
-          <label for="post-titre">Titre du poste *</label>
-          <input type="text" id="post-titre" required>
-        </div>
-
-        <div class="form-group">
-          <label for="post-precisions">Précisions du poste</label>
-          <textarea id="post-precisions" rows="3"></textarea>
-        </div><div class="form-group">
-          <label for="post-structure">Structure *</label>
-          <input type="text" id="post-structure" required placeholder="Sélectionner une structure...">
-        </div>
-
-        <div class="form-group">
-          <label for="post-mission">Mission principale</label>
-          <input type="text" id="post-mission">
-        </div>
-
-        <div class="form-group">
-          <label for="post-employeur">Employeur/Tutelle</label>
-          <input type="text" id="post-employeur" placeholder="Sélectionner un employeur...">
-        </div>
-
-        <div class="form-group">
-          <label for="post-date-fin">Date de fin</label>
-          <input type="date" id="post-date-fin">
-        </div>
-
-        <div class="form-actions">
-          <button type="button" id="btn-save-post" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-post" class="btn btn-secondary">Annuler</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Initialization contract: Grist API first; dependencies in order; app last. -->
-  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-  <script src="js/core/utils.js"></script>
-  <script src="js/core/state.js"></script>
-  <script src="js/core/grist-api.js"></script>
-  <script src="js/app.js"></script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
+    <!-- 4. External (Cloudflare Insights - optional) -->
+    <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925"></script>
 </body>
 </html>
