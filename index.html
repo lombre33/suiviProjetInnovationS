@@ -3,289 +3,182 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gestion Projets et Personnes</title>
+  <title>Suivi Projets Innovation</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <!-- Navigation par onglets -->
+  <!-- ========== TOPBAR ========== -->
+  <div class="topbar">
+    <div class="brand">
+      Suivi <span class="brand-dot">Projets</span>
+    </div>
     <div class="tabs">
-      <button class="tab-button active" data-tab="tab-projets">Projets</button>
-      <button class="tab-button" data-tab="tab-personnes">Personnes</button>
+      <button class="tab-btn active" data-tab="projets">Projets</button>
+      <button class="tab-btn" data-tab="personnes">Personnes</button>
     </div>
+  </div>
 
-    <!-- TAB PROJETS -->
-    <div id="tab-projets" class="tab-content active">
+  <!-- ========== MAIN CONTAINER ========== -->
+  <div class="container">
+    
+    <!-- VIEW: LISTE DES PROJETS -->
+    <div id="view-list" class="view">
       <div class="section-header">
-        <h2>Gestion des Projets</h2>
-        <button id="btn-create-project" class="btn btn-primary">+ Créer un projet</button>
+        <h1>Gestion des Projets</h1>
+        <button id="btn-new-project" class="btn btn-primary">+ Créer un projet</button>
       </div>
 
-      <div id="projects-list" class="list-container">
-        <!-- Les projets seront affichés ici -->
+      <div class="search-bar">
+        <input id="search-input" type="text" placeholder="Chercher un projet...">
+      </div>
+
+      <div id="projects-list" class="projects-list">
+        <!-- Les projets seront générés en JS -->
       </div>
     </div>
 
-    <!-- TAB PERSONNES -->
-    <div id="tab-personnes" class="tab-content">
-      <div class="section-header">
-        <h2>Gestion des Personnes</h2>
-        <button id="btn-create-person" class="btn btn-primary">+ Créer une personne</button>
-      </div>
+    <!-- VIEW: DÉTAIL D'UN PROJET -->
+    <div id="view-project" class="view hidden">
+      <button id="btn-back" class="btn btn-secondary">← Retour à la liste</button>
+      
+      <div class="project-detail">
+        <h2 id="project-title">Détail du projet</h2>
+        
+        <!-- Section Porteurs -->
+        <div class="section">
+          <h3>Porteurs et Accompagnement</h3>
+          <div class="form-group">
+            <label>Porteur 1</label>
+            <div class="search-select" data-field="Porteur_1">
+              <input class="search-input" type="text" placeholder="Chercher un porteur...">
+              <div class="search-dropdown hidden"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>VP Porteur 2</label>
+            <div class="search-select" data-field="VP_Porteur_2">
+              <input class="search-input" type="text" placeholder="Chercher un VP...">
+              <div class="search-dropdown hidden"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Accompagnateur</label>
+            <div class="search-select" data-field="Accompagnateur">
+              <input class="search-input" type="text" placeholder="Chercher un accompagnateur...">
+              <div class="search-dropdown hidden"></div>
+            </div>
+          </div>
+        </div>
 
-      <div id="persons-list" class="list-container">
-        <!-- Les personnes seront affichées ici -->
+        <!-- Section Administratif -->
+        <div class="section">
+          <h3>Administratif</h3>
+          <div class="form-group">
+            <label>Instance rattachée</label>
+            <select id="field-Instance_rattachée" class="form-control">
+              <option value="">-- Sélectionner une instance --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Date limite de financement</label>
+            <input id="field-Date_limite" type="date" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>Programme</label>
+            <select id="field-Programme" class="form-control">
+              <option value="">-- Sélectionner un programme --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Section Descriptif -->
+        <div class="section">
+          <h3>Descriptif</h3>
+          <div class="form-group">
+            <label>Titre du projet</label>
+            <input id="field-Titre" type="text" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="field-Description" class="form-control" rows="4"></textarea>
+          </div>
+        </div>
+
+        <!-- Boutons d'action -->
+        <div class="modal-actions">
+          <button id="btn-save-project" class="btn btn-primary">Enregistrer</button>
+          <button id="btn-cancel-project" class="btn btn-secondary">Annuler</button>
+        </div>
       </div>
     </div>
+
   </div>
 
   <!-- ========== MODALES ========== -->
-
-  <!-- MODALE FORMULAIRE PROJET -->
-  <div id="modal-project-form" class="modal">
-    <div class="modal-content">
+  
+  <!-- MODALE: Nouveau/Édition Projet -->
+  <div id="modal-project" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-box">
       <div class="modal-header">
-        <h2>Formulaire Projet</h2>
-        <button class="modal-close">&times;</button>
+        <h2>Ajouter/Modifier un projet</h2>
       </div>
-
-      <form id="project-form" class="form">
-        <!-- SECTION GENERAL -->
-        <fieldset class="form-section">
-          <legend>Informations Générales</legend>
-
-          <div class="form-group">
-            <label for="project-programme">Programme *</label>
-            <select id="project-programme" required>
-              <option value="">Sélectionner un programme...</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-name">Nom du projet *</label>
-            <input type="text" id="project-name" required>
-          </div>
-
-          <div class="form-group">
-            <label for="project-acronyme">Acronyme *</label>
-            <input type="text" id="project-acronyme" required>
-          </div>
-
-          <div class="form-group">
-            <label for="project-commentaire">Commentaire général (facultatif)</label>
-            <textarea id="project-commentaire" rows="3"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label for="project-statut">Statut opérationnel projet *</label>
-            <select id="project-statut" required>
-              <option value="En attente des dispo des fonds">En attente des dispo des fonds</option>
-              <option value="En cours">En cours</option>
-              <option value="Terminé">Terminé</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-type">Type projet *</label>
-            <select id="project-type" required>
-              <option value="Projet">Projet</option>
-              <option value="Prolongation">Prolongation</option>
-            </select>
-          </div>
-        </fieldset>
-
-        <!-- SECTION PORTEURS -->
-        <fieldset class="form-section">
-          <legend>Porteurs et Accompagnateur</legend>
-
-          <div class="form-group">
-            <label for="project-porteur-1">Porteur 1</label>
-            <input type="text" id="project-porteur-1" placeholder="Chercher un porteur...">
-          </div>
-
-          <div class="form-group">
-            <label for="project-vp-porteur-2">VP Porteur 2</label>
-            <input type="text" id="project-vp-porteur-2" placeholder="Chercher un VP...">
-          </div>
-
-          <div class="form-group">
-            <label for="project-accompagnateur">Accompagnateur</label>
-            <input type="text" id="project-accompagnateur" placeholder="Chercher un accompagnateur...">
-          </div>
-        </fieldset>
-
-        <!-- SECTION ADMINISTRATIF -->
-        <fieldset class="form-section">
-          <legend>Administratif</legend>
-
-          <div class="form-group">
-            <label for="project-instance">Instance rattachée</label>
-            <select id="project-instance">
-              <option value="">Sélectionner une instance...</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="project-date-limite">Date limite de financement</label>
-            <input type="date" id="project-date-limite">
-            <small>Format : jj/mm/aaaa ou sélecteur calendrier</small>
-          </div>
-
-          <!-- BLOC OPE -->
-          <div class="sub-section">
-            <h4>Gestion des OPE</h4>
-
-            <div class="form-group">
-              <label for="project-ope">Numéro OPE</label>
-              <input type="text" id="project-ope" placeholder="Chercher une OPE..." autocomplete="off">
-              <small>Sélectionner une OPE existante ou créer une nouvelle</small>
-            </div>
-
-            <div class="form-group">
-              <label>Structure d'installation</label>
-              <div id="project-ope-structure-display" class="readonly-field">
-                <!-- Rempli automatiquement -->
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="project-commentaire-ope">Commentaire ligne OPE</label>
-              <textarea id="project-commentaire-ope" rows="2"></textarea>
-            </div>
-
-            <div class="form-group">
-              <label for="project-action-ope">Action à faire</label>
-              <select id="project-action-ope">
-                <option value="à determiner">à determiner</option>
-                <option value="Creation de ligne">Creation de ligne</option>
-                <option value="Prolongation de ligne">Prolongation de ligne</option>
-                <option value="re-Abondement de ligne">re-Abondement de ligne</option>
-                <option value="ligné validée">ligné validée</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- BLOC CONVENTION -->
-          <div class="sub-section">
-            <h4>Convention de reversement (Facultatif)</h4>
-
-            <div class="form-group">
-              <label for="project-convention-bool">Convention nécessaire</label>
-              <input type="checkbox" id="project-convention-bool">
-            </div>
-
-            <div class="form-group" id="convention-partenaires-group" style="display: none;">
-              <label for="project-convention-partenaires">Partenaires convention</label>
-              <input type="text" id="project-convention-partenaires" placeholder="Chercher des établissements..." autocomplete="off">
-              <small>Sélectionner les établissements partenaires (références multiples)</small>
-            </div>
-          </div>
-        </fieldset>
-
-        <!-- BOUTONS -->
-        <div class="form-actions">
-          <button type="button" id="btn-save-project" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-project" class="btn btn-secondary">Annuler</button>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Titre du projet</label>
+          <input data-field="Titre" type="text" class="form-control" placeholder="Entrez le titre">
         </div>
-      </form>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea data-field="Description" class="form-control" placeholder="Décrivez le projet..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Porteur 1</label>
+          <div class="search-select" data-field="Porteur_1">
+            <input class="search-input" type="text" placeholder="Chercher un porteur...">
+            <div class="search-dropdown hidden"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-save-project-modal" class="btn btn-primary">Enregistrer</button>
+        <button id="btn-cancel-project-modal" class="btn btn-secondary">Annuler</button>
+      </div>
     </div>
   </div>
 
-  <!-- MODALE FORMULAIRE PERSONNE -->
-  <div id="modal-person-form" class="modal">
-    <div class="modal-content">
+  <!-- MODALE: Ajouter/Éditer Personne -->
+  <div id="modal-person" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-box">
       <div class="modal-header">
-        <h2>Formulaire Personne</h2>
-        <button class="modal-close">&times;</button>
+        <h2>Ajouter/Modifier une personne</h2>
       </div>
-
-      <form id="person-form" class="form">
+      <div class="modal-body">
         <div class="form-group">
-          <label for="person-nom">Nom *</label>
-          <input type="text" id="person-nom" required>
+          <label>Prénom et Nom</label>
+          <input data-field="Nom" type="text" class="form-control" placeholder="Prénom Nom">
         </div>
-
         <div class="form-group">
-          <label for="person-prenom">Prénom *</label>
-          <input type="text" id="person-prenom" required>
+          <label>Email</label>
+          <input data-field="Email" type="email" class="form-control" placeholder="email@example.com">
         </div>
-
         <div class="form-group">
-          <label for="person-email">Email</label>
-          <input type="email" id="person-email">
+          <label>Téléphone</label>
+          <input data-field="Telephone" type="tel" class="form-control" placeholder="+33 6 12 34 56 78">
         </div>
-
-        <div class="form-group">
-          <label for="person-telephone">Téléphone</label>
-          <input type="tel" id="person-telephone">
-        </div>
-
-        <div class="form-group">
-          <label>Poste associé</label>
-          <div id="person-poste" class="poste-display">
-            <!-- Affichage du poste avec bouton édition -->
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button type="button" id="btn-save-person" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-person" class="btn btn-secondary">Annuler</button>
-        </div>
-      </form>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-save-person-modal" class="btn btn-primary">Enregistrer</button>
+        <button id="btn-cancel-person-modal" class="btn btn-secondary">Annuler</button>
+      </div>
     </div>
   </div>
 
-  <!-- MODALE FORMULAIRE POSTE -->
-  <div id="modal-post-form" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Formulaire Poste</h2>
-        <button class="modal-close">&times;</button>
-      </div>
-
-      <form id="post-form" class="form">
-        <div class="form-group">
-          <label for="post-titre">Titre du poste *</label>
-          <input type="text" id="post-titre" required>
-        </div>
-
-        <div class="form-group">
-          <label for="post-precisions">Précisions du poste</label>
-          <textarea id="post-precisions" rows="3"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label for="post-structure">Structure *</label>
-          <input type="text" id="post-structure" required placeholder="Sélectionner une structure...">
-        </div>
-
-        <div class="form-group">
-          <label for="post-mission">Mission principale</label>
-          <input type="text" id="post-mission">
-        </div>
-
-        <div class="form-group">
-          <label for="post-employeur">Employeur/Tutelle</label>
-          <input type="text" id="post-employeur" placeholder="Sélectionner un employeur...">
-        </div>
-
-        <div class="form-group">
-          <label for="post-date-fin">Date de fin</label>
-          <input type="date" id="post-date-fin">
-        </div>
-
-        <div class="form-actions">
-          <button type="button" id="btn-save-post" class="btn btn-success">Sauvegarder</button>
-          <button type="button" id="btn-cancel-post" class="btn btn-secondary">Annuler</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
+  <!-- ========== SCRIPTS ========== -->
   <script src="js/core/utils.js"></script>
   <script src="js/core/state.js"></script>
   <script src="js/core/grist-api.js"></script>
   <script src="js/app.js"></script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
 </body>
 </html>
