@@ -71,5 +71,13 @@
     })[char]);
   }
 
-  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml };
+  function formatCurrency(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0 €';
+    const [integer, decimals] = number.toFixed(2).split('.');
+    const formattedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return `${formattedInteger}${decimals === '00' ? '' : `,${decimals}`} €`;
+  }
+
+  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency };
 })(window);
