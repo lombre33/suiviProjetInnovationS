@@ -9,6 +9,7 @@ class StateManager {
     tasks: [],
     teamMembers: [],
     timeline: [],
+    tables: {},
     currentProject: null,
     filters: {
       status: null,
@@ -16,6 +17,16 @@ class StateManager {
       dateRange: null
     }
   };
+
+  // Generic table management
+  static setTable(tableName, rows) {
+    console.log(`📦 [StateManager] Setting table ${tableName} (${rows?.length ?? 0} rows)`);
+    this.#state.tables[tableName] = rows;
+  }
+
+  static getTable(tableName) {
+    return this.#state.tables[tableName];
+  }
 
   // Projects management
   static setProjects(projects) {
@@ -121,6 +132,7 @@ class StateManager {
       tasks: [],
       teamMembers: [],
       timeline: [],
+      tables: {},
       currentProject: null,
       filters: {
         status: null,
@@ -131,5 +143,6 @@ class StateManager {
   }
 }
 
+// Expose the state manager under the name used by the application.
 window.CoreState = StateManager;
 console.log('✅ [StateManager] Module loaded');
