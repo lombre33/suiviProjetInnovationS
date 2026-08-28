@@ -74,9 +74,7 @@
           <div class="form-group">
             <label for="project-commentaire">Commentaire général (facultatif)</label>
             <textarea id="project-commentaire" rows="3"></textarea>
-          </div>
-
-          <div class="form-group">
+          </div><div class="form-group">
             <label for="project-statut">Statut opérationnel projet *</label>
             <select id="project-statut" required>
               <option value="En attente des dispo des fonds">En attente des dispo des fonds</option>
@@ -106,9 +104,7 @@
           <div class="form-group">
             <label for="project-vp-porteur-2">VP Porteur 2</label>
             <input type="text" id="project-vp-porteur-2" placeholder="Chercher un VP...">
-          </div>
-
-          <div class="form-group">
+          </div><div class="form-group">
             <label for="project-accompagnateur">Accompagnateur</label>
             <input type="text" id="project-accompagnateur" placeholder="Chercher un accompagnateur...">
           </div>
@@ -139,9 +135,7 @@
               <label for="project-ope">Numéro OPE</label>
               <input type="text" id="project-ope" placeholder="Chercher une OPE..." autocomplete="off">
               <small>Sélectionner une OPE existante ou créer une nouvelle</small>
-            </div>
-
-            <div class="form-group">
+            </div><div class="form-group">
               <label>Structure d'installation</label>
               <div id="project-ope-structure-display" class="readonly-field">
                 <!-- Rempli automatiquement -->
@@ -172,9 +166,7 @@
             <div class="form-group">
               <label for="project-convention-bool">Convention nécessaire</label>
               <input type="checkbox" id="project-convention-bool">
-            </div>
-
-            <div class="form-group" id="convention-partenaires-group" style="display: none;">
+            </div><div class="form-group" id="convention-partenaires-group" style="display: none;">
               <label for="project-convention-partenaires">Partenaires convention</label>
               <input type="text" id="project-convention-partenaires" placeholder="Chercher des établissements..." autocomplete="off">
               <small>Sélectionner les établissements partenaires (références multiples)</small>
@@ -208,9 +200,7 @@
         <div class="form-group">
           <label for="person-prenom">Prénom *</label>
           <input type="text" id="person-prenom" required>
-        </div>
-
-        <div class="form-group">
+        </div><div class="form-group">
           <label for="person-email">Email</label>
           <input type="email" id="person-email">
         </div>
@@ -252,9 +242,7 @@
         <div class="form-group">
           <label for="post-precisions">Précisions du poste</label>
           <textarea id="post-precisions" rows="3"></textarea>
-        </div>
-
-        <div class="form-group">
+        </div><div class="form-group">
           <label for="post-structure">Structure *</label>
           <input type="text" id="post-structure" required placeholder="Sélectionner une structure...">
         </div>
@@ -282,12 +270,11 @@
     </div>
   </div>
 
-  <!-- Initialization contract: dependencies first; Grist adapter before app. -->
+  <!-- Initialization contract: Grist API first; dependencies in order; app last. -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="js/core/utils.js"></script>
   <script src="js/core/state.js"></script>
   <script src="js/core/grist-api.js"></script>
-  <script src="js/app.js"></script>
-
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
+  <script src="js/app.js"></script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5"}' crossorigin="anonymous"></script>
 </body>
 </html>
