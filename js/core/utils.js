@@ -61,5 +61,15 @@
     return Math.floor(new Date(`${value}T00:00:00Z`).getTime() / 1000);
   }
 
-  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist };
+  function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+  }
+
+  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml };
 })(window);
