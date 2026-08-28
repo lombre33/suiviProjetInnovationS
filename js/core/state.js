@@ -131,4 +131,5 @@ class StateManager {
   }
 }
 
+window.CoreState = StateManager;
 console.log('✅ [StateManager] Module loaded');
