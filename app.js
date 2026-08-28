@@ -1,127 +1,25 @@
 /* =========================================================
-   ETAT GLOBAL
+   LOGIQUE METIER DE L’APPLICATION
    ========================================================= */
-const state = {
-  tables: {
-    Projets: [],
-    Annuaire: [],
-    Postes2: [],
-    Structures: [],
-    Programmes: [],
-    Etablissements: [],
-    Suivi_Instance: [],
-  },
-  currentProjectId: null,
-  formValues: {},
-  personTargetField: null,
-  editingPersonId: null,
-};
 
-/* =========================================================
-   DEBUG HELPERS
-   ========================================================= */
-function debugLog(msg, data = null) {
-  const timestamp = new Date().toLocaleTimeString();
-  console.log(`[${timestamp}] ${msg}`, data || '');
-}
+const state = window.CoreState;
+const { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist } = window.CoreUtils;
+const { getTable, refreshTable } = window.CoreGrist;
 
-function debugError(msg, err) {
-  const timestamp = new Date().toLocaleTimeString();
-  console.error(`[${timestamp}] ❌ ${msg}`, err);
-}
+CoreGrist.ready();
 
-/* =========================================================
-   INITIALISATION GRIST
-   ========================================================= */
 debugLog('Script chargé, initialisation Grist...');
-
-grist.ready({
-  requiredAccess: 'full',
-});
-
-debugLog('grist.ready() appelé');
-
-async function loadAllTables() {
-  try {
-    debugLog('🔄 Début du chargement des tables...');
-    
-    state.tables.Projets = await grist.docApi.fetchTable('Projets');
-    debugLog('✅ Projets chargés', { count: state.tables.Projets.id?.length || 0 });
-    
-    state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
-    debugLog('✅ Annuaire chargé', { count: state.tables.Annuaire.id?.length || 0 });
-    
-    state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
-    debugLog('✅ Postes2 chargés', { count: state.tables.Postes2.id?.length || 0 });
-    
-    state.tables.Structures = await grist.docApi.fetchTable('Structures');
-    debugLog('✅ Structures chargées', { count: state.tables.Structures.id?.length || 0 });
-    
-    state.tables.Programmes = await grist.docApi.fetchTable('Programmes');
-    debugLog('✅ Programmes chargés', { count: state.tables.Programmes.id?.length || 0 });
-    
-    state.tables.Etablissements = await grist.docApi.fetchTable('Etablissements');
-    debugLog('✅ Etablissements chargés', { count: state.tables.Etablissements.id?.length || 0 });
-
-    state.tables.Suivi_Instance = await grist.docApi.fetchTable('Suivi_Instance');
-    debugLog('✅ Suivi_Instance chargé', { count: state.tables.Suivi_Instance.id?.length || 0 });
-    
+debugLog('Appel de CoreGrist.loadAllTables()...');
+CoreGrist.loadAllTables()
+  .then(() => {
     debugLog('🎉 Tous les chargements terminés, rendu de la liste...');
     renderProjectsList();
-    
-  } catch (err) {
+  })
+  .catch(err => {
     debugError('Erreur de chargement des tables', err);
     showToast('Erreur de chargement des tables : ' + err.message, true);
-  }
-}
+  });
 
-debugLog('Appel de loadAllTables()...');
-loadAllTables();
-
-debugLog('Script initialisation terminé');
-
-/* =========================================================
-   HELPERS GENERIQUES
-   ========================================================= */
-
-function showToast(msg, isError = false) {
-  debugLog(`Toast: ${msg}`, { isError });
-  const t = document.getElementById('toast');
-  if (!t) {
-    console.warn('Element toast non trouvé');
-    return;
-  }
-  t.textContent = msg;
-  t.classList.remove('hidden');
-  t.classList.toggle('error', isError);
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => t.classList.add('hidden'), 4000);
-}
-
-function toRecords(columnarTable) {
-  if (!columnarTable || !columnarTable.id) {
-    return [];
-  }
-  const ids = columnarTable.id;
-  const records = [];
-  for (let i = 0; i < ids.length; i++) {
-    const rec = { id: ids[i] };
-    for (const col of Object.keys(columnarTable)) {
-      if (col === 'id') continue;
-      rec[col] = columnarTable[col][i];
-    }
-    records.push(rec);
-  }
-  return records;
-}
-
-function findLabelForRef(tableName, id, displayField) {
-  if (!id) return '';
-  const records = toRecords(state.tables[tableName]);
-  const rec = records.find(r => r.id === id);
-  if (!rec) return '';
-  return rec[displayField] ?? '';
-}
 /* =========================================================
    CASCADE STRUCTURE → TUTELLE (Utilise Toutes_les_tutelles)
    ========================================================= */
@@ -613,8 +511,8 @@ if (btnSavePerson) {
       }
       debugLog(editingPersonId !== null ? '✅ Personne mise à jour' : '✅ Personne créée', { savedPersonId });
 
-      state.tables.Annuaire = await grist.docApi.fetchTable('Annuaire');
-      state.tables.Postes2 = await grist.docApi.fetchTable('Postes2');
+      await refreshTable('Annuaire');
+      await refreshTable('Postes2');
 
       const label = `${prenom} ${nom.toUpperCase()}`;
       const targetContainer = document.querySelector(`.person-select[data-field="${state.personTargetField}"]`);
@@ -690,18 +588,6 @@ if (searchInput) {
   searchInput.addEventListener('input', (e) => {
     renderProjectsList(e.target.value);
   });
-}
-
-function gristDateToInput(value) {
-  if (value === null || value === undefined || value === '') return '';
-  const date = new Date(Number(value) * 1000);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toISOString().slice(0, 10);
-}
-
-function inputDateToGrist(id) {
-  const value = document.getElementById(id)?.value;
-  return value ? Math.floor(new Date(`${value}T00:00:00Z`).getTime() / 1000) : null;
 }
 
 const FINANCIAL_FIELDS = {
@@ -940,7 +826,7 @@ if (btnSaveProject) {
         showToast('Projet créé.');
       }
 
-      state.tables.Projets = await grist.docApi.fetchTable('Projets');
+      await refreshTable('Projets');
       const viewList = document.getElementById('view-list');
       const viewProject = document.getElementById('view-project');
       if (viewProject) viewProject.classList.add('hidden');
