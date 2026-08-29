@@ -1,3 +1,69 @@
+1. Contexte & objectif
+
+2. Architecture applicative cible
+
+Arborescence proposée
+
+/js/
+  core/
+  components/
+  pages/
+
+docs/
+  SPEC.md                    → ce document
+
+4. Pages — spécification fonctionnelle
+4.1 Page Projets
+
+4.2 Page Administratif
+
+Même bandeau de filtre.
+
+4.3 Page Installation des fonds
+
+4.4 Page Suivi Opérationnel
+
+4.5 Page To Do (coquille V1)
+
+Pré-instruction → Accompagnateur
+Notifications/Convention → Équipe InnovationS
+
+5. Composant transverse : popup Fiche Projet
+
+6. Schéma Grist de référence
+
+Chargement séquentiel des tables → paralléliser.
+
+---
+
+## Journal technique / État d'avancement
+
+### 28 août 2026 — Étape 1 : socle navigation
+
+**État fonctionnel constaté avant modification**
+
+- L'interface statique se charge depuis `index.html` avec `style.css` et la chaîne de scripts Grist/core/app dans l'ordre attendu.
+- La navigation proposait quatre vues côté client, sans rechargement de page : Projets, Tâches, Équipe et Timeline.
+- Le démarrage attendait `CoreUtils`, `CoreState` et `CoreGrist`, réalisait le handshake Grist, chargeait les tables via `CoreGrist.loadAllTables()`, puis les enregistrait dans `CoreState`.
+- La vue Projets rendait un tableau simple (nom, statut, progression, propriétaire, budget et actions Voir/Éditer/Supprimer), avec fiche projet accessible par Voir.
+- `CoreUtils.escapeHtml` et `CoreUtils.formatCurrency` étaient utilisés par le rendu des projets.
+
+**Travail réalisé dans cette étape**
+
+- Remplacement des quatre boutons par cinq onglets conformes au cahier des charges : Projets, Administratif, Installation des fonds, Suivi opérationnel et To Do.
+- Mise en place d'un routeur JS minimal par affichage/masquage des sections (`data-view` + `showView`), sans rechargement de page.
+- Conservation temporaire du tableau Projets existant ; les quatre nouvelles rubriques affichent un placeholder en attendant les étapes fonctionnelles dédiées.
+
+**Périmètre volontairement non modifié**
+
+- Les modules de chargement Grist (`js/core/grist-api.js`, `js/core/state.js`) n'ont pas été modifiés.
+- `js/core/utils.js` et `CoreUtils.escapeHtml` / `CoreUtils.formatCurrency` n'ont pas été modifiés.
+- Aucun nom de colonne Grist n'a été changé ; le Kanban et les adaptations au schéma réel sont reportés à l'étape 2.
+
+**À tester manuellement**
+
+Après publication GitHub Pages, effectuer `Ctrl+Shift+R`, vérifier l'absence d'erreur JavaScript dans la console, le chargement des projets depuis Grist et le basculement entre les cinq onglets.
+
 
 ### 29 août 2026 — Étape 2 : Kanban Projets
 
