@@ -17,6 +17,15 @@
   const valueLabel = value => Array.isArray(value) ? value.map(refLabel).filter(Boolean).join(', ') : refLabel(value);
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
+  function classifyStatus(project) {
+    const status = normalized(field(project, ['Statut_Macro', 'Statut']));
+    if (!status) return 'Instruction';
+    if (status.includes('notification') || status.includes('relecture') || status.includes('archive')) return 'Notifications';
+    if (status.includes('convention')) return 'Conventions';
+    if (status.includes('finance') || status.includes('fonds') || status.includes('gestionnaire')) return 'Installation des fonds';
+    if (status.includes('instruction') || status.includes('pre-instruction') || status.includes('attente statut')) return 'Instruction';
+    return 'Projet en cours';
+  }
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
   function currentFilters() { return { programme: document.getElementById('filter-programme')?.value || '', instance: document.getElementById('filter-instance')?.value || '', search: normalized(document.getElementById('filter-search')?.value) }; }
   function filteredProjects() {
@@ -41,7 +50,7 @@
     const board = document.getElementById('projects-kanban'); if (!board) return;
     const projects = filteredProjects();
     board.innerHTML = COLUMNS.map(column => {
-      const cards = projects.filter(p => normalized(p.Statut_Macro) === normalized(column.key));
+      const cards = projects.filter(p => classifyStatus(p) === column.key);
       return `<section class="kanban-column" style="--column-accent:${column.color}" aria-labelledby="kanban-${normalized(column.key)}"><header class="kanban-column-header"><h3 id="kanban-${normalized(column.key)}">${column.label}</h3><span class="kanban-count">${cards.length}</span></header><div class="kanban-cards">${cards.length ? cards.map(card).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`;
     }).join('');
     board.querySelectorAll('[data-project-id]').forEach(cardEl => cardEl.addEventListener('click', () => window.openProject ? window.openProject(cardEl.dataset.projectId) : (typeof viewProject === 'function' && viewProject(Number(cardEl.dataset.projectId)))));
