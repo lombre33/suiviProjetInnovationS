@@ -1,109 +1,47 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Suivi Projet Innovation S</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suivi Projet Innovation S</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="kanban.css">
 </head>
 <body>
-    <!-- Main Container -->
-    <div id="main-container" class="container">
-        <!-- Header -->
-        <header id="header" class="header">
-            <h1>📊 Suivi Projet Innovation S</h1>
-            <nav class="nav">
-                <button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button>
-                <button id="btn-administratif" class="nav-btn" data-view="view-administratif">Administratif</button>
-                <button id="btn-installation-fonds" class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button>
-                <button id="btn-suivi-operationnel" class="nav-btn" data-view="view-suivi-operationnel">Suivi opérationnel</button>
-                <button id="btn-todo" class="nav-btn" data-view="view-todo">To Do</button>
-            </nav>
-        </header>
+  <div id="main-container" class="container">
+    <header id="header" class="header">
+      <h1>📊 Suivi Projet Innovation S</h1>
+      <nav class="nav">
+        <button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button>
+        <button class="nav-btn" data-view="view-administratif">Administratif</button>
+        <button class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button>
+        <button class="nav-btn" data-view="view-suivi-operationnel">Suivi opérationnel</button>
+        <button class="nav-btn" data-view="view-todo">To Do</button>
+      </nav>
+    </header>
+    <div id="error-container" class="error-container hidden"><div class="error-message"><span id="error-text"></span><button id="error-close" class="error-close">&times;</button></div></div>
 
-        <!-- Error Display -->
-        <div id="error-container" class="error-container hidden">
-            <div class="error-message">
-                <span id="error-text"></span>
-                <button id="error-close" class="error-close">&times;</button>
-            </div>
-        </div>
+    <main id="view-projects" class="view">
+      <div class="view-header"><div><h2>📋 Projets</h2><p class="kanban-intro">Vue d’avancement par statut macro</p></div><button id="btn-create-project" class="btn btn-primary">+ Nouveau Projet</button></div>
+      <div class="project-filters" role="search" aria-label="Filtres des projets">
+        <label>Programme<select id="filter-programme"><option value="">Tous les programmes</option></select></label>
+        <label>Instance<select id="filter-instance"><option value="">Toutes les instances</option></select></label>
+        <label class="filter-search">Recherche<input id="filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
+        <button id="clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
+      </div>
+      <div id="projects-kanban" class="kanban-board" aria-live="polite"></div>
+    </main>
 
-        <!-- View: Projects List -->
-        <div id="view-projects" class="view">
-            <div class="view-header">
-                <h2>📋 Liste des Projets</h2>
-                <button id="btn-create-project" class="btn btn-primary">+ Nouveau Projet</button>
-            </div>
-            <div class="table-container">
-                <table id="projects-table" class="table">
-                    <thead>
-                        <tr>
-                            <th>Nom</th>
-                            <th>Statut</th>
-                            <th>Progression</th>
-                            <th>Propriétaire</th>
-                            <th>Budget</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="projects-tbody">
-                        <!-- Projects will be rendered here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- View: Project Details -->
-        <div id="view-project" class="view hidden">
-            <div class="view-header">
-                <button id="btn-back" class="btn btn-secondary">← Retour</button>
-                <h2 id="project-title"></h2>
-            </div>
-            <div class="project-details">
-                <div class="project-info">
-                    <p><strong>Statut:</strong> <span id="project-status"></span></p>
-                    <p><strong>Progression:</strong> <span id="project-progress"></span>%</p>
-                    <p><strong>Propriétaire:</strong> <span id="project-owner"></span></p>
-                    <p><strong>Budget:</strong> <span id="project-budget"></span></p>
-                    <p><strong>Description:</strong> <span id="project-description"></span></p>
-                </div>
-                <div class="project-tasks">
-                    <h3>📌 Tâches</h3>
-                    <div id="tasks-list"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Navigation socle : contenus fonctionnels ajoutés dans les étapes suivantes -->
-        <section id="view-administratif" class="view hidden placeholder-view" aria-labelledby="administratif-title">
-            <div class="view-header"><h2 id="administratif-title">📁 Administratif</h2></div>
-            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
-        </section>
-        <section id="view-installation-fonds" class="view hidden placeholder-view" aria-labelledby="installation-fonds-title">
-            <div class="view-header"><h2 id="installation-fonds-title">💶 Installation des fonds</h2></div>
-            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
-        </section>
-        <section id="view-suivi-operationnel" class="view hidden placeholder-view" aria-labelledby="suivi-operationnel-title">
-            <div class="view-header"><h2 id="suivi-operationnel-title">📈 Suivi opérationnel</h2></div>
-            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
-        </section>
-        <section id="view-todo" class="view hidden placeholder-view" aria-labelledby="todo-title">
-            <div class="view-header"><h2 id="todo-title">✅ To Do</h2></div>
-            <p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p>
-        </section>
-    </div>
-
-    <!-- Scripts in correct order -->
-    <!-- 1. Grist Plugin API - MUST be first -->
-    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-    <!-- 2. Core modules - in dependency order -->
-    <script src="js/core/utils.js"></script>
-    <script src="js/core/state.js"></script>
-    <script src="js/core/grist-api.js"></script>
-    <!-- 3. App - depends on all core modules -->
-    <script src="js/app.js"></script>
-    <!-- 4. Analytics (optional, at the end) -->
-    <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg==" data-cf-beacon='{"token": "a6e2e8b2db1946eba87bab67cbb906be"}' async></script>
+    <section id="view-project" class="view hidden"><div class="view-header"><button id="btn-back" class="btn btn-secondary">← Retour</button><h2 id="project-title"></h2></div><div class="project-details"><div class="project-info"><p><strong>Statut:</strong> <span id="project-status"></span></p><p><strong>Porteur:</strong> <span id="project-owner"></span></p><p><strong>Description:</strong> <span id="project-description"></span></p></div><div class="project-tasks"><h3>📌 Tâches</h3><div id="tasks-list"></div></div></div></section>
+    <section id="view-administratif" class="view hidden placeholder-view"><div class="view-header"><h2>📁 Administratif</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
+    <section id="view-installation-fonds" class="view hidden placeholder-view"><div class="view-header"><h2>💶 Installation des fonds</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
+    <section id="view-suivi-operationnel" class="view hidden placeholder-view"><div class="view-header"><h2>📈 Suivi opérationnel</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
+    <section id="view-todo" class="view hidden placeholder-view"><div class="view-header"><h2>✅ To Do</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
+  </div>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="js/core/utils.js"></script>
+  <script src="js/core/state.js"></script>
+  <script src="js/core/grist-api.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
