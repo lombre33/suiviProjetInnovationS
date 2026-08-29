@@ -40,47 +40,46 @@ Chargement séquentiel des tables → paralléliser.
 
 ### 28 août 2026 — Étape 1 : socle navigation
 
-**État fonctionnel constaté avant modification**
-
-- L'interface statique se charge depuis `index.html` avec `style.css` et la chaîne de scripts Grist/core/app dans l'ordre attendu.
-- La navigation proposait quatre vues côté client, sans rechargement de page : Projets, Tâches, Équipe et Timeline.
-- Le démarrage attendait `CoreUtils`, `CoreState` et `CoreGrist`, réalisait le handshake Grist, chargeait les tables via `CoreGrist.loadAllTables()`, puis les enregistrait dans `CoreState`.
-- La vue Projets rendait un tableau simple (nom, statut, progression, propriétaire, budget et actions Voir/Éditer/Supprimer), avec fiche projet accessible par Voir.
-- `CoreUtils.escapeHtml` et `CoreUtils.formatCurrency` étaient utilisés par le rendu des projets.
-
-**Travail réalisé dans cette étape**
-
-- Remplacement des quatre boutons par cinq onglets conformes au cahier des charges : Projets, Administratif, Installation des fonds, Suivi opérationnel et To Do.
-- Mise en place d'un routeur JS minimal par affichage/masquage des sections (`data-view` + `showView`), sans rechargement de page.
-- Conservation temporaire du tableau Projets existant ; les quatre nouvelles rubriques affichent un placeholder en attendant les étapes fonctionnelles dédiées.
-
-**Périmètre volontairement non modifié**
-
-- Les modules de chargement Grist (`js/core/grist-api.js`, `js/core/state.js`) n'ont pas été modifiés.
-- `js/core/utils.js` et `CoreUtils.escapeHtml` / `CoreUtils.formatCurrency` n'ont pas été modifiés.
-- Aucun nom de colonne Grist n'a été changé ; le Kanban et les adaptations au schéma réel sont reportés à l'étape 2.
-
-**À tester manuellement**
-
-Après publication GitHub Pages, effectuer `Ctrl+Shift+R`, vérifier l'absence d'erreur JavaScript dans la console, le chargement des projets depuis Grist et le basculement entre les cinq onglets.
-
+- Navigation client et chargement des tables Grist via les modules Core.
+- Vue Projets et placeholders conservés sans changement de schéma.
 
 ### 29 août 2026 — Étape 2 : Kanban Projets
 
-**Travail réalisé**
+- Kanban à cinq colonnes fondé sur `Statut_Macro`, filtres Programme/Instance/recherche et point d'entrée `window.openProject`.
+- Utilisation des colonnes réelles `Acronyme`, `Porteur_1`, `Statut_operationnel_projet`, `Conventions_statut`, `Statut_Financier`, `Programme`, `Instance_ratachee` et `Convention_de_reversement`.
 
-- Remplacement du tableau HTML de la vue Projets par un Kanban à cinq colonnes fondé sur `Statut_Macro` : Instruction, Notifications, Conventions, Installation des fonds et Projet en cours.
-- Utilisation des colonnes Grist du schéma de référence : `Acronyme`, `Porteur_1`, `Statut_operationnel_projet`, `Conventions_statut`, `Statut_Financier`, `Programme`, `Instance_ratachee` et `Convention_de_reversement`.
-- Ajout des filtres Programme, Instance et recherche texte sur Acronyme.
-- Ajout d’un point d’entrée `window.openProject` ; le clic sur une carte ouvre la fiche existante sans dépendre d’une modale.
-- Ajout de `kanban.css` en feuille complémentaire ; `style.css` reste inchangé.
+---
 
-**Limitations / vérifications restantes**
+## Brief validé — création de projet et de personne (29 août 2026)
 
-- Les valeurs exactes renvoyées par les références Grist (`Programme`, `Instance_ratachee`, `Porteur_1`) doivent être vérifiées dans l’environnement de publication.
-- Le schéma ne contient pas de colonne `Instance` directement dans `Projets` : le filtre essaie aussi `Instance`/`Instances` pour tolérer une structure de données équivalente.
-- La modale Fiche Projet n’est pas encore implémentée ; la fiche plein écran existante sert de point d’entrée temporaire.
+### Modalité et champs du projet
 
-### 29 août 2026 — Mapping des statuts Kanban
+La création de projet est une modale réutilisable, accessible depuis plusieurs pages via `window.openProjectCreation` (le bouton `#btn-new-project` de la page Projets est raccordé). Elle propose : `Programme` (référence vers `Programmes`, recherche/autocomplétion), `Projet`, `Acronyme`, `comentaire_general_Suivi_projet` facultatif, `Statut_operationnel_projet` (défaut Grist), `Type_projet`, `Porteur_1` obligatoire, `Porteur_2`, `Porteur_3`, `VP_porteur_2` et `Accompagnateur` (références vers `Annuaire`), ainsi que `Instance_ratachee`.
 
-Le Kanban classe `Statut_Macro` (avec repli sur `Statut` si absent), après normalisation tolérante des accents et de la casse : notification/relecture/archive → **Notifications** ; convention → **Conventions** ; finance/fonds/gestionnaire → **Installation des fonds** ; instruction/pré-instruction/attente statut → **Instruction** ; toute autre valeur → **Projet en cours**. Une valeur vide est classée dans **Instruction**.
+La valeur par défaut documentée par le schéma pour `Statut_operationnel_projet` est `En attente des dispo des fonds`. Le schéma décrit la colonne comme `Choice`, mais ne publie pas la liste complète de choix ; l'interface ne bloque donc pas une valeur gérée côté Grist. Le défaut documenté de `Type_projet` est `Projet`.
+
+### Tutelles dynamiques
+
+Pour la structure associée au porteur sélectionné, la liste des tutelles est construite avec les colonnes exactes de `Structures` : `Etablissement_Tutuelle_gestionaire`, `Co_tutuelle_1_Principale`, `Co_tutuelle_2_principales` (orthographe réelle, pluriel), `Tutuelle_Secondaire_1` et `Tutuelle_Secondaire_2`. L'affichage utilise `Etablissements.Acronyme`, puis `Etablissements.Nom_complet`. Une tutelle unique est présélectionnée ; l'interface ne bloque pas les incohérences Grist.
+
+### Ajout à la volée d'une personne
+
+La modale dédiée demande `Prenom`, `NOM` et permet d'associer `Poste2`. Les colonnes réelles utiles de `Postes2` sont `Titre`, `Precisions_Poste`, `Structure2`, `Employeur_tutelle` et `Mission_Principale`. Le bouton est réutilisable depuis la modale projet ; la recherche/création de poste pourra être exposée par le même composant sans modifier les pages existantes.
+
+### Prévisionnel financier
+
+Le volet reprend les trois types Fonctionnement, Investissement et Personnel, avec les intitulés par défaut `Depenses de fonctionnement`, `Dépenses d'investissement` et `Depenses de personnel`, les colonnes numériques 2026–2028 `c2026_M10_Fonctionnement`, `c2026_M20_Investissement`, `c2026_M30_Personnel`, leurs équivalents 2027 et 2028, et les totaux recalculés par année.
+
+### Colonnes et tables de référence confirmées
+
+- `Projets` : `Programme`, `Projet`, `Acronyme`, `comentaire_general_Suivi_projet`, `Porteur_1`, `Porteur_2`, `Porteur_3`, `VP_porteur_2`, `Accompagnateur`, `Type_projet`, `Statut_operationnel_projet`, `Instance_ratachee`, `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` et colonnes financières ci-dessus.
+- `Annuaire` : `Prenom`, `NOM`, `Email`, `Telephone`, `Poste2`, `Poste_secondaire`.
+- `Postes2` : `Titre`, `Precisions_Poste`, `Structure2`, `Employeur_tutelle`, `Mission_Principale`.
+- `Structures` : `Acronyme`, `Nom_Complet` et les cinq références de tutelle listées ci-dessus.
+- `Etablissements` : `Acronyme`, `Nom_complet`.
+- `Programmes` : `Programme`.
+- `Suivi_Instance` : référence cible de `Instance_ratachee` (la structure fournie ne documente pas ses colonnes d'affichage).
+
+### Persistance
+
+Le bouton « Créer le projet » utilise `CoreGrist.gristInstance.docApi.applyUserActions` avec `AddRecord` sur `Projets`; les créations Annuaire utilisent également `AddRecord`. Aucun fichier CSS/JS fonctionnel existant n'est remplacé.
