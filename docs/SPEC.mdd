@@ -80,3 +80,7 @@ Après publication GitHub Pages, effectuer `Ctrl+Shift+R`, vérifier l'absence d
 - Les valeurs exactes renvoyées par les références Grist (`Programme`, `Instance_ratachee`, `Porteur_1`) doivent être vérifiées dans l’environnement de publication.
 - Le schéma ne contient pas de colonne `Instance` directement dans `Projets` : le filtre essaie aussi `Instance`/`Instances` pour tolérer une structure de données équivalente.
 - La modale Fiche Projet n’est pas encore implémentée ; la fiche plein écran existante sert de point d’entrée temporaire.
+
+### 29 août 2026 — Mapping des statuts Kanban
+
+Le Kanban classe `Statut_Macro` (avec repli sur `Statut` si absent), après normalisation tolérante des accents et de la casse : notification/relecture/archive → **Notifications** ; convention → **Conventions** ; finance/fonds/gestionnaire → **Installation des fonds** ; instruction/pré-instruction/attente statut → **Instruction** ; toute autre valeur → **Projet en cours**. Une valeur vide est classée dans **Instruction**.
