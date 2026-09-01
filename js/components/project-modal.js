@@ -1,1 +1,1 @@
-/* contenu préparé localement */
+/* placeholder */
