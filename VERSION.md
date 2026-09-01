@@ -1,3 +1,23 @@
+# Version 0.35 - Stable
+
+Date : 2026-09-01
+
+## Statut : Stable ✅
+
+Cette version stabilise les dernières corrections de l’interface projets, du Kanban et des affichages de références.
+
+### Corrections validées et fonctionnelles
+- Kanban : le clic sur une carte rouvre correctement le formulaire d’édition `ProjectModal`.
+- Ajout et affichage des badges Programme / Convention.
+- Affichage du nom et du prénom du porteur et de l’accompagnateur.
+- Renommage de « Sous-statut » en « Statut macro ».
+- Affichage des noms des Programmes et des Instances à la place de leurs identifiants (ID).
+
+### Dernier commit de référence
+Version 0.35 stable.
+
+---
+
 # Version 0.3 - Stable
 
 Date : 2026-09-01
