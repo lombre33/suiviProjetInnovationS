@@ -20,6 +20,7 @@ class Annuaire:
   Telephone = grist.Text()
   Poste2 = grist.Reference('Postes2')
   Commentaire_poste = grist.Text()
+  Type = grist.ChoiceList()
   Poste_secondaire = grist.Reference('Postes2')
   email_Assitant_e_le_cas_echeant = grist.Reference('Annuaire')
   Matricule_le_cas_echeant_ = grist.Text()
@@ -58,10 +59,6 @@ class Annuaire:
   @grist.formulaType(grist.Bool())
   def Duplica_dans_Email(rec, table):
     return rec.Email != "" and rec.Email is not None and len(Annuaire.lookupRecords(Email=rec.Email)) > 1
-
-  @grist.formulaType(grist.ChoiceList())
-  def Type(rec, table):
-    return None
 
   @grist.formulaType(grist.ChoiceList())
   def Tag(rec, table):
@@ -757,7 +754,7 @@ Suite au passage en " + rec.Projet_Instance_ratache_old_instance + " du " \
     + "\n - Budget : " + f"{float(rec.Projet_Montant_attribue):,.2f}".replace(",", " ").replace(".", ",")  + " € (l'éligibilité des dépenses est détaillée dans les annexes de la notification ci-jointe)" \
     + "\n - Date limite d'engagement des dépenses : " + str(rec.Projet_Date_limite_financement.day) +"/" + str(rec.Projet_Date_limite_financement.month)+"/" + str(rec.Projet_Date_limite_financement.year) \
     + "\n - Structure(s) Responsables : " + rec.Structure_concernees \
-    + " \n \nLe gestionnaire financier de votre laboratoire sera en charge de la création de la ligne dans IGEO. Je vous laisse prendre attache avec lui / elle. \
+    + " \n \nLe gestionnaire financier de votre structure sera en charge de la création de la ligne dans IGEO. Je vous laisse prendre attache avec lui / elle. \
 \n\nPour rappel : toutes les actions de communication et de publication doivent faire l'objet d'une publication sur HAL et d'une mention du financement (engagement contractuel). Tous les détails, ainsi que le règlement financier et les modalités d'installation, sont précisés en annexe du présent document. \
 \n \nJe reste disponible à votre convenance pour discuter du budget et des dépenses relatives à l'attribution et pour répondre à toute autre question si besoin après la lecture de ce document. \
 \n \nEn vous souhaitant une bonne réussite dans ce projet, \nBien cordialement."
@@ -1982,6 +1979,14 @@ class Projets:
   def Date_dernir_statut(rec, table):
     return None
 
+  @grist.formulaType(grist.Numeric())
+  def Convention_montant_partenaire_1(rec, table):
+    return 0.0
+
+  @grist.formulaType(grist.Numeric())
+  def Convention_montant_partenaire_2(rec, table):
+    return 0.0
+
 
 @grist.UserTable
 class Publipostage:
@@ -2401,6 +2406,9 @@ class Suivi_Instance:
 @grist.UserTable
 class Suivi_Jeu_PUI:
   Personne_qui_l_a_emprunte = grist.Reference('Annuaire')
+  Retire_le = grist.Date()
+  Rendu_prevu_le = grist.Date()
+  Rendu_reel_le = grist.Date()
 
   @grist.formulaType(grist.Int())
   def Nombre_de_jeux_emprunte(rec, table):
@@ -2410,21 +2418,12 @@ class Suivi_Jeu_PUI:
   def Autres_materiel_emprunte(rec, table):
     return ''
 
-  @grist.formulaType(grist.Date())
-  def Retire_le(rec, table):
-    return None
-
-  @grist.formulaType(grist.Date())
-  def Rendu_prevu_le(rec, table):
-    return None
-
-  @grist.formulaType(grist.Date())
-  def Rendu_reel_le(rec, table):
-    return None
-
   @grist.formulaType(grist.Reference('Etablissements'))
   def Etablissement(rec, table):
     return rec.Personne_qui_l_a_emprunte.Service_Etablissement
+
+  def Commentaire_Libre(rec, table):
+    return None
 
 
 @grist.UserTable
