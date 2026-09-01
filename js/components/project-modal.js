@@ -31,7 +31,7 @@
   z-index: 1000;
   display: grid;
   place-items: center;
-  padding: clamp(14px, 3vw, 32px);
+  padding: clamp(10px, 2.2vw, 24px);
   background: rgba(15, 23, 42, .62);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
@@ -42,41 +42,41 @@
 
 .cp-box {
   box-sizing: border-box;
-  width: min(100%, 780px);
-  max-height: min(92vh, 900px);
+  width: min(100%, 700px);
+  max-height: min(88vh, 800px);
   overflow: auto;
   background: #fff;
   color: var(--cp-ink);
   border: 1px solid rgba(226, 232, 240, .95);
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: 0 30px 90px rgba(15, 23, 42, .34), 0 10px 28px rgba(15, 23, 42, .15);
 }
 
 .cp-box h2 {
   position: relative;
   margin: 0;
-  padding: 25px 68px 21px 30px;
+  padding: 18px 52px 16px 22px;
   border-bottom: 1px solid var(--cp-line);
   color: var(--cp-heading);
-  font-size: 1.4rem;
-  line-height: 1.25;
+  font-size: 1.05rem;
+  line-height: 1.2;
   font-weight: 750;
   letter-spacing: -.025em;
 }
 
 .cp-box h2 [data-cp-close] {
   position: absolute;
-  top: 15px;
-  right: 20px;
+  top: 11px;
+  right: 14px;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border: 0;
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: var(--cp-muted);
-  font-size: 1.85rem;
+  font-size: 1.5rem;
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
@@ -92,13 +92,13 @@
 }
 
 #cp-project-form {
-  padding: 26px 30px 6px;
+  padding: 20px 22px 4px;
 }
 
 .cp-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px 24px;
+  gap: 16px 18px;
 }
 
 .cp-full {
@@ -111,10 +111,10 @@
 
 .cp-field label {
   display: block;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   color: var(--cp-label);
-  font-size: .88rem;
-  line-height: 1.3;
+  font-size: .82rem;
+  line-height: 1.2;
   font-weight: 750;
   letter-spacing: .01em;
 }
@@ -124,13 +124,13 @@
 .cp-field select {
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 13px;
+  padding: 9px 10px;
   border: 1px solid var(--cp-line-strong);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   color: var(--cp-ink);
   font: inherit;
-  font-size: .95rem;
+  font-size: .88rem;
   transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
 }
 
@@ -145,7 +145,7 @@
 .cp-field select:focus {
   outline: none;
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 4px var(--cp-focus);
+  box-shadow: 0 0 0 3px var(--cp-focus);
   background: #fff;
 }
 
@@ -155,18 +155,18 @@
 }
 
 .cp-field textarea {
-  min-height: 104px;
+  min-height: 78px;
   resize: vertical;
-  line-height: 1.55;
+  line-height: 1.35;
 }
 
 .cp-section {
   grid-column: 1 / -1;
-  margin: 5px 0 -3px;
-  padding: 14px 17px;
+  margin: 4px 0 -2px;
+  padding: 10px 13px;
   border: 1px solid #d6e5ff;
-  border-left: 4px solid var(--cp-accent);
-  border-radius: 11px;
+  border-left: 3px solid var(--cp-accent);
+  border-radius: 9px;
   background: linear-gradient(100deg, var(--cp-panel-blue), #f8fbff);
   color: #1e3a8a;
 }
@@ -174,8 +174,8 @@
 .cp-section h3 {
   margin: 0;
   color: #1e40af;
-  font-size: .95rem;
-  line-height: 1.35;
+  font-size: .84rem;
+  line-height: 1.2;
   font-weight: 800;
   letter-spacing: .01em;
 }
@@ -190,11 +190,11 @@
   top: 100%;
   right: 0;
   left: 0;
-  max-height: 220px;
-  margin-top: 6px;
+  max-height: 180px;
+  margin-top: 4px;
   overflow: auto;
   border: 1px solid var(--cp-line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   box-shadow: 0 16px 34px rgba(15, 23, 42, .18);
 }
@@ -202,7 +202,7 @@
 .cp-ref-list button {
   display: block;
   width: 100%;
-  padding: 11px 13px;
+  padding: 8px 10px;
   border: 0;
   background: #fff;
   color: var(--cp-label);
@@ -222,15 +222,15 @@
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--cp-line);
-  border-radius: 12px;
+  border-radius: 9px;
   border-spacing: 0;
   background: #fff;
-  font-size: .9rem;
+  font-size: .84rem;
 }
 
 .cp-fin th,
 .cp-fin td {
-  padding: 11px 10px;
+  padding: 8px 7px;
   border-right: 1px solid var(--cp-line);
   border-bottom: 1px solid var(--cp-line);
   text-align: left;
@@ -257,14 +257,14 @@
 .cp-fin thead th {
   background: #eaf2ff;
   color: #1e3a8a;
-  font-size: .78rem;
+  font-size: .72rem;
   font-weight: 800;
   letter-spacing: .045em;
   text-transform: uppercase;
 }
 
 .cp-fin tbody th {
-  min-width: 180px;
+  min-width: 140px;
   font-weight: 700;
 }
 
@@ -282,10 +282,10 @@
 .cp-fin input {
   width: 100%;
   box-sizing: border-box;
-  min-width: 64px;
-  padding: 8px 9px;
+  min-width: 52px;
+  padding: 6px 7px;
   border: 1px solid var(--cp-line-strong);
-  border-radius: 8px;
+  border-radius: 7px;
   background: #fff;
   font: inherit;
 }
@@ -293,7 +293,7 @@
 .cp-fin input:focus {
   outline: none;
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 3px var(--cp-focus);
+  box-shadow: 0 0 0 2px var(--cp-focus);
 }
 
 .cp-row-total {
@@ -305,28 +305,28 @@
 
 .cp-muted {
   color: var(--cp-muted);
-  font-size: .9em;
+  font-size: .84em;
 }
 
 .cp-actions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
-  margin-top: 20px;
-  padding: 19px 30px 26px;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px 22px 18px;
   border-top: 1px solid var(--cp-line);
   background: #fbfdff;
 }
 
 .cp-actions button {
-  padding: 11px 17px;
+  padding: 9px 14px;
   border: 1px solid var(--cp-line-strong);
-  border-radius: 9px;
+  border-radius: 7px;
   background: #fff;
   color: #475569;
   font: inherit;
-  font-size: .9rem;
+  font-size: .84rem;
   font-weight: 750;
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
@@ -363,9 +363,9 @@
 }
 
 .cp-error {
-  margin: 0 30px;
+  margin: 0 22px;
   color: #b42318;
-  font-size: .9rem;
+  font-size: .84rem;
 }
 
 .cp-person-modal {
@@ -383,23 +383,23 @@
 
 @media (max-width: 700px) {
   .cp-modal {
-    padding: 12px;
+    padding: 9px;
   }
   .cp-box {
     width: 100%;
-    max-height: 95vh;
-    border-radius: 14px;
+    max-height: 92vh;
+    border-radius: 11px;
   }
   .cp-box h2 {
-    padding: 20px 58px 17px 22px;
-    font-size: 1.2rem;
+    padding: 16px 46px 14px 18px;
+    font-size: 1.05rem;
   }
   #cp-project-form {
-    padding: 20px 22px 3px;
+    padding: 16px 18px 2px;
   }
   .cp-grid {
     grid-template-columns: 1fr;
-    gap: 18px;
+    gap: 14px;
   }
   .cp-full,
   .cp-section {
@@ -409,21 +409,21 @@
     display: block;
     overflow-x: auto;
     white-space: nowrap;
-    font-size: .78rem;
+    font-size: .72rem;
   }
   .cp-fin th,
   .cp-fin td {
-    padding: 8px 6px;
+    padding: 6px 5px;
   }
   .cp-actions {
     flex-wrap: wrap;
-    padding: 16px 22px 21px;
+    padding: 13px 18px 17px;
   }
   .cp-actions button {
     flex: 1 1 auto;
   }
   .cp-error {
-    margin: 0 22px;
+    margin: 0 18px;
   }
 }
 `; document.head.appendChild(s); }
@@ -460,7 +460,7 @@
     f.appendChild(comment);
     const h=document.createElement('div'); h.className='cp-section'; h.innerHTML='<h3>Prévisionnel financier · 2026–2028</h3>'; f.appendChild(h);
     const table=document.createElement('table'); table.className='cp-fin cp-full';
-    table.innerHTML='<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d\'investissement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-grand-total>0</td></tr></tfoot>';
+    table.innerHTML='<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d'investissement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-grand-total>0</td></tr></tfoot>';
     Object.entries(FIN).forEach(([year,fs])=>table.querySelectorAll('tbody tr').forEach((tr,i)=>{ const inp=document.createElement('input'); inp.type='number'; inp.min='0'; inp.step='any'; inp.dataset.fin=fs[i]; tr.children[Number(year)-2025].appendChild(inp); inp.oninput=()=>{updateFinancialTotals(table);}; }));
     f.appendChild(table);
     m.querySelector('[data-cp-cancel]').onclick=()=>m.classList.add('cp-hidden'); m.querySelector('[data-cp-close]').onclick=()=>m.classList.add('cp-hidden');
