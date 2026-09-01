@@ -31,5 +31,14 @@ function setupEventListeners() {
   document.getElementById('btn-new-project')?.addEventListener('click', () => window.ProjectModal?.open());
   document.getElementById('btn-back')?.addEventListener('click', () => { showView('view-projects'); document.getElementById('btn-projects')?.classList.add('active'); });
   document.getElementById('error-close')?.addEventListener('click', () => document.getElementById('error-container')?.classList.add('hidden'));
+  globalThis.addEventListener('project-created', async () => {
+    try {
+      const tables = await CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
+      renderProjectsKanban(CoreState.getTable('Projets') || []);
+    } catch (error) {
+      console.error('Project refresh error:', error);
+    }
+  });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp); else initializeApp();
