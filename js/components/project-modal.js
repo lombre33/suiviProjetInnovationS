@@ -9,7 +9,9 @@
   const label = (r, fields) => fields.map(k => r?.[k]).find(v => v != null && v !== '') || '';
   const personLabel = r => label(r, ['nom_et_Prenom', 'Prenom', 'NOM']);
   const opeLabel = r => text(r?.N_OPE);
-  const FIN = {2026:['c2026_M10_Fonctionnement','c2026_M20_Investissement','c2026_M30_Personnel'],2027:['c2027_M10_Fonctionnement','c2027_M20_Investissement','c2027_M30_Personnel'],2028:['c2028_M10_Fonctionnement','c2028_M20_Investissement','c2028_M30_Personnel']};
+  // Identifiants exacts des colonnes Numeric de Projets (docs/grist_structure).
+  // Ne pas les remplacer par Details_depense_s_*[_année] : ces colonnes n'existent pas dans Grist.
+  const FIN = Object.freeze({2026:Object.freeze(['c2026_M10_Fonctionnement','c2026_M20_Investissement','c2026_M30_Personnel']),2027:Object.freeze(['c2027_M10_Fonctionnement','c2027_M20_Investissement','c2027_M30_Personnel']),2028:Object.freeze(['c2028_M10_Fonctionnement','c2028_M20_Investissement','c2028_M30_Personnel'])});
   function ensureStyles(){ if(document.getElementById('cp-styles')) return; const s=document.createElement('style'); s.id='cp-styles'; s.textContent=`
 :root { --cp-accent:#2563eb; --cp-accent-dark:#1d4ed8; --cp-accent-soft:#eff6ff; --cp-ink:#172033; --cp-heading:#0f172a; --cp-muted:#64748b; --cp-label:#334155; --cp-line:#dbe3ef; --cp-line-strong:#cbd5e1; --cp-panel:#f8fafc; --cp-panel-blue:#eef5ff; --cp-focus:rgba(37,99,235,.22); }
 .cp-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:clamp(14px,3vw,32px); background:rgba(15,23,42,.62); backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); color:var(--cp-ink); animation:cp-fade-in .18s ease-out; }
