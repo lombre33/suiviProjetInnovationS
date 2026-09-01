@@ -53,7 +53,12 @@
       const cards = projects.filter(p => classifyStatus(p) === column.key);
       return `<section class="kanban-column" style="--column-accent:${column.color}" aria-labelledby="kanban-${normalized(column.key)}"><header class="kanban-column-header"><h3 id="kanban-${normalized(column.key)}">${column.label}</h3><span class="kanban-count">${cards.length}</span></header><div class="kanban-cards">${cards.length ? cards.map(card).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`;
     }).join('');
-    board.querySelectorAll('[data-project-id]').forEach(cardEl => cardEl.addEventListener('click', () => window.openProject ? window.openProject(cardEl.dataset.projectId) : (typeof viewProject === 'function' && viewProject(Number(cardEl.dataset.projectId)))));
+    board.querySelectorAll('[data-project-id]').forEach(cardEl => cardEl.addEventListener('click', () => {
+      const project = getProjects().find(item => String(item.id) === String(cardEl.dataset.projectId));
+      if (project && window.ProjectModal?.open) window.ProjectModal.open(project);
+      else if (window.openProject) window.openProject(cardEl.dataset.projectId);
+      else if (typeof viewProject === 'function') viewProject(Number(cardEl.dataset.projectId));
+    }));
   }
   function card(project) {
     const holder = valueLabel(field(project, ['Porteur_1', 'Porteur', 'porteur_1'])) || 'Porteur non renseigné';
