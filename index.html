@@ -11,39 +11,10 @@
 </head>
 <body>
   <div id="main-container" class="container">
-    <header id="header" class="header">
-      <h1>📊 Suivi Projet Innovation S</h1>
-      <nav class="nav">
-        <button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button>
-        <button class="nav-btn" data-view="view-administratif">Administratif</button>
-        <button class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button>
-        <button class="nav-btn" data-view="view-suivi-operationnel">Suivi opérationnel</button>
-        <button class="nav-btn" data-view="view-todo">To Do</button>
-      </nav>
-    </header>
+    <header id="header" class="header"><h1>📊 Suivi Projet Innovation S</h1><nav class="nav"><button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button><button class="nav-btn" data-view="view-administratif">Administratif</button><button class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button><button class="nav-btn" data-view="view-suivi-operationnel">Suivi opérationnel</button><button class="nav-btn" data-view="view-todo">To Do</button></nav></header>
     <div id="error-container" class="error-container hidden"><div class="error-message"><span id="error-text"></span><button id="error-close" class="error-close">&times;</button></div></div>
-    <main id="view-projects" class="view">
-      <div class="view-header"><div><h2>📋 Projets</h2><p class="kanban-intro">Vue d’avancement par statut macro</p></div><button id="btn-new-project" class="btn btn-primary">+ Nouveau Projet</button></div>
-      <div class="project-filters" role="search" aria-label="Filtres des projets">
-        <label>Programme<select id="filter-programme"><option value="">Tous les programmes</option></select></label>
-        <label>Instance<select id="filter-instance"><option value="">Toutes les instances</option></select></label>
-        <label class="filter-search">Recherche<input id="filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
-        <button id="clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
-      </div>
-      <div id="projects-kanban" class="kanban-board" aria-live="polite"></div>
-    </main>
+    <main id="view-projects" class="view"><div class="view-header"><div><h2>📋 Projets</h2><p class="kanban-intro">Vue d’avancement par statut macro</p></div><button id="btn-new-project" class="btn btn-primary">+ Nouveau Projet</button></div><div class="project-filters" role="search" aria-label="Filtres des projets"><label>Programme<select id="filter-programme"><option value="">Tous les programmes</option></select></label><label>Instance<select id="filter-instance"><option value="">Toutes les instances</option></select></label><label class="filter-search">Recherche<input id="filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label><button id="clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button></div><div id="projects-kanban" class="kanban-board" aria-live="polite"></div></main>
     <section id="view-project" class="view hidden"><div class="view-header"><button id="btn-back" class="btn btn-secondary">← Retour</button><h2 id="project-title"></h2></div><div class="project-details"><div class="project-info"><p><strong>Statut:</strong> <span id="project-status"></span></p><p><strong>Porteur:</strong> <span id="project-owner"></span></p><p><strong>Description:</strong> <span id="project-description"></span></p></div><div class="project-tasks"><h3>📌 Tâches</h3><div id="tasks-list"></div></div></div></section>
-    <section id="view-administratif" class="view hidden placeholder-view"><div class="view-header"><h2>📁 Administratif</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
-    <section id="view-installation-fonds" class="view hidden placeholder-view"><div class="view-header"><h2>💶 Installation des fonds</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
-    <section id="view-suivi-operationnel" class="view hidden placeholder-view"><div class="view-header"><h2>📈 Suivi opérationnel</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
-    <section id="view-todo" class="view hidden placeholder-view"><div class="view-header"><h2>✅ To Do</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
-  </div>
-  <div id="toast" class="toast hidden"></div>
-  <script src="js/core/utils.js"></script>
-  <script src="js/core/state.js"></script>
-  <script src="js/core/grist-api.js"></script>
-  <script src="js/components/project-modal.js"></script>
-  <script src="js/pages/page-projets.js"></script>
-  <script src="js/app.js"></script>
-</body>
-</html>
+    <section id="view-administratif" class="view hidden placeholder-view"><div class="view-header"><h2>📁 Administratif</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section><section id="view-installation-fonds" class="view hidden placeholder-view"><div class="view-header"><h2>💶 Installation des fonds</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section><section id="view-suivi-operationnel" class="view hidden placeholder-view"><div class="view-header"><h2>📈 Suivi opérationnel</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</section><section id="view-todo" class="view hidden placeholder-view"><div class="view-header"><h2>✅ To Do</h2></div><p class="placeholder-message">Cette rubrique sera disponible dans une prochaine étape.</p></section>
+  </div><div id="toast" class="toast hidden"></div><script src="js/core/utils.js"></script><script src="js/core/state.js"></script><script src="js/core/grist-api.js"></script><script src="js/components/person-modal.js"></script><script src="js/components/project-modal.js"></script><script src="js/pages/page-projets.js"></script><script src="js/app.js"></script>
+</body></html>
