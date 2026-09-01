@@ -8,7 +8,7 @@
  *   4. CoreGrist.ready() retourne window.grist (déjà injecté par le HTML)
  *   5. CoreGrist.loadAllTables() récupère les données
  *   6. renderUI() affiche l'interface
- * 
+ *
  * ⚠️ NE PAS:
  *   - Charger un module avant ses dépendances dans HTML
  *   - Lancer du code métier avant initializeApp() soit complété
@@ -29,7 +29,7 @@
       if (readyPromise) return readyPromise;
       
       readyPromise = (async () => {
-        // window.grist est déjà injecté par le HTML (grist-plugin-api.js)
+        // window.grist est déjà injecté par grist-plugin-api.js
         const maxWait = Date.now() + timeoutMs;
         while (!window.grist && Date.now() < maxWait) {
           await new Promise(resolve => setTimeout(resolve, 50));
@@ -39,7 +39,6 @@
           throw new Error(`Grist API non disponible après ${timeoutMs} ms`);
         }
 
-        // Handshake avec Grist
         await window.grist.ready({ requiredAccess: 'full' });
         gristInstance = window.grist;
         console.info('✅ [CoreGrist] Grist API ready');
@@ -73,7 +72,7 @@
             return [name, data];
           } catch (err) {
             console.warn(`⚠️ [CoreGrist] Table ${name} failed, returning empty:`, err.message);
-            return [name, { id: [] }]; // table vide par défaut
+            return [name, { id: [] }];
           }
         }));
         const result = Object.fromEntries(entries);
