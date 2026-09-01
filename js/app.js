@@ -28,7 +28,7 @@ function showView(viewId) { document.querySelectorAll('.view').forEach(view => v
 function showError(message) { const container = document.getElementById('error-container'), errorText = document.getElementById('error-text'); if (container && errorText) { errorText.textContent = message; container.classList.remove('hidden'); setTimeout(() => container.classList.add('hidden'), 5000); } else console.error(message); }
 function setupEventListeners() {
   document.querySelectorAll('.nav-btn[data-view]').forEach(button => button.addEventListener('click', () => { showView(button.dataset.view); document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active')); button.classList.add('active'); }));
-  // Le bouton de création est géré par project-modal.js via window.openProjectCreation.
+  document.getElementById('btn-new-project')?.addEventListener('click', () => window.ProjectModal?.open());
   document.getElementById('btn-back')?.addEventListener('click', () => { showView('view-projects'); document.getElementById('btn-projects')?.classList.add('active'); });
   document.getElementById('error-close')?.addEventListener('click', () => document.getElementById('error-container')?.classList.add('hidden'));
 }
