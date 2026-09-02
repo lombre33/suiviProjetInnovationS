@@ -80,7 +80,7 @@
         } else {
           // Afficher le bouton "Créer [texte]"
           const createBtn = document.createElement('div');
-            createBtn.className = 'person-select-create';
+          createBtn.className = 'person-select-create';
           createBtn.textContent = `+ Créer "${query}"`;
           createBtn.onclick = () => {
             window.openCreatePersonModal(input.id || input.name);
