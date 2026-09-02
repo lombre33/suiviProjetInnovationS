@@ -15,7 +15,7 @@
   function ensureCreateAction(input) {
     if (!input || !personRefKeys.has(input.dataset.ref)) return;
     const list = input.parentElement?.querySelector('.cp-ref-list');
-    if (!list || list.querySelector('[data-cp-create-person]') || list.querySelector('button[data-id]')) return;
+    if (!list || list.querySelector('[data-create-person], [data-cp-create-person]') || list.querySelector('button[data-id]')) return;
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.cpCreatePerson = 'true';
