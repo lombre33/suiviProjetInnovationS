@@ -39,6 +39,7 @@
     
     // Créer un wrapper pour le champ et son dropdown personnalisé
     const wrapper = input.parentElement;
+    let requestId = 0;
     if (!wrapper) return;
 
     let dropdown = wrapper.querySelector('[data-person-dropdown]');
@@ -54,6 +55,7 @@
      */
     async function handleInput() {
       const query = input.value.trim();
+      const currentRequest = ++requestId;
       
       if (!query) {
         dropdown.style.display = 'none';
@@ -66,6 +68,7 @@
       // Chercher les personnes correspondantes dans Grist
       try {
         const people = await searchPeople(query);
+        if (currentRequest !== requestId) return;
 
         if (people.length > 0) {
           // Afficher les résultats de recherche
