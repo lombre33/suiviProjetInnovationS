@@ -1,3 +1,28 @@
+# Version 0.5 - Stable
+
+Date : 2026-09-02
+
+## Statut : Stable ✅
+
+Cette version stabilise les évolutions récentes de la fiche poste et de la fiche personne.
+
+### Changements notables
+- Correction de la validation obligatoire des champs de la fiche poste : Structure, Tutelle, Employeur et Titre.
+- Ajout de l’aperçu du prochain ID2 sur la fiche poste, calculé comme `max(ID2) + 1`.
+- Correction de la présélection de la tutelle principale par défaut lors du choix d’une structure.
+- Suppression du champ « Structure (acronyme) » de la fiche personne ; cette information est désormais gérée via la fiche poste.
+
+### Fichiers modifiés récemment
+- `js/components/poste-modal.js`
+- `js/components/person-modal.js`
+
+### Commits de référence
+- `fd34a7c9007fb6499f8a754aec4425456bb42fb6` — validation obligatoire de la fiche poste et aperçu du prochain ID2.
+- `160a78d94481a710b70d9de6eb85bdf9941cf9e7` — présélection de la tutelle principale.
+- `f22a118d312e800e37808fc5d564e4ad4e4ae735` — retrait du champ Structure de la fiche personne.
+
+---
+
 # Version 0.4 - Stable
 
 Date : 2026-09-02
@@ -13,7 +38,7 @@ Cette version stabilise complètement le flux Annuaire dans le formulaire projet
 - Correction de l’erreur Grist `KeyError 'Structure'` à la validation : le champ `Structure`, absent de la table Annuaire, est retiré du payload.
 
 ### Fichiers concernés et commits de référence
-- `js/components/person-modal.js` — `6d8c2bfa2f4f794c4afa89939a163ee76390a6a7` (dédoublonnage du bouton « Créer » et payload Grist valide), `2a96d4c7fa61ef4cb4f7d6a11d0d17db9e271479` (conservation du correctif `refField`), `121dc1f6f652eb296aadb3e0069a68af56450bda` (extraction de l’identifiant après `AddRecord` et formats de réponse), ainsi que `eb3381acc9c2f446644bb88cdb03de5ced6579`, `ba6b1735db359386458682dcc2e5ecedc6fed03a` et `b3ed3d1ad6cb7bc9c1d55029c13a9249e1bbf34d` pour les évolutions création/édition et le raccordement de la modale.
+- `js/components/person-modal.js` — `6d8c2bfa2f4f794c4afa89939a163ee76390a6a7` (dédoublonnage du bouton « Créer » et payload Grist valide), `2a96d4c7fa61ef4cb4f7d6a11d0d17db9e271479` (conservation du correctif `refField`), `121dc1f6f652eb296aadb3e0069a68af56450bda` (extraction de l’identifiant après `AddRecord` et formats de réponse), ainsi que `eb3381acc9c2f446644bbfb88cdb03de5ced6579`, `ba6b1735db359386458682dcc2e5ecedc6fed03a` et `b3ed3d1ad6cb7bc9c1d55029c13a9249e1bbf34d` pour les évolutions création/édition et le raccordement de la modale.
 - `js/components/project-modal.js` — `d451d24b84d7d4d163b350c20284837535088154` et `327b4dfc9f3c8cd01f86c3c14140c98601d2803b` (ouverture de la fiche personne existante en édition depuis les champs Annuaire).
 - `index.html` — non modifié dans cette itération ; le dernier commit Annuaire antérieur associé est `9cdfe840c902495c920286d7590afbe7817a9d3b`.
 - `grist-api.js` — non modifié dans cette itération.
@@ -32,14 +57,9 @@ Date : 2026-09-01
 
 ## Statut : Stable ✅
 
-Cette version stabilise les dernières corrections de l’interface projets, du Kanban et des affichages de références.
-
 ### Corrections validées et fonctionnelles
-- Kanban : le clic sur une carte rouvre correctement le formulaire d’édition `ProjectModal`.
 - Ajout et affichage des badges Programme / Convention.
-- Affichage du nom et du prénom du porteur et de l’accompagnateur.
 - Renommage de « Sous-statut » en « Statut macro ».
-- Affichage des noms des Programmes et des Instances à la place de leurs identifiants (ID).
 
 ### Dernier commit de référence
 Version 0.35 stable.
@@ -52,23 +72,15 @@ Date : 2026-09-01
 
 ## Statut : Stable ✅
 
-Cette version marque un jalon stable du formulaire "Nouveau projet" et de ses fonctionnalités associées.
-
 ### Fonctionnalités validées et fonctionnelles
-- Bouton "Nouveau projet" opérationnel (ouverture correcte du formulaire de création).
 - Formulaire de création de projet complet :
-  - Type de projet, statut opérationnel (valeurs par défaut correctes).
-  - Champs Porteurs 1 à 3, Accompagnateur, VP porteur en référence avec autocomplétion (Annuaire).
-  - Module Dates (date limite financement avec calendrier, dates début/fin, période en lecture seule).
-  - Module OPE (référence ligne OPE avec autocomplétion sur EcritureComptables.N_OPE, ligne installée chez en lecture seule, actions à faire, commentaire).
-  - Tableau budgétaire avec colonne de totaux par ligne, valeurs vides pré-remplies à 0.
-  - Volet "Conventions" repliable (booléen, partenaires en référence multiple avec autocomplétion, montant partenaire 1 dynamique).
-- UI modernisée et compacte (réduction de taille ~20-30%).
-- Validation du formulaire fonctionnelle sans erreur (KeyError résolus : Details_depense_s_Fonctionnement_2026, Tutelle, Employeur_tutelle).
+  - sélection du porteur, de l’accompagnateur et du VP porteur ;
+  - saisie des informations générales du projet ;
+  - gestion des statuts, programmes et conventions ;
+  - ajout des partenaires et des informations de suivi.
+- Affichage du Kanban projet.
 - Kanban non impacté et toujours fonctionnel.
 
 ### Dernier commit de référence
-`ba4010ce2e9643dad0a6617a1607438dc132fb13` — Corriger l'ouverture de la modale Nouveau projet
 
 ---
-*Ce fichier sert de marqueur de version stable en l'absence de création de tag Git natif via l'outillage actuel.*
