@@ -36,9 +36,11 @@
     return text(value);
   };
   const instanceLabel = value => {
+    if (Array.isArray(value)) return value.map(instanceLabel).filter(Boolean).join(', ');
     const suivi = rowById('Suivi_Instance', refId(value));
-    if (!suivi) return valueLabel(value, 'Instances', ['Instances']);
-    return valueLabel(suivi.Instance, 'Instances', ['Instances']) || text(suivi.Nom);
+    // Mirror project-modal resolution: prefer Suivi_Instance.Nom / .name, fall back to linked Instances.Instances.
+    if (suivi) return refLabel(suivi, null, ['Nom', 'name']) || valueLabel(suivi.Instance, 'Instances', ['Instances']);
+    return valueLabel(value, 'Instances', ['Instances']);
   };
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
@@ -62,15 +64,23 @@
       return (!filters.programme || programme === filters.programme) && (!filters.instance || instance === filters.instance) && (!filters.search || normalized(acronym).includes(filters.search));
     });
   }
-  function options(fieldNames) {
-    return [...new Set(getProjects().map(p => fieldNames.some(name => name === 'Instance_ratachee' || name === 'Instance' || name === 'Instances') ? instanceLabel(field(p, fieldNames)) : programmeLabel(field(p, fieldNames))).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'fr'));
+  function options(fieldNames, query = '') {
+    const isInstance = fieldNames.some(name => name === 'Instance_ratachee' || name === 'Instance' || name === 'Instances');
+    const wanted = normalized(query);
+    return [...new Set(getProjects().map(p => isInstance ? instanceLabel(field(p, fieldNames)) : programmeLabel(field(p, fieldNames)))
+      .map(value => text(value).trim())
+      .filter(value => value && value !== '0' && normalized(value) !== '0' && (!wanted || normalized(value).includes(wanted)))
+    )].sort((a,b) => a.localeCompare(b, 'fr'));
   }
   function fillSelect(id, values, placeholder) {
     const select = document.getElementById(id); if (!select) return;
     const prior = select.value; select.innerHTML = `<option value="">${placeholder}</option>` + values.map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('');
     if (values.includes(prior)) select.value = prior;
   }
-  function renderFilters() { fillSelect('filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes'); fillSelect('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances']), 'Toutes les instances'); }
+  function renderFilters() {
+    fillSelect('filter-programme', options(['Programme', 'Programme_Axe_InnovationS'], document.getElementById('filter-programme-search')?.value), 'Tous les programmes');
+    fillSelect('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances'], document.getElementById('filter-instance-search')?.value), 'Toutes les instances');
+  }
   function render() {
     const board = document.getElementById('projects-kanban'); if (!board) return;
     const projects = filteredProjects();
@@ -93,7 +103,8 @@
     const convention = !!project.Convention_de_reversement || !!project.Convention_de_reversement_le_cas_echeant;
     return `<button type="button" class="project-card" data-project-id="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}<span class="project-holder"><strong>Porteur :</strong> ${escape(holder)}</span><span class="project-holder"><strong>Accompagnateur :</strong> ${escape(accompanist)}</span><span class="project-substatus"><strong>Statut macro :</strong> ${escape(substatus)}</span>${convention ? '<span class="convention-badge">Convention</span>' : ''}</button>`;
   }
-  function init() { renderFilters(); render(); ['filter-programme','filter-instance','filter-search'].forEach(id => document.getElementById(id)?.addEventListener(id === 'filter-search' ? 'input' : 'change', render)); document.getElementById('clear-filters')?.addEventListener('click', () => { ['filter-programme','filter-instance','filter-search'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); render(); }); }
+  function init() { renderFilters(); render(); ['filter-programme','filter-instance'].forEach(id => document.getElementById(id)?.addEventListener('change', render));
+    ['filter-programme-search','filter-instance-search','filter-search'].forEach(id => document.getElementById(id)?.addEventListener('input', () => { if (id !== 'filter-search') renderFilters(); render(); })); document.getElementById('clear-filters')?.addEventListener('click', () => { ['filter-programme','filter-instance','filter-programme-search','filter-instance-search','filter-search'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); render(); }); }
   window.renderProjectsKanban = function (projects) { renderFilters(); render(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());
