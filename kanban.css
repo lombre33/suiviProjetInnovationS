@@ -4,6 +4,8 @@
 .project-filters label { display:flex; flex-direction:column; gap:6px; color:var(--gray-text, #475467); font-size:.78rem; font-weight:700; }
 .project-filters select, .project-filters input { min-width:190px; padding:9px 11px; border:1px solid var(--border, #d0d5dd); border-radius:7px; background:#fff; color:inherit; font:inherit; font-weight:400; }
 .filter-search input { min-width:230px; }
+.project-filters label input[type="search"] { margin-bottom:2px; }
+.project-filters #btn-new-project { margin-left:auto; }
 .kanban-board { display:grid; grid-template-columns:repeat(5, minmax(220px, 1fr)); gap:var(--kanban-gap); align-items:start; overflow-x:auto; padding-bottom:8px; }
 .kanban-column { min-height:290px; border:1px solid var(--border, #d0d5dd); border-radius:10px; background:#f8fafc; overflow:hidden; }
 .kanban-column-header { display:flex; justify-content:space-between; gap:8px; padding:14px; border-bottom:3px solid var(--column-accent, #667085); background:#fff; }
