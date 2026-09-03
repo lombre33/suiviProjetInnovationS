@@ -44,14 +44,70 @@
   };
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Kanban column classification — rules from docs/grist_structure (Projets).
+  //
+  // Columns referenced (Grist):
+  //   • Statut_Macro              (Choice, computed server-side)
+  //   • Convention_de_reversement (Bool — flag "Convention cochée")
+  //   • Conventions_statut        (Choice — sub-status of the convention)
+  //
+  // Priority order (a project is placed in the first matching column):
+  //   3) Conventions — PRIME over "Projet en cours" tant que la convention
+  //       n'est pas signée par toutes les parties : c'est une étape bloquante
+  //       avant l'installation des fonds. Cette règle est évaluée EN PREMIER
+  //       afin qu'un projet Convention cochée + "En cours" reste affiché dans
+  //       la colonne Conventions.
+  //   1) Instruction   — Statut_Macro ∈ {1) Information projet saisies,
+  //                                    2) Notification_relecture,
+  //                                    3) Prette pour CTO}
+  //   2) Notifications — Statut_Macro ∈ {4) complète,
+  //                                    5) envoyée pour signature VP,
+  //                                    6) Signée}
+  //   4) Installation des fonds — Statut_Macro contient le mot "Finance"
+  //       (recherche par sous-chaîne, insensible aux accents via normalized()).
+  //   5) Projet en cours        — Statut_Macro ∈ {En cours, En retard}.
+  //
+  // Tout projet ne correspondant à AUCUNE règle n'apparaît dans aucune colonne
+  // (pas de colonne "autre") — classifyStatus() renvoie alors null et le
+  // filtre du render() l'écarte naturellement.
+  // ─────────────────────────────────────────────────────────────────────────────
   function classifyStatus(project) {
+    // 3) Conventions — règle prioritaire (cf. commentaire ci-dessus).
+    const conventionSigned = normalized(text(field(project, ['Conventions_statut']))) === normalized('5) Convention signée de toutes les parties');
+    const conventionValue = project.Convention_de_reversement;
+    const hasConvention = conventionValue === true || conventionValue === 1 || normalized(conventionValue) === 'true' || normalized(conventionValue) === 'oui' || normalized(conventionValue) === 'cochée' || normalized(conventionValue) === 'cochee';
+    if (hasConvention && !conventionSigned) return 'Conventions';
+
     const status = normalized(field(project, ['Statut_Macro', 'Statut']));
-    if (!status) return 'Instruction';
-    if (status.includes('notification') || status.includes('relecture') || status.includes('archive')) return 'Notifications';
-    if (status.includes('convention')) return 'Conventions';
-    if (status.includes('finance') || status.includes('fonds') || status.includes('gestionnaire')) return 'Installation des fonds';
-    if (status.includes('instruction') || status.includes('pre-instruction') || status.includes('attente statut')) return 'Instruction';
-    return 'Projet en cours';
+    if (!status) return null;
+
+    // 1) Instruction
+    if (status === normalized('1) Information projet saisies')
+        || status === normalized('2) Notification_relecture')
+        || status === normalized('3) Prette pour CTO')) {
+      return 'Instruction';
+    }
+
+    // 2) Notifications
+    if (status === normalized('4) complète')
+        || status === normalized('5) envoyée pour signature VP')
+        || status === normalized('6) Signée')) {
+      return 'Notifications';
+    }
+
+    // 4) Installation des fonds — sous-chaîne "Finance" (Statut_Financier
+    //    alimente Statut_Macro avec des libellés type "Finance_En Attente
+    //    Gestionnaire" — matchés ici).
+    if (status.includes('finance')) return 'Installation des fonds';
+
+    // 5) Projet en cours
+    if (status === normalized('En cours') || status === normalized('En retard')) {
+      return 'Projet en cours';
+    }
+
+    // Hors règles : pas de colonne "autre".
+    return null;
   }
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
   function comboValue(id) {
