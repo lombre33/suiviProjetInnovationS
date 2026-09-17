@@ -9,7 +9,7 @@
     { key: 'Projet en cours', label: 'Projet en cours', color: '#039855' }
   ];
   const text = value => value == null ? '' : String(value);
-  const escape = value => window.CoreUtils && CoreUtils.escapeHtml ? CoreUtils.escapeHtml(text(value)) : text(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const escape = CoreUtils.escapeHtml;
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
   const rowById = (tableName, id) => tableRows(tableName).find(row => String(row.id) === String(id));
   const refId = value => {
