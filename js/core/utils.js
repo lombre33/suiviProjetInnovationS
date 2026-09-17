@@ -79,5 +79,35 @@
     return `${formattedInteger}${decimals === '00' ? '' : `,${decimals}`} €`;
   }
 
-  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency };
+  // applyUserActions() resolves to { actionNum, retValues: [...] }, one entry per
+  // action; an AddRecord's retValue is the new row's plain numeric id. This walks a
+  // response defensively (nested arrays/objects, alternate key names) so callers don't
+  // have to assume one exact shape.
+  function extractAddedRecordId(response) {
+    function visit(value, depth) {
+      if (depth > 8 || value == null) return null;
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+      if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) && Number(value) > 0) return Number(value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const id = visit(item, depth + 1);
+          if (id != null) return id;
+        }
+        return null;
+      }
+      if (typeof value !== 'object') return null;
+      for (const key of ['id', 'rowId', 'rowID']) {
+        const id = visit(value[key], depth + 1);
+        if (id != null) return id;
+      }
+      for (const key of ['ids', 'retValues', 'result', 'results']) {
+        const id = visit(value[key], depth + 1);
+        if (id != null) return id;
+      }
+      return null;
+    }
+    return visit(response, 0);
+  }
+
+  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId };
 })(window);
