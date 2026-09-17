@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>suiviProjetInnovationS — tests de non-régression</title>
+<style>
+  body { font: 14px/1.4 monospace; padding: 16px; }
+  #test-results .pass { color: #0a7a2f; }
+  #test-results .fail { color: #b42318; }
+  #test-results pre { white-space: pre-wrap; margin: 4px 0 12px 20px; }
+  #app-dom { display: none; } /* real DOM skeleton the source files query; hidden, not styled */
+</style>
+</head>
+<body>
+
+<!-- Minimal DOM skeleton, copied verbatim (ids/classes) from the real index.html,
+     limited to what the Kanban + the three modals actually query. Kept hidden:
+     these tests assert on data/DOM structure, not visual layout. -->
+<div id="app-dom">
+  <div id="toast" class="toast hidden"></div>
+  <div id="error-container" class="error-container hidden">
+    <div class="error-message"><span id="error-text"></span><button id="error-close" class="error-close">&times;</button></div>
+  </div>
+  <div class="project-filters" role="search" aria-label="Filtres des projets">
+    <label class="filter-combo">Programme
+      <input id="filter-programme" type="search" placeholder="Tous les programmes" autocomplete="off" role="combobox" aria-controls="filter-programme-list" aria-autocomplete="list">
+      <span id="filter-programme-list" class="combo-list" role="listbox" hidden></span>
+    </label>
+    <label class="filter-combo">Instance
+      <input id="filter-instance" type="search" placeholder="Toutes les instances" autocomplete="off" role="combobox" aria-controls="filter-instance-list" aria-autocomplete="list">
+      <span id="filter-instance-list" class="combo-list" role="listbox" hidden></span>
+    </label>
+    <label class="filter-search">Recherche<input id="filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
+    <button id="clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
+    <button id="btn-new-project" class="btn btn-primary">+ Nouveau Projet</button>
+  </div>
+  <div id="projects-kanban" class="kanban-board" aria-live="polite"></div>
+</div>
+
+<div id="test-results"><p>Exécution des tests…</p></div>
+
+<script>
+  // Scripts are fetched with cache: 'no-store' and eval'd rather than loaded via
+  // <script src>, so re-running this page during development always reflects the
+  // files on disk (a plain <script src> can otherwise be served stale from the
+  // browser's HTTP cache against a python -m http.server backend, which sends no
+  // cache-control headers to tell it not to).
+  async function loadScript(url) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Failed to load ${url}: ${res.status}`);
+    const code = await res.text();
+    (0, eval)(code + '\n//# sourceURL=' + location.origin + '/' + url.replace(/^\.\.\//, ''));
+  }
+
+  async function main() {
+    // Test-only scripts, must load before the app's core so window.grist exists
+    // before CoreGrist.ready() starts polling for it.
+    await loadScript('fixtures.js');
+    await loadScript('mock-grist.js');
+    await loadScript('harness.js');
+
+    // App source, same load order as the real index.html. js/app.js is
+    // intentionally NOT loaded: its own DOMContentLoaded auto-init would race with
+    // per-test setup — tests call CoreGrist.ready()/loadAllTables() explicitly.
+    await loadScript('../js/core/utils.js');
+    await loadScript('../js/core/state.js');
+    await loadScript('../js/core/grist-api.js');
+    await loadScript('../js/components/project-modal.js');
+    await loadScript('../js/components/poste-modal.js');
+    await loadScript('../js/components/person-modal.js');
+    await loadScript('../js/pages/page-projets.js');
+
+    // Test suites, one per audited feature.
+    await loadScript('suite-kanban.js');
+    await loadScript('suite-project-modal.js');
+    await loadScript('suite-person-modal.js');
+    await loadScript('suite-poste-modal.js');
+
+    await window.CoreGrist.ready();
+    await window.runAllTests();
+  }
+
+  main().catch(err => {
+    document.getElementById('test-results').innerHTML = `<pre style="color:#b42318">${String(err && err.stack || err)}</pre>`;
+  });
+</script>
+</body>
+</html>
