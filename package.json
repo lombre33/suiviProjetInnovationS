@@ -1,0 +1,11 @@
+{
+  "name": "suivi-projet-innovations-ci",
+  "private": true,
+  "description": "Dépendances de développement pour exécuter tests/index.html en headless en CI. Le widget lui-même reste zéro-dépendance.",
+  "scripts": {
+    "test": "node tests/run-headless.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
