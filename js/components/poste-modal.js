@@ -84,52 +84,49 @@
     return api().docApi.applyUserActions([action]);
   }
 
-  function openPosteModal({ mode = 'create', poste = null, initialName = '', originInput = null } = {}) {
-    const old = document.getElementById('cp-poste-modal');
-    if (old) old.remove();
-    const editing = mode === 'edit', modal = document.createElement('div');
-    modal.id = 'cp-poste-modal';
-    modal.className = 'cp-modal cp-person-modal cp-poste-modal';
-    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
-      `<div class="cp-head"><div class="cp-head-text"><span class="cp-eyebrow">${editing ? 'Fiche poste' : 'Nouveau poste'}</span><h2>${editing ? 'Modifier un poste' : 'Créer un poste'}</h2></div><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
-      `<div class="cp-body"><div class="cp-grid" id="cpp-poste-form"></div></div>` +
-      `<p class="cp-error" role="alert"></p>` +
-      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer le poste'}</button></div>` +
-      `</div>`;
-    document.body.appendChild(modal);
-    const form = modal.querySelector('#cpp-poste-form');
+  // Construit le jeu de champs Structure / Tutelle-Employeur / Titre / Précisions / Nom
+  // calculé dans `parent`, avec le filtrage dynamique des tutelles et l'aperçu en direct
+  // du nom de poste. Réutilisé tel quel par la modale autonome (openPosteModal) et par
+  // l'onglet "Poste" de la fiche Personne (création à la volée, sans ouvrir de 2e modale) —
+  // seul `idPrefix` change pour ne jamais dupliquer un id sur la page.
+  function buildPosteFieldset(parent, poste, idPrefix) {
+    const editing = !!poste;
+    const id = suffix => `${idPrefix}-${suffix}`;
 
-    const structure = refSelect(form, 'cpp-structure', 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']));
-    const employeur = refSelect(form, 'cpp-employeur', 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']));
+    const structure = refSelect(parent, id('structure'), 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']));
+    const employeur = refSelect(parent, id('employeur'), 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']));
 
     const titreWrap = document.createElement('div');
     titreWrap.className = 'cp-field cp-full';
-    titreWrap.innerHTML = '<label for="cpp-titre">Titre du poste *</label><input id="cpp-titre" type="text" required>';
-    form.appendChild(titreWrap);
+    titreWrap.innerHTML = `<label for="${id('titre')}">Titre du poste *</label><input id="${id('titre')}" type="text" required>`;
+    parent.appendChild(titreWrap);
 
     const precisionWrap = document.createElement('div');
     precisionWrap.className = 'cp-field cp-full';
-    precisionWrap.innerHTML = '<label for="cpp-precisions">Précisions du poste</label><textarea id="cpp-precisions" rows="3"></textarea>';
-    form.appendChild(precisionWrap);
+    precisionWrap.innerHTML = `<label for="${id('precisions')}">Précisions du poste</label><textarea id="${id('precisions')}" rows="3"></textarea>`;
+    parent.appendChild(precisionWrap);
 
     const nameWrap = document.createElement('div');
     nameWrap.className = 'cp-field cp-full';
-    nameWrap.innerHTML = '<label for="cpp-nom-poste">Nom du poste (calculé)</label><input id="cpp-nom-poste" type="text" readonly aria-readonly="true" class="cp-readonly">';
-    form.appendChild(nameWrap);
+    nameWrap.innerHTML = `<label for="${id('nom-poste')}">Nom du poste (calculé)</label><input id="${id('nom-poste')}" type="text" readonly aria-readonly="true" class="cp-readonly">`;
+    parent.appendChild(nameWrap);
 
-    modal.querySelector('#cpp-titre').value = text(fieldValue(poste, ['Titre']));
-    modal.querySelector('#cpp-precisions').value = text(fieldValue(poste, ['Precisions_Poste']));
-    modal.querySelector('#cpp-nom-poste').value = text(fieldValue(poste, ['Nom_du_poste'])) || text(initialName);
+    const titreInput = titreWrap.querySelector('input');
+    const precisionsInput = precisionWrap.querySelector('textarea');
+    const nameInput = nameWrap.querySelector('input');
 
-    const preview = modal.querySelector('#cpp-nom-poste');
+    titreInput.value = text(fieldValue(poste, ['Titre']));
+    precisionsInput.value = text(fieldValue(poste, ['Precisions_Poste']));
+    nameInput.value = text(fieldValue(poste, ['Nom_du_poste']));
+
     let estimatedId = editing ? poste?.id : null;
 
     const refreshPreview = () => {
       const structureRow = rows('Structures').find(row => Number(row.id) === Number(structure.select.value));
       const employeurRow = rows('Etablissements').find(row => Number(row.id) === Number(employeur.select.value));
-      preview.value = calculatedPosteName({
-        titre: modal.querySelector('#cpp-titre').value,
-        precisions: modal.querySelector('#cpp-precisions').value,
+      nameInput.value = calculatedPosteName({
+        titre: titreInput.value,
+        precisions: precisionsInput.value,
         structureRow, employeurRow,
         id: editing ? poste?.id : estimatedId
       });
@@ -149,13 +146,86 @@
 
     structure.select.addEventListener('change', refreshEmployeurs);
     employeur.select.addEventListener('change', refreshPreview);
-    modal.querySelector('#cpp-titre').addEventListener('input', refreshPreview);
-    modal.querySelector('#cpp-precisions').addEventListener('input', refreshPreview);
+    titreInput.addEventListener('input', refreshPreview);
+    precisionsInput.addEventListener('input', refreshPreview);
     refreshEmployeurs();
 
     if (!editing) {
-      nextPosteId().then(id => { estimatedId = id; refreshPreview(); }).catch(() => {});
+      nextPosteId().then(newId => { estimatedId = newId; refreshPreview(); }).catch(() => {});
     }
+
+    return {
+      structureSelect: structure.select,
+      employeurSelect: employeur.select,
+      titreInput, precisionsInput, nameInput,
+      focus() { structure.select.focus(); },
+      getFields() {
+        return {
+          Structure2: Number(structure.select.value.trim()) || 0,
+          Employeur_tutelle: Number(employeur.select.value.trim()) || 0,
+          Titre: titreInput.value.trim(),
+          Precisions_Poste: precisionsInput.value.trim()
+        };
+      },
+      validate() {
+        const fields = this.getFields();
+        if (!fields.Structure2 || !fields.Employeur_tutelle || !fields.Titre) {
+          return 'Structure, tutelle/employeur et titre sont obligatoires.';
+        }
+        return null;
+      }
+    };
+  }
+
+  // Enregistre un poste (Create ou Update), calcule son nom d'affichage et reflète le
+  // changement dans CoreState.Postes2 — factorisé pour que le bouton "Créer le poste" de
+  // la modale autonome et le flux de création à la volée (fiche Personne) partagent
+  // exactement la même logique plutôt que de la dupliquer.
+  async function persistPoste(mode, poste, fields) {
+    const result = await save(mode, poste, fields);
+    let id = mode === 'edit' ? poste.id : extractAddedRecordId(result);
+    if (!id && mode !== 'edit') {
+      const found = rows('Postes2').filter(row => row.Titre === fields.Titre && row.Precisions_Poste === fields.Precisions_Poste).pop();
+      id = found?.id;
+    }
+    if (!id) throw new Error('Le poste a été enregistré mais son identifiant n’a pas pu être retrouvé.');
+
+    let calculated = '';
+    try {
+      calculated = text(recordFromTable(await api().docApi.fetchTable('Postes2'), id)?.Nom_du_poste);
+    } catch (_) {}
+    if (!calculated) {
+      const structureRow = rows('Structures').find(row => Number(row.id) === Number(fields.Structure2));
+      const employeurRow = rows('Etablissements').find(row => Number(row.id) === Number(fields.Employeur_tutelle));
+      calculated = calculatedPosteName({ titre: fields.Titre, precisions: fields.Precisions_Poste, structureRow, employeurRow, id });
+    }
+
+    const updated = { ...(poste || {}), ...fields, id: Number(id), ...(calculated ? { Nom_du_poste: calculated } : {}) };
+    const current = rows('Postes2');
+    if (global.CoreState?.setTable) {
+      global.CoreState.setTable('Postes2', mode === 'edit'
+        ? current.map(row => Number(row.id) === Number(id) ? updated : row)
+        : [...current, updated]);
+    }
+    return updated;
+  }
+
+  function openPosteModal({ mode = 'create', poste = null, initialName = '', originInput = null } = {}) {
+    const old = document.getElementById('cp-poste-modal');
+    if (old) old.remove();
+    const editing = mode === 'edit', modal = document.createElement('div');
+    modal.id = 'cp-poste-modal';
+    modal.className = 'cp-modal cp-person-modal cp-poste-modal';
+    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><h2>${editing ? 'Modifier un poste' : 'Créer un poste'}</h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-body"><div class="cp-grid" id="cpp-poste-form"></div></div>` +
+      `<p class="cp-error" role="alert"></p>` +
+      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer le poste'}</button></div>` +
+      `</div>`;
+    document.body.appendChild(modal);
+    const form = modal.querySelector('#cpp-poste-form');
+    const fieldset = buildPosteFieldset(form, poste, 'cpp');
+    if (!editing && initialName) fieldset.nameInput.value = initialName;
 
     const close = () => modal.remove();
     modal.querySelector('[data-cp-close]').onclick = close;
@@ -163,46 +233,18 @@
 
     modal.querySelector('[data-cp-save]').onclick = async () => {
       const error = modal.querySelector('.cp-error'), button = modal.querySelector('[data-cp-save]');
-      const structureValue = structure.select.value.trim(),
-        employeurValue = employeur.select.value.trim(),
-        titreValue = modal.querySelector('#cpp-titre').value.trim(),
-        precisionValue = modal.querySelector('#cpp-precisions').value.trim();
-      const fields = { Structure2: Number(structureValue), Employeur_tutelle: Number(employeurValue), Titre: titreValue, Precisions_Poste: precisionValue };
-      if (!structureValue || !employeurValue || !titreValue) {
-        error.textContent = 'Structure, tutelle/employeur et titre sont obligatoires.';
+      const validationError = fieldset.validate();
+      if (validationError) {
+        error.textContent = validationError;
         return;
       }
       button.disabled = true;
       error.textContent = '';
       try {
-        const result = await save(mode, poste, fields);
-        let id = editing ? poste.id : extractAddedRecordId(result);
-        if (!id && !editing) {
-          const found = rows('Postes2').filter(row => row.Titre === fields.Titre && row.Precisions_Poste === fields.Precisions_Poste).pop();
-          id = found?.id;
-        }
-        if (!id) throw new Error('Le poste a été enregistré mais son identifiant n’a pas pu être retrouvé.');
-
-        let calculated = '';
-        try {
-          calculated = text(recordFromTable(await api().docApi.fetchTable('Postes2'), id)?.Nom_du_poste);
-        } catch (_) {}
-        if (!calculated) {
-          const structureRow = rows('Structures').find(row => Number(row.id) === Number(fields.Structure2));
-          const employeurRow = rows('Etablissements').find(row => Number(row.id) === Number(fields.Employeur_tutelle));
-          calculated = calculatedPosteName({ titre: fields.Titre, precisions: fields.Precisions_Poste, structureRow, employeurRow, id });
-        }
-
-        const updated = { ...(poste || {}), ...fields, id: Number(id), ...(calculated ? { Nom_du_poste: calculated } : {}) };
+        const updated = await persistPoste(mode, poste, fieldset.getFields());
         if (originInput) {
-          originInput.value = calculated || text(poste?.Nom_du_poste) || '';
-          originInput.dataset.id = String(id);
-        }
-        const current = rows('Postes2');
-        if (global.CoreState?.setTable) {
-          global.CoreState.setTable('Postes2', editing
-            ? current.map(row => Number(row.id) === Number(id) ? updated : row)
-            : [...current, updated]);
+          originInput.value = updated.Nom_du_poste || text(poste?.Nom_du_poste) || '';
+          originInput.dataset.id = String(updated.id);
         }
         close();
       } catch (e) {
@@ -211,11 +253,12 @@
       }
     };
 
-    modal.querySelector('#cpp-structure').focus();
+    fieldset.focus();
     return modal;
   }
 
   global.openPosteModal = openPosteModal;
   global.openCreatePosteModal = (initialName = '', originInput) => openPosteModal({ mode: 'create', initialName, originInput });
   global.openEditPosteModal = (poste, originInput) => openPosteModal({ mode: 'edit', poste, originInput });
+  global.PosteModal = { open: openPosteModal, buildFieldset: buildPosteFieldset, persist: persistPoste };
 }(window));

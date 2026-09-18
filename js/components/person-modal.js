@@ -30,6 +30,11 @@
     return api.docApi.applyUserActions([['UpdateRecord', 'Annuaire', Number(id), fields]]);
   }
 
+  // Champ de recherche générique (utilisé ici pour le Poste). Le "+Créer" ouvrant une
+  // seconde modale a été retiré : la création à la volée se fait désormais en ligne dans
+  // l'onglet Poste (cf. buildPosteTab ci-dessous). Cliquer un poste déjà sélectionné ouvre
+  // toujours sa fiche complète (modale autonome) pour le modifier — un geste plus rare,
+  // qui n'a pas besoin d'être en ligne.
   function searchableField(parent, id, labelText, rows, fields, initialValue, initialId) {
     const wrap = document.createElement('div');
     wrap.className = 'cp-field cp-ref cp-full';
@@ -43,15 +48,8 @@
       const query = input.value.trim().toLowerCase();
       const matches = rows().filter(row => label(row, fields).toLowerCase().includes(query)).slice(0, 30);
       list.innerHTML = matches.map(row => `<button type="button" data-id="${escapeHtml(row.id)}">${escapeHtml(label(row, fields))}</button>`).join('');
-      if (id === 'cpp-poste' && query && !matches.length && typeof global.openCreatePosteModal === 'function') {
-        list.innerHTML = `<button type="button" data-create-poste="${escapeHtml(input.value.trim())}">+ Créer "${escapeHtml(input.value.trim())}"</button>`;
-      }
       list.classList.toggle('cp-hidden', !list.innerHTML);
       list.querySelectorAll('button').forEach(button => button.onclick = () => {
-        if (button.dataset.createPoste !== undefined) {
-          global.openCreatePosteModal(button.dataset.createPoste, input);
-          return;
-        }
         input.value = button.textContent;
         input.dataset.id = button.dataset.id;
         list.classList.add('cp-hidden');
@@ -81,43 +79,10 @@
     return '';
   }
 
-  function openPersonModal({ mode = 'create', person = null, originInput = null, initialName = '' } = {}) {
-    const existing = document.getElementById('cp-person-modal');
-    if (existing) existing.remove();
-    const editing = mode === 'edit';
-    const modal = document.createElement('div');
-    modal.id = 'cp-person-modal';
-    modal.className = 'cp-modal cp-person-modal';
-    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
-      `<div class="cp-head"><div class="cp-head-text"><span class="cp-eyebrow">${editing ? 'Fiche annuaire' : 'Nouvelle entrée'}</span><h2 id="cpp-title">${editing ? 'Modifier une personne' : 'Créer une personne'}</h2></div><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
-      `<div class="cp-body"><div class="cp-grid" id="cpp-form">` +
-      `<div class="cp-field"><label for="cpp-nom">Nom *</label><input id="cpp-nom" type="text" required></div>` +
-      `<div class="cp-field"><label for="cpp-prenom">Prénom *</label><input id="cpp-prenom" type="text" required></div>` +
-      `<div class="cp-field"><label for="cpp-email">Email</label><input id="cpp-email" type="email"></div>` +
-      `<div class="cp-field"><label for="cpp-tel">Tel</label><input id="cpp-tel" type="text"></div>` +
-      `</div></div>` +
-      `<p class="cp-error" role="alert"></p>` +
-      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer la personne'}</button></div>` +
-      `</div>`;
-    document.body.appendChild(modal);
-
-    const nom = modal.querySelector('#cpp-nom'), prenom = modal.querySelector('#cpp-prenom');
-    if (editing) {
-      nom.value = text(fieldValue(person, ['NOM', 'Nom']));
-      prenom.value = text(fieldValue(person, ['Prenom', 'Prénom']));
-    } else {
-      const parts = text(initialName).trim().split(/\s+/);
-      if (parts.length > 1) {
-        nom.value = parts.pop();
-        prenom.value = parts.join(' ');
-      } else {
-        nom.value = text(initialName).trim();
-      }
-    }
-    modal.querySelector('#cpp-email').value = text(fieldValue(person, ['Email']));
-    modal.querySelector('#cpp-tel').value = text(fieldValue(person, ['Telephone', 'Tel']));
-
-    const form = modal.querySelector('#cpp-form');
+  // Onglet Poste : recherche d'un poste existant + bascule "+" vers un mini-formulaire de
+  // création affiché sous le champ (jamais une 2e modale — 9 ajouts de personne sur 10
+  // s'accompagnent d'un nouveau poste, autant rester dans le même flux).
+  function buildPosteTab(panel, person) {
     const posteValue = fieldValue(person, ['Poste2', 'Poste']);
     const refLabel = (value, table, fields) => {
       const id = value && typeof value === 'object' ? value.id : value;
@@ -125,31 +90,172 @@
       return value && typeof value === 'object' ? label(value, fields) : (row ? label(row, fields) : '');
     };
     const refId = value => value && typeof value === 'object' ? value.id : value;
-    const poste = searchableField(
-      form, 'cpp-poste', 'Poste (nom du poste)', () => tableRows('Postes2'), ['Nom_du_poste', 'Titre'],
+    const posteInput = searchableField(
+      panel, 'cpp-poste', 'Poste (nom du poste)', () => tableRows('Postes2'), ['Nom_du_poste', 'Titre'],
       refLabel(posteValue, 'Postes2', ['Nom_du_poste', 'Titre']), refId(posteValue)
     );
+    const posteFieldWrap = posteInput.closest('.cp-field');
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'cp-add-toggle';
+    toggleBtn.textContent = '+ Créer un nouveau poste';
+    panel.appendChild(toggleBtn);
+
+    const inlineWrap = document.createElement('div');
+    inlineWrap.className = 'cp-grid cp-inline-panel cp-hidden';
+    panel.appendChild(inlineWrap);
+
+    let fieldset = null;
+
+    const closeInline = () => {
+      fieldset = null;
+      inlineWrap.classList.add('cp-hidden');
+      inlineWrap.innerHTML = '';
+      posteFieldWrap.classList.remove('cp-hidden');
+      toggleBtn.classList.remove('cp-hidden');
+    };
+
+    const openInline = () => {
+      posteFieldWrap.classList.add('cp-hidden');
+      toggleBtn.classList.add('cp-hidden');
+      inlineWrap.classList.remove('cp-hidden');
+      inlineWrap.innerHTML = '';
+      const backBtn = document.createElement('button');
+      backBtn.type = 'button';
+      backBtn.className = 'cp-inline-back';
+      backBtn.textContent = '← Utiliser un poste existant';
+      backBtn.onclick = closeInline;
+      inlineWrap.appendChild(backBtn);
+      fieldset = global.PosteModal.buildFieldset(inlineWrap, null, 'cppi');
+      fieldset.focus();
+    };
+
+    toggleBtn.onclick = openInline;
+
+    return {
+      posteInput,
+      isCreatingInline: () => !!fieldset,
+      validateInline: () => fieldset && fieldset.validate(),
+      getInlineFields: () => fieldset && fieldset.getFields()
+    };
+  }
+
+  function openPersonModal({ mode = 'create', person = null, originInput = null, initialName = '' } = {}) {
+    const existing = document.getElementById('cp-person-modal');
+    if (existing) existing.remove();
+    const editing = mode === 'edit';
+    const modal = document.createElement('div');
+    modal.id = 'cp-person-modal';
+    modal.className = 'cp-modal cp-person-modal';
+    const TABS = [{ key: 'identite', label: 'Identité' }, { key: 'poste', label: 'Poste' }];
+    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><h2 id="cpp-title">${editing ? 'Modifier une personne' : 'Créer une personne'}</h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${escapeHtml(t.label)}</button>`).join('')}</div>` +
+      `<div class="cp-body"></div>` +
+      `<p class="cp-error" role="alert"></p>` +
+      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer la personne'}</button></div>` +
+      `</div>`;
+    document.body.appendChild(modal);
+
+    const body = modal.querySelector('.cp-body');
+    const panels = {};
+    TABS.forEach(t => {
+      const panel = document.createElement('div');
+      panel.className = 'cp-panel cp-grid cp-hidden';
+      panel.dataset.cpPanel = t.key;
+      body.appendChild(panel);
+      panels[t.key] = panel;
+    });
+
+    const nom = document.createElement('div');
+    nom.className = 'cp-field';
+    nom.innerHTML = '<label for="cpp-nom">Nom *</label><input id="cpp-nom" type="text" required>';
+    panels.identite.appendChild(nom);
+    const prenom = document.createElement('div');
+    prenom.className = 'cp-field';
+    prenom.innerHTML = '<label for="cpp-prenom">Prénom *</label><input id="cpp-prenom" type="text" required>';
+    panels.identite.appendChild(prenom);
+    const email = document.createElement('div');
+    email.className = 'cp-field';
+    email.innerHTML = '<label for="cpp-email">Email</label><input id="cpp-email" type="email">';
+    panels.identite.appendChild(email);
+    const tel = document.createElement('div');
+    tel.className = 'cp-field';
+    tel.innerHTML = '<label for="cpp-tel">Tel</label><input id="cpp-tel" type="text">';
+    panels.identite.appendChild(tel);
+
+    const nomInput = modal.querySelector('#cpp-nom'), prenomInput = modal.querySelector('#cpp-prenom');
+    if (editing) {
+      nomInput.value = text(fieldValue(person, ['NOM', 'Nom']));
+      prenomInput.value = text(fieldValue(person, ['Prenom', 'Prénom']));
+    } else {
+      const parts = text(initialName).trim().split(/\s+/);
+      if (parts.length > 1) {
+        nomInput.value = parts.pop();
+        prenomInput.value = parts.join(' ');
+      } else {
+        nomInput.value = text(initialName).trim();
+      }
+    }
+    modal.querySelector('#cpp-email').value = text(fieldValue(person, ['Email']));
+    modal.querySelector('#cpp-tel').value = text(fieldValue(person, ['Telephone', 'Tel']));
+
+    const posteTab = buildPosteTab(panels.poste, person);
+
+    const tabButtons = {};
+    modal.querySelectorAll('.cp-tab').forEach(btn => {
+      tabButtons[btn.dataset.cpTab] = btn;
+      btn.onclick = () => setActiveTab(btn.dataset.cpTab);
+    });
+    function setActiveTab(key) {
+      if (!panels[key]) return;
+      TABS.forEach(t => {
+        panels[t.key].classList.toggle('cp-hidden', t.key !== key);
+        tabButtons[t.key].classList.toggle('active', t.key === key);
+      });
+    }
+    setActiveTab('identite');
 
     const close = () => modal.remove();
     modal.querySelector('[data-cp-close]').onclick = close;
     modal.querySelector('[data-cp-cancel]').onclick = close;
     modal.querySelector('[data-cp-save]').onclick = async () => {
-      const error = modal.querySelector('.cp-error'), n = nom.value.trim(), p = prenom.value.trim();
+      const error = modal.querySelector('.cp-error'), n = nomInput.value.trim(), p = prenomInput.value.trim();
       if (!n || !p) {
         error.textContent = 'Le nom et le prénom sont obligatoires.';
+        setActiveTab('identite');
         return;
       }
+      let posteId = Number(posteTab.posteInput.dataset.id) || null;
+      if (posteTab.isCreatingInline()) {
+        const posteError = posteTab.validateInline();
+        if (posteError) {
+          error.textContent = posteError;
+          setActiveTab('poste');
+          return;
+        }
+      } else if (!editing && !posteId) {
+        error.textContent = 'Le poste est obligatoire.';
+        setActiveTab('poste');
+        return;
+      }
+
       const button = modal.querySelector('[data-cp-save]');
       button.disabled = true;
       error.textContent = '';
-      const fields = {
-        NOM: n,
-        Prenom: p,
-        Email: modal.querySelector('#cpp-email').value.trim(),
-        Telephone: modal.querySelector('#cpp-tel').value.trim(),
-        Poste2: Number(poste.dataset.id) || null
-      };
       try {
+        if (posteTab.isCreatingInline()) {
+          const createdPoste = await global.PosteModal.persist('create', null, posteTab.getInlineFields());
+          posteId = createdPoste.id;
+        }
+        const fields = {
+          NOM: n,
+          Prenom: p,
+          Email: modal.querySelector('#cpp-email').value.trim(),
+          Telephone: modal.querySelector('#cpp-tel').value.trim(),
+          Poste2: posteId
+        };
         let id;
         if (editing) {
           if (person?.id == null) throw new Error('Identifiant de la personne indisponible.');
@@ -181,7 +287,7 @@
         error.textContent = `${editing ? 'Modification' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
       }
     };
-    modal.querySelector('#cpp-nom').focus();
+    nomInput.focus();
     return modal;
   }
 

@@ -14,7 +14,8 @@
   const FIN = {
     2026: ['c2026_M10_Fonctionnement', 'c2026_M20_Investissement', 'c2026_M30_Personnel'],
     2027: ['c2027_M10_Fonctionnement', 'c2027_M20_Investissement', 'c2027_M30_Personnel'],
-    2028: ['c2028_M10_Fonctionnement', 'c2028_M20_Investissement', 'c2028_M30_Personnel']
+    2028: ['c2028_M10_Fonctionnement', 'c2028_M20_Investissement', 'c2028_M30_Personnel'],
+    2029: ['c2029_M10_Fonctionnement', 'c2029_M20_Investissement', 'c2029_M30_Personnel']
   };
   const normaliseBudgetValue = value => value === '' || value == null || !Number.isFinite(Number(value)) ? 0 : Number(value);
 
@@ -27,7 +28,7 @@
     { key: 'porteurs', label: 'Porteurs' },
     { key: 'dates', label: 'Dates & OPE' },
     { key: 'budget', label: 'Budget' },
-    { key: 'conventions', label: 'Conventions' }
+    { key: 'conventions', label: 'Convention' }
   ];
 
   const TYPE_OPTIONS = [
@@ -44,8 +45,7 @@
     { value: 'Creation de ligne', label: 'Création de ligne' },
     { value: 'Prolongation de ligne', label: 'Prolongation' },
     { value: 're-Abondement de ligne', label: 'Ré-abondement' },
-    { value: 'à determiner', label: 'À déterminer' },
-    { value: 'ligné validée', label: 'Ligne validée' }
+    { value: 'à determiner', label: 'À déterminer' }
   ];
 
   function refField(parent, key, table, display, required = false) {
@@ -184,10 +184,16 @@
     return { wrap, input: select, render };
   }
 
+  // Recalcule directement depuis les valeurs brutes des champs [data-fin], comme
+  // updateFinancialTotals() : lire [data-grand-total].textContent (ex-implémentation)
+  // ne marchait pas, car toLocaleString('fr-FR') y insère une espace insécable comme
+  // séparateur de milliers et Number() ne sait pas reparser ça — silencieusement NaN,
+  // donc 0, dès que le budget atteint 1000. Les deux totaux restent ainsi garantis
+  // cohérents puisqu'ils font la somme des mêmes valeurs.
   function conventionTotal(m) {
-    const record = m._projectRecord;
-    const raw = m.querySelector('[data-grand-total]')?.textContent || valueOf(record, ['Montant_attribue_Total']);
-    return Number(raw) || 0;
+    const table = m.querySelector('.cp-fin');
+    if (table) return [...table.querySelectorAll('tbody [data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
+    return Number(valueOf(m._projectRecord, ['Montant_attribue_Total'])) || 0;
   }
 
   function syncConventionAmounts(m, force = false) {
@@ -212,7 +218,7 @@
     m.id = 'cp-project-modal';
     m.className = 'cp-modal cp-hidden';
     m.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
-      `<div class="cp-head"><div class="cp-head-text"><span class="cp-eyebrow"></span><h2></h2></div><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-head"><h2></h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
       `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${esc(t.label)}</button>`).join('')}</div>` +
       `<div id="cp-project-form" class="cp-body"></div>` +
       `<p id="cp-project-error" class="cp-error" role="alert"></p>` +
@@ -295,7 +301,7 @@
     const opeChipsRow = opeWrap.querySelector('.cp-chip-row');
     const renderOpeChips = () => {
       opeChipsRow.innerHTML = OPE_OPTIONS.filter(o => o.value).map(o => {
-        const variant = o.value === 'à determiner' ? ' warn' : (o.value === 'ligné validée' ? ' ok' : '');
+        const variant = o.value === 'à determiner' ? ' warn' : '';
         return `<button type="button" class="cp-chip${variant}${o.value === opeSelect.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`;
       }).join('');
       opeChipsRow.querySelectorAll('button').forEach(b => b.onclick = () => {
@@ -314,12 +320,12 @@
     // Budget
     const finSummary = document.createElement('div');
     finSummary.className = 'cp-fin-summary';
-    finSummary.innerHTML = '<span class="cp-fin-summary-label">Prévisionnel 2026–2028</span><span class="cp-fin-summary-value" data-fin-summary>0 €</span>';
+    finSummary.innerHTML = '<span class="cp-fin-summary-label">Prévisionnel 2026–2029</span><span class="cp-fin-summary-value" data-fin-summary>0 €</span>';
     panels.budget.appendChild(finSummary);
 
     const table = document.createElement('table');
     table.className = 'cp-fin';
-    table.innerHTML = '<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d&#39;investissement"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-grand-total>0</td></tr></tfoot>';
+    table.innerHTML = '<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>2029</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d&#39;investissement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-total="2029">0</td><td data-grand-total>0</td></tr></tfoot>';
     Object.entries(FIN).forEach(([year, fs]) => table.querySelectorAll('tbody tr').forEach((tr, i) => {
       const inp = document.createElement('input');
       inp.type = 'number';
@@ -450,8 +456,11 @@
     ref.refreshAvatar?.();
   }
 
+  // Appelée aussi bien en édition (record renseigné) qu'à l'ouverture en création : dans
+  // ce dernier cas record est null et valueOf()/setRef() (via l'enchaînement record?.[...])
+  // renvoient alors systématiquement des valeurs vides, ce qui vide la modale au lieu de
+  // laisser les champs du dernier projet ouvert (la modale est réutilisée, pas recréée).
   function populateModal(m, refs, record) {
-    if (!record) return;
     const set = (id, names) => { const el = m.querySelector('#' + id); if (el) el.value = text(valueOf(record, names)); };
     const setDate = (key) => { const el = m.querySelector('#cp-' + key); if (el) el.value = dateInputValue(valueOf(record, [key])); };
 
@@ -481,15 +490,18 @@
     const total = Number(valueOf(record, ['Montant_attribue_Total'])) || 0,
       savedP1 = valueOf(record, ['Convention_montant_partenaire_1']),
       savedP2 = valueOf(record, ['Convention_montant_partenaire_2']);
-    const hasP1 = savedP1 !== '' && savedP1 !== null && savedP1 !== undefined,
-      hasP2 = savedP2 !== '' && savedP2 !== null && savedP2 !== undefined;
+    // Un montant enregistré à exactement 0 est le cas par défaut (jamais renseigné) et
+    // ne doit pas être traité comme une saisie manuelle, sans quoi le champ reste bloqué
+    // à 0 au lieu de reprendre le total du budget à l'ouverture de la fiche.
+    const hasP1 = savedP1 !== '' && savedP1 !== null && savedP1 !== undefined && Number(savedP1) !== 0,
+      hasP2 = savedP2 !== '' && savedP2 !== null && savedP2 !== undefined && Number(savedP2) !== 0;
     m._conventionPartner1Manual = hasP1;
     m._conventionPartner2Manual = hasP2;
     m.querySelector('#cp-Convention_montant_partenaire_1').value = hasP1 ? text(savedP1) : String(total);
     m.querySelector('#cp-Convention_montant_partenaire_2').value = hasP2 ? text(savedP2) : String(total - (Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0));
     refs.Action_Ligne_OPE_a_faire.dispatchEvent(new Event('change'));
 
-    m.querySelectorAll('[data-fin]').forEach(input => { input.value = normaliseBudgetValue(record[input.dataset.fin]); });
+    m.querySelectorAll('[data-fin]').forEach(input => { input.value = normaliseBudgetValue(record?.[input.dataset.fin]); });
     updateFinancialTotals(m.querySelector('.cp-fin'));
   }
 
@@ -547,7 +559,6 @@
       const m = createModal();
       m.dataset.mode = record ? 'edit' : 'create';
       m._projectRecord = record || null;
-      m.querySelector('.cp-eyebrow').textContent = record ? 'Modifier le projet' : 'Nouveau projet';
       m.querySelector('.cp-head h2').textContent = record ? 'Modifier le projet' : 'Créer un projet';
       m.querySelector('[data-cp-save]').textContent = record ? 'Enregistrer les modifications' : 'Créer le projet';
       m.querySelector('#cp-project-error').textContent = '';

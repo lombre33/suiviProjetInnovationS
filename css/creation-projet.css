@@ -6,19 +6,23 @@
    style.css :root et réutilisés ici (fallbacks fournis pour rester lisible seul). */
 
 .cp-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:clamp(14px,3vw,32px); background:rgba(15,23,42,.6); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); color:var(--text,#1b2430); animation:cp-fade-in .15s ease-out; }
-.cp-box { box-sizing:border-box; width:min(100%,660px); max-height:min(92vh,880px); display:flex; flex-direction:column; overflow:hidden; background:var(--surface,#fff); border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); box-shadow:var(--shadow-float,0 14px 32px -8px rgba(9,16,35,.35),0 2px 8px rgba(9,16,35,.12)); }
+.cp-box { box-sizing:border-box; width:min(100%,820px); max-height:min(92vh,880px); display:flex; flex-direction:column; overflow:hidden; background:var(--surface,#fff); border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); box-shadow:var(--shadow-float,0 14px 32px -8px rgba(9,16,35,.35),0 2px 8px rgba(9,16,35,.12)); }
 
-/* En-tête riche, partagé par les 3 modales : bandeau (repère + titre) + fermeture. */
-.cp-head { flex:none; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:18px 20px 4px 22px; }
+/* En-tête, partagé par les 3 modales : titre (une seule ligne) + fermeture. */
+.cp-head { flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px 4px 22px; }
 .cp-head-text { display:flex; flex-direction:column; gap:3px; min-width:0; }
-.cp-eyebrow { font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint,#98a2b3); }
 .cp-head h2 { margin:0; font-size:18px; font-weight:800; color:var(--text,#1b2430); line-height:1.25; }
 .cp-head [data-cp-close] { flex:none; display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:999px; background:transparent; color:var(--text-muted,#667085); font-size:19px; line-height:1; cursor:pointer; }
 .cp-head [data-cp-close]:hover { background:var(--surface-sunken,#eef1f6); color:var(--text,#1b2430); }
 
 /* Modales secondaires (Poste / Personne) : plus étroites, façon "modale secondaire" de la maquette. */
-.cp-person-modal .cp-box { width:min(100%,460px); max-height:min(92vh,640px); }
+.cp-person-modal .cp-box { width:min(100%,560px); max-height:min(92vh,700px); }
 .cp-poste-modal .cp-box { width:min(100%,540px); max-height:min(92vh,700px); }
+/* Le champ Poste (recherche) ouvre un menu déroulant custom (.cp-ref-list) qui se fait
+   couper par le overflow:auto de .cp-body dès que le contenu réel du formulaire est plus
+   court que la liste déroulante. On réserve donc une hauteur mini au corps de la modale
+   Personne pour que le menu ait toujours la place de s'afficher entièrement. */
+#cp-person-modal .cp-body { min-height:min(420px, 60vh); }
 
 /* Onglets (modale Projet uniquement). */
 .cp-tabbar { flex:none; display:flex; gap:0; padding:10px 22px 0; border-bottom:1px solid var(--border,#dde2ea); }
@@ -38,6 +42,9 @@
 .cp-field input:focus, .cp-field textarea:focus, .cp-field select:focus { outline:none; border-color:var(--accent,#2f6fed); box-shadow:0 0 0 3px var(--accent-soft,#e8f0fe); }
 .cp-field input::placeholder, .cp-field textarea::placeholder { color:var(--text-faint,#98a2b3); }
 .cp-field textarea { height:auto; padding:9px 11px; min-height:76px; resize:vertical; line-height:1.55; }
+/* Champs numériques : pas de curseurs +/- natifs, juste la saisie. */
+.cp-field input[type="number"] { -moz-appearance:textfield; }
+.cp-field input[type="number"]::-webkit-inner-spin-button, .cp-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .cp-visually-hidden { position:absolute!important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 /* Puces de sélection (type de projet, action ligne OPE) : remplace select/texte libre
@@ -76,6 +83,15 @@
 .cp-ref-avatar:empty { background:transparent; }
 .cp-ref-person input { grid-column:2; }
 
+/* Création de poste à la volée (onglet Poste de la fiche Personne) : un bouton "+"
+   révèle le mini-formulaire directement sous le champ de recherche, sans ouvrir de
+   seconde modale (90% des ajouts de personne s'accompagnent d'un nouveau poste). */
+.cp-add-toggle { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; height:38px; border:1px dashed var(--border-strong,#c3cad6); border-radius:var(--radius-sm,7px); background:transparent; color:var(--text-muted,#667085); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.cp-add-toggle:hover { border-color:var(--accent,#2f6fed); color:var(--accent,#2f6fed); background:var(--accent-soft,#e8f0fe); }
+.cp-inline-panel { grid-column:1/-1; padding:16px 16px 6px; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); background:var(--surface-sunken,#eef1f6); }
+.cp-inline-back { grid-column:1/-1; justify-self:start; margin:-4px 0 4px; padding:0; border:0; background:transparent; color:var(--accent,#2f6fed); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.cp-inline-back:hover { text-decoration:underline; }
+
 .cp-ref-chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:7px; }
 .cp-ref-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--accent-soft-border,#c7dbfd); border-radius:var(--radius-sm,7px); background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:12.5px; font-weight:700; }
 .cp-ref-chip button { padding:0; border:0; background:transparent; color:inherit; font-size:14px; line-height:1; cursor:pointer; }
@@ -93,7 +109,12 @@
 .cp-fin tbody tr:last-child th, .cp-fin tbody tr:last-child td { border-bottom:1px solid var(--border,#dde2ea); }
 .cp-fin tbody tr:nth-child(even) { background:var(--surface-sunken,#eef1f6); }
 .cp-fin thead th { background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
-.cp-fin tbody th { min-width:170px; font-weight:700; }
+.cp-fin tbody th { min-width:210px; font-weight:700; }
+/* Fond gris pour distinguer visuellement ces champs des cellules de saisie voisines :
+   sans ça, l'intitulé de ligne ressemble à un libellé statique plutôt qu'à un champ modifiable. */
+.cp-fin tbody th input { background:var(--surface-sunken,#eef1f6); border-color:var(--surface-sunken,#eef1f6); font-weight:700; color:var(--text,#1b2430); }
+.cp-fin tbody th input:hover { border-color:var(--border-strong,#c3cad6); }
+.cp-fin tbody th input:focus { background:var(--surface,#fff); border-color:var(--accent,#2f6fed); }
 .cp-fin tfoot { background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-weight:800; }
 .cp-fin tfoot th, .cp-fin tfoot td { border-bottom:0; }
 .cp-fin input { width:100%; box-sizing:border-box; min-width:60px; padding:7px 8px; border:1px solid var(--border-strong,#c3cad6); border-radius:6px; background:var(--surface,#fff); font:inherit; font-size:12.5px; }

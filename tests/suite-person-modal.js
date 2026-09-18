@@ -20,6 +20,16 @@
 
   function modalEl() { return document.getElementById('cp-person-modal'); }
 
+  function pickPoste(query, matchText) {
+    const input = modalEl().querySelector('#cpp-poste');
+    setValue(input, query);
+    fire(input, 'input');
+    const list = input.parentElement.querySelector('.cp-ref-list');
+    const button = Array.from(list.querySelectorAll('button')).find(b => b.textContent === matchText);
+    assertTrue(!!button, `aucun poste "${matchText}" pour la recherche "${query}"`);
+    button.click();
+  }
+
   describe('Fiche Annuaire — validation', function () {
     it('refuse la création sans nom ni prénom', async function () {
       await loadFixtureState();
@@ -27,6 +37,16 @@
       await modalEl().querySelector('[data-cp-save]').onclick();
       assertIncludes(modalEl().querySelector('.cp-error').textContent, 'obligatoires');
       assertEqual(window.__TEST_CALLS__.length, 0);
+    });
+
+    it('refuse la création sans poste (mais l\'édition d\'une fiche existante sans poste reste possible)', async function () {
+      await loadFixtureState();
+      window.openCreatePersonModal();
+      setValue(modalEl().querySelector('#cpp-nom'), 'Dupont');
+      setValue(modalEl().querySelector('#cpp-prenom'), 'Claire');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertIncludes(modalEl().querySelector('.cp-error').textContent, 'poste');
+      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun appel Grist ne doit partir tant que le poste manque');
     });
   });
 
@@ -37,6 +57,7 @@
       window.openCreatePersonModal('Claire Dupont', originInput);
       assertEqual(modalEl().querySelector('#cpp-nom').value, 'Dupont', 'le nom de famille doit être déduit du texte tapé dans le champ Annuaire');
       assertEqual(modalEl().querySelector('#cpp-prenom').value, 'Claire');
+      pickPoste('Responsable', 'Responsable innovation  Pôle valorisation - LAB1 - DIR1 - UBX 1');
 
       await modalEl().querySelector('[data-cp-save]').onclick();
 
@@ -46,6 +67,7 @@
       assertEqual(call.table, 'Annuaire');
       assertEqual(call.fields.NOM, 'Dupont');
       assertEqual(call.fields.Prenom, 'Claire');
+      assertEqual(call.fields.Poste2, 1, 'le poste sélectionné doit être envoyé');
 
       assertEqual(modalEl(), null, 'la modale doit se fermer après une création réussie (pas de message d\'erreur bloquant)');
       assertEqual(originInput.value, 'Claire Dupont', 'le champ Annuaire d\'origine doit afficher "Prénom Nom"');
