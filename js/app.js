@@ -9,7 +9,7 @@ async function initializeApp() {
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
     const tables = await CoreGrist.loadAllTables(); Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
-    renderProjectsKanban(CoreState.getTable('Projets') || []); setupEventListeners();
+    renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); setupEventListeners();
   } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
 }
 function viewProject(projectId) {
@@ -35,7 +35,7 @@ function setupEventListeners() {
     try {
       const tables = await CoreGrist.loadAllTables();
       Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
-      renderProjectsKanban(CoreState.getTable('Projets') || []);
+      renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.();
     } catch (error) {
       console.error('Project refresh error:', error);
     }

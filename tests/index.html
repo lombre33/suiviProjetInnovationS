@@ -36,6 +36,26 @@
     <button id="btn-new-project" class="btn btn-primary">+ Nouveau Projet</button>
   </div>
   <div id="projects-kanban" class="kanban-board" aria-live="polite"></div>
+
+  <div class="project-filters admin-filters" role="search" aria-label="Filtres Administratif">
+    <label class="filter-combo"><span class="visually-hidden">Programme</span>
+      <input id="admin-filter-programme" type="search" placeholder="Tous les programmes" autocomplete="off" role="combobox" aria-controls="admin-filter-programme-list" aria-autocomplete="list">
+      <span id="admin-filter-programme-list" class="combo-list" role="listbox" hidden></span>
+    </label>
+    <label class="filter-combo"><span class="visually-hidden">Instance</span>
+      <input id="admin-filter-instance" type="search" placeholder="Toutes les instances" autocomplete="off" role="combobox" aria-controls="admin-filter-instance-list" aria-autocomplete="list">
+      <span id="admin-filter-instance-list" class="combo-list" role="listbox" hidden></span>
+    </label>
+    <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="admin-filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
+    <button id="admin-clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
+    <div id="admin-hidden-panels" class="kanban-hidden-columns" hidden></div>
+    <button id="admin-toggle-view" type="button" class="kanban-icon-btn admin-view-toggle" aria-label="Afficher en cartes"></button>
+  </div>
+  <div class="admin-columns">
+    <section class="admin-column" aria-label="Notifications"><div id="admin-col-notif" class="admin-panels"></div></section>
+    <div class="admin-divider" aria-hidden="true"></div>
+    <section class="admin-column" aria-label="Conventions"><div id="admin-col-conv" class="admin-panels"></div></section>
+  </div>
 </div>
 
 <div id="test-results"><p>Exécution des tests…</p></div>
@@ -70,12 +90,14 @@
     await loadScript('../js/components/poste-modal.js');
     await loadScript('../js/components/person-modal.js');
     await loadScript('../js/pages/page-projets.js');
+    await loadScript('../js/pages/page-administratif.js');
 
     // Test suites, one per audited feature.
     await loadScript('suite-kanban.js');
     await loadScript('suite-project-modal.js');
     await loadScript('suite-person-modal.js');
     await loadScript('suite-poste-modal.js');
+    await loadScript('suite-administratif.js');
 
     await window.CoreGrist.ready();
     await window.runAllTests();

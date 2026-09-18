@@ -99,8 +99,8 @@
         'En cours'
       ],
       Conventions_statut: [
-        'Convention en redaction', 'Convention en redaction', '3) en cours de signature',
-        'Convention en redaction', 'Convention en redaction', 'Convention en redaction',
+        '1) Convention en redaction', '1) Convention en redaction', '3) Convention en signature UB',
+        '1) Convention en redaction', '1) Convention en redaction', '1) Convention en redaction',
         '5) Convention signée de toutes les parties'
       ],
       Convention_de_reversement: [false, false, true, false, false, false, true],
@@ -124,7 +124,16 @@
       Montant_attribue_Total: [1000, 0, 0, 0, 0, 0, 0],
       Convention_montant_partenaire_1: [0, 0, 0, 0, 0, 0, 0],
       Convention_montant_partenaire_2: [0, 0, 0, 0, 0, 0, 0],
-      Partenaire_s_convention_reversement: [['L'], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
+      // CONVENTIX (id 12) a 2 partenaires (CNRS, INSERM) en plus de l'UB (toujours
+      // signataire, jamais dans cette liste) ; SIGNEX (id 16) n'en a qu'un (UBX).
+      Partenaire_s_convention_reversement: [['L'], ['L'], ['L', 2, 3], ['L'], ['L'], ['L'], ['L', 1]],
+      // Bulles de statut de signature par partenaire (page Administratif) : 4 états
+      // ("Non relu" ajouté le 18/09/2026 comme état par défaut, aucune puce
+      // remplie). CONVENTIX couvre le cas "partenaire_2 non renseigné" (doit
+      // retomber sur "Non relu" par défaut, pas planter).
+      convention_statut_UB: [null, null, 'Relu', null, null, null, 'Signé'],
+      convention_statut_partenaire_1: [null, null, 'en cours de signature', null, null, null, 'Signé'],
+      convention_statut_partenaire_2: [null, null, null, null, null, null, null],
       Date_debut_Projet: [null, null, null, null, null, null, null],
       Date_de_fin_Projet: [null, null, null, null, null, null, null],
       Date_limite_financement: [null, null, null, null, null, null, null],
@@ -136,6 +145,20 @@
       Commentaire_ligne_OPE: ['', '', '', '', '', '', ''],
       comentaire_general_Suivi_projet: ['', '', '', '', '', '', ''],
       Description_rapide_projet: ['', '', '', '', '', '', '']
+    },
+    // Table séparée (grist_structure : Notifications.Projet = Reference('Projets')),
+    // absente de docs/grist_structure (schéma réduit aux 8 tables) mais confirmée par
+    // Antoine (18/09/2026) — voir page-administratif.js. FINANCX/COURSIX/INCONNUX
+    // n'ont volontairement aucune ligne, pour couvrir le cas "pas de fiche Notifications".
+    Notifications: {
+      id: [1, 2, 3, 4],
+      Projet: [10, 11, 12, 16],
+      notifications_Statut: [
+        '1) Information projet saisies',
+        '5) envoyée pour signature VP',
+        '6) Signée',
+        '8) Archivee'
+      ]
     }
   };
 
