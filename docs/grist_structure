@@ -1,0 +1,752 @@
+import grist
+from functions import *       # global uppercase functions
+import datetime, math, re     # modules commonly needed in formulas
+
+
+@grist.UserTable
+class Annuaire:
+  NOM = grist.Text()
+  Prenom = grist.Text()
+  Email = grist.Text()
+  Telephone = grist.Text()
+  Poste2 = grist.Reference('Postes2')
+  Commentaire_poste = grist.Text()
+  Type = grist.ChoiceList()
+  Poste_secondaire = grist.Reference('Postes2')
+  email_Assitant_e_le_cas_echeant = grist.Reference('Annuaire')
+  Matricule_le_cas_echeant_ = grist.Text()
+  photos = grist.Attachments()
+  Accompagnateur_de_l_innovation_ = grist.Bool()
+  Communaute_metier = grist.ChoiceList()
+  Actions_PUI = grist.ReferenceList('PUI_SousActions')
+
+  @grist.formulaType(grist.Text())
+  def nom_et_Prenom(rec, table):
+    prenom = rec.Prenom
+    nom = rec.NOM
+
+    # Traitement du prénom
+    if not prenom:
+        prenom_trait = ""
+    else:
+        prenom_trait = prenom.capitalize()
+        # Remplacement des tirets par un tiret suivi d'une majuscule
+        prenom_trait = prenom_trait.replace('-', ' - ')
+
+    # Traitement du nom
+    if not nom:
+        nom_trait = ""
+    else:
+        nom_trait = nom.upper()
+
+    return f"{prenom_trait} {nom_trait}".strip()
+
+
+
+  @grist.formulaType(grist.Reference('Structures'))
+  def Service(rec, table):
+    return rec.Poste2.Structure2
+
+  @grist.formulaType(grist.Bool())
+  def Duplica_dans_Email(rec, table):
+    return rec.Email != "" and rec.Email is not None and len(Annuaire.lookupRecords(Email=rec.Email)) > 1
+
+  @grist.formulaType(grist.ChoiceList())
+  def Tag(rec, table):
+    return None
+
+  @grist.formulaType(grist.Bool())
+  def Duplica_dans_nom_et_Prenom(rec, table):
+    return rec.nom_et_Prenom != "" and rec.nom_et_Prenom is not None and len(Annuaire.lookupRecords(nom_et_Prenom=rec.nom_et_Prenom)) > 1
+
+  @grist.formulaType(grist.Reference('Etablissements'))
+  def Service_Etablissement(rec, table):
+    return rec.Service.Etablissement_Tutuelle_gestionaire
+
+  def email_suppose(rec, table):
+    if rec.Service_Etablissement=="ENSAM":
+      return rec.Prenom+rec.NOM+"@ensam.eu"
+    if rec.Service_Etablissement=="université de bordeaux":
+      return rec.Prenom+rec.NOM+"@u-bordeaux.fr"
+
+  @grist.formulaType(grist.Reference('Structures'))
+  def Service_Structure_Mere(rec, table):
+    return rec.Service.Directon_Structure_mere
+
+  @grist.formulaType(grist.Text())
+  def Poste_Titre(rec, table):
+    return rec.Poste2.Titre
+
+  def Competences(rec, table):
+    return None
+
+  def Discipline_d_expertise(rec, table):
+    return None
+
+
+@grist.UserTable
+class EcritureComptables:
+  N_OPE = grist.Text()
+  totalCPConsomme = grist.Numeric()
+  installe_chez = grist.Reference('Structures')
+
+  @grist.formulaType(grist.Text())
+  def N_OPE_LibelleOperation(rec, table):
+    return ''
+
+
+@grist.UserTable
+class Etablissements:
+  Nom_complet = grist.Text()
+  Acronyme = grist.Text()
+  Statut_PUI = grist.Choice()
+  Membre_Consortium_InnovationS = grist.Choice()
+  Responsable_legal_de_la_structure = grist.Reference('Annuaire')
+  Contact_juridique = grist.Reference('Annuaire')
+  Nom_et_fonction_de_la_personne_habilitee_a_engager_l_etablissement_de_tutelle_si_different_ = grist.Reference('Annuaire')
+  Personne_s_a_mettre_en_copie_pour_le_CARNOT = grist.ReferenceList('Annuaire')
+  Membre_CARNOT_TERITORIAL_PUI_BORDEAUX = grist.Bool()
+  personne_a_metre_en_copie_pour_le_PUI = grist.ReferenceList('Annuaire')
+  Etablissement_enseignement_superieur = grist.Bool()
+  Email_fonctionnel_direction = grist.ReferenceList('Annuaire')
+  Adresse_ligne_1 = grist.Text()
+  Adresse_ligne_2 = grist.Text()
+  CP = grist.Text()
+  Ville = grist.Choice()
+
+  def Logo(rec, table):
+    return None
+
+  @grist.formulaType(grist.Reference('Annuaire'))
+  def Assitant_e_de_direction_le_cas_echeant(rec, table):
+    return rec.Responsable_legal_de_la_structure.email_Assitant_e_le_cas_echeant
+
+  @grist.formulaType(grist.Reference('Etablissements'))
+  def Contact_operationnel(rec, table):
+    return 0
+
+  def Membre_invite_au_comite_Innovation(rec, table):
+    return liste
+
+  @grist.formulaType(grist.Text())
+  def Responsable_legal_de_la_structure_Email(rec, table):
+    return rec.Responsable_legal_de_la_structure.Email
+
+  @grist.formulaType(grist.Text())
+  def Responsable_legal_de_la_structure_Email2(rec, table):
+    return rec.Responsable_legal_de_la_structure.Email
+
+  @grist.formulaType(grist.Reference('Postes2'))
+  def Responsable_legal_de_la_structure_Poste(rec, table):
+    return rec.Responsable_legal_de_la_structure.Poste2
+
+  def Adresse_Complete(rec, table):
+    return rec.Adresse_ligne_1+rec.Adresse_ligne_2+ " " +rec.CP+" "+rec.Ville
+
+  def SIRET(rec, table):
+    return None
+
+
+@grist.UserTable
+class Postes2:
+  IMN = grist.Numeric()
+  cout_Charge_Mensuel = grist.Numeric()
+  type_de_contrat = grist.Choice()
+  Structure2 = grist.Reference('Structures')
+  Date_de_fin = grist.Date()
+  Projets_en_gestion = grist.ReferenceList('Projets')
+  Type_de_poste = grist.Choice()
+  Categorie = grist.Choice()
+  Justification_CDD_Projet = grist.Text()
+  date_fin_dernier_renouvellement = grist.Date()
+  Mission_Principale = grist.Text()
+
+  def _default_Employeur_tutelle(rec, table, value, user):
+    return rec.Structure2.Etablissement_Tutuelle_gestionaire
+  Employeur_tutelle = grist.Reference('Etablissements')
+  Titre = grist.Text()
+  Precisions_Poste = grist.Text()
+
+  @grist.formulaType(grist.Text())
+  def Nom_du_poste(rec, table):
+    return rec.Titre+"  "+rec.Precisions_Poste+" - "+rec.Structure2.Acronyme+" - "+rec.Direction_du_service.Acronyme+ " - "+rec.Employeur_tutelle.Acronyme+" " +rec.ID2
+
+  @grist.formulaType(grist.Date())
+  def Date_debut(rec, table):
+    return None
+
+  def Atterissage_prevu(rec, table):
+    return None
+
+  @grist.formulaType(grist.Reference('Annuaire'))
+  def Annuaire_nom_et_Prenom2(rec, table):
+    return Annuaire.lookupOne(Poste2=rec.id)
+
+  @grist.formulaType(grist.Reference('Structures'))
+  def Direction_du_service(rec, table):
+    return rec.Structure2.Directon_Structure_mere
+
+  def Date_debut_renouvellement(rec, table):
+    from datetime import datetime, timedelta
+
+    if rec.date_fin_dernier_renouvellement is not None:
+        return rec.date_fin_dernier_renouvellement + timedelta(days=1)
+    return None
+
+  def Annuaire_Email(rec, table):
+    return Annuaire.lookupOne(Poste2=rec.id).Email
+
+  @grist.formulaType(grist.Text())
+  def ID2(rec, table):
+    return rec.id
+
+  @grist.formulaType(grist.ReferenceList('Etablissements'))
+  def Tutelles2(rec, table):
+    return rec.Structure2.Toutes_les_tutelles
+
+
+@grist.UserTable
+class Programmes:
+  Grands_Programmes = grist.Reference('Grands_Programmes')
+  Programme = grist.Text()
+  Responsable = grist.Reference('Annuaire')
+  Axe_InnovationS = grist.Choice()
+  Actions_InnovationS = grist.ChoiceList()
+  KMO = grist.Choice()
+  Outils_utiliser_pour_la_candidature = grist.Text()
+  Processus_Candidature_Selection = grist.Text()
+
+  def Pilote_par(rec, table):
+    return None
+
+  @grist.formulaType(grist.Date())
+  def Date_debut(rec, table):
+    return None
+
+  @grist.formulaType(grist.Date())
+  def Date_de_fin(rec, table):
+    return None
+
+  def Budget_previsionnel_total(rec, table):
+    return None
+
+  def Mapping_avec_UB_invest(rec, table):
+    return None
+
+  def Financement_par(rec, table):
+    return None
+
+  def Objectifs_1(rec, table):
+    return None
+
+  def WP_1(rec, table):
+    return None
+
+  def n(rec, table):
+    return None
+
+  def n1(rec, table):
+    return None
+
+  def n2(rec, table):
+    return None
+
+  def n3(rec, table):
+    return None
+
+  def n4(rec, table):
+    return None
+
+  def A(rec, table):
+    return None
+
+  def Public_cibles(rec, table):
+    return None
+
+  def Periodicite_des_candidatures(rec, table):
+    return None
+
+
+@grist.UserTable
+class Projets:
+  Acronyme = grist.Text()
+  Projet = grist.Text()
+  Programme = grist.Reference('Programmes')
+  comentaire_general_Suivi_projet = grist.Text()
+  Porteur_1 = grist.Reference('Annuaire')
+  Accompagnateur = grist.Reference('Annuaire')
+  Date_debut_Projet = grist.Date()
+  Date_de_fin_Projet = grist.Date()
+  Ligne_OPE = grist.ReferenceList('EcritureComptables')
+  numero_descisions_OLD = grist.Text()
+  c2027_M10_Fonctionnement = grist.Numeric()
+  Porteur_2 = grist.Reference('Annuaire')
+  Porteur_3 = grist.Reference('Annuaire')
+  c2028_M30_Personnel = grist.Numeric()
+  notifications_Elements_specifiques = grist.Text()
+  VP_porteur_2 = grist.Reference('Annuaire')
+
+  def _default_Details_depense_s_Investissement(rec, table, value, user):
+    return "Dépenses d'investissement"
+  Details_depense_s_Investissement = grist.Choice()
+
+  def _default_Details_depense_s_Personnel(rec, table, value, user):
+    return "Depenses de personnel"
+  Details_depense_s_Personnel = grist.Choice()
+  prolongation_numeroDecisionInitial = grist.Text()
+  Reattribution_montant = grist.Numeric()
+  Convention_de_reversement = grist.Bool()
+  Convention_montant_partenaire_1 = grist.Numeric()
+  Convention_montant_partenaire_2 = grist.Numeric()
+  Partenaire_s_convention_reversement = grist.ReferenceList('Etablissements')
+  Commentaire_ligne_OPE = grist.Text()
+
+  def _default_Action_Ligne_OPE_a_faire(rec, table, value, user):
+    return "à determiner"
+  Action_Ligne_OPE_a_faire = grist.Choice()
+  prolongation_DateCTOInitial = grist.Date()
+
+  def _default_Details_depense_s_Fonctionnement(rec, table, value, user):
+    return "Depenses de fonctionnement"
+  Details_depense_s_Fonctionnement = grist.Choice()
+  c2028_M20_Investissement = grist.Numeric()
+  c2027_M30_Personnel = grist.Numeric()
+  c2028_M10_Fonctionnement = grist.Numeric()
+  c2027_M20_Investissement = grist.Numeric()
+
+  def _default_Type_projet(rec, table, value, user):
+    return "Projet"
+  Type_projet = grist.Choice()
+  Poste_Associe = grist.Reference('Postes2')
+  VP_porteur_signataire_notif = grist.Reference('Annuaire')
+
+  def _default_Statut_operationnel_projet(rec, table, value, user):
+    return "En attente des dispo des fonds"
+  Statut_operationnel_projet = grist.Choice()
+  Renouvellement_ou_Creation = grist.Choice()
+  c2026_M10_Fonctionnement = grist.Numeric()
+  c2026_M20_Investissement = grist.Numeric()
+  c2026_M30_Personnel = grist.Numeric()
+  Duree_financement_mois_ = grist.Numeric()
+  Montant_annuel_charge_attribue = grist.Numeric()
+  IMN = grist.Numeric()
+  Duree_Premiere_attribution_mm_poste = grist.Numeric()
+  Affichage_IMN = grist.Text()
+  Date_limite_financement = grist.Date()
+  Instance_ratachee = grist.Reference('Suivi_Instance')
+  numero_decision = grist.Reference('Suivi_Descisions_Instances')
+  Convention_de_reversement_le_cas_echeant = grist.Attachments()
+  convention_Date_derniere_modification = grist.Date()
+  Montant_convention_reversement_M10 = grist.Numeric()
+  Montant_Convention_Reversement_M20 = grist.Numeric()
+  Montant_Convention_reversement_M30 = grist.Numeric()
+  visa_destinataires = grist.ReferenceList('Annuaire')
+  Personnes_en_CC_pour_les_visas = grist.ReferenceList('Annuaire')
+  Description_rapide_projet = grist.Text()
+
+  def _default_Conventions_statut(rec, table, value, user):
+    return "Convention en redaction"
+  Conventions_statut = grist.Choice()
+
+  def _default_Statut_Financier(rec, table, value, user):
+    return "Finance_En Attente Gestionnaire"
+  Statut_Financier = grist.Choice()
+
+  def _default_remplissage_automatique_Notifications(rec, table, value, user):
+    return Notifications.lookupOrAddDerived(Projet=rec.Projet) if rec.Projet else None
+  remplissage_automatique_Notifications = grist.Reference('Notifications')
+  Slides_ou_dossier_presentation_projet = grist.Attachments()
+  Notifications_Signees = grist.Attachments()
+  c2023_M10_Fonctionnement = grist.Numeric()
+  c2025_M10_Fonctionnement = grist.Numeric()
+  c2025_M30_Personnel = grist.Numeric()
+  c2025_M20_Investissement = grist.Numeric()
+  c2024_M30_Personnel = grist.Numeric()
+  c2023_M20_Investissement = grist.Numeric()
+  c2023_M30_Personnel = grist.Numeric()
+  c2024_M10_Fonctionnement = grist.Numeric()
+  c2024_M20_Investissement = grist.Numeric()
+
+  def Statut_Macro(rec, table):
+    if rec.Statut_operationnel_projet !="En attente des dispo des fonds":
+      return rec.Statut_operationnel_projet
+    elif rec.Conventions_statut != "5) Convention signée de toutes les parties" and rec.Notifications_notifications_Statut == "['8) Archivee']" and rec.Convention_de_reversement:
+      return rec.Conventions_statut
+    elif (rec.Notifications_notifications_Statut == "['8) Archivee']" and rec.Convention_de_reversement == False) or (rec.Notifications_notifications_Statut =="['8) Archivee']" and rec.Conventions_statut == "5) Convention signée de toutes les parties") :
+      return rec.Statut_Financier
+    elif rec.Notifications_notifications_Statut == "[]" or rec.Notifications_notifications_Statut == "['']":
+      return "En attente statut Notifications"
+    elif rec.Notifications_notifications_Statut != "[]" and rec.Notifications_notifications_Statut != "['']":
+      return Notifications.lookupOne(Projet=rec.id).notifications_Statut
+    else:
+      return "Erreure statut"
+
+  @grist.formulaType(grist.Bool())
+  def Duplica_dans_Projet(rec, table):
+    return rec.Projet != "" and rec.Projet is not None and len(Projets.lookupRecords(Projet=rec.Projet)) > 1
+
+  def consomme(rec, table):
+    return None
+
+  @grist.formulaType(grist.Reference('Structures'))
+  def Accompagnateur_Service(rec, table):
+    return rec.Accompagnateur.Service
+
+  @grist.formulaType(grist.ChoiceList())
+  def Programme_Axe_InnovationS(rec, table):
+    return rec.Programme.Axe_InnovationS
+
+  @grist.formulaType(grist.Text())
+  def Employeur_porteur_1(rec, table):
+    return rec.Porteur_1.Service_Etablissement.Acronyme
+
+  def Total_2026(rec, table):
+    if rec.c2026_M10_Fonctionnement+rec.c2026_M20_Investissement+rec.c2026_M30_Personnel == 0:
+       return ""
+    else:
+       return rec.c2026_M10_Fonctionnement+rec.c2026_M20_Investissement+rec.c2026_M30_Personnel
+
+  def Total_2027(rec, table):
+
+    if rec.c2027_M10_Fonctionnement+rec.c2027_M20_Investissement+rec.c2027_M30_Personnel == 0:
+       return ""
+    else:
+       return rec.c2027_M10_Fonctionnement+rec.c2027_M20_Investissement+rec.c2027_M30_Personnel
+
+  def Total_2028(rec, table):
+
+    value = rec.c2028_M10_Fonctionnement+rec.c2028_M20_Investissement+rec.c2028_M30_Personnel
+    if value == 0:
+       return ""
+    else:
+       return value
+
+  @grist.formulaType(grist.Text())
+  def Total_Fonctionnement(rec, table):
+
+    value = rec.c2026_M10_Fonctionnement+rec.c2027_M10_Fonctionnement+rec.c2028_M10_Fonctionnement
+    if value == 0:
+       return ""
+    else:
+       return value
+
+  def Total_investissement(rec, table):
+
+    value = rec.c2026_M20_Investissement+rec.c2027_M20_Investissement+rec.c2028_M20_Investissement
+    if value == 0:
+       return ""
+    else:
+       return value
+
+  def Total_Personnel(rec, table):
+    value = rec.c2026_M30_Personnel+rec.c2027_M30_Personnel+rec.c2028_M30_Personnel
+    if value == 0:
+       return ""
+    else:
+       return value
+
+  def c2029_M10_Fonctionnement(rec, table):
+    return None
+
+  def c2029_M20_Investissement(rec, table):
+    return None
+
+  def c2029_M30_Personnel(rec, table):
+    return None
+
+  def Total_2029(rec, table):
+    return None
+
+  @grist.formulaType(grist.Reference('Structures'))
+  def Porteur_s__Service(rec, table):
+    return rec.Porteur_1.Service.Nom_Complet
+
+  @grist.formulaType(grist.Text())
+  def Periode(rec, table):
+    # Détermination de la date de début (priorité à $prolongation_DateCTOInitial)
+    date_debut_obj = rec.prolongation_DateCTOInitial if rec.prolongation_DateCTOInitial else rec.Instance_ratache_date
+    if not date_debut_obj:
+        return "Erreur : Aucune date de début valide trouvée"
+
+    # Détermination de la date de fin
+    date_fin_obj = rec.Date_limite_financement
+    if not date_fin_obj:
+        return "Erreur : Aucune date de fin valide trouvée"
+
+    # Formatage des dates
+    try:
+        date_debut = date_debut_obj.strftime("%d/%m/%Y")
+        date_fin = date_fin_obj.strftime("%d/%m/%Y")
+    except AttributeError:
+        return "Erreur : Format de date invalide"
+
+    # Retour du résultat
+    return f"{date_debut} au {date_fin}"
+
+  @grist.formulaType(grist.ReferenceList('Structures'))
+  def Ligne_OPE_installe_chez(rec, table):
+    return rec.Ligne_OPE.installe_chez
+
+  @grist.formulaType(grist.Numeric())
+  def Montant_attribue_Total(rec, table):
+    return rec.c2026_M10_Fonctionnement+rec.c2026_M20_Investissement+rec.c2026_M30_Personnel+rec.c2027_M10_Fonctionnement+rec.c2027_M20_Investissement+rec.c2027_M30_Personnel+rec.c2028_M10_Fonctionnement+rec.c2028_M20_Investissement+rec.c2028_M30_Personnel
+
+  @grist.formulaType(grist.Date())
+  def Instance_ratache_date(rec, table):
+    return rec.Instance_ratachee.date
+
+  @grist.formulaType(grist.Reference('Suivi_Instance'))
+  def numero_decision_Edition_de_l_instance(rec, table):
+    return rec.numero_decision.Edition_de_l_instance
+
+  def montant_total_convention_reversement(rec, table):
+    return rec.Montant_convention_reversement_M10+rec.Montant_Convention_Reversement_M20+rec.Montant_Convention_reversement_M30
+
+  @grist.formulaType(grist.Text())
+  def Demande_de_visa(rec, table):
+    from urllib.parse import quote
+
+    # Version optimisée pour Grist
+    emails_clean = []
+    for ref in rec.visa_destinataires:
+        # Si c'est une référence à un Annuaire
+        if hasattr(ref, 'Email'):
+            emails_clean.append(ref.Email)
+        # Si c'est une chaîne de caractères
+        elif isinstance(ref, str):
+            emails_clean.append(ref)
+
+    # Créer le lien mailto
+    return f"mailto:{';'.join(emails_clean)}?cc={rec.CC}&subject={quote(rec.Sujet)}&body={quote(rec.visas_corps)}"
+
+
+
+  @grist.formulaType(grist.Text())
+  def visas_corps(rec, table):
+    return "Bonjour, \n Je vous sollicite pour obtenir votre visa concernant la mise en signature d'une convention de reversement entre l'UB et "\
+    + rec.Porteur_1.Service_Etablissement.Acronyme + ", qui devra être signée par le président. \n \n Contexte : \n \n - Projet : "\
+    + rec.Acronyme +" \n - Axe : " + str(rec.Programme_Axe_InnovationS) + " Programme : " + rec.Programme.Programme\
+    +" \n - Validé par le " + rec.Instance_ratachee.Instance.Instances \
+    +" le " + str(rec.Instance_ratache_date.day)+"/"+str(rec.Instance_ratache_date.month)+"/"+str(rec.Instance_ratache_date.year) +"\n - (Co)porté par "\
+    + rec.Porteur_1.Service_Etablissement.Acronyme +", partenaire du consortium InnovationS \n - Financement : " + str(rec.montant_total_convention_reversement)\
+    +" € à " +rec.Porteur_1.Service_Etablissement.Acronyme +" \n - Description du projet " + rec.Description_rapide_projet \
+    + "\n \n Je reste à votre disposition pour toute précision ou ajustement. \n \n En vous souhaitant une agréable fin de journée"
+
+
+  @grist.formulaType(grist.Text())
+  def CC(rec, table):
+    emails = [personne.Email for personne in rec.Personnes_en_CC_pour_les_visas]
+    if rec.Accompagnateur and rec.Accompagnateur.Email:
+        emails.append(rec.Accompagnateur.Email)
+
+    # Filtrer les emails vides et les dupliquer
+    emails_uniques = list(dict.fromkeys(emails))  # Supprime les doublons
+    emails_filtres = [email for email in emails_uniques if email]
+
+    return "; ".join(emails_filtres)
+
+  def Sujet(rec, table):
+    return "Demande de visas Projet "+rec.Employeur_porteur_1 +" - "+rec.Acronyme
+
+  @grist.formulaType(grist.Text())
+  def Notifications_notifications_Statut(rec, table):
+    return Notifications.lookupRecords(Projet=rec.id).notifications_Statut
+
+  def Libelle_Operation_IGEO(rec, table):
+    return None
+
+  def Date_dernir_statut(rec, table):
+    return None
+
+  def Total_2023(rec, table):
+    return rec.c2023_M10_Fonctionnement+rec.c2023_M20_Investissement+rec.c2023_M30_Personnel
+
+  def Total_2025(rec, table):
+    return rec.c2025_M10_Fonctionnement+rec.c2025_M20_Investissement+rec.c2025_M30_Personnel
+
+  def Total_2024(rec, table):
+    return rec.c2024_M10_Fonctionnement+rec.c2024_M20_Investissement+rec.c2024_M30_Personnel
+
+
+@grist.UserTable
+class Structures:
+  Acronyme = grist.Text()
+  Nom_Complet = grist.Text()
+  Type = grist.Choice()
+  Postes_Gestionaire_Administratif_secretariat = grist.ReferenceList('Postes2')
+  Directon_Structure_mere = grist.Reference('Structures')
+  Poste_Direction = grist.Reference('Postes2')
+  N_ = grist.Text()
+  ZRR = grist.Bool()
+  Label = grist.Choice()
+  Poste_Responsable_s_Adjoint = grist.ReferenceList('Postes2')
+  Adresse_ligne_1 = grist.Text()
+  Adresse_ligne_2 = grist.Text()
+  Gestionaire_Juridique = grist.Reference('Postes2')
+  Co_tutuelle_1_Principale = grist.Reference('Etablissements')
+  Gestionaire_Financier = grist.ReferenceList('Annuaire')
+  Co_tutuelle_2_principales = grist.Reference('Etablissements')
+  Tutuelle_Secondaire_1 = grist.Reference('Etablissements')
+  Tutuelle_Secondaire_2 = grist.Reference('Etablissements')
+  Salles_batiment_ratachement = grist.ReferenceList('Lieux')
+  Adresse_ligne_3 = grist.Text()
+  Pole = grist.Choice()
+  Etablissement_Tutuelle_gestionaire = grist.Reference('Etablissements')
+  Carnot = grist.Bool()
+  Logo = grist.Text()
+  Si_Labo_DPT_UB = grist.ReferenceList('Departement_de_Recherche')
+  Si_labo_institut_CNRS = grist.ReferenceList('Institut_CNRS')
+  Gestionaire_RH = grist.ReferenceList('Postes2')
+
+  def _default_Statut_Synchro(rec, table, value, user):
+    return "Nouveau"
+  Statut_Synchro = grist.Choice()
+
+  @grist.formulaType(grist.Bool())
+  def Duplica_dans_Acronyme(rec, table):
+    return rec.Acronyme != "" and rec.Acronyme is not None and len(Structures.lookupRecords(Acronyme=rec.Acronyme)) > 1
+
+  @grist.formulaType(grist.Text())
+  def Nom_Complet_clean(rec, table):
+    if rec.Type == "Service":
+      return rec.Nom_Complet +", "+rec.Directon_Structure_mere.Acronyme +" ("+rec.Etablissement_Tutuelle_gestionaire.Acronyme+")"
+    elif rec.Type == "Labo":
+      return rec.Nom_Complet +" (" +rec.Acronyme +")"
+    elif rec.Type == "Direction":
+      return rec.Nom_Complet + " ("+rec.Acronyme+")"
+    elif rec.Type == "Service Hors UB":
+      return rec.Nom_Complet + " ("+rec.Etablissement_Tutuelle_gestionaire.Acronyme+")"
+    elif rec.Type == "Rattachement Etablissement":
+      return rec.Nom_Complet + " ("+rec.Acronyme+")"
+    else:
+      return rec.Acronyme
+
+  @grist.formulaType(grist.Text())
+  def nom_hierarchique(rec, table):
+    if rec.Type =="Labo":
+      return rec.Acronyme + " ( "+rec.Etablissement_Tutuelle_gestionaire.Acronyme+" "+ rec.Co_tutuelle_1_Principale.Acronyme +" "+rec.Co_tutuelle_2_principales.Acronyme + ")"
+    elif rec.Type == "Service":
+    	return rec.Pole + "/ " + rec.Directon_Structure_mere.Acronyme
+    elif rec.Type == "Direction":
+    	return rec.Pole + "/ " + rec.Acronyme
+    elif rec.Type == "Service Hors UB":
+      return rec.Acronyme + " ("+rec.Etablissement_Tutuelle_gestionaire.Acronyme+")"
+    else:
+      return rec.Acronyme
+
+  @grist.formulaType(grist.Reference('Annuaire'))
+  def Responsable(rec, table):
+    return rec.Poste_Direction.Annuaire_nom_et_Prenom2.nom_et_Prenom
+
+  def Email_Responsable(rec, table):
+    return rec.Poste_Direction.Annuaire_Email
+
+  @grist.formulaType(grist.Text())
+  def Nom_charte(rec, table):
+    return rec.Nom_Complet+" ("+rec.Acronyme+" - "+rec.Etablissement_Tutuelle_gestionaire.Acronyme+" "+rec.Co_tutuelle_1_Principale.Acronyme+" "+rec.Co_tutuelle_2_principales.Acronyme+", "+rec.Label+" "+rec.N_+")"
+
+  @grist.formulaType(grist.ReferenceList('Etablissements'))
+  def Toutes_les_tutelles(rec, table):
+    tutelles = []
+    if rec.Etablissement_Tutuelle_gestionaire:
+        tutelles.append(rec.Etablissement_Tutuelle_gestionaire)
+    if rec.Co_tutuelle_1_Principale:
+        tutelles.append(rec.Co_tutuelle_1_Principale)
+    if rec.Co_tutuelle_2_principales:
+        tutelles.append(rec.Co_tutuelle_2_principales)
+    if rec.Tutuelle_Secondaire_1:
+        tutelles.append(rec.Tutuelle_Secondaire_1)
+    if rec.Tutuelle_Secondaire_2:
+        tutelles.append(rec.Tutuelle_Secondaire_2)
+    return tutelles
+
+  def Poste_Responsable_Adjoint_Annuaire_Email(rec, table):
+    return rec.Poste_Responsable_s_Adjoint.Annuaire_Email
+
+  @grist.formulaType(grist.Reference('Annuaire'))
+  def Poste_Responsable_s_Adjoint_Annuaire_nom_et_Prenom(rec, table):
+    return rec.Poste_Responsable_s_Adjoint.Annuaire_nom_et_Prenom2.nom_et_Prenom
+
+  def Postes_Gestionaire_Administratif_secretariat_Annuaire_Email(rec, table):
+    return rec.Postes_Gestionaire_Administratif_secretariat.Annuaire_Email
+
+  @grist.formulaType(grist.Text())
+  def Corps(rec, table):
+    return "Bonjour,\n\nDans le cadre du pilotage du consortium Carnot Territorial PUI, je suis en train de consolider les informations de contacts dont nous disposons pour votre structure, voici les informations qui me sont remontées de la DRV (Service Univesité de Bordeaux) : \n\n"+rec.Corps2+"\n"+rec.corps3+"\n\n"+rec.corps_4+"\n\n" +"Pouvez-vous me dire si certaines sont manquantes ou erronées ? \n\n En vous souhaitant une agréable journée, "
+
+  @grist.formulaType(grist.Text())
+  def Objet(rec, table):
+    return "Demande de mise à jour contacts de votre structure :"+rec.Acronyme
+
+  @grist.formulaType(grist.Text())
+  def Formule_email(rec, table):
+    from urllib.parse import quote
+
+    emails_clean = []
+    for email in rec.Postes_Gestionaire_Administratif_secretariat_Annuaire_Email:
+        if isinstance(email, list):
+            for e in email:
+                if isinstance(e, str):
+                    clean_email = e.strip("[]'\" ")
+                    if clean_email:  # Vérifie que l'email n'est pas vide après nettoyage
+                        emails_clean.append(clean_email)
+        elif isinstance(email, str):
+            clean_email = email.strip("[]'\" ")
+            if clean_email:
+                emails_clean.append(clean_email)
+
+    # Convertir en chaîne de caractères séparée par des virgules
+    emails_str = ",".join(emails_clean)
+
+    # Créer le lien mailto
+    return f"mailto:{emails_str}&subject={quote(rec.Objet)}&body={quote(rec.Corps)}"
+
+  def Corps2(rec, table):
+    return rec.Poste_Direction.Nom_du_poste+" : "+rec.Email_Responsable +"\n"
+
+  def corps3(rec, table):
+    if rec.Poste_Responsable_s_Adjoint:
+        result = []
+        for poste, email in zip(rec.Poste_Responsable_s_Adjoint, rec.Poste_Responsable_Adjoint_Annuaire_Email):
+            if email:  # Vérifie que l'email n'est pas None
+                result.append(f"{poste.Nom_du_poste} - {email}")
+            else:
+                result.append(f"{poste.Nom_du_poste}")
+        return "\n".join(result)
+    return ""
+
+  def corps_4(rec, table):
+    if rec.Poste_Responsable_s_Adjoint:
+        result = []
+        for poste, email in zip(rec.Postes_Gestionaire_Administratif_secretariat, rec.Postes_Gestionaire_Administratif_secretariat_Annuaire_Email):
+            if email:  # Vérifie que l'email n'est pas None
+                result.append(f"{poste.Nom_du_poste} - {email}")
+            else:
+                result.append(f"{poste.Nom_du_poste}")
+        return "\n".join(result)
+    return ""
+
+
+@grist.UserTable
+class Suivi_Instance:
+  Instance = grist.Reference('Instances')
+  Numero = grist.Text()
+  date = grist.Date()
+  Option_de_salle = grist.Reference('Lieux')
+  Commentaire = grist.Text()
+  Heure = grist.DateTime('Europe/Paris')
+  Axe_PUI = grist.Numeric()
+  Liste_des_present_es = grist.ReferenceList('Postes2')
+  listes_des_excuses = grist.ReferenceList('Postes2')
+  Salle = grist.Reference('Lieux')
+
+  def Nom(rec, table):
+    return f"{rec.Instance.Instances}#{rec.Numero} - {rec.date}"
+
+
+
+  def ODJ(rec, table):
+    return Suivi_Calendrier_AAP_Programme.lookupRecords(Instances=rec.Nom)
+
+  def lien_RDE(rec, table):
+    return None
