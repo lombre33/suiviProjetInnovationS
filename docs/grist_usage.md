@@ -72,7 +72,7 @@ entendre la note « Chargement séquentiel des tables → paralléliser » de `d
 | `Porteur_2`, `Porteur_3`, `VP_porteur_2`, `Accompagnateur` | Reference → `Annuaire` | |
 | `Instance_ratachee` | Reference → `Suivi_Instance` | orthographe réelle, un seul `t` |
 | `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` | Date | |
-| `Ligne_OPE` | **ReferenceList** → `EcritureComptables` | voir écart 2 ci-dessous |
+| `Ligne_OPE` | **ReferenceList** → `EcritureComptables` | écrite au format `['L', id]`, voir écart 2 ci-dessous |
 | `Action_Ligne_OPE_a_faire` | Choice | défaut `à determiner` |
 | `Commentaire_ligne_OPE` | Text | |
 | `Convention_de_reversement` | Bool | |
@@ -207,32 +207,44 @@ structure d'installation.
 ## Écarts entre le code et le schéma
 
 L'export `docs/grist_structure` est conforme : les huit tables existent et toutes les
-colonnes que le widget manipule y figurent. Deux écarts viennent du **code**, pas de la
-documentation, et bloquent l'enregistrement d'un projet.
+colonnes que le widget manipule y figurent.
 
-### 1. Les trois colonnes 2029 sont des formules
+### 1. Les trois colonnes 2029 sont encore des formules côté Grist (dépendance externe)
 
 `project-modal.js` construit sa grille budgétaire sur les années 2026 à 2029 et envoie
 `c2029_M10_Fonctionnement`, `c2029_M20_Investissement` et `c2029_M30_Personnel` dans
-chaque `AddRecord` / `UpdateRecord`. Or ces trois colonnes sont déclarées comme formules
-dans le schéma (`def c2029_M10_Fonctionnement(rec, table): return None`), au même titre
-que `Total_2029`. Grist refuse une écriture sur une colonne formule, ce qui fait échouer
-l'action entière.
+chaque `AddRecord` / `UpdateRecord` — jamais les colonnes de total (`Total_2026`…
+`Total_2029`, `Montant_attribue_Total`), qui restent recalculées en direct côté JS
+(`updateFinancialTotals()`) et ne sont jamais poussées vers Grist. C'est le comportement
+voulu (confirmé le 18 septembre 2026) : seules les 3 masses de données par année
+partent vers Grist, jamais un total qui est une formule.
 
-Deux corrections possibles, au choix : convertir ces trois colonnes en colonnes de
-données `Numeric` dans Grist (elles renvoient `None` aujourd'hui, donc rien n'est perdu),
-ou limiter la grille budgétaire du widget à 2026‑2028.
+Mais dans le schéma actuel, `c2029_M10_Fonctionnement`, `c2029_M20_Investissement` et
+`c2029_M30_Personnel` sont eux-mêmes déclarés comme formules
+(`def c2029_M10_Fonctionnement(rec, table): return None`), au même titre que
+`Total_2029`. Grist refuse une écriture sur une colonne formule : tant que ces trois
+colonnes ne sont pas converties en `Numeric` côté Grist, l'enregistrement d'un projet
+échoue dès que l'utilisateur touche au budget 2029. Rien à corriger côté widget ici — la
+conversion des colonnes est une action Grist, pas un changement de code.
 
-### 2. `Ligne_OPE` est une ReferenceList, pas une Reference
+### 2. `Ligne_OPE` — corrigé le 18 septembre 2026
 
 `Projets.Ligne_OPE` est déclarée `grist.ReferenceList('EcritureComptables')`. Le widget
-la traite comme une référence simple : il écrit un identifiant numérique
-(`Ligne_OPE: Number(...) || null`) au lieu du format `['L', id…]` attendu, et à la
-relecture `setRef()` reçoit un tableau dont il lit `.id`, ce qui laisse le champ vide
-même quand une ligne OPE est rattachée.
+la traitait comme une référence simple : il écrivait un identifiant numérique au lieu du
+format `['L', id…]` attendu, et à la relecture `setRef()` recevait un tableau dont il
+lisait `.id`, ce qui laissait le champ vide même quand une ligne OPE était rattachée.
+`setRef()` déballe maintenant le tableau à la lecture et `collectFields()` pousse le
+même format que `Partenaire_s_convention_reversement` (`['L', id]` ou `['L']` à vide).
 
-Le format attendu est déjà correctement produit ailleurs, pour
-`Partenaire_s_convention_reversement` : `['L', ...ids]`.
+### 3. Champs référence : texte libre bloqué au blur — corrigé le 18 septembre 2026
+
+Les champs référence de la modale projet (`Porteur_1/2/3`, `VP_porteur_2`,
+`Accompagnateur`, `Instance_ratachee`, `Ligne_OPE`) et le champ Poste de la fiche
+Personne laissaient du texte tapé affiché même sans clic sur une suggestion : l'id
+interne restait vide mais le champ semblait renseigné, et rien n'empêchait de croire
+qu'une valeur libre serait enregistrée. Au blur, si aucune suggestion n'a été
+sélectionnée, le champ est maintenant vidé : seul un objet réellement choisi dans la
+liste peut être poussé vers Grist.
 
 ### Divergences sans effet
 
