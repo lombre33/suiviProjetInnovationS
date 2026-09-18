@@ -1,3 +1,29 @@
+# Version 0.6 - Stable
+
+Date : 2026-09-18
+
+## Statut : Stable ✅
+
+Cette version applique la refonte visuelle « Option A » (inspirée du design system de PublipostagePlus, validée par maquette avant implémentation) : nouveaux tokens visuels, en-tête et Kanban restylés, et surtout la modale « Nouveau projet » réorganisée en 5 onglets au lieu d'un unique formulaire de ~30 champs à plat.
+
+### Changements notables
+- Nouveaux tokens CSS globaux dans `style.css` (police Manrope, palette ardoise/bleu électrique, rayons et ombres sobres), réutilisés par `kanban.css` et `css/creation-projet.css`.
+- En-tête et navigation restylés (bandeau clair, pastille de marque, navigation segmentée) ; suppression des émojis de l'interface.
+- Kanban et cartes projet restylés avec la nouvelle palette ; classement par colonne, filtres et logique métier inchangés.
+- Modale « Nouveau projet » réorganisée en 5 onglets (Général, Porteurs, Dates & OPE, Budget, Conventions) ; ajout d'un total budgétaire visible en tête de l'onglet Budget et d'un repère d'étape (« Étape X sur 5 ») en pied de modale. Tous les champs, identifiants et le comportement de sauvegarde/validation restent inchangés.
+- Modales Poste et Personne resserrées (largeur compacte, ~420px) pour correspondre au style « modale secondaire » de la maquette ; aucun changement de logique.
+- Nettoyage de CSS mort (anciens sélecteurs `.modal`, `.search-dropdown`, bloc Kanban dupliqué dans `style.css`, etc.).
+
+### Fichiers modifiés
+- `style.css`, `kanban.css`, `css/creation-projet.css`
+- `js/components/project-modal.js`
+- `index.html`
+
+### Non-régression
+- Les 4 suites de `tests/index.html` (Kanban, modale Projet, fiche Personne, fiche Poste) passent intégralement (32/32) après la refonte.
+
+---
+
 # Version 0.5 - Stable
 
 Date : 2026-09-02
