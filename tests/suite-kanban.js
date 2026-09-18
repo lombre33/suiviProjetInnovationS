@@ -164,4 +164,69 @@
       assertTrue(/\.visually-hidden\s*\{/.test(css), 'attendu une classe utilitaire .visually-hidden dans style.css');
     });
   });
+
+  describe('Kanban Projets — colonnes repliables', function () {
+    function collapseBtn(section) { return section.querySelector('[data-toggle-collapse]'); }
+
+    it('"Projet en cours" est repliée par défaut, les autres colonnes ne le sont pas', async function () {
+      await loadFixtureState();
+      const enCours = columnSection('Projet en cours');
+      assertTrue(enCours.classList.contains('is-collapsed'), '"Projet en cours" doit porter la classe is-collapsed par défaut');
+      assertEqual(collapseBtn(enCours).getAttribute('aria-expanded'), 'false', 'le bouton de repli doit annoncer aria-expanded="false" par défaut');
+      assertFalse(columnSection('Instruction').classList.contains('is-collapsed'), 'les autres colonnes ne doivent pas être repliées par défaut');
+    });
+
+    it('une colonne repliée garde ses cartes dans le DOM (repli = CSS, pas une suppression) pour ne pas casser le classement métier', async function () {
+      await loadFixtureState();
+      assertTrue(!!cardIn(columnSection('Projet en cours'), 'COURSIX'), 'COURSIX doit rester présente dans le DOM même colonne repliée par défaut');
+    });
+
+    it('cliquer sur le bouton de repli bascule aria-expanded et la classe is-collapsed', async function () {
+      await loadFixtureState();
+      const section = columnSection('Instruction');
+      const btn = collapseBtn(section);
+      btn.click();
+      assertTrue(columnSection('Instruction').classList.contains('is-collapsed'), 'la colonne doit devenir repliée après le premier clic');
+      assertEqual(collapseBtn(columnSection('Instruction')).getAttribute('aria-expanded'), 'false');
+      collapseBtn(columnSection('Instruction')).click();
+      assertFalse(columnSection('Instruction').classList.contains('is-collapsed'), 'un second clic doit la déplier à nouveau');
+      assertEqual(collapseBtn(columnSection('Instruction')).getAttribute('aria-expanded'), 'true');
+    });
+
+    it('la feuille de style masque réellement .kanban-cards pour une colonne .is-collapsed', async function () {
+      const res = await fetch('../kanban.css', { cache: 'no-store' });
+      const css = await res.text();
+      assertTrue(/\.kanban-column\.is-collapsed\s+\.kanban-cards\s*\{[^}]*\bdisplay\s*:\s*none\b/i.test(css), 'attendu une règle .kanban-column.is-collapsed .kanban-cards{display:none} dans kanban.css');
+    });
+  });
+
+  describe('Kanban Projets — colonnes masquables, restaurables depuis le bandeau', function () {
+    it('masquer une colonne la retire du tableau et fait apparaître une puce de restauration à côté de "Réinitialiser"', async function () {
+      await loadFixtureState();
+      const hiddenBar = document.getElementById('kanban-hidden-columns');
+      assertTrue(hiddenBar.hidden, 'le bandeau des colonnes masquées doit rester caché tant qu\'aucune colonne n\'est masquée');
+
+      columnSection('Notifications').querySelector('[data-hide-column]').click();
+
+      assertTrue(!columnSection('Notifications'), 'la colonne masquée ne doit plus être rendue dans #projects-kanban');
+      assertFalse(hiddenBar.hidden, 'le bandeau des colonnes masquées doit devenir visible');
+      const restoreBtn = hiddenBar.querySelector('[data-restore-column="Notifications"]');
+      assertTrue(!!restoreBtn, 'une puce de restauration pour "Notifications" doit apparaître dans le bandeau, à côté de Réinitialiser');
+      assertTrue(restoreBtn.textContent.includes('Notifications'));
+
+      // Nettoyage : on restaure la colonne pour ne pas polluer les tests suivants.
+      restoreBtn.click();
+      assertTrue(!!columnSection('Notifications'), 'la colonne doit réapparaître après restauration');
+      assertTrue(document.getElementById('kanban-hidden-columns').hidden, 'le bandeau doit redevenir caché une fois toutes les colonnes restaurées');
+    });
+
+    it('le bandeau des colonnes masquées est un élément du bandeau de filtres, entre Réinitialiser et Nouveau Projet', function () {
+      const clearBtn = document.getElementById('clear-filters');
+      const hiddenBar = document.getElementById('kanban-hidden-columns');
+      const newProjectBtn = document.getElementById('btn-new-project');
+      assertTrue(clearBtn.parentElement === hiddenBar.parentElement && hiddenBar.parentElement === newProjectBtn.parentElement, 'les trois éléments doivent être dans le même bandeau .project-filters');
+      const children = Array.from(clearBtn.parentElement.children);
+      assertTrue(children.indexOf(clearBtn) < children.indexOf(hiddenBar) && children.indexOf(hiddenBar) < children.indexOf(newProjectBtn), 'le bandeau des colonnes masquées doit être placé juste après Réinitialiser, avant + Nouveau Projet');
+    });
+  });
 })();

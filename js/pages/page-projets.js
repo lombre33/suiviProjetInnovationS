@@ -8,6 +8,14 @@
     { key: 'Installation des fonds', label: 'Installation des fonds', color: '#dc6803' },
     { key: 'Projet en cours', label: 'Projet en cours', color: '#039855' }
   ];
+  // État d'affichage des colonnes (repliée / masquée), distinct du classement
+  // métier ci-dessous : purement local à la session (pas de persistance Grist),
+  // "Projet en cours" repliée par défaut pour limiter la hauteur du Kanban
+  // (le widget s'affiche dans Grist, déjà contraint en hauteur).
+  const columnState = {};
+  COLUMNS.forEach(c => { columnState[c.key] = { collapsed: c.key === 'Projet en cours', hidden: false }; });
+  const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+  const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
@@ -167,15 +175,42 @@
   function render() {
     const board = document.getElementById('projects-kanban'); if (!board) return;
     const projects = filteredProjects();
-    board.innerHTML = COLUMNS.map(column => {
+    const visibleColumns = COLUMNS.filter(column => !columnState[column.key].hidden);
+    board.innerHTML = visibleColumns.map(column => {
       const cards = projects.filter(p => classifyStatus(p) === column.key);
-      return `<section class="kanban-column" style="--column-accent:${column.color}" aria-labelledby="kanban-${normalized(column.key)}"><header class="kanban-column-header"><h3 id="kanban-${normalized(column.key)}">${column.label}</h3><span class="kanban-count">${cards.length}</span></header><div class="kanban-cards">${cards.length ? cards.map(card).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`;
+      const state = columnState[column.key];
+      const collapsedCls = state.collapsed ? ' is-collapsed' : '';
+      return `<section class="kanban-column${collapsedCls}" style="--column-accent:${column.color}" aria-labelledby="kanban-${normalized(column.key)}"><header class="kanban-column-header"><h3 id="kanban-${normalized(column.key)}">${column.label}</h3><div class="kanban-column-actions"><span class="kanban-count">${cards.length}</span><button type="button" class="kanban-icon-btn" data-toggle-collapse="${escape(column.key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} la colonne ${escape(column.label)}">${ICON_CHEVRON}</button><button type="button" class="kanban-icon-btn" data-hide-column="${escape(column.key)}" aria-label="Masquer la colonne ${escape(column.label)}">${ICON_EYE_OFF}</button></div></header><div class="kanban-cards">${cards.length ? cards.map(card).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`;
     }).join('');
     board.querySelectorAll('[data-project-id]').forEach(cardEl => cardEl.addEventListener('click', () => {
       const project = getProjects().find(item => String(item.id) === String(cardEl.dataset.projectId));
       if (project && window.ProjectModal?.open) window.ProjectModal.open(project);
       else if (window.openProject) window.openProject(cardEl.dataset.projectId);
       else if (typeof viewProject === 'function') viewProject(Number(cardEl.dataset.projectId));
+    }));
+    board.querySelectorAll('[data-toggle-collapse]').forEach(btn => btn.addEventListener('click', () => {
+      const state = columnState[btn.dataset.toggleCollapse];
+      if (state) state.collapsed = !state.collapsed;
+      render();
+    }));
+    board.querySelectorAll('[data-hide-column]').forEach(btn => btn.addEventListener('click', () => {
+      const state = columnState[btn.dataset.hideColumn];
+      if (state) state.hidden = true;
+      render();
+    }));
+    renderHiddenColumns();
+  }
+  function renderHiddenColumns() {
+    const container = document.getElementById('kanban-hidden-columns'); if (!container) return;
+    const hiddenColumns = COLUMNS.filter(column => columnState[column.key].hidden);
+    container.hidden = hiddenColumns.length === 0;
+    container.innerHTML = hiddenColumns.length
+      ? `<span class="kanban-hidden-label">Masquées :</span>${hiddenColumns.map(column => `<button type="button" class="kanban-restore-chip" data-restore-column="${escape(column.key)}">+ ${escape(column.label)}</button>`).join('')}`
+      : '';
+    container.querySelectorAll('[data-restore-column]').forEach(btn => btn.addEventListener('click', () => {
+      const state = columnState[btn.dataset.restoreColumn];
+      if (state) state.hidden = false;
+      render();
     }));
   }
   function card(project) {
