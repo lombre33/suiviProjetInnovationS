@@ -1,3 +1,9 @@
+# Export du schéma Grist, réduit aux 8 tables utilisées par le widget :
+# Projets, Annuaire, Postes2, Structures, Programmes, Etablissements,
+# Suivi_Instance, EcritureComptables. Fichier repris tel quel depuis Grist :
+# il décrit le document, pas l'usage qu'en fait le widget.
+# Pour savoir quelles colonnes le code lit et écrit, voir docs/grist_usage.md.
+
 import grist
 from functions import *       # global uppercase functions
 import datetime, math, re     # modules commonly needed in formulas
