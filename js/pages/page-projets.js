@@ -14,6 +14,23 @@
   // (le widget s'affiche dans Grist, déjà contraint en hauteur).
   const columnState = {};
   COLUMNS.forEach(c => { columnState[c.key] = { collapsed: c.key === 'Projet en cours', hidden: false }; });
+  // Préférences par utilisateur (repli/masquage des colonnes Kanban, filtres) —
+  // persistées dans une table Grist dédiée, créée automatiquement au premier
+  // lancement si absente (voir CoreGrist.ensureTable/getCurrentUserEmail).
+  // Noms alignés sur la mémoire d'équipe grist-identite-utilisateur-widget.
+  const PREFS_TABLE = 'Preferences_Widget';
+  const PREFS_COLUMNS = [
+    { id: 'Email_utilisateur', type: 'Text' },
+    { id: 'Kanban_colonnes_repliees', type: 'Text' },
+    { id: 'Kanban_colonnes_masquees', type: 'Text' },
+    { id: 'Filtre_programme', type: 'Text' },
+    { id: 'Filtre_instance', type: 'Text' },
+    { id: 'Filtre_recherche', type: 'Text' }
+  ];
+  let prefsEmail = null;
+  let prefsRowId = null;
+  const encodeColumnList = keys => keys.join(',');
+  const decodeColumnList = value => text(value).split(',').map(s => s.trim()).filter(Boolean);
   const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
   const text = value => value == null ? '' : String(value);
@@ -164,6 +181,7 @@
       input.value = button.dataset.value;
       list.hidden = true;
       render();
+      saveUserPreferences();
     }));
   }
   function renderFilters() {
@@ -192,11 +210,13 @@
       const state = columnState[btn.dataset.toggleCollapse];
       if (state) state.collapsed = !state.collapsed;
       render();
+      saveUserPreferences();
     }));
     board.querySelectorAll('[data-hide-column]').forEach(btn => btn.addEventListener('click', () => {
       const state = columnState[btn.dataset.hideColumn];
       if (state) state.hidden = true;
       render();
+      saveUserPreferences();
     }));
     renderHiddenColumns();
   }
@@ -211,7 +231,58 @@
       const state = columnState[btn.dataset.restoreColumn];
       if (state) state.hidden = false;
       render();
+      saveUserPreferences();
     }));
+  }
+  function applyStoredFilters(row) {
+    const combos = { 'filter-programme': row.Filtre_programme, 'filter-instance': row.Filtre_instance };
+    Object.entries(combos).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input && value) { input.value = value; input.dataset.selectedValue = value; }
+    });
+    const search = document.getElementById('filter-search');
+    if (search && row.Filtre_recherche) search.value = row.Filtre_recherche;
+  }
+  async function loadUserPreferences() {
+    if (!window.CoreGrist || typeof CoreGrist.getCurrentUserEmail !== 'function') return;
+    try {
+      prefsEmail = await CoreGrist.getCurrentUserEmail();
+      prefsRowId = null;
+      if (!prefsEmail) return;
+      await CoreGrist.ensureTable(PREFS_TABLE, PREFS_COLUMNS);
+      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const row = rows.find(r => r.Email_utilisateur === prefsEmail);
+      if (!row) return;
+      prefsRowId = row.id;
+      COLUMNS.forEach(c => { columnState[c.key].collapsed = false; columnState[c.key].hidden = false; });
+      decodeColumnList(row.Kanban_colonnes_repliees).forEach(key => { if (columnState[key]) columnState[key].collapsed = true; });
+      decodeColumnList(row.Kanban_colonnes_masquees).forEach(key => { if (columnState[key]) columnState[key].hidden = true; });
+      applyStoredFilters(row);
+    } catch (err) {
+      console.warn('Chargement des préférences utilisateur a échoué :', err.message);
+    }
+  }
+  async function saveUserPreferences() {
+    if (!prefsEmail || !window.CoreGrist?.gristInstance) return;
+    const fields = {
+      Email_utilisateur: prefsEmail,
+      Kanban_colonnes_repliees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].collapsed).map(c => c.key)),
+      Kanban_colonnes_masquees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].hidden).map(c => c.key)),
+      Filtre_programme: comboValue('filter-programme'),
+      Filtre_instance: comboValue('filter-instance'),
+      Filtre_recherche: document.getElementById('filter-search')?.value || ''
+    };
+    try {
+      const api = CoreGrist.gristInstance.docApi;
+      if (prefsRowId) {
+        await api.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
+      } else {
+        const result = await api.applyUserActions([['AddRecord', PREFS_TABLE, null, fields]]);
+        prefsRowId = CoreUtils.extractAddedRecordId(result);
+      }
+    } catch (err) {
+      console.warn('Enregistrement des préférences utilisateur a échoué :', err.message);
+    }
   }
   function card(project) {
     const holder = personLabel(field(project, ['Porteur_1', 'Porteur', 'porteur_1'])) || 'Porteur non renseigné';
@@ -245,7 +316,7 @@
     setupCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
     setupCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances');
     render();
-    document.getElementById('filter-search')?.addEventListener('input', render);
+    document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferences(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
       ['filter-programme', 'filter-instance'].forEach(id => {
         const input = document.getElementById(id);
@@ -255,8 +326,10 @@
       if (search) search.value = '';
       renderFilters();
       render();
+      saveUserPreferences();
     });
   }
   window.renderProjectsKanban = function (projects) { renderFilters(); render(); };
+  window.loadKanbanUserPreferences = loadUserPreferences;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

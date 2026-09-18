@@ -229,4 +229,98 @@
       assertTrue(children.indexOf(clearBtn) < children.indexOf(hiddenBar) && children.indexOf(hiddenBar) < children.indexOf(newProjectBtn), 'le bandeau des colonnes masquées doit être placé juste après Réinitialiser, avant + Nouveau Projet');
     });
   });
+
+  describe('Kanban Projets — préférences utilisateur persistées (table Preferences_Widget)', function () {
+    function selectCombo(inputId, label) {
+      const input = document.getElementById(inputId);
+      fire(input, 'focus');
+      const list = document.getElementById(`${inputId}-list`);
+      const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
+      assertTrue(!!button, `option "${label}" introuvable dans ${inputId}`);
+      fireMouse(button, 'mousedown');
+    }
+
+    it('crée automatiquement la table Preferences_Widget si elle n\'existe pas encore', async function () {
+      await loadFixtureState();
+      const before = await window.CoreGrist.gristInstance.docApi.listTables();
+      assertFalse(before.includes('Preferences_Widget'), 'la table ne doit pas exister avant le premier chargement des préférences');
+      await window.loadKanbanUserPreferences();
+      const after = await window.CoreGrist.gristInstance.docApi.listTables();
+      assertTrue(after.includes('Preferences_Widget'), 'la table doit être créée automatiquement au premier chargement des préférences');
+    });
+
+    it('ne recrée pas la table si elle existe déjà (pas de doublon d\'AddTable)', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      await window.loadKanbanUserPreferences();
+      const addTableCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
+      assertEqual(addTableCalls.length, 1, 'AddTable ne doit être déclenché qu\'une seule fois pour Preferences_Widget');
+    });
+
+    it('sans identité utilisateur disponible (SCIM indisponible), aucune table n\'est créée et rien ne plante', async function () {
+      window.__setMockUserEmail('');
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      const tables = await window.CoreGrist.gristInstance.docApi.listTables();
+      assertFalse(tables.includes('Preferences_Widget'), 'sans email utilisateur identifiable, la table ne doit pas être créée');
+    });
+
+    it('la première sauvegarde crée un enregistrement (AddRecord) encodé en liste séparée par virgules, les suivantes le mettent à jour (UpdateRecord)', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+
+      columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
+      await wait(0);
+      let prefsCalls = window.__TEST_CALLS__.filter(c => c.table === 'Preferences_Widget');
+      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'le premier changement doit créer un enregistrement de préférences');
+      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 0, 'aucune mise à jour ne doit avoir lieu avant qu\'un enregistrement existe');
+
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      const row = rows.find(r => r.Email_utilisateur === 'alice.martin@example.org');
+      assertTrue(!!row, 'la ligne doit être associée à l\'email de l\'utilisateur courant simulé');
+      assertDeepEqual(row.Kanban_colonnes_repliees.split(',').sort(), ['Instruction', 'Projet en cours'].sort(),
+        'les colonnes repliées doivent être encodées en liste séparée par des virgules');
+      assertEqual(row.Kanban_colonnes_masquees, '', 'aucune colonne masquée à ce stade');
+
+      columnSection('Notifications').querySelector('[data-hide-column]').click();
+      await wait(0);
+      prefsCalls = window.__TEST_CALLS__.filter(c => c.table === 'Preferences_Widget');
+      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'aucun second AddRecord ne doit être créé pour le même utilisateur');
+      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 1, 'le second changement doit mettre à jour le même enregistrement');
+
+      // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
+      columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
+      document.getElementById('kanban-hidden-columns').querySelector('[data-restore-column="Notifications"]').click();
+      await wait(0);
+    });
+
+    it('restaure l\'état des colonnes (repliées/masquées) et des filtres à partir d\'un enregistrement existant', async function () {
+      await loadFixtureState();
+      // Une ligne déjà présente simule une préférence enregistrée lors d'une session précédente,
+      // indépendamment du chemin de sauvegarde du widget (testé séparément ci-dessus).
+      await window.CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', 'Preferences_Widget', null, {
+        Email_utilisateur: 'alice.martin@example.org',
+        Kanban_colonnes_repliees: 'Instruction,Projet en cours',
+        Kanban_colonnes_masquees: 'Notifications',
+        Filtre_programme: 'Programme A',
+        Filtre_instance: '',
+        Filtre_recherche: ''
+      }]]);
+
+      await window.loadKanbanUserPreferences();
+      window.renderProjectsKanban();
+
+      assertTrue(columnSection('Instruction').classList.contains('is-collapsed'), 'Instruction doit être repliée d\'après la préférence enregistrée');
+      assertFalse(!!columnSection('Notifications'), 'Notifications doit être masquée d\'après la préférence enregistrée');
+      assertEqual(document.getElementById('filter-programme').value, 'Programme A', 'le filtre Programme doit être restauré d\'après la préférence enregistrée');
+      const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertFalse(visibleAcronyms.includes('NOTIFY'), 'le filtre Programme restauré doit effectivement s\'appliquer au rendu');
+
+      // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
+      columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
+      document.getElementById('kanban-hidden-columns').querySelector('[data-restore-column="Notifications"]').click();
+      document.getElementById('clear-filters').click();
+      await wait(0);
+    });
+  });
 })();

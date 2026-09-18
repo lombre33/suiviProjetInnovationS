@@ -60,6 +60,23 @@
     return null;
   }
 
+  function addTable(tableId, colDefs) {
+    if (store[tableId]) throw new Error(`Mock Grist: table ${tableId} already exists`);
+    const table = { id: [] };
+    (colDefs || []).forEach(col => { table[col.id] = []; });
+    store[tableId] = table;
+    global.__TEST_CALLS__.push({ type: 'AddTable', table: tableId, colDefs });
+    return { id: tableId };
+  }
+
+  // Utilisateur "courant" simulé pour CoreGrist.getCurrentUserEmail() : voir
+  // getAccessToken()/le stub fetch() plus bas. Changeable par un test via
+  // __setMockUserEmail (ex. pour simuler deux utilisateurs différents), remis à
+  // la valeur par défaut par __resetMockGrist().
+  const DEFAULT_MOCK_EMAIL = 'alice.martin@example.org';
+  let mockUserEmail = DEFAULT_MOCK_EMAIL;
+  global.__setMockUserEmail = function (email) { mockUserEmail = email; };
+
   global.grist = {
     ready: async function () { return undefined; },
     docApi: {
@@ -70,11 +87,16 @@
         if (!table) throw new Error(`Mock Grist: unknown table ${name}`);
         return JSON.parse(JSON.stringify(table));
       },
+      listTables: async function () { return Object.keys(store); },
+      getAccessToken: async function () {
+        return { token: 'mock-token', baseUrl: 'https://mock-grist.invalid/o/docs/api/docs/mockDocId', ttlMsecs: 600000 };
+      },
       applyUserActions: async function (actions) {
         const retValues = actions.map(function (action) {
-          const type = action[0], table = action[1], id = action[2], fields = action[3];
-          if (type === 'AddRecord') return addRecord(table, fields);
-          if (type === 'UpdateRecord') return updateRecord(table, id, fields);
+          const type = action[0];
+          if (type === 'AddRecord') return addRecord(action[1], action[3]);
+          if (type === 'UpdateRecord') return updateRecord(action[1], action[2], action[3]);
+          if (type === 'AddTable') return addTable(action[1], action[2]);
           throw new Error(`Mock Grist: unsupported action type ${type}`);
         });
         return { actionNum: global.__TEST_CALLS__.length, retValues };
@@ -82,10 +104,26 @@
     }
   };
 
+  // CoreGrist.getCurrentUserEmail() calls fetch(baseUrl + '/scim/v2/Me') directly
+  // (no wrapper in window.grist for this — it's a real REST call in production).
+  // Intercept only that URL; forward everything else (suite-*.js tests fetch real
+  // .css files for content-regex checks) to the real fetch.
+  const REAL_FETCH = global.fetch ? global.fetch.bind(global) : null;
+  global.fetch = function (url, opts) {
+    if (typeof url === 'string' && url.includes('/scim/v2/Me')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ emails: [{ value: mockUserEmail }], userName: mockUserEmail })
+      });
+    }
+    return REAL_FETCH(url, opts);
+  };
+
   // Full reset between tests: fresh fixture data, cleared call log, cleared app state.
   global.__resetMockGrist = function () {
     store = cloneFixtures();
     global.__TEST_CALLS__.length = 0;
+    mockUserEmail = DEFAULT_MOCK_EMAIL;
     if (global.CoreState && typeof global.CoreState.clearState === 'function') {
       global.CoreState.clearState();
     }
