@@ -32,7 +32,7 @@
 
   function searchableField(parent, id, labelText, rows, fields, initialValue, initialId) {
     const wrap = document.createElement('div');
-    wrap.className = 'cp-field cp-ref';
+    wrap.className = 'cp-field cp-ref cp-full';
     wrap.innerHTML = `<label for="${id}">${escapeHtml(labelText)}</label><input id="${id}" autocomplete="off" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`;
     const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list');
     if (initialValue) input.value = initialValue;
@@ -88,7 +88,17 @@
     const modal = document.createElement('div');
     modal.id = 'cp-person-modal';
     modal.className = 'cp-modal cp-person-modal';
-    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true"><h2 id="cpp-title">${editing ? 'Modifier une personne' : 'Créer une personne'} <button type="button" data-cp-close>×</button></h2><div class="cp-grid" id="cpp-form"><div class="cp-field"><label for="cpp-nom">Nom *</label><input id="cpp-nom" type="text" required></div><div class="cp-field"><label for="cpp-prenom">Prénom *</label><input id="cpp-prenom" type="text" required></div><div class="cp-field"><label for="cpp-email">Email</label><input id="cpp-email" type="email"></div><div class="cp-field"><label for="cpp-tel">Tel</label><input id="cpp-tel" type="text"></div></div><div class="cp-grid" id="cpp-refs"></div><p class="cp-error" role="alert"></p><div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer la personne'}</button></div></div>`;
+    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><div class="cp-head-text"><span class="cp-eyebrow">${editing ? 'Fiche annuaire' : 'Nouvelle entrée'}</span><h2 id="cpp-title">${editing ? 'Modifier une personne' : 'Créer une personne'}</h2></div><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-body"><div class="cp-grid" id="cpp-form">` +
+      `<div class="cp-field"><label for="cpp-nom">Nom *</label><input id="cpp-nom" type="text" required></div>` +
+      `<div class="cp-field"><label for="cpp-prenom">Prénom *</label><input id="cpp-prenom" type="text" required></div>` +
+      `<div class="cp-field"><label for="cpp-email">Email</label><input id="cpp-email" type="email"></div>` +
+      `<div class="cp-field"><label for="cpp-tel">Tel</label><input id="cpp-tel" type="text"></div>` +
+      `</div></div>` +
+      `<p class="cp-error" role="alert"></p>` +
+      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer la personne'}</button></div>` +
+      `</div>`;
     document.body.appendChild(modal);
 
     const nom = modal.querySelector('#cpp-nom'), prenom = modal.querySelector('#cpp-prenom');
@@ -107,7 +117,7 @@
     modal.querySelector('#cpp-email').value = text(fieldValue(person, ['Email']));
     modal.querySelector('#cpp-tel').value = text(fieldValue(person, ['Telephone', 'Tel']));
 
-    const refs = modal.querySelector('#cpp-refs');
+    const form = modal.querySelector('#cpp-form');
     const posteValue = fieldValue(person, ['Poste2', 'Poste']);
     const refLabel = (value, table, fields) => {
       const id = value && typeof value === 'object' ? value.id : value;
@@ -116,7 +126,7 @@
     };
     const refId = value => value && typeof value === 'object' ? value.id : value;
     const poste = searchableField(
-      refs, 'cpp-poste', 'Poste (nom du poste)', () => tableRows('Postes2'), ['Nom_du_poste', 'Titre'],
+      form, 'cpp-poste', 'Poste (nom du poste)', () => tableRows('Postes2'), ['Nom_du_poste', 'Titre'],
       refLabel(posteValue, 'Postes2', ['Nom_du_poste', 'Titre']), refId(posteValue)
     );
 

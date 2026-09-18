@@ -89,8 +89,13 @@
     if (old) old.remove();
     const editing = mode === 'edit', modal = document.createElement('div');
     modal.id = 'cp-poste-modal';
-    modal.className = 'cp-modal cp-person-modal';
-    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true"><h2>${editing ? 'Modifier un poste' : 'Créer un poste'} <button type="button" data-cp-close>×</button></h2><div class="cp-grid" id="cpp-poste-form"></div><p class="cp-error" role="alert"></p><div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer le poste'}</button></div></div>`;
+    modal.className = 'cp-modal cp-person-modal cp-poste-modal';
+    modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><div class="cp-head-text"><span class="cp-eyebrow">${editing ? 'Fiche poste' : 'Nouveau poste'}</span><h2>${editing ? 'Modifier un poste' : 'Créer un poste'}</h2></div><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-body"><div class="cp-grid" id="cpp-poste-form"></div></div>` +
+      `<p class="cp-error" role="alert"></p>` +
+      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${editing ? 'Enregistrer les modifications' : 'Créer le poste'}</button></div>` +
+      `</div>`;
     document.body.appendChild(modal);
     const form = modal.querySelector('#cpp-poste-form');
 
@@ -98,17 +103,17 @@
     const employeur = refSelect(form, 'cpp-employeur', 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']));
 
     const titreWrap = document.createElement('div');
-    titreWrap.className = 'cp-field';
+    titreWrap.className = 'cp-field cp-full';
     titreWrap.innerHTML = '<label for="cpp-titre">Titre du poste *</label><input id="cpp-titre" type="text" required>';
     form.appendChild(titreWrap);
 
     const precisionWrap = document.createElement('div');
-    precisionWrap.className = 'cp-field';
+    precisionWrap.className = 'cp-field cp-full';
     precisionWrap.innerHTML = '<label for="cpp-precisions">Précisions du poste</label><textarea id="cpp-precisions" rows="3"></textarea>';
     form.appendChild(precisionWrap);
 
     const nameWrap = document.createElement('div');
-    nameWrap.className = 'cp-field';
+    nameWrap.className = 'cp-field cp-full';
     nameWrap.innerHTML = '<label for="cpp-nom-poste">Nom du poste (calculé)</label><input id="cpp-nom-poste" type="text" readonly aria-readonly="true" class="cp-readonly">';
     form.appendChild(nameWrap);
 

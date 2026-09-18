@@ -30,16 +30,43 @@
     { key: 'conventions', label: 'Conventions' }
   ];
 
+  const TYPE_OPTIONS = [
+    { value: 'Projet', label: 'Projet' },
+    { value: 'Ingenierie_creation', label: 'Ingénierie création' },
+    { value: 'Ingenierie_renouvellement', label: 'Ingénierie renouvellement' },
+    { value: 'reattribution', label: 'Réattribution' },
+    { value: 'prolongation', label: 'Prolongation' },
+    { value: 'myphd+', label: 'MyPhD+' }
+  ];
+
+  const OPE_OPTIONS = [
+    { value: '', label: 'Aucune' },
+    { value: 'Creation de ligne', label: 'Création de ligne' },
+    { value: 'Prolongation de ligne', label: 'Prolongation' },
+    { value: 're-Abondement de ligne', label: 'Ré-abondement' },
+    { value: 'à determiner', label: 'À déterminer' },
+    { value: 'ligné validée', label: 'Ligne validée' }
+  ];
+
   function refField(parent, key, table, display, required = false) {
+    const isPerson = table === 'Annuaire';
     const wrap = document.createElement('div');
-    wrap.className = 'cp-field cp-ref';
-    wrap.innerHTML = `<label>${esc(display.label)}${required ? ' *' : ''}</label><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`;
-    const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list');
+    wrap.className = 'cp-field cp-ref' + (isPerson ? ' cp-ref-person' : '');
+    wrap.innerHTML = isPerson
+      ? `<label>${esc(display.label)}${required ? ' *' : ''}</label><span class="cp-ref-avatar" aria-hidden="true"></span><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`
+      : `<label>${esc(display.label)}${required ? ' *' : ''}</label><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`;
+    const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list'), avatar = wrap.querySelector('.cp-ref-avatar');
     const all = () => table === '__choice__' ? [] : rows(table);
     const displayValue = r => text(display.format ? display.format(r) : label(r, display.fields));
+    const initials = str => (str || '').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    const refreshAvatar = () => {
+      if (!avatar) return;
+      const idNum = Number(input.dataset.id);
+      avatar.textContent = (Number.isFinite(idNum) && idNum > 0) ? initials(input.value) : '';
+    };
 
     const render = (clearSelection = true) => {
-      if (clearSelection) input.dataset.id = '';
+      if (clearSelection) { input.dataset.id = ''; refreshAvatar(); }
       const q = input.value.trim().toLowerCase();
       const matches = all().filter(r => displayValue(r).toLowerCase().includes(q)).slice(0, 30);
       list.innerHTML = matches.map(r => `<button type="button" data-id="${esc(r.id)}">${esc(displayValue(r))}</button>`).join('');
@@ -54,11 +81,12 @@
         }
         input.value = b.textContent;
         input.dataset.id = b.dataset.id;
+        refreshAvatar();
         list.classList.add('cp-hidden');
       });
     };
 
-    input.oninput = () => { input.dataset.id = ''; render(); };
+    input.oninput = () => { input.dataset.id = ''; refreshAvatar(); render(); };
     input.onfocus = () => render(false);
     input.onclick = event => {
       if (table === 'Annuaire' && input.value.trim() && input.dataset.id && typeof window.openEditPersonModal === 'function') {
@@ -73,7 +101,7 @@
     };
     input.onblur = () => setTimeout(() => list.classList.add('cp-hidden'), 150);
     parent.appendChild(wrap);
-    return { wrap, input };
+    return { wrap, input, refreshAvatar };
   }
 
   function multiRefField(parent, key, table, display) {
@@ -131,6 +159,31 @@
       .map(Number);
   }
 
+  // Groupe de puces pour un choix fermé (Type de projet) : la valeur réelle vit
+  // dans un <select> invisible (accessible au clavier/lecteur d'écran) que les
+  // puces pilotent ; collectFields()/populateModal() continuent de lire/écrire
+  // refs.type.input.value exactement comme avec l'ancien champ texte+datalist.
+  function chipGroup(parent, id, labelText, options, initialValue) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cp-field cp-full';
+    wrap.innerHTML = `<label for="${id}">${esc(labelText)}</label><div class="cp-chip-row"></div>`;
+    const select = document.createElement('select');
+    select.id = id;
+    select.className = 'cp-visually-hidden';
+    select.innerHTML = options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+    select.value = initialValue;
+    wrap.appendChild(select);
+    const row = wrap.querySelector('.cp-chip-row');
+    const render = () => {
+      row.innerHTML = options.map(o => `<button type="button" class="cp-chip${o.value === select.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`).join('');
+      row.querySelectorAll('button').forEach(b => b.onclick = () => { select.value = b.dataset.value; select.dispatchEvent(new Event('change')); render(); });
+    };
+    select.addEventListener('change', render);
+    render();
+    parent.appendChild(wrap);
+    return { wrap, input: select, render };
+  }
+
   function conventionTotal(m) {
     const record = m._projectRecord;
     const raw = m.querySelector('[data-grand-total]')?.textContent || valueOf(record, ['Montant_attribue_Total']);
@@ -163,7 +216,7 @@
       `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${esc(t.label)}</button>`).join('')}</div>` +
       `<div id="cp-project-form" class="cp-body"></div>` +
       `<p id="cp-project-error" class="cp-error" role="alert"></p>` +
-      `<div class="cp-actions"><span class="cp-step" id="cp-project-step"></span><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-person>+ Ajouter une personne</button><button type="button" data-cp-save>Créer le projet</button></div>` +
+      `<div class="cp-actions"><div class="cp-steps" id="cp-project-steps" aria-hidden="true"></div><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>Créer le projet</button></div>` +
       `</div>`;
     document.body.appendChild(m);
     const f = m.querySelector('#cp-project-form');
@@ -171,7 +224,8 @@
     const panels = {};
     TABS.forEach(t => {
       const panel = document.createElement('div');
-      panel.className = t.key === 'budget' ? 'cp-panel cp-hidden' : 'cp-panel cp-grid cp-hidden';
+      const layout = t.key === 'budget' ? '' : (t.key === 'porteurs' ? ' cp-panel-list' : ' cp-grid');
+      panel.className = `cp-panel${layout} cp-hidden`;
       panel.dataset.cpPanel = t.key;
       f.appendChild(panel);
       panels[t.key] = panel;
@@ -179,19 +233,26 @@
 
     // Général
     refs.programme = refField(panels.general, 'Programme', 'Programmes', { label: 'Programme', fields: ['Programme'] }, true);
+    refs.programme.wrap.classList.add('cp-full');
     field(panels.general, 'Projet', 'cp-Projet', 'text', true);
     field(panels.general, 'Acronyme', 'cp-Acronyme', 'text', true);
-    refs.type = refField(panels.general, 'Type_projet', '__choice__', { label: 'Type de projet', fields: ['value', 'label'] });
-    refs.type.input.value = 'Projet';
-    refs.type.wrap.querySelector('input').setAttribute('list', 'cp-types');
-    refs.type.wrap.insertAdjacentHTML('beforeend', '<datalist id="cp-types"><option value="Projet"><option value="Ingenierie_creation"><option value="Ingenierie_renouvellement"><option value="reattribution"><option value="prolongation"><option value="myphd+"></datalist>');
+    refs.type = chipGroup(panels.general, 'cp-Type_projet', 'Type de projet', TYPE_OPTIONS, 'Projet');
 
     const statusWrap = document.createElement('div');
     statusWrap.className = 'cp-field';
-    statusWrap.innerHTML = '<label for="cp-statut">Statut opérationnel</label><select id="cp-statut"><option>en cours</option><option>Brouillon</option><option>En retard</option><option>cloturé avec Reliquat à traiter</option><option>Cloturé et reliquat traités</option><option selected>En attente des dispo des fonds</option><option>Suposé cloturé sans information sur ...</option></select>';
+    statusWrap.innerHTML = '<label for="cp-statut">Statut opérationnel</label><div class="cp-status-row"><select id="cp-statut"><option>en cours</option><option>Brouillon</option><option>En retard</option><option>cloturé avec Reliquat à traiter</option><option>Cloturé et reliquat traités</option><option selected>En attente des dispo des fonds</option><option>Suposé cloturé sans information sur ...</option></select><span class="cp-status-dot" id="cp-statut-dot"></span></div>';
     panels.general.appendChild(statusWrap);
+    const statutSelect = statusWrap.querySelector('#cp-statut'), statutDot = statusWrap.querySelector('#cp-statut-dot');
+    const renderStatusDot = () => {
+      const v = statutSelect.value.toLowerCase();
+      statutDot.className = 'cp-status-dot' + (v.includes('retard') || v.includes('attente') ? ' warn' : (v.includes('clotur') ? ' ok' : ''));
+      statutDot.title = statutSelect.value;
+    };
+    statutSelect.addEventListener('change', renderStatusDot);
+    renderStatusDot();
 
-    // Porteurs
+    // Porteurs — liste verticale plutôt qu'une grille 2 colonnes : chaque champ
+    // Annuaire porte son avatar (initiales) via refField(..., table:'Annuaire').
     refs.Instance_ratachee = refField(panels.porteurs, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] });
     ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur'].forEach(k => {
       refs[k] = refField(panels.porteurs, k, 'Annuaire', {
@@ -202,7 +263,7 @@
     });
 
     const comment = document.createElement('div');
-    comment.className = 'cp-field cp-full';
+    comment.className = 'cp-field';
     comment.innerHTML = '<label>Commentaire général de suivi</label><textarea id="cp-comment" rows="3"></textarea>';
     panels.porteurs.appendChild(comment);
 
@@ -221,16 +282,29 @@
     refs.Ligne_OPE_installe_chez.classList.add('cp-readonly');
     refs.Ligne_OPE_installe_chez.setAttribute('aria-readonly', 'true');
 
-    const opeAction = document.createElement('div');
-    opeAction.className = 'cp-field';
-    opeAction.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE</label><select id="cp-Action_Ligne_OPE_a_faire"><option value=""></option><option>Creation de ligne</option><option>Prolongation de ligne</option><option>re-Abondement de ligne</option><option>à determiner</option><option>ligné validée</option></select>';
-    panels.dates.appendChild(opeAction);
-    refs.Action_Ligne_OPE_a_faire = opeAction.querySelector('select');
-    const updateOpeBadge = () => {
-      refs.Action_Ligne_OPE_a_faire.classList.toggle('cp-choice-orange', refs.Action_Ligne_OPE_a_faire.value === 'à determiner');
-      refs.Action_Ligne_OPE_a_faire.classList.toggle('cp-choice-green', refs.Action_Ligne_OPE_a_faire.value === 'ligné validée');
+    const opeWrap = document.createElement('div');
+    opeWrap.className = 'cp-field cp-full';
+    opeWrap.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE</label><div class="cp-chip-row"></div>';
+    panels.dates.appendChild(opeWrap);
+    const opeSelect = document.createElement('select');
+    opeSelect.id = 'cp-Action_Ligne_OPE_a_faire';
+    opeSelect.className = 'cp-visually-hidden';
+    opeSelect.innerHTML = OPE_OPTIONS.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+    opeWrap.appendChild(opeSelect);
+    refs.Action_Ligne_OPE_a_faire = opeSelect;
+    const opeChipsRow = opeWrap.querySelector('.cp-chip-row');
+    const renderOpeChips = () => {
+      opeChipsRow.innerHTML = OPE_OPTIONS.filter(o => o.value).map(o => {
+        const variant = o.value === 'à determiner' ? ' warn' : (o.value === 'ligné validée' ? ' ok' : '');
+        return `<button type="button" class="cp-chip${variant}${o.value === opeSelect.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`;
+      }).join('');
+      opeChipsRow.querySelectorAll('button').forEach(b => b.onclick = () => {
+        opeSelect.value = opeSelect.value === b.dataset.value ? '' : b.dataset.value;
+        opeSelect.dispatchEvent(new Event('change'));
+      });
     };
-    refs.Action_Ligne_OPE_a_faire.addEventListener('change', updateOpeBadge);
+    opeSelect.addEventListener('change', renderOpeChips);
+    renderOpeChips();
 
     const opeComment = document.createElement('div');
     opeComment.className = 'cp-field cp-full';
@@ -260,8 +334,8 @@
 
     // Conventions
     const conventionField = document.createElement('div');
-    conventionField.className = 'cp-field cp-check cp-full';
-    conventionField.innerHTML = '<label><input id="cp-Convention_de_reversement" type="checkbox"> Convention de reversement</label>';
+    conventionField.className = 'cp-field cp-full';
+    conventionField.innerHTML = '<label class="cp-switch-row"><span class="cp-switch"><input id="cp-Convention_de_reversement" type="checkbox"><span class="cp-switch-track"></span></span><span class="cp-switch-text"><span class="cp-switch-title">Convention de reversement</span><span class="cp-switch-hint">Active le partage du montant attribué avec un ou plusieurs partenaires.</span></span></label>';
     panels.conventions.appendChild(conventionField);
 
     const partnersWrap = document.createElement('div');
@@ -284,27 +358,33 @@
     p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); };
     p2.oninput = () => { m._conventionPartner2Manual = true; syncConventionAmounts(m); };
 
-    // Onglets
+    // Onglets + indicateur d'étape (points, cf. maquette).
     const tabButtons = {};
     m.querySelectorAll('.cp-tab').forEach(btn => {
       tabButtons[btn.dataset.cpTab] = btn;
       btn.onclick = () => setActiveTab(btn.dataset.cpTab);
     });
-    const stepLabels = Object.fromEntries(TABS.map((t, i) => [t.key, `Étape ${i + 1} sur ${TABS.length} · ${t.label}`]));
+    const stepsEl = m.querySelector('#cp-project-steps');
+    const dots = TABS.map(() => {
+      const dot = document.createElement('span');
+      dot.className = 'cp-dot';
+      stepsEl.appendChild(dot);
+      return dot;
+    });
     function setActiveTab(key) {
       if (!panels[key]) return;
-      TABS.forEach(t => {
+      TABS.forEach((t, i) => {
         panels[t.key].classList.toggle('cp-hidden', t.key !== key);
         tabButtons[t.key].classList.toggle('active', t.key === key);
+        dots[i].classList.toggle('active', t.key === key);
       });
-      m.querySelector('#cp-project-step').textContent = stepLabels[key] || '';
       m.dataset.activeTab = key;
     }
     m._setActiveTab = setActiveTab;
+    m._renderStatusDot = renderStatusDot;
 
     m.querySelector('[data-cp-cancel]').onclick = () => m.classList.add('cp-hidden');
     m.querySelector('[data-cp-close]').onclick = () => m.classList.add('cp-hidden');
-    m.querySelector('[data-cp-person]').onclick = () => openPerson(m);
     m.querySelector('[data-cp-save]').onclick = () => saveProject(m, refs);
     m._refs = refs;
     return m;
@@ -355,14 +435,19 @@
     return Math.floor(new Date(`${input.value}T00:00:00Z`).getTime() / 1000);
   }
 
+  // Un id de référence Grist vide vaut 0 (jamais null) : sans ce garde-fou, un
+  // porteur non renseigné affichait littéralement "0" au lieu de rester vide
+  // (la maquette montre un état vide explicite pour ces champs).
   function setRef(ref, value, tableName, displayFields) {
     if (!ref) return;
     const id = value && typeof value === 'object' ? value.id : value;
-    const found = id != null ? rows(tableName).find(r => String(r.id) === String(id)) : null;
-    ref.input.dataset.id = id == null ? '' : String(id);
-    ref.input.value = value && typeof value === 'object'
+    const hasId = id != null && id !== '' && Number(id) !== 0;
+    const found = hasId ? rows(tableName).find(r => String(r.id) === String(id)) : null;
+    ref.input.dataset.id = hasId ? String(id) : '';
+    ref.input.value = !hasId ? '' : (value && typeof value === 'object'
       ? personLabel(value)
-      : (found ? (tableName === 'Annuaire' ? personLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme'])) : text(value));
+      : (found ? (tableName === 'Annuaire' ? personLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme'])) : text(value)));
+    ref.refreshAvatar?.();
   }
 
   function populateModal(m, refs, record) {
@@ -373,6 +458,7 @@
     set('cp-Projet', ['Projet']);
     set('cp-Acronyme', ['Acronyme']);
     set('cp-statut', ['Statut_operationnel_projet', 'Statut opérationnel', 'Statut']);
+    m._renderStatusDot();
     set('cp-comment', ['comentaire_general_Suivi_projet', 'commentaire_general_Suivi_projet']);
     set('cp-Periode', ['Periode']);
     set('cp-Ligne_OPE_installe_chez', ['Ligne_OPE_installe_chez']);
@@ -381,6 +467,7 @@
 
     setRef(refs.programme, valueOf(record, ['Programme']), 'Programmes', ['Programme']);
     setRef(refs.type, valueOf(record, ['Type_projet']), '__choice__');
+    refs.type.render();
     const refTables = { Porteur_1: 'Annuaire', Porteur_2: 'Annuaire', Porteur_3: 'Annuaire', VP_porteur_2: 'Annuaire', Accompagnateur: 'Annuaire', Instance_ratachee: 'Suivi_Instance' };
     Object.keys(refTables).forEach(k => setRef(refs[k], valueOf(record, [k]), refTables[k], ['nom_et_Prenom', 'Prenom', 'NOM', 'Nom', 'name', 'Acronyme', 'Nom_complet']));
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'EcritureComptables', ['N_OPE']);
@@ -455,28 +542,6 @@
     }
   }
 
-  function openPerson(projectModal) {
-    const m = document.createElement('div');
-    m.className = 'cp-modal cp-person-modal';
-    m.innerHTML = '<div class="cp-box"><h2>Ajouter une personne</h2><div class="cp-grid"><div class="cp-field"><label>Prénom *</label><input id="cpp-prenom"></div><div class="cp-field"><label>Nom *</label><input id="cpp-nom"></div><div class="cp-field"><label>Poste existant (optionnel)</label><input id="cpp-poste"></div></div><p class="cp-error"></p><div class="cp-actions"><button type="button">Annuler</button><button type="button">Créer la personne</button></div></div>';
-    document.body.appendChild(m);
-    const b = m.querySelectorAll('button');
-    b[0].onclick = () => m.remove();
-    b[1].onclick = async () => {
-      const p = m.querySelector('#cpp-prenom').value.trim(), n = m.querySelector('#cpp-nom').value.trim();
-      if (!p || !n) {
-        m.querySelector('.cp-error').textContent = 'Prénom et nom sont obligatoires.';
-        return;
-      }
-      try {
-        await addRecord('Annuaire', { Prenom: p, NOM: n, Poste2: Number(m.querySelector('#cpp-poste').dataset?.id) || null });
-        m.remove();
-      } catch (e) {
-        m.querySelector('.cp-error').textContent = e.message;
-      }
-    };
-  }
-
   global.ProjectModal = {
     open(record) {
       const m = createModal();
@@ -489,6 +554,9 @@
       populateModal(m, m._refs, record);
       if (!record) {
         m.querySelector('#cp-statut').value = 'En attente des dispo des fonds';
+        m._renderStatusDot();
+        m._refs.type.input.value = 'Projet';
+        m._refs.type.render();
         m.querySelector('#cp-Convention_montant_partenaire_1').value = String(conventionTotal(m));
         syncConventionAmounts(m, true);
       }
