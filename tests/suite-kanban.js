@@ -149,4 +149,19 @@
       }
     });
   });
+
+  describe('Kanban Projets — bandeau de filtres compact', function () {
+    it('les légendes Programme/Instance/Recherche sont accessibles mais visuellement masquées, pas affichées sur leur propre ligne', function () {
+      const combo = document.querySelector('.filter-combo');
+      const hiddenLabel = combo.querySelector('.visually-hidden');
+      assertTrue(!!hiddenLabel, 'la légende doit être dans un élément .visually-hidden plutôt qu\'affichée en clair au-dessus du champ (ce qui ajoutait une ligne, donc de la hauteur, au bandeau)');
+      assertTrue(hiddenLabel.textContent.trim().length > 0, 'le texte accessible pour les lecteurs d\'écran ne doit pas être vide');
+    });
+
+    it('la feuille de style définit l\'utilitaire .visually-hidden utilisé par le bandeau de filtres', async function () {
+      const res = await fetch('../style.css', { cache: 'no-store' });
+      const css = await res.text();
+      assertTrue(/\.visually-hidden\s*\{/.test(css), 'attendu une classe utilitaire .visually-hidden dans style.css');
+    });
+  });
 })();

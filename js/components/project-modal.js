@@ -19,6 +19,18 @@
   };
   const normaliseBudgetValue = value => value === '' || value == null || !Number.isFinite(Number(value)) ? 0 : Number(value);
 
+  // Champs du prévisionnel budgétaire : type="text" plutôt que type="number" pour
+  // ne plus avoir de flèches +/- natives (dont le retrait CSS seul, via
+  // -webkit-appearance, laisse en pratique tous les caractères tapables), et pour
+  // filtrer nous-mêmes la saisie à chaque frappe/collage : uniquement des chiffres
+  // et un seul point décimal, jamais de lettre ("e" d'une notation scientifique
+  // compris) ni de signe.
+  function sanitizeNumericInput(input) {
+    const cleaned = input.value.replace(/[^\d.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    input.value = firstDot === -1 ? cleaned : cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  }
+
   // Onglets de la modale — regroupent les ~30 champs par thème plutôt qu'un long
   // formulaire à plat (cf. maquette Option A). Chaque panneau reste un simple
   // conteneur DOM : refField()/multiRefField()/field() sont inchangés, seul le
@@ -269,7 +281,6 @@
 
     // Porteurs — liste verticale plutôt qu'une grille 2 colonnes : chaque champ
     // Annuaire porte son avatar (initiales) via refField(..., table:'Annuaire').
-    refs.Instance_ratachee = refField(panels.porteurs, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] });
     ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur'].forEach(k => {
       refs[k] = refField(panels.porteurs, k, 'Annuaire', {
         label: k === 'VP_porteur_2' ? 'VP porteur' : k.replace('_', ' '),
@@ -284,6 +295,7 @@
     panels.porteurs.appendChild(comment);
 
     // Dates & OPE
+    refs.Instance_ratachee = refField(panels.dates, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] });
     refs.Date_limite_financement = field(panels.dates, 'Date limite de financement', 'cp-Date_limite_financement', 'date');
     refs.Date_debut_Projet = field(panels.dates, 'Date de début du projet', 'cp-Date_debut_Projet', 'date');
     refs.Date_de_fin_Projet = field(panels.dates, 'Date de fin du projet', 'cp-Date_de_fin_Projet', 'date');
@@ -338,13 +350,13 @@
     table.innerHTML = '<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>2029</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d&#39;investissement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-total="2029">0</td><td data-grand-total>0</td></tr></tfoot>';
     Object.entries(FIN).forEach(([year, fs]) => table.querySelectorAll('tbody tr').forEach((tr, i) => {
       const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.min = '0';
-      inp.step = 'any';
+      inp.type = 'text';
+      inp.inputMode = 'decimal';
+      inp.autocomplete = 'off';
       inp.value = '0';
       inp.dataset.fin = fs[i];
       tr.children[Number(year) - 2025].appendChild(inp);
-      inp.oninput = () => { updateFinancialTotals(table); syncConventionAmounts(m); };
+      inp.oninput = () => { sanitizeNumericInput(inp); updateFinancialTotals(table); syncConventionAmounts(m); };
     }));
     panels.budget.appendChild(table);
 

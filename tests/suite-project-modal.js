@@ -254,4 +254,28 @@
       assertFalse(panel.classList.contains('cp-panel-enter'), 'cliquer sur l\'onglet déjà actif ne doit pas rejouer l\'animation');
     });
   });
+
+  describe('Modale Projet — onglet Budget : saisie numérique stricte', function () {
+    it('n\'est plus un <input type="number"> (supprime les flèches natives +/-)', function () {
+      window.ProjectModal.open();
+      const input = modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]');
+      assertEqual(input.type, 'text', 'les champs du prévisionnel budgétaire ne doivent plus être type="number"');
+    });
+
+    it('filtre la saisie pour ne garder que des chiffres et un seul point décimal', function () {
+      window.ProjectModal.open();
+      const input = modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]');
+      setValue(input, '12a3b.4.5xyz');
+      fire(input, 'input');
+      assertEqual(input.value, '123.45', 'les lettres doivent être retirées et un seul point décimal conservé');
+    });
+  });
+
+  describe('Modale Projet — champ Instance rattachée dans Dates & OPE', function () {
+    it('se trouve dans le panneau Dates & OPE, plus dans Porteurs', function () {
+      window.ProjectModal.open();
+      assertTrue(!!modalEl().querySelector('[data-cp-panel="dates"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee doit être dans le panneau Dates & OPE');
+      assertTrue(!modalEl().querySelector('[data-cp-panel="porteurs"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee ne doit plus être dans le panneau Porteurs');
+    });
+  });
 })();
