@@ -264,7 +264,7 @@
       commentBlock(project) +
       (isLast
         ? '<span class="admin-done-badge">Archivée</span>'
-        : `<button type="button" class="admin-advance-btn" data-advance-notif="${escape(project.id)}" data-acronym="${escape(project.Acronyme || project.Projet || '')}">Étape suivante →</button>`) +
+        : `<button type="button" class="admin-advance-btn" data-advance-notif="${escape(project.id)}" data-acronym="${escape(project.Acronyme || project.Projet || '')}" title="Étape suivante" aria-label="Étape suivante">Suivant →</button>`) +
       `</div>`;
   }
 
@@ -279,7 +279,7 @@
       commentBlock(project) +
       (isLast
         ? '<span class="admin-done-badge">Signée</span>'
-        : `<button type="button" class="admin-advance-btn" data-advance-conv="${escape(project.id)}">Étape suivante →</button>`) +
+        : `<button type="button" class="admin-advance-btn" data-advance-conv="${escape(project.id)}" title="Étape suivante" aria-label="Étape suivante">Suivant →</button>`) +
       `</div>`;
   }
 
@@ -292,7 +292,7 @@
       const label = stripOrdinal(stageLabel);
       return { key, idx, label, collapsedCls, count: items.length, state,
         html: `<section class="admin-panel${collapsedCls}" aria-labelledby="admin-panel-${escape(key)}">` +
-          `<header class="admin-panel-header"><span class="admin-panel-index">${idx + 1}</span><h4 id="admin-panel-${escape(key)}">${escape(label)}</h4>` +
+          `<header class="admin-panel-header"><h4 id="admin-panel-${escape(key)}">${escape(label)}</h4>` +
           `<span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
           `<button type="button" class="kanban-icon-btn" data-toggle-panel="${escape(key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} le volet ${escape(label)}">${ICON_CHEVRON}</button>` +
           `<button type="button" class="kanban-icon-btn" data-hide-panel="${escape(key)}" aria-label="Masquer le volet ${escape(label)}">${ICON_EYE_OFF}</button>` +
