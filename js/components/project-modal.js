@@ -389,12 +389,23 @@
     });
     function setActiveTab(key) {
       if (!panels[key]) return;
+      const changed = m.dataset.activeTab !== key;
       TABS.forEach((t, i) => {
         panels[t.key].classList.toggle('cp-hidden', t.key !== key);
         tabButtons[t.key].classList.toggle('active', t.key === key);
         dots[i].classList.toggle('active', t.key === key);
       });
       m.dataset.activeTab = key;
+      // Rejoue l'animation d'entrée (cf. creation-projet.css) à chaque changement
+      // d'onglet : on retire la classe puis on force un reflow (offsetWidth) avant
+      // de la remettre, sans quoi une classe déjà présente ne redéclenche pas
+      // l'animation CSS.
+      if (changed) {
+        const panel = panels[key];
+        panel.classList.remove('cp-panel-enter');
+        void panel.offsetWidth;
+        panel.classList.add('cp-panel-enter');
+      }
     }
     m._setActiveTab = setActiveTab;
     m._renderStatusDot = renderStatusDot;

@@ -221,4 +221,37 @@
       assertEqual(p2.value, '150', 'partenaire 2 continue de suivre (total - partenaire 1 manuel)');
     });
   });
+
+  describe('Modale Projet — stabilité visuelle entre onglets', function () {
+    // Ce runner de tests ne charge aucune feuille de style (cf. tests/index.html :
+    // "ces tests valident les données/le DOM, pas la mise en page visuelle"), donc
+    // une hauteur mesurée via getBoundingClientRect() serait ininterprétable ici
+    // (sans CSS, .cp-hidden ne masque rien : tous les panneaux restent empilés,
+    // quel que soit l'onglet "actif"). On vérifie donc directement, dans la feuille
+    // de style réelle, la règle qui fixe la hauteur de la boîte — sans elle, la
+    // boîte reprend sa hauteur au contenu et se redimensionne à chaque onglet.
+    it('la feuille de style fixe une hauteur (pas seulement max-height) pour la boîte de la modale Projet', async function () {
+      const res = await fetch('../css/creation-projet.css', { cache: 'no-store' });
+      const css = await res.text();
+      assertTrue(
+        /#cp-project-modal\s+\.cp-box\s*\{[^}]*\bheight\s*:/i.test(css),
+        'attendu une règle "#cp-project-modal .cp-box { height: ... }" pour empêcher le redimensionnement de la boîte au changement d\'onglet'
+      );
+    });
+
+    it('rejoue l\'animation d\'entrée sur le panneau qui devient actif', function () {
+      window.ProjectModal.open();
+      modalEl().querySelector('[data-cp-tab="budget"]').click();
+      const panel = modalEl().querySelector('[data-cp-panel="budget"]');
+      assertTrue(panel.classList.contains('cp-panel-enter'), 'le panneau nouvellement actif doit recevoir la classe d\'animation d\'entrée');
+    });
+
+    it('ne redéclenche pas l\'animation en re-cliquant sur l\'onglet déjà actif', function () {
+      window.ProjectModal.open();
+      const panel = modalEl().querySelector('[data-cp-panel="general"]');
+      panel.classList.remove('cp-panel-enter');
+      modalEl().querySelector('[data-cp-tab="general"]').click();
+      assertFalse(panel.classList.contains('cp-panel-enter'), 'cliquer sur l\'onglet déjà actif ne doit pas rejouer l\'animation');
+    });
+  });
 })();

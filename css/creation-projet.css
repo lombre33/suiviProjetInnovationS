@@ -7,6 +7,11 @@
 
 .cp-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:clamp(14px,3vw,32px); background:rgba(15,23,42,.6); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); color:var(--text,#1b2430); animation:cp-fade-in .15s ease-out; }
 .cp-box { box-sizing:border-box; width:min(100%,820px); max-height:min(92vh,880px); display:flex; flex-direction:column; overflow:hidden; background:var(--surface,#fff); border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); box-shadow:var(--shadow-float,0 14px 32px -8px rgba(9,16,35,.35),0 2px 8px rgba(9,16,35,.12)); }
+/* Modale Projet (à onglets) : hauteur fixe plutôt que max-height seule, pour que
+   la boîte ne se redimensionne plus en changeant d'onglet (chaque panneau a un
+   contenu de longueur différente) — .cp-body (flex:1, overflow:auto) absorbe la
+   différence en scrollant si besoin. */
+#cp-project-modal .cp-box { height:min(92vh,880px); }
 
 /* En-tête, partagé par les 3 modales : titre (une seule ligne) + fermeture. */
 .cp-head { flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px 4px 22px; }
@@ -26,12 +31,20 @@
 
 /* Onglets (modale Projet uniquement). */
 .cp-tabbar { flex:none; display:flex; gap:0; padding:10px 22px 0; border-bottom:1px solid var(--border,#dde2ea); }
-.cp-tab { border:none; background:none; padding:9px 3px; margin-right:22px; color:var(--text-faint,#98a2b3); font:inherit; font-size:12.5px; font-weight:700; border-bottom:2px solid transparent; cursor:pointer; }
+.cp-tab { border:none; background:none; padding:9px 3px; margin-right:22px; color:var(--text-faint,#98a2b3); font:inherit; font-size:12.5px; font-weight:700; border-bottom:2px solid transparent; cursor:pointer; transition:color .15s ease, border-bottom-color .15s ease; }
 .cp-tab:hover { color:var(--text,#1b2430); }
 .cp-tab.active { color:var(--accent,#2f6fed); border-bottom-color:var(--accent,#2f6fed); }
 
 .cp-body { flex:1; overflow:auto; padding:20px 22px 4px; }
 .cp-panel.cp-hidden { display:none!important; }
+/* Passage d'un onglet à l'autre : léger fondu + glissement plutôt qu'un
+   affichage instantané, pour un changement d'onglet plus fluide. Classe
+   ajoutée/retirée en JS (setActiveTab) sur le panneau qui devient actif. */
+.cp-panel-enter { animation:cp-panel-in .22s ease-out; }
+@keyframes cp-panel-in { from { opacity:0; transform:translateX(10px); } to { opacity:1; transform:translateX(0); } }
+@media (prefers-reduced-motion:reduce) {
+  .cp-panel-enter { animation:none; }
+}
 .cp-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px 18px; }
 .cp-panel-list { display:flex; flex-direction:column; gap:14px; }
 .cp-full { grid-column:1/-1; }
@@ -143,6 +156,7 @@
 @media (max-width:700px) {
   .cp-modal { padding:12px; }
   .cp-box { width:100%; max-height:95vh; border-radius:var(--radius-md,11px); }
+  #cp-project-modal .cp-box { height:95vh; }
   .cp-head { padding:16px 16px 2px 18px; }
   .cp-tabbar { padding:8px 16px 0; overflow-x:auto; }
   .cp-body { padding:16px 16px 2px; }
