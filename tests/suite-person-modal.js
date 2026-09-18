@@ -50,6 +50,20 @@
     });
   });
 
+  describe('Fiche Annuaire — champ Poste (référence, pas de texte libre)', function () {
+    it('efface le texte tapé si aucun poste de la liste n\'est cliqué', async function () {
+      await loadFixtureState();
+      window.openCreatePersonModal();
+      const input = modalEl().querySelector('#cpp-poste');
+      setValue(input, 'Responsable');
+      fire(input, 'input');
+      fire(input, 'blur');
+      await wait(200);
+      assertEqual(input.value, '', 'sans clic sur une suggestion, le texte libre ne doit pas rester affiché');
+      assertEqual(input.dataset.id, undefined, 'aucun poste ne doit être retenu');
+    });
+  });
+
   describe('Fiche Annuaire — création', function () {
     it('crée la personne, récupère son id Grist et renseigne le champ d\'origine', async function () {
       await loadFixtureState();

@@ -70,6 +70,13 @@
     el.value = value;
   };
 
+  // For blur handlers that defer their cleanup with setTimeout(fn, 150) (so a
+  // suggestion's click has time to fire before the list hides) — await this after
+  // fire(el, 'blur') to let that deferred work actually run before asserting on it.
+  global.wait = function (ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  };
+
   global.runAllTests = async function () {
     const results = [];
     for (const suite of suites) {

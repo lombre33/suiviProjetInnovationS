@@ -69,7 +69,13 @@
         }
       }
     };
-    input.onblur = () => setTimeout(() => list.classList.add('cp-hidden'), 150);
+    // Comme pour les champs référence de la modale projet : du texte tapé sans
+    // sélectionner de suggestion ne doit pas rester affiché comme si un poste avait
+    // été retenu, alors qu'aucun id n'est associé (dataset.id vide).
+    input.onblur = () => setTimeout(() => {
+      list.classList.add('cp-hidden');
+      if (!input.dataset.id) input.value = '';
+    }, 150);
     parent.appendChild(wrap);
     return input;
   }

@@ -99,7 +99,14 @@
         }
       }
     };
-    input.onblur = () => setTimeout(() => list.classList.add('cp-hidden'), 150);
+    // Sans ce garde-fou, du texte tapé sans sélectionner de suggestion restait affiché
+    // alors qu'aucun id n'était retenu (dataset.id vide) : le champ semblait renseigné
+    // mais la valeur poussée dans Grist était vide. On aligne l'affichage sur ce qui
+    // sera réellement enregistré : seul un objet existant, cliqué dans la liste, compte.
+    input.onblur = () => setTimeout(() => {
+      list.classList.add('cp-hidden');
+      if (!input.dataset.id) input.value = '';
+    }, 150);
     parent.appendChild(wrap);
     return { wrap, input, refreshAvatar };
   }
@@ -143,7 +150,10 @@
 
     input.oninput = render;
     input.onfocus = render;
-    input.onblur = () => setTimeout(() => list.classList.add('cp-hidden'), 150);
+    // Une puce n'est ajoutée que par le clic sur une suggestion (ci-dessus), qui vide
+    // déjà l'input ; si l'utilisateur tape puis quitte le champ sans cliquer, ce texte
+    // ne correspond à aucun objet ajouté et ne doit pas rester affiché comme s'il l'était.
+    input.onblur = () => setTimeout(() => { list.classList.add('cp-hidden'); input.value = ''; }, 150);
     wrap._ids = ids;
     wrap._setIds = values => { ids.splice(0, ids.length, ...normaliseRefList(values)); renderChips(); };
     parent.appendChild(wrap);
@@ -444,15 +454,21 @@
   // Un id de référence Grist vide vaut 0 (jamais null) : sans ce garde-fou, un
   // porteur non renseigné affichait littéralement "0" au lieu de rester vide
   // (la maquette montre un état vide explicite pour ces champs).
+  //
+  // Ligne_OPE est une ReferenceList côté Grist (valeur ['L'] ou ['L', id]) alors que
+  // ce champ n'en propose qu'une seule à la fois côté UI : on déballe le tableau ici
+  // pour en tirer le seul id utile, sans changer le comportement des références
+  // simples (Programme, Porteur_1, ...) où value n'est jamais un tableau.
   function setRef(ref, value, tableName, displayFields) {
     if (!ref) return;
-    const id = value && typeof value === 'object' ? value.id : value;
+    const raw = Array.isArray(value) ? value.find(item => item !== 'L' && item != null) : value;
+    const id = raw && typeof raw === 'object' ? raw.id : raw;
     const hasId = id != null && id !== '' && Number(id) !== 0;
     const found = hasId ? rows(tableName).find(r => String(r.id) === String(id)) : null;
     ref.input.dataset.id = hasId ? String(id) : '';
-    ref.input.value = !hasId ? '' : (value && typeof value === 'object'
-      ? personLabel(value)
-      : (found ? (tableName === 'Annuaire' ? personLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme'])) : text(value)));
+    ref.input.value = !hasId ? '' : (raw && typeof raw === 'object'
+      ? personLabel(raw)
+      : (found ? (tableName === 'Annuaire' ? personLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme'])) : text(raw)));
     ref.refreshAvatar?.();
   }
 
@@ -523,7 +539,10 @@
       Date_limite_financement: dateFieldValue(refs.Date_limite_financement),
       Date_debut_Projet: dateFieldValue(refs.Date_debut_Projet),
       Date_de_fin_Projet: dateFieldValue(refs.Date_de_fin_Projet),
-      Ligne_OPE: Number(refs.Ligne_OPE.input.dataset.id) || null,
+      // Ligne_OPE est une ReferenceList côté Grist : même format que
+      // Partenaire_s_convention_reversement ci-dessous (['L'] vide, ['L', id] renseigné),
+      // jamais un id nu qui serait rejeté ou mal réinterprété à la relecture.
+      Ligne_OPE: refs.Ligne_OPE.input.dataset.id ? ['L', Number(refs.Ligne_OPE.input.dataset.id)] : ['L'],
       Action_Ligne_OPE_a_faire: refs.Action_Ligne_OPE_a_faire.value,
       Commentaire_ligne_OPE: get('cp-Commentaire_ligne_OPE'),
       Convention_de_reversement: m.querySelector('#cp-Convention_de_reversement').checked,

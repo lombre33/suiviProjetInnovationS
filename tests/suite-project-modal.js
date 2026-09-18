@@ -111,6 +111,9 @@
       assertEqual(refInput('Porteur_1').value, 'Alice Martin');
       assertEqual(refInput('Instance_ratachee').value, 'Comité innovation#3 - 2026-03-15');
       assertEqual(modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]').value, '1000');
+      // Ligne_OPE est une ReferenceList (['L', 1]) : la modale n'en affiche qu'une
+      // valeur, elle doit déballer le tableau plutôt que d'afficher un champ vide.
+      assertEqual(refInput('Ligne_OPE').value, 'OPE-2026-001', 'Ligne_OPE (ReferenceList) doit être déballée pour l\'affichage');
     });
 
     it('envoie UpdateRecord (pas AddRecord) avec l\'id existant lors de l\'enregistrement', async function () {
@@ -126,6 +129,54 @@
       assertEqual(call.table, 'Projets');
       assertEqual(call.id, 10);
       assertEqual(call.fields.Acronyme, 'INNOVX2');
+    });
+  });
+
+  describe('Modale Projet — champs référence (Ligne_OPE, texte libre)', function () {
+    it('pousse Ligne_OPE au format ReferenceList (["L", id]), jamais un id nu', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      pickRef('Ligne_OPE', 'OPE', 'OPE-2026-001');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      const call = window.__TEST_CALLS__[0];
+      assertDeepEqual(call.fields.Ligne_OPE, ['L', 1]);
+    });
+
+    it('pousse Ligne_OPE=["L"] (jamais 0 ni null) quand aucune ligne OPE n\'est sélectionnée', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      const call = window.__TEST_CALLS__[0];
+      assertDeepEqual(call.fields.Ligne_OPE, ['L']);
+    });
+
+    it('efface le texte tapé dans un champ référence si aucune suggestion n\'est cliquée', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Porteur_2');
+      setValue(input, 'Alice');
+      fire(input, 'input');
+      assertEqual(input.value, 'Alice', 'le texte tapé reste affiché pendant la recherche');
+      fire(input, 'blur');
+      await wait(200);
+      assertEqual(input.value, '', 'sans clic sur une suggestion, le texte libre ne doit pas rester affiché');
+      assertEqual(input.dataset.id, '', 'aucun id ne doit être retenu');
+    });
+
+    it('ne pousse jamais un Porteur_2 texte-libre : seule une personne cliquée dans la liste est enregistrée', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const input = refInput('Porteur_2');
+      setValue(input, 'Personne qui n\'existe pas');
+      fire(input, 'input');
+      fire(input, 'blur');
+      await wait(200);
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      const call = window.__TEST_CALLS__[0];
+      assertEqual(call.fields.Porteur_2, null, 'un texte non sélectionné ne doit jamais être poussé comme porteur');
     });
   });
 

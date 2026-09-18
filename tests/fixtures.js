@@ -128,7 +128,9 @@
       Date_debut_Projet: [null, null, null, null, null, null, null],
       Date_de_fin_Projet: [null, null, null, null, null, null, null],
       Date_limite_financement: [null, null, null, null, null, null, null],
-      Ligne_OPE: [0, 0, 0, 0, 0, 0, 0],
+      // ReferenceList (not a plain Reference, unlike most *_id-looking columns here):
+      // INNOVX (first row) is rattachée to EcritureComptables#1, the rest are empty.
+      Ligne_OPE: [['L', 1], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
       Ligne_OPE_installe_chez: ['', '', '', '', '', '', ''],
       Action_Ligne_OPE_a_faire: ['', '', '', '', '', '', ''],
       Commentaire_ligne_OPE: ['', '', '', '', '', '', ''],
