@@ -23,10 +23,19 @@
       .find(card => card.querySelector('.admin-card-identity .project-acronym')?.textContent === acronym);
   }
 
-  function cardByTitle(panel, title) {
-    return panel && Array.from(panel.querySelectorAll('.admin-card'))
-      .find(card => card.querySelector('.admin-card-title')?.textContent === title);
-  }
+  // Doit rester le premier describe/it du fichier : c'est le tout premier rendu
+  // de la page Administratif dans la suite, celui qui fixe le repli initial de
+  // chaque volet (l'état persiste ensuite entre les tests, cf. page-administratif.js).
+  describe('Administratif — un volet vide démarre replié', function () {
+    it('un volet sans aucun projet est replié dès le premier rendu ; un volet non vide reste déplié', async function () {
+      await loadFixtureState();
+      const emptyPanel = panelIn('admin-col-notif', 'Prette pour CTO'); // aucune fiche Notifications ne pointe ici
+      assertTrue(!!emptyPanel, 'le volet "Prette pour CTO" doit exister');
+      assertTrue(emptyPanel.classList.contains('is-collapsed'), 'un volet vide doit démarrer replié');
+      const filledPanel = panelIn('admin-col-notif', 'Information projet saisies');
+      assertFalse(filledPanel.classList.contains('is-collapsed'), 'un volet avec des projets ne doit pas démarrer replié');
+    });
+  });
 
   describe('Administratif — classement par volet (Notifications)', function () {
     it('place chaque projet dans le volet correspondant à notifications_Statut', async function () {
@@ -56,25 +65,32 @@
   describe('Administratif — classement par volet (Conventions)', function () {
     it('place chaque projet dans le volet correspondant à Conventions_statut', async function () {
       await loadFixtureState();
-      assertTrue(!!cardByTitle(panelIn('admin-col-conv', 'Convention en redaction'), 'Projet Instruction'),
-        'Projet Instruction (1) Convention en redaction) doit être dans le volet correspondant');
-      assertTrue(!!cardByTitle(panelIn('admin-col-conv', 'Convention en signature UB'), 'Projet Convention'),
-        'Projet Convention (3) Convention en signature UB) doit être dans le volet correspondant');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'),
+        'INNOVX (1) Convention en redaction) doit être dans le volet correspondant');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX'),
+        'CONVENTIX (3) Convention en signature UB) doit être dans le volet correspondant');
     });
 
     it('le dernier volet (signée) affiche un badge "Signée" et aucun bouton étape suivante', async function () {
       await loadFixtureState();
-      const card = cardByTitle(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'Projet ConventionSignee');
-      assertTrue(!!card, 'Projet ConventionSignee (5) doit être dans le dernier volet');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX');
+      assertTrue(!!card, 'SIGNEX (5) doit être dans le dernier volet');
       assertEqual(card.querySelector('.admin-done-badge')?.textContent, 'Signée');
       assertFalse(!!card.querySelector('[data-advance-conv]'), 'pas de bouton étape suivante sur le dernier statut');
+    });
+
+    it('n\'affiche que l\'acronyme en identité, pas le nom complet du projet', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
+      assertFalse(!!card.querySelector('.admin-card-title'), 'pas de titre "nom complet" sur la carte Conventions');
+      assertFalse(card.textContent.includes('Projet Convention'), 'le nom complet du projet ne doit plus apparaître sur la carte');
     });
   });
 
   describe('Administratif — partenaires (bulles + mini-stepper de 3 points)', function () {
     it('affiche l\'UB en premier puis un partenaire par référence Etablissement, pas de puce = "Non relu"', async function () {
       await loadFixtureState();
-      const card = cardByTitle(panelIn('admin-col-conv', 'Convention en signature UB'), 'Projet Convention');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
       const pills = card.querySelectorAll('.admin-partner-pill');
       assertEqual(pills.length, 3, 'CONVENTIX doit avoir 3 bulles : UB + CNRS + INSERM');
       assertEqual(pills[0].querySelector('span').textContent, 'UB', 'UB doit être la première bulle');
@@ -86,7 +102,7 @@
 
     it('un clic sur une bulle fait avancer le statut du partenaire et écrit la colonne Grist exacte', async function () {
       await loadFixtureState();
-      const card = cardByTitle(panelIn('admin-col-conv', 'Convention en signature UB'), 'Projet Convention');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
       const insermPill = card.querySelectorAll('.admin-partner-pill')[2];
       fireMouse(insermPill, 'click');
       await wait(0);
@@ -110,7 +126,7 @@
 
     it('avance Conventions_statut sur Projets avec la chaîne exacte', async function () {
       await loadFixtureState();
-      const card = cardByTitle(panelIn('admin-col-conv', 'Convention en redaction'), 'Projet Instruction');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
       fireMouse(card.querySelector('[data-advance-conv]'), 'click');
       await wait(0);
       const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && c.table === 'Projets' && c.fields.Conventions_statut);
@@ -150,10 +166,12 @@
   });
 
   describe('Administratif — bascule cartes / lignes', function () {
-    it('la vue par défaut est "lignes", et bascule vers "cartes" au clic', async function () {
+    it('la vue par défaut est "lignes", condensée sur une seule ligne par projet, et bascule vers "cartes" au clic', async function () {
       await loadFixtureState();
       const body = document.querySelector('#admin-col-notif .admin-panel-body');
       assertTrue(body.classList.contains('mode-rows'), 'le mode par défaut doit être "lignes"');
+      const card = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX');
+      assertEqual(getComputedStyle(card).flexDirection, 'row', 'en mode lignes, une carte est une rangée horizontale (une seule ligne), pas empilée');
       document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       assertTrue(document.querySelector('#admin-col-notif .admin-panel-body').classList.contains('mode-cards'), 'après bascule, mode "cartes"');
       document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); // reset pour les autres tests

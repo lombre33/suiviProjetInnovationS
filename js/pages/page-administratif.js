@@ -111,9 +111,11 @@
   // Kanban Projets).
   const panelState = {};
   function panelKey(side, idx) { return `${side}:${idx}`; }
-  function ensurePanelState(side, idx) {
+  function ensurePanelState(side, idx, isInitiallyEmpty) {
     const key = panelKey(side, idx);
-    if (!panelState[key]) panelState[key] = { collapsed: false, hidden: false };
+    // Un volet sans aucun projet démarre replié — repli INITIAL uniquement,
+    // un dépli/repli manuel de l'utilisateur n'est jamais écrasé ensuite.
+    if (!panelState[key]) panelState[key] = { collapsed: !!isInitiallyEmpty, hidden: false };
     return panelState[key];
   }
   let viewMode = 'rows';
@@ -272,7 +274,7 @@
     const partners = partnersFor(project);
     return `<div class="admin-card" data-project-id="${escape(project.id)}">` +
       `<div class="admin-card-main"><button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
-      `<span class="admin-card-title">${escape(project.Projet || project.Acronyme || 'Projet sans nom')}</span><span class="admin-card-subtitle">${escape(project.Acronyme || '')}</span></button>` +
+      `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
       `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div></div>` +
       commentBlock(project) +
       (isLast
@@ -283,8 +285,8 @@
 
   function buildPanels(side, stages, projectsByStage, cardFn) {
     return stages.map((stageLabel, idx) => {
-      const state = ensurePanelState(side, idx);
       const items = projectsByStage[idx] || [];
+      const state = ensurePanelState(side, idx, items.length === 0);
       const key = panelKey(side, idx);
       const collapsedCls = state.collapsed ? ' is-collapsed' : '';
       const label = stripOrdinal(stageLabel);
@@ -302,6 +304,12 @@
     const notifRoot = document.getElementById('admin-col-notif');
     const convRoot = document.getElementById('admin-col-conv');
     if (!notifRoot || !convRoot) return;
+    // Tables Grist pas encore chargées (premier rendu déclenché par le propre
+    // DOMContentLoaded de ce module, avant que app.js n'ait appelé loadAllTables) :
+    // ne rien construire, sinon chaque volet verrait 0 projet et démarrerait
+    // replié par défaut à tort (cf. ensurePanelState). Le vrai rendu arrive via
+    // window.renderAdministratif() une fois les données chargées.
+    if (!window.CoreState || !CoreState.getTable('Projets')) return;
     const projects = filteredProjects();
 
     const notifByStage = NOTIF_STAGES.map((_, idx) => projects.filter(p => notifStageIndex(p.id) === idx));
