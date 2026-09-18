@@ -48,18 +48,20 @@
   const refId = value => (value && typeof value === 'object') ? (value.id ?? value) : value;
   const refLabel = (value, tableName, fields = []) => {
     if (Array.isArray(value)) return value.filter(item => item !== 'L').map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ');
-    const row = tableName && value != null && value !== '' ? rowById(tableName, refId(value)) : null;
+    if (!value) return ''; // référence vide (0 côté Grist) — jamais afficher "0"
+    const row = tableName ? rowById(tableName, refId(value)) : null;
     const candidate = row || (value && typeof value === 'object' ? value : null);
     if (candidate) {
       for (const name of fields) if (candidate[name] != null && candidate[name] !== '') return text(candidate[name]);
       return text(candidate.NOM || candidate.nom_et_Prenom || candidate.name || candidate.label || candidate.Acronyme || candidate.id);
     }
-    return value == null ? '' : text(value);
+    return text(value);
   };
   const valueLabel = (value, tableName, fields) => Array.isArray(value) ? value.map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ') : refLabel(value, tableName, fields);
   const programmeLabel = value => valueLabel(value, 'Programmes', ['Programme']);
   const personLabel = value => {
     if (Array.isArray(value)) return value.map(personLabel).filter(Boolean).join(', ');
+    if (!value) return ''; // référence vide (0 côté Grist) — jamais afficher "0"
     const row = rowById('Annuaire', refId(value));
     if (row) return text(row.nom_et_Prenom || [row.NOM, row.Prenom].filter(Boolean).join(' '));
     if (value && typeof value === 'object') return text(value.nom_et_Prenom || [value.NOM, value.Prenom].filter(Boolean).join(' ') || value.name || value.id);
@@ -257,9 +259,10 @@
     const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
     const cto = ctoRef(project);
     return `<div class="admin-card" data-project-id="${escape(project.id)}">` +
-      `<div class="admin-card-main"><button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span></button>` +
-      `<span class="admin-card-porteurs"><strong>Porteur(s) :</strong> ${escape(holder)}</span>` +
-      `${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
+      `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
+      `<span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>` +
+      `<span class="admin-card-caption">${escape(holder)}</span></button>` +
+      `<div class="admin-card-badges">${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
       `${cto ? `<span class="admin-cto-badge">${escape(cto)}</span>` : ''}</div>` +
       commentBlock(project) +
       (isLast
@@ -273,9 +276,9 @@
     const isLast = idx === CONV_STAGES.length - 1;
     const partners = partnersFor(project);
     return `<div class="admin-card" data-project-id="${escape(project.id)}">` +
-      `<div class="admin-card-main"><button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
+      `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
-      `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div></div>` +
+      `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div>` +
       commentBlock(project) +
       (isLast
         ? '<span class="admin-done-badge">Signée</span>'

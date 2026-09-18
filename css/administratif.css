@@ -21,41 +21,39 @@
 .admin-panel-body.mode-cards { display:flex; flex-wrap:wrap; gap:10px; }
 
 .admin-card { display:flex; flex-direction:column; gap:8px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); box-shadow:var(--shadow-card); }
-.mode-cards .admin-card { width:100%; max-width:280px; }
-.mode-cards .admin-card-main { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+.mode-cards .admin-card { width:100%; max-width:280px; align-items:flex-start; }
 
-/* Vue lignes (par défaut) : un projet = UNE ligne. Identité, badges, partenaires,
-   commentaire et bouton sont des enfants flex d'UNE rangée horizontale (pas de
-   sous-bloc empilé) — c'est ce qui condense la carte à une seule ligne au lieu
-   d'un empilement en 3 (retour Antoine du 18/09/2026). */
-.mode-rows .admin-card { width:100%; flex-direction:row; align-items:center; gap:9px; padding:8px 12px; }
-/* flex-shrink:0 — le contenu (acronyme + porteurs + badges) ne doit JAMAIS être
-   écrasé par le calcul de retrécissement flex : seule l'ellipse volontaire du
-   libellé porteurs (max-width ci-dessous) doit réduire sa taille, jamais le
-   moteur flex lui-même (sinon le texte se retrouve tronqué à quelques
-   caractères de façon imprévisible — retour Antoine "illisible" du 18/09/2026). */
-.mode-rows .admin-card-main { display:flex; align-items:center; gap:9px; flex:0 0 auto; flex-wrap:nowrap; }
-.mode-rows .admin-card-identity { flex:none; }
-.mode-rows .admin-partners { flex-wrap:nowrap; }
-.mode-rows .admin-partner-pill { max-width:110px; }
-.mode-rows .admin-partner-pill span:first-child { display:inline-block; max-width:68px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
-.mode-rows .admin-card-porteurs { display:inline-block; vertical-align:middle; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Vue lignes (par défaut) : identité, badges/partenaires, commentaire et bouton
+   sont des enfants flex DIRECTS de la carte (rangée horizontale). Identité et
+   badges/partenaires ont une largeur FIXE (ne grandit ni ne s'écrase) : avec de
+   vraies données, un libellé Grist anormalement long (programme, porteurs...)
+   doit s'ellipser À L'INTÉRIEUR de sa propre colonne plutôt que de faire
+   déborder toute la ligne — c'est le choix qui avait été validé sur la
+   maquette (colonnes de largeur fixe) et qu'une version intermédiaire avait
+   perdu en essayant de "tout laisser respirer" (retour Antoine du 18/09/2026 :
+   ça cassait sur les vrais libellés longs). */
+.mode-rows .admin-card { width:100%; flex-direction:row; align-items:center; gap:10px; padding:8px 12px; }
 
-.admin-card-identity { appearance:none; border:0; background:transparent; padding:0; cursor:pointer; text-align:left; color:inherit; flex:none; }
-.admin-card-identity .project-acronym { font-size:14px; font-weight:800; color:var(--text); white-space:nowrap; }
+.admin-card-identity { appearance:none; border:0; background:transparent; padding:0; cursor:pointer; text-align:left; color:inherit; display:flex; flex-direction:column; gap:2px; min-width:0; }
+.mode-rows .admin-card-identity { flex:0 0 148px; }
+.mode-cards .admin-card-identity { flex:none; }
+.admin-card-identity .project-acronym { display:block; font-size:14px; font-weight:800; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mode-rows .admin-card-identity .project-acronym { font-size:13.5px; }
-.admin-card-porteurs { font-size:12px; color:var(--text-muted); }
-.admin-card-porteurs strong { color:var(--text-muted); }
-.mode-rows .admin-card-porteurs { font-size:12px; }
-.admin-cto-badge { display:inline-flex; align-items:center; height:21px; padding:0 8px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--border-strong); color:var(--text-muted); font-size:10.5px; font-weight:800; flex:none; white-space:nowrap; }
-.mode-rows .admin-cto-badge, .mode-rows .programme-badge { height:21px; padding:0 9px; font-size:10.5px; margin:0; white-space:nowrap; flex:none; }
+.admin-card-caption { display:block; font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.admin-card-badges { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.mode-rows .admin-card-badges { flex:0 0 140px; min-width:0; }
+.admin-cto-badge { display:inline-flex; align-items:center; height:21px; padding:0 8px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--border-strong); color:var(--text-muted); font-size:10.5px; font-weight:800; flex:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mode-rows .admin-cto-badge, .mode-rows .programme-badge { height:20px; padding:0 8px; font-size:10.5px; margin:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .admin-partners { display:flex; flex-wrap:wrap; gap:6px; }
-.admin-partner-pill { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 9px; border-radius:999px; border:1px solid var(--border); font-size:11px; font-weight:800; cursor:pointer; transition:transform .1s ease; flex:none; }
+.mode-rows .admin-partners { flex:0 1 230px; min-width:0; }
+.admin-partner-pill { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 9px; border-radius:999px; border:1px solid var(--border); font-size:11px; font-weight:800; cursor:pointer; transition:transform .1s ease; flex:none; max-width:110px; }
 .admin-partner-pill:hover { transform:translateY(-1px); }
-.mode-rows .admin-partner-pill { height:23px; padding:0 9px; font-size:11px; }
-.admin-partner-dots { display:inline-flex; align-items:center; gap:3px; }
-.admin-partner-dot { width:6px; height:6px; border-radius:999px; border:1.4px solid var(--border-strong); background:transparent; }
+.admin-partner-pill span:first-child { display:inline-block; max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
+.mode-rows .admin-partner-pill { height:22px; padding:0 8px; font-size:10.5px; }
+.admin-partner-dots { display:inline-flex; align-items:center; gap:3px; flex:none; }
+.admin-partner-dot { width:6px; height:6px; border-radius:999px; border:1.4px solid var(--border-strong); background:transparent; flex:none; }
 .admin-partner-dot.is-filled { border-width:0; }
 
 .admin-comment { display:block; flex:1; min-width:0; }
