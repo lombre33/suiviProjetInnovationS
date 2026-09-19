@@ -16,21 +16,44 @@
   COLUMNS.forEach(c => { columnState[c.key] = { collapsed: c.key === 'Projet en cours', hidden: false }; });
   // Préférences par utilisateur (repli/masquage des colonnes Kanban, filtres) —
   // persistées dans une table Grist dédiée, créée automatiquement au premier
-  // lancement si absente (voir CoreGrist.ensureTable/getCurrentUserEmail).
-  // Noms alignés sur la mémoire d'équipe grist-identite-utilisateur-widget.
+  // lancement si absente (voir CoreGrist.ensureTable). Noms alignés sur la
+  // mémoire d'équipe grist-identite-utilisateur-widget.
+  //
+  // Identité utilisateur : un appel réseau direct (fetch vers l'API Grist,
+  // ex. SCIM) est bloqué par CORS depuis le widget (confirmé en réel le
+  // 19/09/2026) — seules les méthodes docApi.* (qui passent par postMessage
+  // vers la fenêtre Grist parente) fonctionnent de façon fiable. Et une
+  // formule Grist normale ne peut PAS lire user.Email (seule une formule
+  // DÉCLENCHÉE le peut, et uniquement à la création d'une ligne — elle ne se
+  // recalcule pas à chaque lecture pour dire "qui regarde maintenant").
+  // Solution retenue : Email_utilisateur est une formule déclenchée (posée
+  // par Grist lui-même, jamais écrite par ce widget) qui identifie le
+  // créateur de la ligne pour un humain consultant la table Grist ; le
+  // widget, lui, retrouve SA propre ligne via l'id de ligne mis en cache
+  // dans le navigateur (localStorage) au moment de sa création — jamais via
+  // une comparaison d'email en JS, puisque le widget ne peut pas connaître
+  // son propre email de façon fiable.
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_COLUMNS = [
-    { id: 'Email_utilisateur', type: 'Text' },
+    { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 },
     { id: 'Kanban_colonnes_repliees', type: 'Text' },
     { id: 'Kanban_colonnes_masquees', type: 'Text' },
     { id: 'Filtre_programme', type: 'Text' },
     { id: 'Filtre_instance', type: 'Text' },
     { id: 'Filtre_recherche', type: 'Text' }
   ];
-  let prefsEmail = null;
+  const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
   let prefsRowId = null;
   const encodeColumnList = keys => keys.join(',');
   const decodeColumnList = value => text(value).split(',').map(s => s.trim()).filter(Boolean);
+  function getCachedPrefsRowId() {
+    try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
+    catch (err) { return null; }
+  }
+  function setCachedPrefsRowId(id) {
+    try { localStorage.setItem(PREFS_ROWID_STORAGE_KEY, String(id)); }
+    catch (err) { /* navigation privée / stockage bloqué : tant pis, pas de persistance entre sessions */ }
+  }
   const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
   const text = value => value == null ? '' : String(value);
@@ -244,16 +267,30 @@
     if (search && row.Filtre_recherche) search.value = row.Filtre_recherche;
   }
   async function loadUserPreferences() {
-    if (!window.CoreGrist || typeof CoreGrist.getCurrentUserEmail !== 'function') return;
+    if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
-      prefsEmail = await CoreGrist.getCurrentUserEmail();
-      prefsRowId = null;
-      if (!prefsEmail) return;
       await CoreGrist.ensureTable(PREFS_TABLE, PREFS_COLUMNS);
       const rows = await CoreGrist.getTable(PREFS_TABLE);
-      const row = rows.find(r => r.Email_utilisateur === prefsEmail);
-      if (!row) return;
+      const cachedId = getCachedPrefsRowId();
+      const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
+      if (!row) {
+        // Première utilisation dans ce navigateur (ou cache perdu) : nouvelle
+        // ligne, dont Grist remplit lui-même Email_utilisateur (formule
+        // déclenchée). Rien à appliquer : les valeurs par défaut restent en place.
+        const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        prefsRowId = CoreUtils.extractAddedRecordId(result);
+        setCachedPrefsRowId(prefsRowId);
+        return;
+      }
       prefsRowId = row.id;
+      // Une ligne trouvée mais jamais encore sauvegardée (créée par un précédent
+      // chargement, fermée avant tout changement) a ses champs vides : les
+      // laisser tels quels plutôt que d'écraser les valeurs par défaut
+      // (ex. "Projet en cours" repliée) avec un "rien n'est replié/masqué" non
+      // voulu par l'utilisateur.
+      const hasSavedPreferences = !!(text(row.Kanban_colonnes_repliees) || text(row.Kanban_colonnes_masquees) ||
+        text(row.Filtre_programme) || text(row.Filtre_instance) || text(row.Filtre_recherche));
+      if (!hasSavedPreferences) return;
       COLUMNS.forEach(c => { columnState[c.key].collapsed = false; columnState[c.key].hidden = false; });
       decodeColumnList(row.Kanban_colonnes_repliees).forEach(key => { if (columnState[key]) columnState[key].collapsed = true; });
       decodeColumnList(row.Kanban_colonnes_masquees).forEach(key => { if (columnState[key]) columnState[key].hidden = true; });
@@ -263,9 +300,8 @@
     }
   }
   async function saveUserPreferences() {
-    if (!prefsEmail || !window.CoreGrist?.gristInstance) return;
+    if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
     const fields = {
-      Email_utilisateur: prefsEmail,
       Kanban_colonnes_repliees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].collapsed).map(c => c.key)),
       Kanban_colonnes_masquees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].hidden).map(c => c.key)),
       Filtre_programme: comboValue('filter-programme'),
@@ -273,13 +309,7 @@
       Filtre_recherche: document.getElementById('filter-search')?.value || ''
     };
     try {
-      const api = CoreGrist.gristInstance.docApi;
-      if (prefsRowId) {
-        await api.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
-      } else {
-        const result = await api.applyUserActions([['AddRecord', PREFS_TABLE, null, fields]]);
-        prefsRowId = CoreUtils.extractAddedRecordId(result);
-      }
+      await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
     } catch (err) {
       console.warn('Enregistrement des préférences utilisateur a échoué :', err.message);
     }

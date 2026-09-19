@@ -231,15 +231,6 @@
   });
 
   describe('Kanban Projets — préférences utilisateur persistées (table Preferences_Widget)', function () {
-    function selectCombo(inputId, label) {
-      const input = document.getElementById(inputId);
-      fire(input, 'focus');
-      const list = document.getElementById(`${inputId}-list`);
-      const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
-      assertTrue(!!button, `option "${label}" introuvable dans ${inputId}`);
-      fireMouse(button, 'mousedown');
-    }
-
     it('crée automatiquement la table Preferences_Widget si elle n\'existe pas encore', async function () {
       await loadFixtureState();
       const before = await window.CoreGrist.gristInstance.docApi.listTables();
@@ -257,36 +248,35 @@
       assertEqual(addTableCalls.length, 1, 'AddTable ne doit être déclenché qu\'une seule fois pour Preferences_Widget');
     });
 
-    it('sans identité utilisateur disponible (SCIM indisponible), aucune table n\'est créée et rien ne plante', async function () {
-      window.__setMockUserEmail('');
+    it('crée une seule ligne de préférences par navigateur : un second chargement réutilise la ligne mise en cache (localStorage), sans doublon', async function () {
       await loadFixtureState();
       await window.loadKanbanUserPreferences();
-      const tables = await window.CoreGrist.gristInstance.docApi.listTables();
-      assertFalse(tables.includes('Preferences_Widget'), 'sans email utilisateur identifiable, la table ne doit pas être créée');
+      await window.loadKanbanUserPreferences();
+      const addRecordCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget');
+      assertEqual(addRecordCalls.length, 1, 'un seul AddRecord doit avoir lieu, même après deux chargements dans le même navigateur');
     });
 
-    it('la première sauvegarde crée un enregistrement (AddRecord) encodé en liste séparée par virgules, les suivantes le mettent à jour (UpdateRecord)', async function () {
+    it('encode les colonnes repliées/masquées en liste séparée par virgules et enregistre par UpdateRecord (jamais un doublon d\'AddRecord)', async function () {
       await loadFixtureState();
       await window.loadKanbanUserPreferences();
 
       columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
       await wait(0);
       let prefsCalls = window.__TEST_CALLS__.filter(c => c.table === 'Preferences_Widget');
-      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'le premier changement doit créer un enregistrement de préférences');
-      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 0, 'aucune mise à jour ne doit avoir lieu avant qu\'un enregistrement existe');
+      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'la ligne de préférences doit déjà exister (créée au chargement), pas de second AddRecord');
+      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 1, 'le premier changement doit mettre à jour la ligne existante');
 
       const rows = await window.CoreGrist.getTable('Preferences_Widget');
-      const row = rows.find(r => r.Email_utilisateur === 'alice.martin@example.org');
-      assertTrue(!!row, 'la ligne doit être associée à l\'email de l\'utilisateur courant simulé');
-      assertDeepEqual(row.Kanban_colonnes_repliees.split(',').sort(), ['Instruction', 'Projet en cours'].sort(),
+      assertEqual(rows.length, 1, 'une seule ligne de préférences doit exister');
+      assertDeepEqual(rows[0].Kanban_colonnes_repliees.split(',').sort(), ['Instruction', 'Projet en cours'].sort(),
         'les colonnes repliées doivent être encodées en liste séparée par des virgules');
-      assertEqual(row.Kanban_colonnes_masquees, '', 'aucune colonne masquée à ce stade');
+      assertEqual(rows[0].Kanban_colonnes_masquees, '', 'aucune colonne masquée à ce stade');
 
       columnSection('Notifications').querySelector('[data-hide-column]').click();
       await wait(0);
       prefsCalls = window.__TEST_CALLS__.filter(c => c.table === 'Preferences_Widget');
-      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'aucun second AddRecord ne doit être créé pour le même utilisateur');
-      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 1, 'le second changement doit mettre à jour le même enregistrement');
+      assertEqual(prefsCalls.filter(c => c.type === 'AddRecord').length, 1, 'toujours aucun second AddRecord');
+      assertEqual(prefsCalls.filter(c => c.type === 'UpdateRecord').length, 2, 'le second changement doit à nouveau mettre à jour la même ligne');
 
       // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
       columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
@@ -294,27 +284,36 @@
       await wait(0);
     });
 
-    it('restaure l\'état des colonnes (repliées/masquées) et des filtres à partir d\'un enregistrement existant', async function () {
+    it('restaure l\'état des colonnes (repliées/masquées) et des filtres à un rechargement ultérieur, dans le même navigateur', async function () {
       await loadFixtureState();
-      // Une ligne déjà présente simule une préférence enregistrée lors d'une session précédente,
-      // indépendamment du chemin de sauvegarde du widget (testé séparément ci-dessus).
-      await window.CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', 'Preferences_Widget', null, {
-        Email_utilisateur: 'alice.martin@example.org',
-        Kanban_colonnes_repliees: 'Instruction,Projet en cours',
-        Kanban_colonnes_masquees: 'Notifications',
-        Filtre_programme: 'Programme A',
-        Filtre_instance: '',
-        Filtre_recherche: ''
-      }]]);
+      await window.loadKanbanUserPreferences();
 
+      columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
+      await wait(0);
+      columnSection('Notifications').querySelector('[data-hide-column]').click();
+      await wait(0);
+      const programmeInput = document.getElementById('filter-programme');
+      fire(programmeInput, 'focus');
+      const option = Array.from(document.getElementById('filter-programme-list').querySelectorAll('[data-value]'))
+        .find(b => b.dataset.value === 'Programme A');
+      assertTrue(!!option, 'option "Programme A" introuvable dans filter-programme');
+      fireMouse(option, 'mousedown');
+      await wait(0);
+
+      // Simule un rechargement de page dans le même navigateur : l'id de ligne
+      // reste en cache (localStorage), un second appel doit donc retrouver et
+      // réappliquer exactement cet état, sans créer de nouvelle ligne.
       await window.loadKanbanUserPreferences();
       window.renderProjectsKanban();
 
-      assertTrue(columnSection('Instruction').classList.contains('is-collapsed'), 'Instruction doit être repliée d\'après la préférence enregistrée');
-      assertFalse(!!columnSection('Notifications'), 'Notifications doit être masquée d\'après la préférence enregistrée');
-      assertEqual(document.getElementById('filter-programme').value, 'Programme A', 'le filtre Programme doit être restauré d\'après la préférence enregistrée');
+      assertTrue(columnSection('Instruction').classList.contains('is-collapsed'), 'Instruction doit rester repliée après rechargement');
+      assertFalse(!!columnSection('Notifications'), 'Notifications doit rester masquée après rechargement');
+      assertEqual(document.getElementById('filter-programme').value, 'Programme A', 'le filtre Programme doit être restauré après rechargement');
       const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
       assertFalse(visibleAcronyms.includes('NOTIFY'), 'le filtre Programme restauré doit effectivement s\'appliquer au rendu');
+
+      const addRecordCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget');
+      assertEqual(addRecordCalls.length, 1, 'le rechargement ne doit pas créer de nouvelle ligne de préférences');
 
       // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
       columnSection('Instruction').querySelector('[data-toggle-collapse]').click();

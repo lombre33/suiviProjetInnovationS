@@ -63,25 +63,6 @@
       await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns]]);
       return true;
     },
-    // Le widget n'a pas d'API directe pour connaître l'utilisateur connecté
-    // (pas de grist.getUser()) : on passe par un jeton d'accès à portée du
-    // document (getAccessToken) pour appeler l'API REST /scim/v2/Me de Grist,
-    // qui répond pour l'utilisateur courant de la requête. Best-effort : toute
-    // erreur (SCIM non activé, réseau, etc.) renvoie null plutôt que de
-    // propager, pour ne jamais bloquer le reste de l'app sur cette info.
-    async getCurrentUserEmail() {
-      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
-      try {
-        const { token, baseUrl } = await gristInstance.docApi.getAccessToken({ readOnly: true });
-        const res = await fetch(`${baseUrl}/scim/v2/Me`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data?.emails?.[0]?.value || data?.userName || null;
-      } catch (err) {
-        console.warn('CoreGrist.getCurrentUserEmail a échoué :', err.message);
-        return null;
-      }
-    },
     async loadAllTables() {
       const entries = await Promise.all(TABLE_NAMES.map(async name => {
         try { return [name, await this.getTable(name)]; }
