@@ -63,6 +63,22 @@
       await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns]]);
       return true;
     },
+    // Ajoute les colonnes manquantes à une table déjà existante (ensureTable ne
+    // crée la table QUE si elle est absente, et ignore les colonnes demandées
+    // sinon — nécessaire pour qu'une table Grist partagée entre plusieurs pages,
+    // comme Preferences_Widget, puisse grandir au fil des besoins de chacune).
+    async ensureColumns(tableId, columns) {
+      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      const existing = await gristInstance.docApi.fetchTable(tableId);
+      const existingIds = new Set(Object.keys(existing));
+      const missing = columns.filter(col => !existingIds.has(col.id));
+      if (!missing.length) return false;
+      await gristInstance.docApi.applyUserActions(missing.map(col => {
+        const { id, ...colInfo } = col;
+        return ['AddColumn', tableId, id, colInfo];
+      }));
+      return true;
+    },
     async loadAllTables() {
       const entries = await Promise.all(TABLE_NAMES.map(async name => {
         try { return [name, await this.getTable(name)]; }

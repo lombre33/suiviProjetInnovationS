@@ -202,6 +202,97 @@
     });
   });
 
+  describe('Administratif — préférences utilisateur persistées (table Preferences_Widget, partagée avec le Kanban)', function () {
+    it('ajoute ses colonnes Admin_* à la table Preferences_Widget si elle existe déjà (créée par le Kanban)', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      const before = await window.CoreGrist.getTable('Preferences_Widget');
+      assertFalse('Admin_notif_repliees' in before[0], 'la colonne Admin_notif_repliees ne doit pas exister avant le chargement Administratif');
+
+      await window.loadAdministratifUserPreferences();
+
+      const after = await window.CoreGrist.getTable('Preferences_Widget');
+      assertTrue('Admin_notif_repliees' in after[0], 'la colonne Admin_notif_repliees doit avoir été ajoutée');
+      const addColumnCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget');
+      assertEqual(addColumnCalls.length, 4, 'les 4 colonnes Admin_notif/conv_repliees/masquees doivent être ajoutées');
+      const addTableCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
+      assertEqual(addTableCalls.length, 1, 'la table ne doit pas être recréée, seulement complétée');
+    });
+
+    it('crée elle-même la table (avec ses colonnes) si le Kanban ne l\'a pas encore fait', async function () {
+      await loadFixtureState();
+      const before = await window.CoreGrist.gristInstance.docApi.listTables();
+      assertFalse(before.includes('Preferences_Widget'), 'la table ne doit pas exister avant tout chargement de préférences');
+
+      await window.loadAdministratifUserPreferences();
+
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      assertEqual(rows.length, 1, 'une ligne doit avoir été créée');
+      assertTrue('Admin_notif_repliees' in rows[0], 'la table auto-créée doit inclure les colonnes Admin_*');
+    });
+
+    it('réutilise la même ligne que le Kanban (id de ligne partagé via localStorage), sans doublon d\'AddRecord', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      await window.loadAdministratifUserPreferences();
+      const addRecordCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget');
+      assertEqual(addRecordCalls.length, 1, 'Kanban et Administratif doivent partager la même ligne, pas en créer une seconde');
+    });
+
+    it('encode les volets repliés/masqués en liste d\'index séparés par virgules et enregistre par UpdateRecord', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      await window.loadAdministratifUserPreferences();
+
+      panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+      panelIn('admin-col-notif', 'envoyée pour signature VP').querySelector('[data-hide-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      assertEqual(rows.length, 1, 'toujours une seule ligne de préférences');
+      // Index 0 explicitement replié ci-dessus ; 1/2/3/6 sont repliés par défaut
+      // dès le premier rendu de la suite car ces volets n'ont aucun projet
+      // (cf. fixtures Notifications) — comportement attendu, pas une régression.
+      const collapsedNotif = rows[0].Admin_notif_repliees.split(',').map(Number).sort((a, b) => a - b);
+      assertDeepEqual(collapsedNotif, [0, 1, 2, 3, 6], 'les volets vides par défaut + celui explicitement replié doivent être encodés');
+      assertEqual(rows[0].Admin_notif_masquees, '4', 'le volet "envoyée pour signature VP" (index 4) doit être encodé comme masqué');
+
+      // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
+      panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.getElementById('admin-hidden-panels').querySelector('[data-restore-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+    });
+
+    it('restaure l\'état des volets (repliés/masqués) à un rechargement ultérieur, dans le même navigateur', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      await window.loadAdministratifUserPreferences();
+
+      panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+      panelIn('admin-col-notif', 'envoyée pour signature VP').querySelector('[data-hide-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+
+      // Simule un rechargement de page : l'id de ligne reste en cache
+      // (localStorage), un second appel doit donc retrouver et réappliquer
+      // exactement cet état, sans créer de nouvelle ligne.
+      await window.loadAdministratifUserPreferences();
+      window.renderAdministratif();
+
+      assertTrue(panelIn('admin-col-notif', 'Information projet saisies').classList.contains('is-collapsed'), 'le volet doit rester replié après rechargement');
+      assertFalse(!!panelIn('admin-col-notif', 'envoyée pour signature VP'), 'le volet doit rester masqué après rechargement');
+
+      const addRecordCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget');
+      assertEqual(addRecordCalls.length, 1, 'le rechargement ne doit pas créer de nouvelle ligne de préférences');
+
+      // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
+      panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.getElementById('admin-hidden-panels').querySelector('[data-restore-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+    });
+  });
+
   describe('Administratif — échappement HTML des données Grist', function () {
     it('échappe l\'acronyme avant de l\'insérer dans le HTML', async function () {
       const tables = await window.CoreGrist.loadAllTables();

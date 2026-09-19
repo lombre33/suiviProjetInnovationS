@@ -122,11 +122,26 @@
   // Kanban Projets).
   const panelState = {};
   function panelKey(side, idx) { return `${side}:${idx}`; }
+  // Préférences chargées depuis Grist (voir loadAdministratifUserPreferences),
+  // appliquées volet par volet au moment de sa toute première création dans
+  // panelState — contrairement au Kanban Projets, panelState est peuplé
+  // paresseusement (un volet n'existe qu'une fois rendu au moins une fois),
+  // donc on ne peut pas écraser panelState directement au chargement.
+  let pendingAdminPrefs = null;
   function ensurePanelState(side, idx, isInitiallyEmpty) {
     const key = panelKey(side, idx);
-    // Un volet sans aucun projet démarre replié — repli INITIAL uniquement,
-    // un dépli/repli manuel de l'utilisateur n'est jamais écrasé ensuite.
-    if (!panelState[key]) panelState[key] = { collapsed: !!isInitiallyEmpty, hidden: false };
+    if (!panelState[key]) {
+      // Un volet sans aucun projet démarre replié — repli INITIAL uniquement,
+      // un dépli/repli manuel de l'utilisateur n'est jamais écrasé ensuite —
+      // sauf préférence sauvegardée, qui prime sur cette heuristique.
+      const collapsed = pendingAdminPrefs
+        ? (side === 'notif' ? pendingAdminPrefs.notifCollapsed : pendingAdminPrefs.convCollapsed).has(idx)
+        : !!isInitiallyEmpty;
+      const hidden = pendingAdminPrefs
+        ? (side === 'notif' ? pendingAdminPrefs.notifHidden : pendingAdminPrefs.convHidden).has(idx)
+        : false;
+      panelState[key] = { collapsed, hidden };
+    }
     return panelState[key];
   }
   let viewMode = 'rows';
@@ -135,6 +150,36 @@
   // sélecteur logé dans le bandeau de filtre pour ne pas prendre de hauteur
   // en plus).
   let activeTab = 'notif';
+
+  // Persistance des volets repliés/masqués (table Grist partagée avec le
+  // Kanban Projets, cf. js/pages/page-projets.js — même id de ligne mis en
+  // cache dans localStorage, une seule ligne de préférences par navigateur
+  // pour toutes les pages). Signalé par Antoine le 19/09/2026 : ce choix
+  // n'était pas du tout persisté sur cette page.
+  const PREFS_TABLE = 'Preferences_Widget';
+  const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
+  // Colonne minimale si CETTE page doit créer la table elle-même — cas qui ne
+  // devrait jamais se produire en pratique (js/app.js charge toujours les
+  // préférences Kanban en premier, qui créent la table complète), gardé pour
+  // ne pas dépendre de cet ordre.
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const ADMIN_PREFS_COLUMNS = [
+    { id: 'Admin_notif_repliees', type: 'Text' },
+    { id: 'Admin_notif_masquees', type: 'Text' },
+    { id: 'Admin_conv_repliees', type: 'Text' },
+    { id: 'Admin_conv_masquees', type: 'Text' }
+  ];
+  let prefsRowId = null;
+  const encodeIdxList = indices => indices.join(',');
+  const decodeIdxList = value => text(value).split(',').map(s => s.trim()).filter(Boolean).map(Number);
+  function getCachedPrefsRowId() {
+    try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
+    catch (err) { return null; }
+  }
+  function setCachedPrefsRowId(id) {
+    try { localStorage.setItem(PREFS_ROWID_STORAGE_KEY, String(id)); }
+    catch (err) { /* navigation privée / stockage bloqué : tant pis, pas de persistance entre sessions */ }
+  }
 
   function comboValue(id) {
     const input = document.getElementById(id);
@@ -349,11 +394,13 @@
         const state = panelState[btn.dataset.togglePanel];
         if (state) state.collapsed = !state.collapsed;
         render();
+        saveAdministratifUserPreferences();
       }));
       root.querySelectorAll('[data-hide-panel]').forEach(btn => btn.addEventListener('click', () => {
         const state = panelState[btn.dataset.hidePanel];
         if (state) state.hidden = true;
         render();
+        saveAdministratifUserPreferences();
       }));
       root.querySelectorAll('[data-advance-notif]').forEach(btn => btn.addEventListener('click', () => advanceNotif(btn.dataset.advanceNotif, btn.dataset.acronym)));
       root.querySelectorAll('[data-advance-conv]').forEach(btn => btn.addEventListener('click', () => {
@@ -394,7 +441,75 @@
       const state = panelState[btn.dataset.restorePanel];
       if (state) state.hidden = false;
       render();
+      saveAdministratifUserPreferences();
     }));
+  }
+
+  async function loadAdministratifUserPreferences() {
+    if (!window.CoreGrist || !CoreGrist.gristInstance) return;
+    try {
+      await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...ADMIN_PREFS_COLUMNS]);
+      await CoreGrist.ensureColumns(PREFS_TABLE, ADMIN_PREFS_COLUMNS);
+      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const cachedId = getCachedPrefsRowId();
+      const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
+      if (!row) {
+        // Première utilisation dans ce navigateur (ou cache perdu) : nouvelle
+        // ligne, partagée avec le Kanban Projets — normalement déjà créée par
+        // loadKanbanUserPreferences(), appelé avant celui-ci dans js/app.js.
+        const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        prefsRowId = CoreUtils.extractAddedRecordId(result);
+        setCachedPrefsRowId(prefsRowId);
+        return;
+      }
+      prefsRowId = row.id;
+      const hasSavedPreferences = !!(text(row.Admin_notif_repliees) || text(row.Admin_notif_masquees) ||
+        text(row.Admin_conv_repliees) || text(row.Admin_conv_masquees));
+      if (!hasSavedPreferences) return;
+      pendingAdminPrefs = {
+        notifCollapsed: new Set(decodeIdxList(row.Admin_notif_repliees)),
+        notifHidden: new Set(decodeIdxList(row.Admin_notif_masquees)),
+        convCollapsed: new Set(decodeIdxList(row.Admin_conv_repliees)),
+        convHidden: new Set(decodeIdxList(row.Admin_conv_masquees))
+      };
+      applyAdminPrefsToPanelState();
+    } catch (err) {
+      console.warn('Chargement des préférences Administratif a échoué :', err.message);
+    }
+  }
+
+  // Applique pendingAdminPrefs aux volets déjà créés dans panelState (au cas où
+  // le chargement des préférences arrive APRÈS un premier rendu, au lieu
+  // d'avant comme prévu dans js/app.js) — les volets pas encore créés seront
+  // initialisés directement au bon état par ensurePanelState à la volée.
+  function applyAdminPrefsToPanelState() {
+    if (!pendingAdminPrefs) return;
+    NOTIF_STAGES.forEach((_, idx) => {
+      const state = panelState[panelKey('notif', idx)];
+      if (state) { state.collapsed = pendingAdminPrefs.notifCollapsed.has(idx); state.hidden = pendingAdminPrefs.notifHidden.has(idx); }
+    });
+    CONV_STAGES.forEach((_, idx) => {
+      const state = panelState[panelKey('conv', idx)];
+      if (state) { state.collapsed = pendingAdminPrefs.convCollapsed.has(idx); state.hidden = pendingAdminPrefs.convHidden.has(idx); }
+    });
+  }
+
+  async function saveAdministratifUserPreferences() {
+    if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
+    const collect = (side, prop) => encodeIdxList(Object.keys(panelState)
+      .filter(key => key.startsWith(`${side}:`) && panelState[key][prop])
+      .map(key => Number(key.split(':')[1])));
+    const fields = {
+      Admin_notif_repliees: collect('notif', 'collapsed'),
+      Admin_notif_masquees: collect('notif', 'hidden'),
+      Admin_conv_repliees: collect('conv', 'collapsed'),
+      Admin_conv_masquees: collect('conv', 'hidden')
+    };
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
+    } catch (err) {
+      console.warn('Enregistrement des préférences Administratif a échoué :', err.message);
+    }
   }
 
   function updateViewToggle() {
@@ -434,5 +549,6 @@
   }
 
   window.renderAdministratif = function () { renderFilters(); render(); };
+  window.loadAdministratifUserPreferences = loadAdministratifUserPreferences;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

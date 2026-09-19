@@ -69,6 +69,15 @@
     return { id: tableId };
   }
 
+  function addColumn(tableId, colId, colInfo) {
+    const table = store[tableId];
+    if (!table) throw new Error(`Mock Grist: table ${tableId} does not exist`);
+    if (Object.prototype.hasOwnProperty.call(table, colId)) throw new Error(`Mock Grist: column ${colId} already exists in ${tableId}`);
+    ensureColumn(table, colId);
+    global.__TEST_CALLS__.push({ type: 'AddColumn', table: tableId, colId, colInfo });
+    return { colId };
+  }
+
   global.grist = {
     ready: async function () { return undefined; },
     docApi: {
@@ -86,6 +95,7 @@
           if (type === 'AddRecord') return addRecord(action[1], action[3]);
           if (type === 'UpdateRecord') return updateRecord(action[1], action[2], action[3]);
           if (type === 'AddTable') return addTable(action[1], action[2]);
+          if (type === 'AddColumn') return addColumn(action[1], action[2], action[3]);
           throw new Error(`Mock Grist: unsupported action type ${type}`);
         });
         return { actionNum: global.__TEST_CALLS__.length, retValues };
