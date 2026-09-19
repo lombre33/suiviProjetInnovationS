@@ -87,20 +87,20 @@
     });
   });
 
-  describe('Administratif — partenaires (bulles + mini-stepper de 3 points)', function () {
-    it('affiche l\'UB en premier puis un partenaire par référence Etablissement, pas de puce = "Non relu"', async function () {
+  describe('Administratif — partenaires (barres de progression par statut)', function () {
+    it('affiche l\'UB en premier puis un partenaire par référence Etablissement, pas de progression = "Non relu"', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
       const pills = card.querySelectorAll('.admin-partner-pill');
-      assertEqual(pills.length, 3, 'CONVENTIX doit avoir 3 bulles : UB + CNRS + INSERM');
-      assertEqual(pills[0].querySelector('span').textContent, 'UB', 'UB doit être la première bulle');
+      assertEqual(pills.length, 3, 'CONVENTIX doit avoir 3 pastilles : UB + CNRS + INSERM');
+      assertEqual(pills[0].querySelector('.admin-partner-name').textContent, 'UB', 'UB doit être la première pastille');
       // partenaire_2 (INSERM) n'a pas de colonne renseignée → doit retomber sur
-      // "Non relu" par défaut (0 point rempli), pas planter.
-      const insermDots = pills[2].querySelectorAll('.admin-partner-dot.is-filled');
-      assertEqual(insermDots.length, 0, 'INSERM sans statut renseigné doit afficher "Non relu" (0 point)');
+      // "Non relu" par défaut (barre à 0%), pas planter.
+      assertTrue(pills[2].title.includes('Non relu'), 'INSERM sans statut renseigné doit afficher "Non relu"');
+      assertEqual(pills[2].querySelector('.admin-partner-fill').style.width, '0%', 'barre de progression vide pour "Non relu"');
     });
 
-    it('un clic sur une bulle fait avancer le statut du partenaire et écrit la colonne Grist exacte', async function () {
+    it('un clic sur une pastille fait avancer le statut du partenaire et écrit la colonne Grist exacte', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
       const insermPill = card.querySelectorAll('.admin-partner-pill')[2];
@@ -175,6 +175,30 @@
       document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       assertTrue(document.querySelector('#admin-col-notif .admin-panel-body').classList.contains('mode-cards'), 'après bascule, mode "cartes"');
       document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); // reset pour les autres tests
+    });
+  });
+
+  describe('Administratif — sous-onglets Notifications / Conventions (bandeau de filtre)', function () {
+    it('Notifications est actif par défaut ; cliquer sur Conventions bascule l\'affichage sans repasser en 2 colonnes', async function () {
+      await loadFixtureState();
+      const notifTab = document.querySelector('[data-admin-tab="notif"]');
+      const convTab = document.querySelector('[data-admin-tab="conv"]');
+      const notifPanel = document.querySelector('[data-admin-panel="notif"]');
+      const convPanel = document.querySelector('[data-admin-panel="conv"]');
+      assertTrue(notifTab.classList.contains('is-active'), 'Notifications doit être l\'onglet actif par défaut');
+      assertEqual(notifTab.getAttribute('aria-selected'), 'true');
+      assertFalse(notifPanel.classList.contains('is-hidden'), 'le volet Notifications doit être visible par défaut');
+      assertTrue(convPanel.classList.contains('is-hidden'), 'le volet Conventions doit être masqué par défaut');
+
+      fireMouse(convTab, 'click');
+
+      assertTrue(convTab.classList.contains('is-active'), 'Conventions doit devenir l\'onglet actif');
+      assertEqual(convTab.getAttribute('aria-selected'), 'true');
+      assertFalse(document.querySelector('[data-admin-panel="conv"]').classList.contains('is-hidden'), 'le volet Conventions doit devenir visible');
+      assertTrue(document.querySelector('[data-admin-panel="notif"]').classList.contains('is-hidden'), 'le volet Notifications doit être masqué');
+      assertFalse(document.querySelector('[data-admin-tab="notif"]').classList.contains('is-active'), 'Notifications ne doit plus être actif');
+
+      fireMouse(document.querySelector('[data-admin-tab="notif"]'), 'click'); // reset pour les autres tests
     });
   });
 

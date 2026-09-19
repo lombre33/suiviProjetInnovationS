@@ -31,10 +31,19 @@
   // par un jusqu'à l'étape atteinte (0, 1, 2 ou 3 points).
   const PARTNER_STATUSES = ['Non relu', 'Relu', 'en cours de signature', 'Signé'];
   const PARTNER_STATUS_STYLES = [
-    { bg: '#f4f6fa', text: '#98a2b3', border: '#dde2ea' },
-    { bg: '#eef1f6', text: '#667085', border: '#dde2ea' },
+    { bg: '#eef1f6', text: '#98a2b3', border: '#dde2ea' },
     { bg: '#e8f0fe', text: '#2558c4', border: '#c7dbfd' },
+    { bg: '#fef3e0', text: '#b45309', border: '#fbd9a5' },
     { bg: '#e5f6ee', text: '#1a8f5e', border: '#bfe6d3' }
+  ];
+  // Une icône par état (cercle vide / œil / crayon / coche), pour lire le statut
+  // sans avoir à comparer un remplissage — barre de progression en complément
+  // (maquette validée par Antoine le 19/09/2026, variante "Barres").
+  const PARTNER_ICONS = [
+    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8"></circle></svg>',
+    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7 21l-4 1 1-4z"></path></svg>',
+    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>'
   ];
   const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
@@ -121,6 +130,11 @@
     return panelState[key];
   }
   let viewMode = 'rows';
+  // Sous-onglet actif (le choix "2 colonnes côte à côte" a été abandonné le
+  // 19/09/2026 : Antoine veut toute la largeur pour la vue lignes, et le
+  // sélecteur logé dans le bandeau de filtre pour ne pas prendre de hauteur
+  // en plus).
+  let activeTab = 'notif';
 
   function comboValue(id) {
     const input = document.getElementById(id);
@@ -238,13 +252,13 @@
 
   function partnerPill(project, partner) {
     const style = PARTNER_STATUS_STYLES[partner.statusIndex];
-    const dots = [0, 1, 2].map(step => {
-      const reached = step < partner.statusIndex;
-      return `<span class="admin-partner-dot${reached ? ' is-filled' : ''}" style="${reached ? `background:${style.text};border-color:${style.text};` : ''}"></span>`;
-    }).join('');
     const label = PARTNER_STATUSES[partner.statusIndex];
-    return `<button type="button" class="admin-partner-pill" data-cycle-partner="${escape(project.id)}:${escape(partner.field)}" style="background:${style.bg};color:${style.text};border-color:${style.border};" title="${escape(partner.label)} — ${escape(label)}" aria-label="${escape(partner.label)} — ${escape(label)}, cliquer pour changer">` +
-      `<span>${escape(partner.label)}</span><span class="admin-partner-dots">${dots}</span></button>`;
+    const pct = Math.round((partner.statusIndex / (PARTNER_STATUSES.length - 1)) * 100);
+    return `<button type="button" class="admin-partner-pill" data-cycle-partner="${escape(project.id)}:${escape(partner.field)}" title="${escape(partner.label)} — ${escape(label)}" aria-label="${escape(partner.label)} — ${escape(label)}, cliquer pour changer">` +
+      `<span class="admin-partner-top"><span class="admin-partner-name">${escape(partner.label)}</span>` +
+      `<span class="admin-partner-icon" style="color:${style.text};">${PARTNER_ICONS[partner.statusIndex]}</span></span>` +
+      `<span class="admin-partner-track"><span class="admin-partner-fill" style="width:${pct}%;background:${style.text};"></span></span>` +
+      `</button>`;
   }
 
   function commentBlock(project) {
@@ -323,6 +337,8 @@
     notifRoot.innerHTML = notifPanels.filter(p => !p.state.hidden).map(p => p.html).join('');
     convRoot.innerHTML = convPanels.filter(p => !p.state.hidden).map(p => p.html).join('');
 
+    updateTabUI();
+
     [notifRoot, convRoot].forEach(root => {
       root.querySelectorAll('[data-open-project]').forEach(btn => btn.addEventListener('click', () => {
         const project = getProjects().find(p => String(p.id) === String(btn.dataset.openProject));
@@ -352,7 +368,18 @@
       root.querySelectorAll('[data-comment-project]').forEach(textarea => textarea.addEventListener('blur', () => saveComment(textarea.dataset.commentProject, textarea.value)));
     });
 
-    renderHiddenPanels(notifPanels.concat(convPanels));
+    renderHiddenPanels(activeTab === 'notif' ? notifPanels : convPanels);
+  }
+
+  function updateTabUI() {
+    document.querySelectorAll('[data-admin-tab]').forEach(btn => {
+      const isActive = btn.dataset.adminTab === activeTab;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-selected', String(isActive));
+    });
+    document.querySelectorAll('[data-admin-panel]').forEach(section => {
+      section.classList.toggle('is-hidden', section.dataset.adminPanel !== activeTab);
+    });
   }
 
   function renderHiddenPanels(panels) {
@@ -400,6 +427,10 @@
       updateViewToggle();
       render();
     });
+    document.querySelectorAll('[data-admin-tab]').forEach(btn => btn.addEventListener('click', () => {
+      activeTab = btn.dataset.adminTab;
+      render();
+    }));
   }
 
   window.renderAdministratif = function () { renderFilters(); render(); };
