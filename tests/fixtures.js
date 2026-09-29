@@ -98,10 +98,11 @@
         'Statut totalement inconnu',
         'En cours'
       ],
+      // Étapes redéfinies par Antoine le 29/09/2026 (4 au lieu de 5).
       Conventions_statut: [
-        '1) Convention en redaction', '1) Convention en redaction', '3) Convention en signature UB',
+        '1) Convention en redaction', '1) Convention en redaction', '3) Convention en signature',
         '1) Convention en redaction', '1) Convention en redaction', '1) Convention en redaction',
-        '5) Convention signée de toutes les parties'
+        '4) Convention signée de toutes les parties'
       ],
       Convention_de_reversement: [false, false, true, false, false, false, true],
       Statut_Financier: [
@@ -144,6 +145,10 @@
       Action_Ligne_OPE_a_faire: ['', '', '', '', '', '', ''],
       Commentaire_ligne_OPE: ['', '', '', '', '', '', ''],
       comentaire_general_Suivi_projet: ['', '', '', '', '', '', ''],
+      // Colonnes ajoutées le 29/09/2026 (page Administratif, onglet Conventions).
+      next_step: ['', '', '', '', '', '', ''],
+      Transmise_signee_au_porteur_le: [null, null, null, null, null, null, null],
+      Lien_convention: ['', '', '', '', '', '', ''],
       Description_rapide_projet: ['', '', '', '', '', '', '']
     },
     // Table séparée (grist_structure : Notifications.Projet = Reference('Projets')),

@@ -67,21 +67,21 @@
       await loadFixtureState();
       assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'),
         'INNOVX (1) Convention en redaction) doit être dans le volet correspondant');
-      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX'),
-        'CONVENTIX (3) Convention en signature UB) doit être dans le volet correspondant');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'),
+        'CONVENTIX (3) Convention en signature) doit être dans le volet correspondant');
     });
 
     it('le dernier volet (signée) affiche un badge "Signée" et aucun bouton étape suivante', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX');
-      assertTrue(!!card, 'SIGNEX (5) doit être dans le dernier volet');
+      assertTrue(!!card, 'SIGNEX (4) doit être dans le dernier volet');
       assertEqual(card.querySelector('.admin-done-badge')?.textContent, 'Signée');
-      assertFalse(!!card.querySelector('[data-advance-conv]'), 'pas de bouton étape suivante sur le dernier statut');
+      assertFalse(!!card.querySelector('.admin-advance-btn'), 'pas de bouton étape suivante sur le dernier statut');
     });
 
     it('n\'affiche que l\'acronyme en identité, pas le nom complet du projet', async function () {
       await loadFixtureState();
-      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
       assertFalse(!!card.querySelector('.admin-card-title'), 'pas de titre "nom complet" sur la carte Conventions');
       assertFalse(card.textContent.includes('Projet Convention'), 'le nom complet du projet ne doit plus apparaître sur la carte');
     });
@@ -90,7 +90,7 @@
   describe('Administratif — partenaires (barres de progression par statut)', function () {
     it('affiche l\'UB en premier puis un partenaire par référence Etablissement, pas de progression = "Non relu"', async function () {
       await loadFixtureState();
-      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
       const pills = card.querySelectorAll('.admin-partner-pill');
       assertEqual(pills.length, 3, 'CONVENTIX doit avoir 3 pastilles : UB + CNRS + INSERM');
       assertEqual(pills[0].querySelector('.admin-partner-name').textContent, 'UB', 'UB doit être la première pastille');
@@ -102,7 +102,7 @@
 
     it('un clic sur une pastille fait avancer le statut du partenaire et écrit la colonne Grist exacte', async function () {
       await loadFixtureState();
-      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature UB'), 'CONVENTIX');
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
       const insermPill = card.querySelectorAll('.admin-partner-pill')[2];
       fireMouse(insermPill, 'click');
       await wait(0);
@@ -124,16 +124,6 @@
       assertTrue(!!cardByAcronym(panelIn('admin-col-notif', 'Notification_relecture'), 'INNOVX'), 'INNOVX doit être passé au volet suivant');
     });
 
-    it('avance Conventions_statut sur Projets avec la chaîne exacte', async function () {
-      await loadFixtureState();
-      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
-      fireMouse(card.querySelector('[data-advance-conv]'), 'click');
-      await wait(0);
-      const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && c.table === 'Projets' && c.fields.Conventions_statut);
-      assertTrue(!!call, 'doit écrire Conventions_statut sur Projets');
-      assertEqual(call.fields.Conventions_statut, '2) Convention Relecture Partenaire(s)', 'valeur Grist exacte, avec le préfixe "2) "');
-    });
-
     it('enregistre le commentaire libre partagé sur comentaire_general_Suivi_projet', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX');
@@ -144,6 +134,470 @@
       const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && c.table === 'Projets' && 'comentaire_general_Suivi_projet' in c.fields);
       assertTrue(!!call, 'doit écrire comentaire_general_Suivi_projet sur Projets');
       assertEqual(call.fields.comentaire_general_Suivi_projet, 'Relance porteur le 20/09.');
+    });
+  });
+
+  function dragEvent(type, dataTransfer) {
+    return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer });
+  }
+  // Simule un glisser-déposer complet : poignée de la carte → volet cible.
+  async function dragCardTo(card, panel) {
+    const handle = card.querySelector('[data-drag-project]');
+    const dt = new DataTransfer();
+    handle.dispatchEvent(dragEvent('dragstart', dt));
+    panel.dispatchEvent(dragEvent('dragover', dt));
+    panel.dispatchEvent(dragEvent('drop', dt));
+    handle.dispatchEvent(dragEvent('dragend', dt));
+    await wait(0);
+  }
+  const convWrites = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === 'Projets' && 'Conventions_statut' in c.fields);
+  const epochOf = iso => Math.floor(Date.parse(`${iso}T00:00:00Z`) / 1000);
+
+  describe('Administratif — Conventions : 4 étapes et glisser-déposer entre volets', function () {
+    it('affiche les 4 nouvelles étapes, dans l\'ordre, sans bouton "Suivant" (Notifications garde le sien)', async function () {
+      await loadFixtureState();
+      const labels = Array.from(document.querySelectorAll('#admin-col-conv .admin-panel-header h4')).map(h => h.textContent);
+      assertDeepEqual(labels, ['Convention en redaction', 'Convention en relecture', 'Convention en signature', 'Convention signée de toutes les parties']);
+      assertEqual(document.querySelectorAll('#admin-col-conv .admin-advance-btn').length, 0, 'plus aucun bouton "Suivant" côté Conventions');
+      assertTrue(document.querySelectorAll('#admin-col-notif .admin-advance-btn').length > 0, 'le bouton "Suivant" reste côté Notifications');
+    });
+
+    it('glisser une carte vers un autre volet écrit le libellé Grist exact sur Projets et déplace la carte', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      await dragCardTo(card, panelIn('admin-col-conv', 'Convention en relecture'));
+      const writes = convWrites();
+      assertEqual(writes.length, 1, 'une seule écriture');
+      assertEqual(writes[0].fields.Conventions_statut, '2) Convention en relecture', 'valeur Grist exacte, avec le préfixe "2) "');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en relecture'), 'INNOVX'), 'INNOVX doit être dans le nouveau volet');
+      assertFalse(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 'INNOVX ne doit plus être dans l\'ancien volet');
+    });
+
+    it('permet de reculer ou de sauter des étapes (pas seulement l\'étape suivante)', async function () {
+      await loadFixtureState();
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'), panelIn('admin-col-conv', 'Convention en redaction'));
+      assertEqual(convWrites()[0].fields.Conventions_statut, '1) Convention en redaction', 'recul de 3) à 1)');
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'CONVENTIX'), panelIn('admin-col-conv', 'Convention signée de toutes les parties'));
+      assertEqual(convWrites()[1].fields.Conventions_statut, '4) Convention signée de toutes les parties', 'saut de 1) à 4)');
+    });
+
+    it('déposer une carte sur son propre volet n\'écrit rien', async function () {
+      await loadFixtureState();
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), panelIn('admin-col-conv', 'Convention en redaction'));
+      assertEqual(convWrites().length, 0, 'aucune écriture');
+      assertFalse(!!document.querySelector('#admin-col-conv .is-dragging, #admin-col-conv .is-drop-target'), 'aucun état de glisser résiduel');
+    });
+
+    it('autorise le dépôt sur un volet (dragover annulé) uniquement pendant le glisser d\'une carte, et signale le volet visé', async function () {
+      await loadFixtureState();
+      const panel = panelIn('admin-col-conv', 'Convention en relecture');
+      const stray = dragEvent('dragover', new DataTransfer());
+      panel.dispatchEvent(stray);
+      assertFalse(stray.defaultPrevented, 'sans glisser de carte en cours, le dépôt ne doit pas être autorisé (ex. fichier externe)');
+
+      const handle = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-drag-project]');
+      const dt = new DataTransfer();
+      handle.dispatchEvent(dragEvent('dragstart', dt));
+      const over = dragEvent('dragover', dt);
+      panel.dispatchEvent(over);
+      assertTrue(over.defaultPrevented, 'pendant le glisser, dragover doit être annulé pour autoriser le dépôt');
+      assertTrue(panel.classList.contains('is-drop-target'), 'le volet visé doit être mis en évidence');
+      handle.dispatchEvent(dragEvent('dragend', dt));
+      assertFalse(panel.classList.contains('is-drop-target'), 'la mise en évidence disparaît en fin de glisser');
+    });
+
+    it('un glisser qui ne vient pas d\'une carte Conventions (texte, fichier) n\'est jamais accepté, même après un glisser de carte interrompu', async function () {
+      await loadFixtureState();
+      const handle = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-drag-project]');
+      handle.dispatchEvent(dragEvent('dragstart', new DataTransfer()));
+      window.renderAdministratif(); // la source du glisser est détachée : son dragend n'atteindra jamais la racine
+      const foreign = new DataTransfer();
+      foreign.setData('text/plain', '11');
+      const panel = panelIn('admin-col-conv', 'Convention en relecture');
+      const over = dragEvent('dragover', foreign);
+      panel.dispatchEvent(over);
+      assertFalse(over.defaultPrevented, 'un glisser étranger ne doit pas être autorisé');
+      panel.dispatchEvent(dragEvent('drop', foreign));
+      await wait(0);
+      assertEqual(convWrites().length, 0, 'et un dépôt étranger n\'écrit rien');
+    });
+
+    it('un volet replié reste une cible de dépôt valide', async function () {
+      await loadFixtureState();
+      const target = panelIn('admin-col-conv', 'Convention en relecture'); // vide → replié par défaut
+      assertTrue(target.classList.contains('is-collapsed'), 'prérequis : volet vide replié');
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), target);
+      assertEqual(convWrites().length, 1, 'le dépôt sur un volet replié doit fonctionner');
+    });
+
+    it('seuls les volets Conventions sont des cibles de dépôt, et seules les cartes Conventions ont une poignée', async function () {
+      await loadFixtureState();
+      assertEqual(document.querySelectorAll('#admin-col-notif [data-drop-panel]').length, 0);
+      assertEqual(document.querySelectorAll('#admin-col-notif [data-drag-project]').length, 0);
+      assertEqual(document.querySelectorAll('#admin-col-conv [data-drop-panel]').length, 4);
+    });
+
+    it('un échec d\'écriture Grist laisse la carte à sa place', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), panelIn('admin-col-conv', 'Convention en relecture'));
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 'INNOVX doit rester dans l\'étape d\'origine');
+    });
+
+    it('reconnaît les anciens libellés Choice (lignes Grist pas encore migrées) au lieu de faire disparaître le projet', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      const byAcronym = acr => tables.Projets.find(p => p.Acronyme === acr);
+      byAcronym('INNOVX').Conventions_statut = '2) Convention Relecture Partenaire(s)';
+      byAcronym('NOTIFY').Conventions_statut = '4) Convention en signature partenaire';
+      byAcronym('FINANCX').Conventions_statut = '3) Convention en signature UB';
+      byAcronym('SIGNEX').Conventions_statut = '5) Convention signée de toutes les parties';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en relecture'), 'INNOVX'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'NOTIFY'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'FINANCX'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX'));
+    });
+  });
+
+  describe('Administratif — Conventions : reconnaissance tolérante de l\'étape', function () {
+    it('un libellé sans numéro d\'étape (valeur par défaut Grist) est rangé dans l\'étape correspondante', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'FINANCX').Conventions_statut = 'Convention en redaction';
+      tables.Projets.find(p => p.Acronyme === 'COURSIX').Conventions_statut = 'convention EN RELECTURE';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'FINANCX'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en relecture'), 'COURSIX'));
+    });
+
+    it('une valeur inconnue ou vide n\'affiche le projet nulle part et ne provoque aucune erreur (dont les noms de propriété d\'objet)', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      ['constructor', '__proto__', '', 'Autre chose'].forEach((value, i) => { tables.Projets[i].Conventions_statut = value; });
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const acronyms = Array.from(document.querySelectorAll('#admin-col-conv .admin-card .project-acronym')).map(el => el.textContent);
+      ['INNOVX', 'NOTIFY', 'CONVENTIX', 'FINANCX'].forEach(acr => assertFalse(acronyms.includes(acr), `${acr} (statut inconnu) ne doit apparaître dans aucun volet`));
+    });
+  });
+
+  describe('Administratif — Conventions : champ "Next step"', function () {
+    it('affiche, sous le commentaire, un second champ titré "Next step" alimenté par la colonne next_step', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = 'Relancer le juridique';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      const fields = card.querySelectorAll('.admin-notes textarea');
+      assertEqual(fields.length, 2, 'deux champs texte');
+      assertTrue(fields[0].hasAttribute('data-comment-project'), 'le commentaire général vient en premier');
+      assertTrue(fields[1].hasAttribute('data-nextstep-project'), 'Next step vient en dessous');
+      assertEqual(fields[1].value, 'Relancer le juridique');
+      assertTrue(card.querySelector('.admin-nextstep .admin-field-label').textContent.trim() === 'Next step', 'le champ porte le titre "Next step"');
+    });
+
+    it('enregistre next_step sur Projets à la sortie du champ, et seulement s\'il a changé', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      const field = card.querySelector('[data-nextstep-project]');
+      fire(field, 'blur');
+      await wait(0);
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'next_step' in c.fields).length, 0, 'inchangé → aucune écriture');
+      setValue(field, 'Signature prévue le 12/10');
+      fire(field, 'blur');
+      await wait(0);
+      const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && 'next_step' in c.fields);
+      assertTrue(!!call && call.table === 'Projets', 'doit écrire next_step sur Projets');
+      assertEqual(call.fields.next_step, 'Signature prévue le 12/10');
+    });
+
+    it('n\'ajoute pas ce champ aux cartes Notifications', async function () {
+      await loadFixtureState();
+      assertEqual(document.querySelectorAll('#admin-col-notif [data-nextstep-project]').length, 0);
+    });
+
+    it('échappe le contenu de next_step (le texte reste du texte, aucune balise injectée)', async function () {
+      const payload = '</textarea><img src=x onerror=alert(1)>';
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = payload;
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      assertEqual(document.querySelectorAll('#admin-col-conv img').length, 0, 'aucune balise <img> injectée');
+      assertEqual(card.querySelector('[data-nextstep-project]').value, payload, 'le contenu s\'affiche tel quel, comme du texte');
+    });
+
+    it('ne réécrit pas next_step sur un simple passage dans le champ, même si le navigateur normalise sa valeur (CRLF, saut de ligne initial)', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = 'a\r\nb';
+      tables.Projets.find(p => p.Acronyme === 'NOTIFY').next_step = '\nfoo';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      ['INNOVX', 'NOTIFY'].forEach(acr => fire(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), acr).querySelector('[data-nextstep-project]'), 'blur'));
+      await wait(0);
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'next_step' in c.fields).length, 0, 'aucune écriture sans modification');
+    });
+
+    it('une écriture en cours n\'est pas écrasée par un rendu intermédiaire (la valeur locale est mise à jour avant la réponse de Grist)', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      let release;
+      window.grist.docApi.applyUserActions = (actions) => new Promise(resolve => { release = () => resolve(original(actions)); });
+      try {
+        const field = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]');
+        setValue(field, 'Relancer le juridique');
+        fire(field, 'blur');
+        await wait(0);
+        window.renderAdministratif(); // rendu pendant l'aller-retour Grist
+        assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]').value, 'Relancer le juridique', 'le texte saisi ne doit pas disparaître');
+        release();
+        await wait(0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+    });
+
+    it('si l\'écriture échoue, l\'ancienne valeur est restaurée', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        const field = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]');
+        setValue(field, 'perdu');
+        fire(field, 'blur');
+        await wait(0);
+        window.renderAdministratif();
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]').value, '', 'retour à la valeur enregistrée');
+    });
+  });
+
+  describe('Administratif — Conventions : date de transmission au porteur (dernière étape uniquement)', function () {
+    it('le champ date n\'apparaît que sur les cartes de la dernière étape', async function () {
+      await loadFixtureState();
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('input[type="date"][data-transmise-project]'), 'présent à la dernière étape');
+      assertEqual(document.querySelectorAll('#admin-col-conv input[type="date"]').length, 1, 'absent de toutes les autres étapes');
+      assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('.admin-done-badge').textContent, 'Signée');
+    });
+
+    it('enregistre la date (minuit UTC, format Grist) dans Transmise_signee_au_porteur_le, et null quand on l\'efface', async function () {
+      await loadFixtureState();
+      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
+      setValue(input(), '2026-10-05');
+      fire(input(), 'change');
+      await wait(0);
+      const writes = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
+      assertEqual(writes()[0].table, 'Projets');
+      assertEqual(writes()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-10-05'));
+      assertEqual(input().value, '2026-10-05', 'la valeur enregistrée est réaffichée telle quelle après rendu');
+      setValue(input(), '');
+      fire(input(), 'change');
+      await wait(0);
+      assertEqual(writes()[1].fields.Transmise_signee_au_porteur_le, null, 'effacer la date vide la colonne');
+    });
+
+    it('ne réécrit pas la colonne à chaque frappe partielle de l\'année (0002, 0020, 0202 avant 2026)', async function () {
+      await loadFixtureState();
+      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
+      for (const partial of ['0002-05-10', '0020-05-10', '0202-05-10']) { setValue(input(), partial); fire(input(), 'change'); }
+      await wait(0);
+      const writes = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
+      assertEqual(writes().length, 0, 'aucune écriture pour des années implausibles');
+      setValue(input(), '2026-05-10'); fire(input(), 'change');
+      await wait(0);
+      assertEqual(writes().length, 1);
+      assertEqual(writes()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-05-10'));
+    });
+
+    it('affiche la date déjà enregistrée dans Grist', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'SIGNEX').Transmise_signee_au_porteur_le = epochOf('2026-09-30');
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]').value, '2026-09-30');
+    });
+
+    it('le champ date apparaît dès qu\'une carte est déposée dans la dernière étape', async function () {
+      await loadFixtureState();
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'), panelIn('admin-col-conv', 'Convention signée de toutes les parties'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'CONVENTIX').querySelector('[data-transmise-project]'));
+    });
+
+    it('écrit sur la fiche Notifications si c\'est là que la colonne existe (table d\'origine non documentée)', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.forEach(p => { delete p.Transmise_signee_au_porteur_le; });
+      tables.Notifications.forEach(n => { n.Transmise_signee_au_porteur_le = null; });
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const input = cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
+      setValue(input, '2026-10-05');
+      fire(input, 'change');
+      await wait(0);
+      const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
+      assertEqual(call.table, 'Notifications', 'la colonne vit dans Notifications → écriture sur Notifications');
+      assertEqual(call.id, 4, 'fiche Notifications du projet SIGNEX (Projet = 16)');
+    });
+  });
+
+  describe('Administratif — Conventions : lien externe vers la convention', function () {
+    const convCard = acr => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), acr);
+    const linkWrites = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Lien_convention' in c.fields);
+    // Le squelette DOM des tests est en display:none : le focus réel (input.focus())
+    // n'y est pas observable, il est vérifié dans un vrai navigateur (contrôle visuel).
+    const openEditor = async acr => {
+      const editBtn = convCard(acr).querySelector('[data-edit-link]');
+      if (editBtn) editBtn.click();
+      return convCard(acr).querySelector('[data-link-input]');
+    };
+    const press = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const leave = el => el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+
+    it('sans lien : seule une icône d\'ajout est proposée ; avec lien : icône d\'ouverture (nouvel onglet) + icône de modification', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'NOTIFY').Lien_convention = 'https://exemple.org/convention.pdf';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertEqual(convCard('INNOVX').querySelectorAll('a[href]').length, 0, 'aucun lien à ouvrir');
+      assertEqual(convCard('INNOVX').querySelectorAll('[data-edit-link]').length, 1, 'une icône pour en ajouter un');
+      const link = convCard('NOTIFY').querySelector('a[href]');
+      assertEqual(link.getAttribute('href'), 'https://exemple.org/convention.pdf');
+      assertEqual(link.getAttribute('target'), '_blank');
+      assertTrue((link.getAttribute('rel') || '').includes('noopener'), 'rel="noopener" obligatoire avec target=_blank');
+      assertEqual(convCard('NOTIFY').querySelectorAll('[data-edit-link]').length, 1, 'et une icône pour le modifier');
+    });
+
+    it('Entrée valide le lien : préfixe https:// ajouté si absent, écrit dans Lien_convention, puis icône d\'ouverture affichée', async function () {
+      await loadFixtureState();
+      const input = await openEditor('INNOVX');
+      assertTrue(!!input, 'le champ de saisie apparaît');
+      setValue(input, 'exemple.org/convention.pdf');
+      press(input, 'Enter');
+      await wait(0);
+      assertEqual(linkWrites().length, 1);
+      assertEqual(linkWrites()[0].table, 'Projets');
+      assertEqual(linkWrites()[0].fields.Lien_convention, 'https://exemple.org/convention.pdf');
+      assertEqual(convCard('INNOVX').querySelector('a[href]').getAttribute('href'), 'https://exemple.org/convention.pdf');
+      assertFalse(!!convCard('INNOVX').querySelector('[data-link-input]'), 'le champ de saisie se referme');
+    });
+
+    it('la sortie du champ (blur) valide aussi, sans double écriture après Entrée', async function () {
+      await loadFixtureState();
+      let input = await openEditor('INNOVX');
+      setValue(input, 'https://exemple.org/a');
+      leave(input);
+      await wait(0);
+      assertEqual(linkWrites().length, 1, 'blur → une écriture');
+      input = await openEditor('INNOVX');
+      setValue(input, 'https://exemple.org/b');
+      press(input, 'Enter');
+      leave(input);
+      await wait(0);
+      assertEqual(linkWrites().length, 2, 'Entrée puis blur → une seule écriture de plus');
+    });
+
+    it('Échap annule sans rien écrire', async function () {
+      await loadFixtureState();
+      const input = await openEditor('INNOVX');
+      setValue(input, 'https://exemple.org/annule');
+      press(input, 'Escape');
+      leave(input);
+      await wait(0);
+      assertEqual(linkWrites().length, 0);
+      assertFalse(!!convCard('INNOVX').querySelector('[data-link-input]'));
+    });
+
+    it('refuse les schémas autres que http(s) (javascript:, file:, …) sans écrire', async function () {
+      await loadFixtureState();
+      for (const bad of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>alert(1)</script>']) {
+        const input = await openEditor('INNOVX');
+        setValue(input, bad);
+        press(input, 'Enter');
+        await wait(0);
+      }
+      assertEqual(linkWrites().length, 0, 'aucune écriture');
+      assertEqual(convCard('INNOVX').querySelectorAll('a[href]').length, 0);
+    });
+
+    it('n\'affiche jamais comme lien cliquable une valeur non http(s) déjà présente dans Grist', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'javascript:alert(1)';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertEqual(document.querySelectorAll('#admin-col-conv a[href^="javascript"]').length, 0);
+      assertEqual(convCard('INNOVX').querySelectorAll('a[href]').length, 0);
+    });
+
+    it('vider le champ supprime le lien', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'https://exemple.org/x';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const input = await openEditor('INNOVX');
+      assertEqual(input.value, 'https://exemple.org/x', 'le champ est prérempli avec le lien actuel');
+      setValue(input, '');
+      press(input, 'Enter');
+      await wait(0);
+      assertEqual(linkWrites()[0].fields.Lien_convention, '');
+      assertEqual(convCard('INNOVX').querySelectorAll('a[href]').length, 0);
+    });
+
+    it('échappe l\'URL dans l\'attribut href', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'https://exemple.org/?q="><img src=x onerror=alert(1)>';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      assertEqual(document.querySelectorAll('#admin-col-conv img').length, 0, 'aucune balise <img> injectée');
+      const links = convCard('INNOVX').querySelectorAll('a[href]');
+      assertEqual(links.length, 1);
+      assertEqual(links[0].getAttribute('href'), new URL('https://exemple.org/?q="><img src=x onerror=alert(1)>').href, 'href = URL normalisée, sans attribut supplémentaire');
+      assertFalse(links[0].hasAttribute('onerror'));
+    });
+
+    it('accepte hôte:port/chemin (pas confondu avec un schéma d\'URL)', async function () {
+      await loadFixtureState();
+      const input = await openEditor('INNOVX');
+      setValue(input, 'monserveur:8080/convention.pdf');
+      press(input, 'Enter');
+      await wait(0);
+      assertEqual(linkWrites()[0].fields.Lien_convention, 'https://monserveur:8080/convention.pdf');
+    });
+
+    it('un lien invalide saisi puis validé par Entrée laisse le champ ouvert avec la saisie, sans écrire', async function () {
+      await loadFixtureState();
+      const input = await openEditor('INNOVX');
+      setValue(input, 'javascript:alert(1)');
+      press(input, 'Enter');
+      await wait(0);
+      const still = convCard('INNOVX').querySelector('[data-link-input]');
+      assertTrue(!!still, 'le champ reste ouvert');
+      assertEqual(still.value, 'javascript:alert(1)', 'et la saisie est conservée pour être corrigée');
+      assertEqual(linkWrites().length, 0);
+      press(still, 'Escape'); // remise en état pour les autres tests
+    });
+
+    it('sortir du champ ne reconstruit que la cellule du lien : les autres cartes et champs restent en place (le clic suivant n\'est pas perdu)', async function () {
+      await loadFixtureState();
+      const otherField = convCard('NOTIFY').querySelector('[data-nextstep-project]');
+      const partnerPill = convCard('NOTIFY').querySelector('[data-cycle-partner]');
+      const input = await openEditor('INNOVX');
+      leave(input);
+      await wait(0);
+      assertTrue(otherField.isConnected, 'le champ Next step d\'une autre carte ne doit pas être détaché');
+      assertTrue(partnerPill.isConnected, 'ni la pastille partenaire');
+      assertFalse(!!convCard('INNOVX').querySelector('[data-link-input]'), 'le champ de saisie se referme');
+    });
+
+    it('ouvrir l\'éditeur d\'un lien ne détache aucun autre élément de la page', async function () {
+      await loadFixtureState();
+      const otherField = convCard('NOTIFY').querySelector('[data-nextstep-project]');
+      const otherEdit = convCard('NOTIFY').querySelector('[data-edit-link]');
+      await openEditor('INNOVX');
+      assertTrue(otherField.isConnected && otherEdit.isConnected, 'pas de rendu complet à l\'ouverture');
+      const second = await openEditor('NOTIFY'); // ouvrir un second éditeur ferme (valide) le premier sans perdre le clic
+      leave(convCard('INNOVX').querySelector('[data-link-input]'));
+      assertTrue(!!second || !!convCard('NOTIFY').querySelector('[data-link-input]'));
+      press(convCard('NOTIFY').querySelector('[data-link-input]'), 'Escape');
     });
   });
 
@@ -299,7 +753,8 @@
       tables.Projets[0].Acronyme = '<img src=x onerror=alert(1)>';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
-      assertFalse(document.querySelector('#admin-col-notif').innerHTML.includes('<img src=x'), 'le HTML brut ne doit jamais être injecté');
+      assertEqual(document.querySelectorAll('#admin-col-notif img').length, 0, 'aucune balise <img> injectée');
+      assertTrue(Array.from(document.querySelectorAll('#admin-col-notif .project-acronym')).some(el => el.textContent === '<img src=x onerror=alert(1)>'), 'l\'acronyme s\'affiche tel quel, comme du texte');
     });
   });
 })();

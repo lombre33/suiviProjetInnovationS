@@ -122,7 +122,10 @@
   // ─────────────────────────────────────────────────────────────────────────────
   function classifyStatus(project) {
     // 3) Conventions — règle prioritaire (cf. commentaire ci-dessus).
-    const conventionSigned = normalized(text(field(project, ['Conventions_statut']))) === normalized('5) Convention signée de toutes les parties');
+    // Comparaison sur le libellé SANS ordinal : la dernière étape est passée de
+    // "5) …" à "4) …" le 29/09/2026 (Conventions_statut redéfini à 4 étapes), et
+    // des lignes Grist peuvent encore porter l'ancien numéro.
+    const conventionSigned = normalized(text(field(project, ['Conventions_statut']))).replace(/^\d+\)\s*/, '') === normalized('Convention signée de toutes les parties');
     const conventionValue = project.Convention_de_reversement;
     const hasConvention = conventionValue === true || conventionValue === 1 || normalized(conventionValue) === 'true' || normalized(conventionValue) === 'oui' || normalized(conventionValue) === 'cochée' || normalized(conventionValue) === 'cochee';
     if (hasConvention && !conventionSigned) return 'Conventions';

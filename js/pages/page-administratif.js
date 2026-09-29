@@ -19,13 +19,27 @@
     '7) Transmise au porteur',
     '8) Archivee'
   ];
+  // Étapes Conventions_statut redéfinies par Antoine le 29/09/2026 (5 → 4 étapes).
   const CONV_STAGES = [
     '1) Convention en redaction',
-    '2) Convention Relecture Partenaire(s)',
-    '3) Convention en signature UB',
-    '4) Convention en signature partenaire',
-    '5) Convention signée de toutes les parties'
+    '2) Convention en relecture',
+    '3) Convention en signature',
+    '4) Convention signée de toutes les parties'
   ];
+  // Anciennes valeurs Choice, tant que des lignes Grist n'ont pas été migrées :
+  // sans ça, un projet portant encore l'ancien libellé disparaîtrait de tous les
+  // volets. Lecture seule — toute écriture utilise les libellés ci-dessus.
+  const CONV_LEGACY_STAGE_INDEX = {
+    '2) Convention Relecture Partenaire(s)': 1,
+    '3) Convention en signature UB': 2,
+    '4) Convention en signature partenaire': 2,
+    '5) Convention signée de toutes les parties': 3
+  };
+  // Colonnes ajoutées le 29/09/2026 (absentes de docs/grist_structure) ; la table
+  // qui les porte (Projets ou Notifications) est déduite des colonnes chargées.
+  const NEXT_STEP_FIELD = 'next_step';
+  const TRANSMISE_FIELD = 'Transmise_signee_au_porteur_le';
+  const LINK_FIELD = 'Lien_convention';
   // 4 états (ajout de "Non relu" le 18/09/2026 — pas de puce remplie, état par
   // défaut avant toute relecture). Les 3 points de la bulle se remplissent un
   // par un jusqu'à l'étape atteinte (0, 1, 2 ou 3 points).
@@ -48,7 +62,11 @@
   const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
   const ICON_VIEW_CARDS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.3"></rect><rect x="14" y="3" width="7" height="7" rx="1.3"></rect><rect x="3" y="14" width="7" height="7" rx="1.3"></rect><rect x="14" y="14" width="7" height="7" rx="1.3"></rect></svg>';
-  const ICON_VIEW_ROWS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>';
+  const ICON_GRIP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"></circle><circle cx="15" cy="6" r="1.7"></circle><circle cx="9" cy="12" r="1.7"></circle><circle cx="15" cy="12" r="1.7"></circle><circle cx="9" cy="18" r="1.7"></circle><circle cx="15" cy="18" r="1.7"></circle></svg>';
+  const ICON_EXTERNAL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+  const ICON_LINK_EDIT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7 21l-4 1 1-4z"></path></svg>';
+  const ICON_LINK_ADD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+  const ICON_VIEW_ROWS ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>';
 
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
@@ -97,13 +115,62 @@
   }
 
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
+  function projectById(id) { return getProjects().find(p => String(p.id) === String(id)); }
   function getNotifications() { return (window.CoreState && CoreState.getTable('Notifications')) || []; }
   function notifRowFor(projectId) { return getNotifications().find(row => String(refId(row.Projet)) === String(projectId)); }
   function notifStageIndex(projectId) {
     const row = notifRowFor(projectId);
     return row ? NOTIF_STAGES.indexOf(text(row.notifications_Statut)) : -1;
   }
-  function convStageIndex(project) { return CONV_STAGES.indexOf(text(project.Conventions_statut)); }
+  function convStageIndex(project) {
+    const value = text(project.Conventions_statut);
+    const idx = CONV_STAGES.indexOf(value);
+    if (idx !== -1) return idx;
+    if (Object.prototype.hasOwnProperty.call(CONV_LEGACY_STAGE_INDEX, value)) return CONV_LEGACY_STAGE_INDEX[value];
+    // Libellé sans numéro d'étape (ex. valeur par défaut de la colonne dans Grist).
+    const bare = normalized(stripOrdinal(value));
+    return bare ? CONV_STAGES.findIndex(stage => normalized(stripOrdinal(stage)) === bare) : -1;
+  }
+
+  // next_step / date de transmission / lien : la table d'origine n'est pas
+  // documentée, on l'infère des colonnes réellement chargées (Projets par
+  // défaut, puis la fiche Notifications du projet).
+  function homeRowFor(project, column) {
+    if (!(column in project)) {
+      const notifRow = notifRowFor(project.id);
+      if (notifRow && column in notifRow) return { table: 'Notifications', row: notifRow };
+    }
+    return { table: 'Projets', row: project };
+  }
+  function readField(project, column) { return homeRowFor(project, column).row[column]; }
+  // Valeur locale mise à jour AVANT l'écriture : un rendu déclenché pendant
+  // l'aller-retour Grist (clic ailleurs) ne doit pas réafficher l'ancienne valeur
+  // — un blur ultérieur l'écraserait alors dans Grist. Annulée si l'écriture échoue.
+  async function writeProjectColumn(project, column, value) {
+    const { table, row } = homeRowFor(project, column);
+    const existed = column in row;
+    const previous = row[column];
+    row[column] = value;
+    try {
+      await writeFields(table, row.id, { [column]: value });
+    } catch (err) {
+      if (existed) row[column] = previous; else delete row[column];
+      throw err;
+    }
+  }
+  // Seuls http(s) sont ouvrables : une valeur saisie directement dans Grist
+  // (ex. "javascript:...") ne doit jamais devenir un href cliquable.
+  function normalizeLink(raw) {
+    const value = text(raw).trim();
+    if (!value) return { value: '' };
+    // "monserveur:8080/doc" est un hôte:port, pas un schéma.
+    const withScheme = /^[a-z][a-z0-9+.-]*:(?!\d+(?:[/?#]|$))/i.test(value) ? value : `https://${value}`;
+    let url;
+    try { url = new URL(withScheme); } catch (err) { return { error: 'Lien invalide' }; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return { error: 'Seuls les liens http(s) sont acceptés' };
+    return { value: url.href };
+  }
+  const safeLink = raw => normalizeLink(raw).value || '';
   function partnerStatusIndex(project, fieldName) {
     const idx = PARTNER_STATUSES.indexOf(text(project[fieldName]));
     return idx === -1 ? 0 : idx;
@@ -150,6 +217,9 @@
   // sélecteur logé dans le bandeau de filtre pour ne pas prendre de hauteur
   // en plus).
   let activeTab = 'notif';
+  // Édition du lien de convention (un seul champ ouvert à la fois), carte glissée.
+  let editingLinkId = null;
+  let draggingCard = null;
 
   // Persistance des volets repliés/masqués (table Grist partagée avec le
   // Kanban Projets, cf. js/pages/page-projets.js — même id de ligne mis en
@@ -266,16 +336,80 @@
     } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
   }
 
-  async function advanceConv(project) {
-    const idx = convStageIndex(project);
-    if (idx === -1 || idx >= CONV_STAGES.length - 1) return;
-    const nextValue = CONV_STAGES[idx + 1];
+  // Glisser-déposer d'une carte vers un autre volet Conventions (remplace le
+  // bouton "Suivant →", demande d'Antoine du 29/09/2026) : permet aussi de
+  // revenir en arrière ou de sauter des étapes.
+  async function moveConv(projectId, targetIdx) {
+    const project = getProjects().find(p => String(p.id) === String(projectId));
+    if (!project || !(targetIdx >= 0 && targetIdx < CONV_STAGES.length)) return;
+    if (convStageIndex(project) === targetIdx) return;
+    const nextValue = CONV_STAGES[targetIdx];
     try {
       await writeFields('Projets', project.id, { Conventions_statut: nextValue });
       setProjectField(project.id, 'Conventions_statut', nextValue);
       CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(nextValue)}`);
       render();
     } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
+  }
+
+  async function saveProjectColumn(project, column, value, errorLabel) {
+    if (text(readField(project, column)) === text(value)) return true;
+    try {
+      await writeProjectColumn(project, column, value);
+      return true;
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'enregistrement ${errorLabel} (${err.message})`, true);
+      return false;
+    }
+  }
+  const saveNextStep = (project, value) => saveProjectColumn(project, NEXT_STEP_FIELD, value, 'du next step');
+  async function saveTransmissionDate(project, inputValue) {
+    const epoch = inputValue ? Math.floor(new Date(`${inputValue}T00:00:00Z`).getTime() / 1000) : null;
+    if (inputValue && Number.isNaN(epoch)) return;
+    // Le champ date déclenche "change" à chaque frappe complète (0002, 0020, 0202… avant 2026) :
+    // seules les années plausibles sont enregistrées.
+    if (inputValue && !(Number(inputValue.split('-')[0]) >= 1900 && Number(inputValue.split('-')[0]) <= 2100)) return;
+    if ((CoreUtils.gristDateToInput(readField(project, TRANSMISE_FIELD)) || '') === (inputValue || '')) return;
+    try {
+      await writeProjectColumn(project, TRANSMISE_FIELD, epoch);
+    } catch (err) { CoreUtils.showToast(`Échec de l'enregistrement de la date (${err.message})`, true); }
+  }
+  // Seule la cellule du lien est réécrite (jamais tout l'arbre) : un rendu complet
+  // déclenché par le blur détacherait la cible du clic suivant, qui serait perdu.
+  const findLinkCell = projectId => Array.from(document.querySelectorAll('#admin-col-conv [data-link-cell]')).find(cell => cell.dataset.linkCell === String(projectId));
+  function refreshLinkCell(project, focus) {
+    const cell = findLinkCell(project.id);
+    if (!cell) return;
+    cell.outerHTML = linkCell(project);
+    const fresh = findLinkCell(project.id);
+    if (!fresh || !focus) return;
+    const target = fresh.querySelector(focus === 'input' ? '[data-link-input]' : '[data-edit-link]');
+    if (target) { target.focus(); if (focus === 'input') target.select(); }
+  }
+  function openLinkEditor(project) {
+    editingLinkId = String(project.id);
+    refreshLinkCell(project, 'input');
+  }
+  function cancelLinkEditor(project, focus) {
+    if (editingLinkId !== String(project.id)) return;
+    editingLinkId = null;
+    refreshLinkCell(project, focus);
+  }
+  // keyboard : validation par Entrée (on garde la saisie si le lien est invalide et on
+  // rend le focus au bouton après validation) ; sinon sortie du champ à la souris.
+  async function commitLink(project, raw, keyboard) {
+    if (editingLinkId !== String(project.id)) return; // déjà validé ou annulé (Entrée/Échap puis blur)
+    const parsed = normalizeLink(raw);
+    if (parsed.error) {
+      CoreUtils.showToast(parsed.error, true);
+      if (keyboard) return;
+      cancelLinkEditor(project);
+      return;
+    }
+    editingLinkId = null;
+    const saving = saveProjectColumn(project, LINK_FIELD, parsed.value, 'du lien');
+    refreshLinkCell(project, keyboard ? 'edit' : null);
+    if (!(await saving)) refreshLinkCell(project);
   }
 
   async function cyclePartner(project, fieldName) {
@@ -333,18 +467,42 @@
       `</div>`;
   }
 
+  function nextStepBlock(project) {
+    return `<label class="admin-comment admin-nextstep"><span class="admin-field-label">Next step</span>` +
+      `<textarea data-nextstep-project="${escape(project.id)}" rows="${viewMode === 'rows' ? 1 : 2}" placeholder="Prochaine étape à suivre…">${escape(readField(project, NEXT_STEP_FIELD))}</textarea></label>`;
+  }
+
+  function linkCell(project) {
+    const id = escape(project.id);
+    const stored = text(readField(project, LINK_FIELD));
+    if (editingLinkId === String(project.id)) {
+      return `<div class="admin-link-cell" data-link-cell="${id}"><input type="url" class="admin-link-input" data-link-input="${id}" value="${escape(stored)}" placeholder="https://…" aria-label="Lien de la convention"></div>`;
+    }
+    const href = safeLink(stored);
+    const editLabel = href ? 'Modifier le lien de la convention' : 'Ajouter le lien de la convention';
+    return `<div class="admin-link-cell" data-link-cell="${id}">` +
+      (href ? `<a class="admin-icon-btn" href="${escape(href)}" target="_blank" rel="noopener noreferrer" title="Ouvrir la convention" aria-label="Ouvrir la convention">${ICON_EXTERNAL}</a>` : '') +
+      `<button type="button" class="admin-icon-btn${href ? '' : ' is-empty'}" data-edit-link="${id}" title="${editLabel}" aria-label="${editLabel}">${href ? ICON_LINK_EDIT : ICON_LINK_ADD}</button></div>`;
+  }
+
+  // Dernière étape uniquement : badge + date d'envoi de la convention signée au porteur.
+  function signedCell(project) {
+    return `<div class="admin-signed-cell"><span class="admin-done-badge">Signée</span>` +
+      `<label class="admin-date"><span class="admin-field-label">Transmise au porteur le</span>` +
+      `<input type="date" data-transmise-project="${escape(project.id)}" value="${escape(CoreUtils.gristDateToInput(readField(project, TRANSMISE_FIELD)))}"></label></div>`;
+  }
+
   function convCard(project) {
-    const idx = convStageIndex(project);
-    const isLast = idx === CONV_STAGES.length - 1;
+    const isLast = convStageIndex(project) === CONV_STAGES.length - 1;
     const partners = partnersFor(project);
-    return `<div class="admin-card" data-project-id="${escape(project.id)}">` +
+    return `<div class="admin-card admin-card-conv" data-project-id="${escape(project.id)}">` +
+      `<span class="admin-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
       `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div>` +
-      commentBlock(project) +
-      (isLast
-        ? '<span class="admin-done-badge">Signée</span>'
-        : `<button type="button" class="admin-advance-btn" data-advance-conv="${escape(project.id)}" title="Étape suivante" aria-label="Étape suivante">Suivant →</button>`) +
+      `<div class="admin-notes">${commentBlock(project)}${nextStepBlock(project)}</div>` +
+      linkCell(project) +
+      (isLast ? signedCell(project) : '') +
       `</div>`;
   }
 
@@ -356,7 +514,7 @@
       const collapsedCls = state.collapsed ? ' is-collapsed' : '';
       const label = stripOrdinal(stageLabel);
       return { key, idx, label, collapsedCls, count: items.length, state,
-        html: `<section class="admin-panel${collapsedCls}" aria-labelledby="admin-panel-${escape(key)}">` +
+        html: `<section class="admin-panel${collapsedCls}"${side === 'conv' ? ` data-drop-panel="${escape(key)}"` : ''} aria-labelledby="admin-panel-${escape(key)}">` +
           `<header class="admin-panel-header"><h4 id="admin-panel-${escape(key)}">${escape(label)}</h4>` +
           `<span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
           `<button type="button" class="kanban-icon-btn" data-toggle-panel="${escape(key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} le volet ${escape(label)}">${ICON_CHEVRON}</button>` +
@@ -406,9 +564,16 @@
         saveAdministratifUserPreferences();
       }));
       root.querySelectorAll('[data-advance-notif]').forEach(btn => btn.addEventListener('click', () => advanceNotif(btn.dataset.advanceNotif, btn.dataset.acronym)));
-      root.querySelectorAll('[data-advance-conv]').forEach(btn => btn.addEventListener('click', () => {
-        const project = getProjects().find(p => String(p.id) === String(btn.dataset.advanceConv));
-        if (project) advanceConv(project);
+      root.querySelectorAll('[data-nextstep-project]').forEach(textarea => textarea.addEventListener('blur', () => {
+        // Non modifié depuis le rendu : rien à écrire (évite de réécrire une valeur
+        // que le navigateur normalise à l'affichage, ex. CRLF ou saut de ligne initial).
+        if (textarea.value === textarea.defaultValue) return;
+        const project = projectById(textarea.dataset.nextstepProject);
+        if (project) saveNextStep(project, textarea.value);
+      }));
+      root.querySelectorAll('[data-transmise-project]').forEach(input => input.addEventListener('change', () => {
+        const project = projectById(input.dataset.transmiseProject);
+        if (project) saveTransmissionDate(project, input.value);
       }));
       root.querySelectorAll('[data-cycle-partner]').forEach(btn => btn.addEventListener('click', () => {
         const [projectId, fieldName] = btn.dataset.cyclePartner.split(':');
@@ -523,7 +688,78 @@
     btn.setAttribute('aria-label', nextIsCards ? 'Afficher en cartes' : 'Afficher en tableau');
   }
 
+  const DRAG_TYPE = 'application/x-suivi-convention';
+  const carriesConvCard = event => !!(event.dataTransfer && Array.from(event.dataTransfer.types || []).includes(DRAG_TYPE));
+
+  // Délégation sur la racine (persistante) : render() reconstruit tout son contenu,
+  // et seule une carte portant DRAG_TYPE est acceptée (jamais un fichier ou un texte
+  // glissé de l'extérieur). Édition du lien : mêmes délégations.
+  function initConvDelegation() {
+    const root = document.getElementById('admin-col-conv');
+    if (!root) return;
+    const closest = (event, selector) => (event.target && event.target.closest) ? event.target.closest(selector) : null;
+    const clearDragFeedback = () => {
+      draggingCard = null;
+      root.querySelectorAll('.is-drop-target, .is-dragging').forEach(el => el.classList.remove('is-drop-target', 'is-dragging'));
+    };
+    root.addEventListener('dragstart', event => {
+      const handle = closest(event, '[data-drag-project]');
+      if (!handle || !event.dataTransfer) return;
+      const dt = event.dataTransfer;
+      dt.effectAllowed = 'move';
+      dt.setData(DRAG_TYPE, handle.dataset.dragProject);
+      dt.setData('text/plain', handle.dataset.dragProject); // Firefox exige au moins une donnée standard
+      const card = handle.closest('.admin-card');
+      if (card && dt.setDragImage) { try { dt.setDragImage(card, 14, 14); } catch (err) { /* aperçu par défaut */ } }
+      draggingCard = card;
+      // Après le retour du gestionnaire : l'aperçu de glisser est capturé avant l'estompage.
+      if (card) setTimeout(() => { if (draggingCard === card) card.classList.add('is-dragging'); }, 0);
+    });
+    root.addEventListener('dragover', event => {
+      const panel = closest(event, '[data-drop-panel]');
+      if (!panel || !carriesConvCard(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (!panel.classList.contains('is-drop-target')) {
+        root.querySelectorAll('.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
+        panel.classList.add('is-drop-target');
+      }
+    });
+    root.addEventListener('dragleave', event => {
+      const panel = closest(event, '[data-drop-panel]');
+      if (panel && !panel.contains(event.relatedTarget)) panel.classList.remove('is-drop-target');
+    });
+    root.addEventListener('drop', event => {
+      const panel = closest(event, '[data-drop-panel]');
+      if (!panel || !carriesConvCard(event)) return;
+      event.preventDefault();
+      const projectId = event.dataTransfer.getData(DRAG_TYPE);
+      clearDragFeedback();
+      if (projectId) moveConv(projectId, Number(panel.dataset.dropPanel.split(':')[1]));
+    });
+    root.addEventListener('dragend', clearDragFeedback);
+
+    root.addEventListener('click', event => {
+      const btn = closest(event, '[data-edit-link]');
+      const project = btn && projectById(btn.dataset.editLink);
+      if (project) openLinkEditor(project);
+    });
+    root.addEventListener('keydown', event => {
+      const input = closest(event, '[data-link-input]');
+      const project = input && projectById(input.dataset.linkInput);
+      if (!project) return;
+      if (event.key === 'Enter') { event.preventDefault(); commitLink(project, input.value, true); }
+      else if (event.key === 'Escape') { event.preventDefault(); cancelLinkEditor(project, 'edit'); }
+    });
+    root.addEventListener('focusout', event => {
+      const input = closest(event, '[data-link-input]');
+      const project = input && projectById(input.dataset.linkInput);
+      if (project) commitLink(project, input.value, false);
+    });
+  }
+
   function init() {
+    initConvDelegation();
     renderFilters();
     setupCombo('admin-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
     setupCombo('admin-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances');

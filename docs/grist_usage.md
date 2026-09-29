@@ -246,6 +246,23 @@ qu'une valeur libre serait enregistrée. Au blur, si aucune suggestion n'a été
 sélectionnée, le champ est maintenant vidé : seul un objet réellement choisi dans la
 liste peut être poussé vers Grist.
 
+### 4. `Conventions_statut` redéfini à 4 étapes — la formule `Statut_Macro` reste à aligner côté Grist (29 septembre 2026)
+
+Les étapes de `Projets.Conventions_statut` sont désormais « 1) Convention en redaction »,
+« 2) Convention en relecture », « 3) Convention en signature » et « 4) Convention signée
+de toutes les parties » (avant : 5 étapes, dont « 5) Convention signée de toutes les
+parties »). Le widget accepte encore les anciens libellés en lecture et n'écrit que les
+nouveaux ; le classement du Kanban compare le libellé sans son numéro.
+
+En revanche la formule Grist `Statut_Macro` (export `docs/grist_structure`) compare encore
+`rec.Conventions_statut` au littéral `"5) Convention signée de toutes les parties"` : tant
+qu'elle n'est pas mise à jour vers `"4) …"`, un projet à convention signée reçoit le
+libellé de convention comme `Statut_Macro` et disparaît du Kanban. Action Grist (les
+formules ne sont jamais écrites par le widget), pas un changement de code. Les colonnes
+`next_step`, `Transmise_signee_au_porteur_le` et `Lien_convention` (page Administratif,
+onglet Conventions) ne figurent pas non plus dans l'export ; le widget déduit leur table
+(`Projets` par défaut, sinon la fiche `Notifications` du projet) des colonnes chargées.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies

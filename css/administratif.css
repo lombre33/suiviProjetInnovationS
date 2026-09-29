@@ -81,3 +81,40 @@
 .admin-done-badge { align-self:flex-start; display:inline-flex; align-items:center; height:26px; padding:0 12px; border-radius:999px; background:var(--success-soft); color:var(--success); font-size:11.5px; font-weight:800; flex:none; }
 .mode-rows .admin-advance-btn { height:28px; padding:0 12px; font-size:11.5px; }
 .mode-rows .admin-done-badge { height:24px; padding:0 11px; font-size:11px; }
+
+/* Conventions (29/09/2026) : glisser-déposer entre volets à la place de
+   "Suivant →", second champ "Next step" sous le commentaire, lien externe
+   vers la convention, date de transmission (dernière étape uniquement). */
+.admin-card { position:relative; }
+.admin-card.is-dragging { opacity:.4; }
+.admin-drag-handle { display:inline-flex; align-items:center; justify-content:center; flex:none; width:18px; align-self:stretch; color:var(--text-muted); cursor:grab; border-radius:var(--radius-sm); user-select:none; }
+.admin-drag-handle:hover { color:var(--text); background:var(--surface-sunken); }
+.admin-drag-handle:active { cursor:grabbing; }
+.mode-cards .admin-drag-handle { position:absolute; top:8px; right:8px; width:22px; height:22px; align-self:auto; }
+.admin-panel.is-drop-target { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-soft); }
+
+.admin-notes { display:flex; flex-direction:column; gap:6px; min-width:0; width:100%; }
+.mode-rows .admin-notes { flex:1 1 220px; width:auto; min-width:160px; gap:4px; }
+/* Carte Conventions en ligne : beaucoup de champs → passe à la ligne plutôt que
+   de déborder (et d'être rognée par le volet) quand le widget est étroit. */
+.mode-rows .admin-card-conv { flex-wrap:wrap; }
+.admin-notes .admin-comment { flex:none; }
+.admin-field-label { display:block; margin-bottom:3px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+.mode-rows .admin-nextstep { display:flex; align-items:center; gap:8px; }
+.mode-rows .admin-nextstep .admin-field-label { flex:none; margin:0; white-space:nowrap; }
+.mode-rows .admin-nextstep textarea { width:auto; flex:1 1 0; min-width:0; }
+
+.admin-link-cell { display:flex; align-items:center; gap:2px; flex:none; }
+.admin-icon-btn { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:var(--radius-sm); color:var(--text-muted); cursor:pointer; }
+.admin-icon-btn:hover { background:var(--surface-sunken); color:var(--accent-hover); }
+.admin-icon-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+a.admin-icon-btn { color:var(--accent-hover); }
+.admin-link-input { box-sizing:border-box; width:220px; height:30px; padding:0 10px; border:1px solid var(--accent); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12px; box-shadow:0 0 0 3px var(--accent-soft); }
+.admin-link-input:focus { outline:none; }
+
+.admin-signed-cell { display:flex; align-items:center; gap:10px; flex:none; }
+.mode-cards .admin-signed-cell { flex-wrap:wrap; }
+.admin-date { display:flex; flex-direction:column; gap:1px; }
+.admin-date .admin-field-label { margin:0; }
+.admin-date input { height:28px; padding:0 8px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12px; }
+.admin-date input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }

@@ -44,6 +44,21 @@
       assertTrue(!!cardIn(columnSection('Projet en cours'), 'SIGNEX'), 'SIGNEX doit retomber en Projet en cours (Statut_Macro=En cours)');
     });
 
+    it('reconnaît "Convention signée de toutes les parties" avec l\'ancien (5) comme le nouveau (4) numéro d\'étape', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      const signex = tables.Projets.find(p => p.Acronyme === 'SIGNEX');
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      for (const value of ['4) Convention signée de toutes les parties', '5) Convention signée de toutes les parties']) {
+        signex.Conventions_statut = value;
+        window.renderProjectsKanban();
+        assertFalse(!!cardIn(columnSection('Conventions'), 'SIGNEX'), `SIGNEX (${value}) ne doit pas rester en Conventions`);
+        assertTrue(!!cardIn(columnSection('Projet en cours'), 'SIGNEX'), `SIGNEX (${value}) doit retomber en Projet en cours`);
+      }
+      signex.Conventions_statut = '3) Convention en signature';
+      window.renderProjectsKanban();
+      assertTrue(!!cardIn(columnSection('Conventions'), 'SIGNEX'), 'une convention encore en signature reste en Conventions');
+    });
+
     it('un Statut_Macro non reconnu n\'apparaît dans aucune colonne (pas de colonne "autre")', async function () {
       await loadFixtureState();
       const allCards = document.querySelectorAll('#projects-kanban .project-card');
