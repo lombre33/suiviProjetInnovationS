@@ -5,7 +5,7 @@
  *
  * Le widget imbriqué ne peut pas parler à Grist directement (Grist n'écoute que l'iframe de CE widget) : tout passe
  * par js/core/grist-bridge.js, qui lui relaie l'API document et lui présente la ligne du projet comme
- * enregistrement sélectionné (le "select by" d'un widget lié).
+ * enregistrement sélectionné (le "select by" d'un widget lié). publipostage+ s'ouvre en mode Lecture (cf. keepReadMode).
  */
 (function () {
   'use strict';
@@ -20,9 +20,15 @@
   const ADMIN_VIEW_ID = 'view-administratif';
   const REDACTION_VIEW_ID = 'view-redaction';
 
+  // Bouton « Mode lecture » de publipostage+ (index.html de lombre33/publipostageGrist), piloté pour l'ouvrir en Lecture (cf. keepReadMode).
+  const READ_BUTTON_ID = 'btn-mode-read';
+
   const PHASE_LABELS = { waiting: 'en attente du widget', ready: 'connecté', rejected: 'origine refusée' };
 
-  const ui = { frame: null, bridge: null, target: null, readyTimer: null, timedOut: false, projectId: null, needsReload: false };
+  const ui = {
+    frame: null, bridge: null, target: null, readyTimer: null, timedOut: false, projectId: null, needsReload: false,
+    readModeTimer: null, readModeNote: null
+  };
 
   const byId = id => document.getElementById(id);
   const findProject = id => ((window.CoreState && CoreState.getTable('Projets')) || []).find(p => String(p.id) === String(id));
@@ -84,6 +90,7 @@
       `Enregistrement sélectionné : ${LINKED_TABLE} #${ui.projectId == null ? '—' : ui.projectId}`,
       `État : ${state ? (PHASE_LABELS[state.phase] || state.phase) : 'non démarré'}`,
       ...(hint ? [hint] : []),
+      `Mode Lecture par défaut : ${ui.readModeNote || 'non démarré'}`,
       ''
     ];
     const entries = ui.bridge ? ui.bridge.getLog().slice(-60).map(e => `${e.at.slice(11, 19)} ${e.kind.padEnd(6)} ${e.text}`) : [];
@@ -111,6 +118,50 @@
     renderDiag();
   }
 
+  // --- Mode Lecture par défaut (demande d'Antoine du 29/09/2026) ---
+  // publipostage+ démarre toujours en mode Édition : son init() (js/main.js) se termine par switchMode('edit') et il n'a aucun
+  // paramètre de démarrage. Son site GitHub Pages étant de même origine que celui de ce widget (même compte), on pilote son
+  // bouton « Mode lecture » : le clic ne prend effet qu'une fois le bouton branché (en cours de démarrage), et le switchMode('edit')
+  // final le ramènerait en Édition ; on le reclique donc tant qu'il n'est pas actif, jusqu'à readModeGiveUpMs après l'ouverture
+  // (aucun autre code de publipostage+ ne repasse seul en Édition). Dès que la personne agit dans publipostage+ (souris, clavier),
+  // son choix prime et on ne touche plus à rien. Sans effet, et journalisé, si la page est d'une autre origine ou sans ce bouton.
+  function frameDocument(frame) {
+    try { return frame.contentDocument; } catch (err) { return null; }
+  }
+
+  function setReadModeNote(note) {
+    if (ui.readModeNote === note) return;
+    ui.readModeNote = note;
+    renderDiag();
+  }
+
+  function keepReadMode(frame) {
+    const startedAt = Date.now();
+    let acted = false;
+    let listenedDoc = null;
+    const onAct = () => { acted = true; };
+    const stop = note => { clearInterval(ui.readModeTimer); ui.readModeTimer = null; setReadModeNote(note); };
+    const tick = () => {
+      if (!frame.isConnected) { stop('arrêté : iframe retirée'); return; }
+      const doc = frameDocument(frame);
+      if (!doc) { stop('impossible : page imbriquée d\'une autre origine'); return; }
+      if (doc !== listenedDoc) { // la première lecture est parfois l'about:blank d'avant la navigation
+        listenedDoc = doc;
+        ['pointerdown', 'keydown'].forEach(type => doc.addEventListener(type, onAct, true));
+      }
+      if (acted) { stop('arrêté : la personne agit dans publipostage+'); return; }
+      const button = doc.getElementById(READ_BUTTON_ID);
+      const active = !!button && button.classList.contains('active');
+      if (button && !active) button.click(); // sans effet tant que publipostage+ n'a pas branché son bouton : prochain passage
+      setReadModeNote(active ? 'appliqué' : 'en attente de publipostage+');
+      if (Date.now() - startedAt >= api.readModeGiveUpMs) {
+        stop(active ? 'appliqué' : (button ? 'non appliqué : délai dépassé' : 'bouton « Mode lecture » introuvable'));
+      }
+    };
+    clearInterval(ui.readModeTimer);
+    ui.readModeTimer = setInterval(tick, api.readModeTickMs);
+  }
+
   // --- Iframe + pont (créés à la première ouverture puis conservés : publipostage+ garde son état d'une visite à l'autre) ---
   function ensureFrame() {
     if (ui.frame) return;
@@ -134,6 +185,7 @@
       onWrite: () => { ui.needsReload = true; flushReload(); }
     });
     frame.src = ui.target.url;
+    keepReadMode(frame);
     ui.readyTimer = setTimeout(() => {
       if (ui.bridge && !ui.bridge.getState().ready && ui.bridge.getState().phase !== 'rejected') {
         ui.timedOut = true;
@@ -145,6 +197,9 @@
 
   function reset() {
     clearTimeout(ui.readyTimer);
+    clearInterval(ui.readModeTimer);
+    ui.readModeTimer = null;
+    ui.readModeNote = null;
     if (ui.bridge) ui.bridge.detach();
     if (ui.frame) ui.frame.remove();
     ui.frame = null;
@@ -215,6 +270,10 @@
   const api = {
     open, close, reset, resolveTarget,
     readyTimeoutMs: 10000, // délai avant d'afficher "ne répond pas" (modifiable, notamment par les tests)
+    // Pas et durée du pilotage du mode Lecture (cf. keepReadMode) : le démarrage de publipostage+ charge TipTap depuis esm.sh puis
+    // attend jusqu'à 5 s la lecture des droits d'accès avant son switchMode('edit') final.
+    readModeTickMs: 150,
+    readModeGiveUpMs: 40000,
     get frame() { return ui.frame; },
     get bridge() { return ui.bridge; }
   };

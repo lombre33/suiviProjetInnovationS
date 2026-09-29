@@ -37,6 +37,8 @@
   function resetPage() {
     window.PageRedaction.reset();
     window.PageRedaction.readyTimeoutMs = 10000;
+    window.PageRedaction.readModeTickMs = 150;
+    window.PageRedaction.readModeGiveUpMs = 40000;
     history.replaceState(null, '', location.pathname);
     byId('view-administratif').classList.remove('hidden');
     byId('view-redaction').classList.add('hidden');
@@ -269,6 +271,104 @@
         assertEqual(window.PageRedaction.frame, null);
         assertTrue(byId('view-redaction').classList.contains('hidden'));
         assertFalse(byId('toast').classList.contains('hidden'), 'un message prévient l\'utilisateur');
+      });
+    });
+  });
+
+  // publipostage+ démarre toujours en Édition (js/main.js:init finit par switchMode('edit')) : la page pilote son bouton « Mode lecture ».
+  // Le faux widget (?modeui=1) reproduit ce démarrage : bouton branché en cours de route (?attachAfter), switchMode('edit') final (?finalAfter).
+  describe('Rédaction — mode Lecture par défaut', function () {
+    const modeWidget = (query = '') => `${fakeWidget()}?modeui=1${query}`;
+    const fastReadMode = () => { window.PageRedaction.readModeTickMs = 15; window.PageRedaction.readModeGiveUpMs = 4000; };
+    const readAfterFinalEdit = () => nested() && nested().modeSwitches && nested().modeSwitches.includes('edit') && nested().mode === 'read';
+    const personActsIn = frame => frame.contentDocument.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+    it('publipostage+ s\'ouvre en mode Lecture, même quand la fin de son démarrage le ramène d\'abord en Édition', async function () {
+      await withPage(modeWidget('&attachAfter=60&finalAfter=400'), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        await waitFor(readAfterFinalEdit, 'Lecture rétablie après le switchMode("edit") final');
+        await wait(200);
+        assertEqual(nested().mode, 'read', 'reste en Lecture');
+        fireMouse(byId('redaction-status'), 'click');
+        assertIncludes(byId('redaction-log').textContent, 'Mode Lecture par défaut : appliqué');
+      });
+    });
+
+    it('le clic est repris tant que publipostage+ n\'a pas branché son bouton', async function () {
+      await withPage(modeWidget('&attachAfter=500&finalAfter=800'), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        await waitFor(() => nested() && nested().modeSwitches, 'faux publipostage+ chargé');
+        assertDeepEqual(nested().modeSwitches, [], 'avant le branchement du bouton, les clics ne font rien');
+        await waitFor(readAfterFinalEdit, 'Lecture rétablie', 5000);
+      });
+    });
+
+    it('dès que la personne agit dans publipostage+, on ne touche plus à son mode (même si le démarrage la ramène en Édition)', async function () {
+      await withPage(modeWidget('&attachAfter=60&finalAfter=700'), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        await waitFor(() => nested() && nested().mode === 'read', 'Lecture appliquée');
+        personActsIn(window.PageRedaction.frame);
+        await waitFor(() => nested().modeSwitches.includes('edit'), 'fin du démarrage de publipostage+', 5000);
+        await wait(300);
+        assertEqual(nested().mode, 'edit', 'le switchMode("edit") final n\'est pas contrarié');
+        fireMouse(byId('redaction-status'), 'click');
+        assertIncludes(byId('redaction-log').textContent, 'Mode Lecture par défaut : arrêté : la personne agit dans publipostage+');
+      });
+    });
+
+    it('ce que la personne choisit ensuite (Édition) est respecté, y compris en changeant de projet', async function () {
+      await withPage(modeWidget('&attachAfter=40&finalAfter=200'), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        await waitFor(readAfterFinalEdit, 'Lecture appliquée');
+        const frame = window.PageRedaction.frame;
+        personActsIn(frame);
+        frame.contentDocument.getElementById('btn-mode-edit').click();
+        await window.PageRedaction.close();
+        clickRedact('INNOVX');
+        await wait(300);
+        assertEqual(nested().mode, 'edit');
+      });
+    });
+
+    it('« Recharger » rouvre publipostage+ en mode Lecture', async function () {
+      await withPage(modeWidget('&attachAfter=40&finalAfter=200'), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        await waitFor(readAfterFinalEdit, 'Lecture appliquée');
+        const first = window.PageRedaction.frame;
+        fireMouse(byId('redaction-status'), 'click');
+        fireMouse(byId('redaction-reload'), 'click');
+        assertTrue(window.PageRedaction.frame !== first, 'nouvelle iframe');
+        await waitFor(readAfterFinalEdit, 'Lecture appliquée après rechargement');
+      });
+    });
+
+    it('page imbriquée d\'une autre origine (sandbox) : aucun pilotage, aucune erreur, la raison est au journal', async function () {
+      const query = '&attachAfter=30&finalAfter=100000';
+      await withPage(modeWidget(query), async () => {
+        fastReadMode();
+        clickRedact('NOTIFY');
+        const frame = window.PageRedaction.frame;
+        await waitFor(() => nested() && nested().mode === 'read', 'Lecture appliquée');
+        fireMouse(byId('redaction-status'), 'click');
+        frame.setAttribute('sandbox', 'allow-scripts'); // origine "null" : le document n'est plus lisible depuis ce widget
+        frame.src = `${modeWidget(query)}&sandboxé=1`;
+        await waitFor(() => byId('redaction-log').textContent.includes('Mode Lecture par défaut : impossible : page imbriquée d\'une autre origine'),
+          'la raison est au journal');
+      });
+    });
+
+    it('page sans bouton « Mode lecture » : rien ne casse, le journal le dit après le délai', async function () {
+      await withPage(silentWidget(), async () => {
+        window.PageRedaction.readModeTickMs = 15;
+        window.PageRedaction.readModeGiveUpMs = 150;
+        clickRedact('INNOVX');
+        fireMouse(byId('redaction-status'), 'click');
+        await waitFor(() => byId('redaction-log').textContent.includes('bouton « Mode lecture » introuvable'), 'bouton introuvable au journal');
       });
     });
   });

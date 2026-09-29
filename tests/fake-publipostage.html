@@ -24,5 +24,37 @@
     grist.getTable().getTableId().then(function (id) { nested.tableId = id; });
   })();
 </script>
+<script>
+  // Modes Édition/Lecture de publipostage+ (js/main.js), seulement avec ?modeui=1. Reproduit son démarrage réel : Édition par
+  // défaut, bouton « Mode lecture » branché EN COURS de démarrage (?attachAfter=ms), puis un switchMode('edit') final
+  // (?finalAfter=ms) qui ramène en Édition ce qu'un clic plus tôt avait passé en Lecture.
+  (function () {
+    var params = new URLSearchParams(location.search);
+    if (!params.has('modeui')) return;
+    var nested = window.__NESTED__;
+    nested.mode = 'edit';
+    nested.modeSwitches = [];
+    var edit = document.createElement('button');
+    edit.id = 'btn-mode-edit';
+    edit.className = 'active';
+    edit.textContent = 'Mode édition';
+    var read = document.createElement('button');
+    read.id = 'btn-mode-read';
+    read.textContent = 'Mode lecture';
+    document.body.appendChild(edit);
+    document.body.appendChild(read);
+    function switchMode(mode) {
+      nested.mode = mode;
+      nested.modeSwitches.push(mode);
+      edit.classList.toggle('active', mode === 'edit');
+      read.classList.toggle('active', mode === 'read');
+    }
+    setTimeout(function () {
+      edit.addEventListener('click', function () { switchMode('edit'); });
+      read.addEventListener('click', function () { switchMode('read'); });
+    }, Number(params.get('attachAfter') || 50));
+    setTimeout(function () { switchMode('edit'); }, Number(params.get('finalAfter') || 250));
+  })();
+</script>
 </body>
 </html>
