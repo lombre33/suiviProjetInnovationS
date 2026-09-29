@@ -311,6 +311,9 @@
       `<textarea data-comment-project="${escape(project.id)}" rows="${viewMode === 'rows' ? 2 : 3}" placeholder="Commentaire libre…">${escape(project.comentaire_general_Suivi_projet)}</textarea></label>`;
   }
 
+  // Bouton "Rédiger" : ouvre la page Rédaction (publipostage+ imbriqué). Le clic est géré par js/pages/page-redaction.js, par délégation.
+  const redactButton = project => `<button type="button" class="admin-advance-btn admin-redact-btn" data-redact-notif="${escape(project.id)}" title="Rédiger la notification" aria-label="Rédiger la notification"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7 21l-4 1 1-4z"></path></svg>Rédiger</button>`;
+
   function notifCard(project) {
     const idx = notifStageIndex(project.id);
     const isLast = idx === NOTIF_STAGES.length - 1;
@@ -323,7 +326,7 @@
       `<span class="admin-card-caption">${escape(holder)}</span></button>` +
       `<div class="admin-card-badges">${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
       `${cto ? `<span class="admin-cto-badge">${escape(cto)}</span>` : ''}</div>` +
-      commentBlock(project) +
+      commentBlock(project) + redactButton(project) +
       (isLast
         ? '<span class="admin-done-badge">Archivée</span>'
         : `<button type="button" class="admin-advance-btn" data-advance-notif="${escape(project.id)}" data-acronym="${escape(project.Acronyme || project.Projet || '')}" title="Étape suivante" aria-label="Étape suivante">Suivant →</button>`) +

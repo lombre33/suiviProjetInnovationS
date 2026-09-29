@@ -77,6 +77,18 @@
     return new Promise(resolve => setTimeout(resolve, ms));
   };
 
+  // Attend qu'une condition devienne vraie (échanges asynchrones avec une iframe, minuteries...) ; rejette avec `label` au bout du délai.
+  global.waitFor = async function (check, label, timeoutMs = 4000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      let value = false;
+      try { value = check(); } catch (err) { value = false; }
+      if (value) return value;
+      if (Date.now() > deadline) throw new Error(`Délai dépassé : ${label}`);
+      await global.wait(20);
+    }
+  };
+
   global.runAllTests = async function () {
     const results = [];
     for (const suite of suites) {

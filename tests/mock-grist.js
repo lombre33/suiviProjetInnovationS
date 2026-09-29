@@ -78,9 +78,21 @@
     return { colId };
   }
 
+  // Options du widget (WidgetAPI de Grist) : null = aucune, comme activeCustomOptions côté Grist. Le pont Grist -> widget
+  // imbriqué (js/core/grist-bridge.js) y range celles de publipostage+ sous une clé dédiée.
+  let widgetOptions = null;
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
   global.grist = {
     ready: async function () { return undefined; },
+    getOption: async function (key) { return widgetOptions && hasOwn(widgetOptions, key) ? widgetOptions[key] : undefined; },
+    setOption: async function (key, value) { widgetOptions = Object.assign({}, widgetOptions, { [key]: value }); },
+    getOptions: async function () { return widgetOptions; },
+    setOptions: async function (options) { widgetOptions = Object.assign({}, options); },
+    clearOptions: async function () { widgetOptions = null; },
     docApi: {
+      getDocName: async function () { return 'Document de test'; },
+      getAccessToken: async function () { return { token: 'jeton-de-test', baseUrl: 'http://127.0.0.1/api/docs/test', ttlMsecs: 60000 }; },
       fetchTable: async function (name) {
         const table = store[name];
         // Real Grist rejects/omits unknown tables; CoreGrist.loadAllTables() already
@@ -88,7 +100,8 @@
         if (!table) throw new Error(`Mock Grist: unknown table ${name}`);
         return JSON.parse(JSON.stringify(table));
       },
-      listTables: async function () { return Object.keys(store); },
+      // Comme Grist : les tables de métadonnées (_grist_*) se lisent avec fetchTable mais ne sont pas listées.
+      listTables: async function () { return Object.keys(store).filter(name => !name.startsWith('_grist_')); },
       applyUserActions: async function (actions) {
         const retValues = actions.map(function (action) {
           const type = action[0];
@@ -103,12 +116,18 @@
     }
   };
 
+  // Installe/remplace une table du magasin (ex. les métadonnées _grist_Tables* du test du pont Grist).
+  global.__mockSetTable = function (name, table) { store[name] = JSON.parse(JSON.stringify(table)); };
+  global.__mockWidgetOptions = function () { return widgetOptions; };
+  global.__mockSetWidgetOptions = function (options) { widgetOptions = options; };
+
   // Full reset between tests: fresh fixture data, cleared call log, cleared app state.
   // Also clears the localStorage key page-projets.js uses to remember "my"
   // Preferences_Widget row id across page loads (see loadUserPreferences()) —
   // without this, a row created by one test would leak into the next.
   global.__resetMockGrist = function () {
     store = cloneFixtures();
+    widgetOptions = null;
     global.__TEST_CALLS__.length = 0;
     try { localStorage.removeItem('suiviProjetInnovationS:prefsRowId'); } catch (err) { /* ignore */ }
     if (global.CoreState && typeof global.CoreState.clearState === 'function') {

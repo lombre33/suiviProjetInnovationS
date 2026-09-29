@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Faux publipostage+ (tests du pont Grist)</title>
+</head>
+<body>
+<!-- Widget imbriqué de test. Il charge le VRAI client grist-plugin-api de Grist (vendor/, cf. vendor/README.md) et s'abonne comme le
+     fait publipostage+ (js/grist-api.js de lombre33/publipostageGrist) : grist.ready({requiredAccess:'full'}), DEUX onRecord
+     (includeColumns 'shown' puis 'normal'), onOptions, et tableId via grist.getTable(). Les tests (même origine) lisent
+     window.__NESTED__ et appellent window.grist depuis l'iframe. -->
+<script src="vendor/grist-plugin-api.iife.min.js"></script>
+<script>
+  (function () {
+    var nested = window.__NESTED__ = { shown: [], normal: [], options: [], tableId: null, unhandled: [] };
+    // Le client plugin ne rattrape pas les échecs RPC des onRecord : ils remontent ici, visibles pour les tests.
+    window.addEventListener('unhandledrejection', function (event) {
+      nested.unhandled.push(String((event.reason && event.reason.message) || event.reason));
+    });
+    grist.ready({ requiredAccess: 'full' });
+    grist.onRecord(function (record, mappings) { nested.shown.push({ record: record, mappings: mappings }); }, { includeColumns: 'shown' });
+    grist.onRecord(function (record, mappings) { nested.normal.push({ record: record, mappings: mappings }); }, { includeColumns: 'normal' });
+    grist.onOptions(function (options, settings) { nested.options.push({ options: options, settings: settings }); });
+    grist.getTable().getTableId().then(function (id) { nested.tableId = id; });
+  })();
+</script>
+</body>
+</html>

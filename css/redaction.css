@@ -1,0 +1,29 @@
+/* Page Rédaction — publipostage+ imbriqué (maquette validée par Antoine le 29/09/2026). Une seule rangée compacte
+   (retour, fil d'ariane, état de la connexion) puis l'iframe, qui prend toute la hauteur restante : chaque rangée de
+   menu mange la zone utile du widget encastré dans Grist (retour Antoine du 19/09/2026). Le journal de diagnostic
+   s'ouvre PAR-DESSUS l'iframe (position absolue), sans jamais décaler la mise en page. */
+
+.redaction-view { position:relative; }
+
+.redaction-bar { display:flex; align-items:center; gap:12px; height:36px; margin-bottom:12px; }
+.redaction-back { flex:none; }
+.redaction-crumb { flex:1; min-width:0; margin:0; font-size:12.5px; font-weight:600; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.redaction-crumb strong { margin-left:2px; font-size:14px; font-weight:800; color:var(--text); }
+
+.redaction-status { flex:none; display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 12px; border:1px solid var(--border-strong); border-radius:999px; background:var(--surface); color:var(--text-muted); font-size:12px; font-weight:700; cursor:pointer; }
+.redaction-status:hover { background:var(--surface-sunken); }
+.redaction-dot { width:8px; height:8px; border-radius:50%; background:var(--text-faint); flex:none; }
+.redaction-status.is-waiting .redaction-dot { background:var(--warning); animation:redactionPulse 1.2s ease-in-out infinite; }
+.redaction-status.is-ready .redaction-dot { background:var(--success); }
+.redaction-status.is-error { border-color:var(--danger-soft-border); background:var(--danger-soft); color:var(--danger); }
+.redaction-status.is-error .redaction-dot { background:var(--danger); }
+@keyframes redactionPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+
+/* 62px d'en-tête + 24px de marge + 24px de marge basse + 48px (rangée du haut) : l'iframe remplit le reste de la fenêtre. */
+.redaction-frame-wrap { height:calc(100vh - 158px); min-height:420px; }
+.redaction-frame-wrap iframe { display:block; width:100%; height:100%; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); }
+
+.redaction-diag { position:absolute; top:44px; right:0; z-index:20; width:min(560px, 100%); padding:10px 12px; border:1px solid var(--border-strong); border-radius:var(--radius-md); background:var(--surface); box-shadow:var(--shadow-float); }
+.redaction-diag[hidden] { display:none; }
+.redaction-diag-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; font-size:12.5px; color:var(--text); }
+.redaction-diag pre { margin:0; max-height:220px; overflow:auto; padding:8px 10px; border-radius:var(--radius-sm); background:var(--surface-sunken); color:var(--text); font:11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
