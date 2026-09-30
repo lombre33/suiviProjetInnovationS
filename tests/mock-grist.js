@@ -60,6 +60,16 @@
     return null;
   }
 
+  function removeRecord(tableName, id) {
+    const table = store[tableName];
+    if (!table) throw new Error(`Mock Grist: table ${tableName} does not exist`);
+    const rowIndex = table.id.indexOf(Number(id));
+    if (rowIndex === -1) throw new Error(`Mock Grist: record ${id} not found in ${tableName}`);
+    Object.keys(table).forEach(key => table[key].splice(rowIndex, 1));
+    global.__TEST_CALLS__.push({ type: 'RemoveRecord', table: tableName, id: Number(id) });
+    return null;
+  }
+
   function addTable(tableId, colDefs) {
     if (store[tableId]) throw new Error(`Mock Grist: table ${tableId} already exists`);
     const table = { id: [] };
@@ -107,6 +117,7 @@
           const type = action[0];
           if (type === 'AddRecord') return addRecord(action[1], action[3]);
           if (type === 'UpdateRecord') return updateRecord(action[1], action[2], action[3]);
+          if (type === 'RemoveRecord') return removeRecord(action[1], action[2]);
           if (type === 'AddTable') return addTable(action[1], action[2]);
           if (type === 'AddColumn') return addColumn(action[1], action[2], action[3]);
           throw new Error(`Mock Grist: unsupported action type ${type}`);

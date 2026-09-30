@@ -4,8 +4,14 @@
  * rangée compacte (retour, fil d'ariane, état de la connexion) au-dessus de l'iframe qui prend toute la hauteur.
  *
  * Le widget imbriqué ne peut pas parler à Grist directement (Grist n'écoute que l'iframe de CE widget) : tout passe
- * par js/core/grist-bridge.js, qui lui relaie l'API document et lui présente la ligne du projet comme
+ * par js/core/grist-bridge.js, qui lui relaie l'API document et lui présente une ligne liée au projet comme
  * enregistrement sélectionné (le "select by" d'un widget lié). publipostage+ s'ouvre en mode Lecture (cf. keepReadMode).
+ *
+ * Quelle ligne, de quelle table ? publipostage+ résout les #Variable d'une AUTRE table par une règle de liaison (« Tables
+ * liées », rangée dans la table du document Publipostage_LiensTables, une règle par table cible) construite DEPUIS sa table
+ * courante : la règle « Projets » d'une vue branchée sur Notifications n'existe pas pour une vue branchée sur Projets, et sans
+ * règle la variable devient « [ERREUR: ligne introuvable dans … ] ». Pour retrouver le mappage déjà fait, la page présente
+ * donc la même table que la vue publipostage+ existante du document (cf. loadInfo), au choix de la personne (sélecteur).
  */
 (function () {
   'use strict';
@@ -13,8 +19,16 @@
   // URL publique (GitHub Pages) de publipostage+ — dépôt lombre33/publipostageGrist. Surchargeable par ?publipostage=<url>
   // sur l'URL de CE widget (essai d'une autre version sans republier) : https uniquement, http seulement vers localhost.
   const PUBLIPOSTAGE_URL = 'https://lombre33.github.io/publipostageGrist/';
-  // Table dont la ligne est l'enregistrement sélectionné de publipostage+ : une notification = un projet.
-  const LINKED_TABLE = 'Projets';
+  const PROJECT_TABLE = 'Projets';
+  // Table présentée par défaut (ni choix enregistré ni vue publipostage+ trouvée) : la fiche de notification du projet, l'objet de
+  // cette page. Sans ligne pour le projet cliqué, on retombe sur la ligne du projet lui-même.
+  const DEFAULT_TABLE = 'Notifications';
+  // Colonne Référence vers Projets de la table par défaut, si les métadonnées du document sont illisibles (cf. page-administratif.js).
+  const DEFAULT_REF_COLUMN = 'Projet';
+  // Table du document où publipostage+ range ses règles de liaison (js/grist-api.js de publipostage+ : LINKS_TABLE_NAME).
+  const LINKS_TABLE = 'Publipostage_LiensTables';
+  // Choix de la table présentée (sélecteur de la rangée du haut) : par navigateur, dans localStorage (peut être indisponible).
+  const TABLE_CHOICE_KEY = 'suiviProjetInnovationS:redactionTable';
   // Clé, dans les options de CE widget, sous laquelle Grist persiste les options de publipostage+ (modèles, réglages...).
   const OPTIONS_KEY = 'publipostage';
   const ADMIN_VIEW_ID = 'view-administratif';
@@ -27,7 +41,11 @@
 
   const ui = {
     frame: null, bridge: null, target: null, readyTimer: null, timedOut: false, projectId: null, needsReload: false,
-    readModeTimer: null, readModeNote: null
+    readModeTimer: null, readModeNote: null,
+    linked: null,     // {table, rowId, why, missing} : la ligne présentée à publipostage+ (cf. resolveLinked)
+    info: null,       // promesse de loadInfo() : lue une fois par ouverture de la page (« Recharger » la relit)
+    openToken: 0,     // un clic plus récent, ou un reset, invalide une ouverture encore en cours
+    opening: null
   };
 
   const byId = id => document.getElementById(id);
@@ -59,6 +77,151 @@
     byId(viewId)?.classList.remove('hidden');
   }
 
+  // --- Table présentée à publipostage+ (lue dans le document, jamais écrite d'ici) ---
+  async function readTable(name) {
+    const api = window.grist && window.grist.docApi;
+    if (!api) throw new Error('API Grist indisponible');
+    return api.fetchTable(name);
+  }
+  const readTableOrNull = name => readTable(name).catch(() => null);
+
+  // Adresse du widget d'une section « personnalisée » : Grist range sa définition dans _grist_Views_section.options, un JSON
+  // { customView: "<JSON sérialisé>" } dont l'url est celle du widget (grist-core, ViewSectionRec.ts : customDef ← options.customView).
+  function customUrlOf(optionsText) {
+    try {
+      const options = JSON.parse(optionsText || '{}');
+      const custom = typeof options.customView === 'string' ? JSON.parse(options.customView) : options.customView;
+      return custom && typeof custom.url === 'string' ? custom.url : '';
+    } catch (err) { return ''; }
+  }
+  // Même site, sans tenir compte de la requête ni d'un index.html final.
+  const siteKey = value => {
+    try { const url = new URL(value); return `${url.origin}${url.pathname.replace(/index\.html$/i, '').replace(/\/+$/, '')}`.toLowerCase(); } catch (err) { return ''; }
+  };
+  // Une section est celle de publipostage+ si elle charge la même adresse que cette page, ou une adresse qui le nomme (autre déploiement).
+  const isPublipostageUrl = (url, targetKey) => !!url && (siteKey(url) === targetKey || /publipostage/i.test(url));
+
+  const emptyInfo = () => ({ linkable: { [DEFAULT_TABLE]: DEFAULT_REF_COLUMN }, viewTables: [], sectionsReadable: false, rules: null, linksTable: 'unknown' });
+  const listTablesOrNull = () => {
+    const api = window.grist && window.grist.docApi;
+    return api && api.listTables ? Promise.resolve(api.listTables()).catch(() => null) : Promise.resolve(null);
+  };
+  const rulesFrom = links => (links && Array.isArray(links.id)
+    ? links.id.map((id, i) => ({ table: links.TableCible[i], mode: links.Mode[i], cible: links.ColonneCible[i], source: links.ColonneSource[i] }))
+    : null);
+
+  // Ce que le document dit de publipostage+ et des tables reliées aux projets. Chaque lecture est indépendante : une table de
+  // métadonnées illisible (droits d'accès...) retire un signal mais ne bloque jamais l'ouverture.
+  //  - linkable : {table: colonne Référence vers Projets} — les tables dont on sait présenter « la ligne du projet » ;
+  //  - viewTables : les tables auxquelles sont branchées les vues publipostage+ EXISTANTES du document (leurs règles de liaison
+  //    ont été faites depuis ces tables) ;
+  //  - rules : le mappage de publipostage+ (Publipostage_LiensTables), pour le journal de diagnostic.
+  async function loadInfo() {
+    const [tables, columns, sections, links, listed] = await Promise.all(
+      ['_grist_Tables', '_grist_Tables_column', '_grist_Views_section', LINKS_TABLE].map(readTableOrNull).concat(listTablesOrNull()));
+    const info = emptyInfo();
+    const targetKey = siteKey(resolveTarget().url);
+    if (Array.isArray(listed)) info.linksTable = listed.includes(LINKS_TABLE) ? 'present' : 'absent';
+    const tableIdByRef = new Map();
+    const summaryRefs = new Set(); // tables de résumé : Grist les repère par summarySourceTable (leur colonne de regroupement est une copie)
+    if (tables && Array.isArray(tables.id)) {
+      tables.id.forEach((ref, i) => {
+        tableIdByRef.set(ref, tables.tableId[i]);
+        if (tables.summarySourceTable && tables.summarySourceTable[i]) summaryRefs.add(ref);
+      });
+    }
+    if (tableIdByRef.size && columns && Array.isArray(columns.id)) {
+      info.linkable = {};
+      columns.id.forEach((ref, i) => {
+        const tableId = tableIdByRef.get(columns.parentId[i]); // '' : table dont l'accès est refusé
+        if (!tableId || tableId === PROJECT_TABLE || summaryRefs.has(columns.parentId[i]) || /^(_grist_|GristHidden_)/.test(tableId)) return;
+        if (columns.type[i] !== `Ref:${PROJECT_TABLE}`) return;
+        if (!info.linkable[tableId] || columns.colId[i] === DEFAULT_REF_COLUMN) info.linkable[tableId] = columns.colId[i];
+      });
+    }
+    if (tableIdByRef.size && sections && Array.isArray(sections.id)) {
+      info.sectionsReadable = true;
+      sections.id.forEach((ref, i) => {
+        if (!isPublipostageUrl(customUrlOf(sections.options && sections.options[i]), targetKey)) return;
+        const tableId = tableIdByRef.get(sections.tableRef && sections.tableRef[i]);
+        if (tableId && !info.viewTables.includes(tableId)) info.viewTables.push(tableId);
+      });
+    }
+    info.rules = rulesFrom(links);
+    return info;
+  }
+  const getInfo = () => ui.info || (ui.info = loadInfo().catch(() => emptyInfo()));
+
+  // Le mappage change pendant la session (publipostage+ l'écrit via le pont) : relu à l'ouverture du journal de diagnostic.
+  async function refreshRules() {
+    const info = ui.linked && ui.linked.info;
+    if (!info) return;
+    const rules = rulesFrom(await readTableOrNull(LINKS_TABLE));
+    if (rules) info.rules = rules;
+  }
+
+  // Tables que la page sait présenter : les tables reliées aux projets, puis Projets lui-même.
+  const tableOptions = info => [...Object.keys(info.linkable).sort(), PROJECT_TABLE];
+
+  // Choix de la personne (sélecteur) : en mémoire pour la session, et dans localStorage quand le navigateur le permet.
+  let sessionChoice = null;
+  function readChoice() {
+    if (sessionChoice) return sessionChoice;
+    try { return localStorage.getItem(TABLE_CHOICE_KEY); } catch (err) { return null; }
+  }
+  function storeChoice(table) {
+    sessionChoice = table;
+    try { localStorage.setItem(TABLE_CHOICE_KEY, table); } catch (err) { /* sans stockage : vaut pour cette session */ }
+  }
+  function forgetChoice() {
+    sessionChoice = null;
+    try { localStorage.removeItem(TABLE_CHOICE_KEY); } catch (err) { /* idem */ }
+  }
+
+  // Priorité : choix de la personne, puis table de la vue publipostage+ existante (son mappage est fait depuis elle), puis défaut.
+  function chooseTable(info) {
+    const options = tableOptions(info);
+    const chosen = readChoice();
+    if (chosen && options.includes(chosen)) return { table: chosen, why: 'choix enregistré' };
+    const existing = info.viewTables.filter(table => options.includes(table));
+    if (existing.length === 1) return { table: existing[0], why: 'table de la vue publipostage+ existante du document' };
+    const table = options.includes(DEFAULT_TABLE) ? DEFAULT_TABLE : PROJECT_TABLE;
+    return { table, why: existing.length > 1 ? `par défaut : plusieurs vues publipostage+ (${existing.join(', ')})` : 'par défaut' };
+  }
+
+  // Id de la ligne de `table` à présenter pour ce projet : le projet lui-même, ou la première ligne dont la colonne Référence
+  // pointe vers lui. null s'il n'y en a pas.
+  async function rowFor(project, table, info) {
+    if (table === PROJECT_TABLE) return project.id;
+    const column = info.linkable[table];
+    if (!column) return null;
+    const data = await readTable(table);
+    const index = ((data && data[column]) || []).findIndex(value => String(value) === String(project.id));
+    return index === -1 ? null : data.id[index];
+  }
+
+  async function resolveLinked(project) {
+    const info = await getInfo();
+    const choice = chooseTable(info);
+    let rowId = null;
+    try { rowId = await rowFor(project, choice.table, info); } catch (err) { console.warn(`Ligne ${choice.table} du projet illisible :`, err.message); }
+    if (rowId == null) {
+      return { table: PROJECT_TABLE, rowId: project.id, why: `repli : aucune ligne ${choice.table} pour ce projet`, missing: choice.table, info };
+    }
+    return { table: choice.table, rowId, why: choice.why, info };
+  }
+
+  // Le sélecteur de la rangée du haut : seulement quand il y a un choix à faire.
+  function refreshTableSelect(linked) {
+    const select = byId('redaction-table');
+    if (!select) return;
+    const options = tableOptions(linked.info);
+    select.textContent = '';
+    options.forEach(table => select.appendChild(new Option(table, table)));
+    select.value = linked.table;
+    select.hidden = options.length < 2;
+  }
+
   // --- Puce d'état de la connexion (dans la rangée du haut) et journal de diagnostic ---
   function setChip(phase, label) {
     const chip = byId('redaction-status');
@@ -81,13 +244,34 @@
     return null;
   }
 
+  // Le mappage de publipostage+ tel que le document le contient : noms de tables et de colonnes seulement, aucune donnée de ligne.
+  function ruleLines(info) {
+    const title = `Règles de liaison (${LINKS_TABLE})`;
+    if (info.rules === null) return [`${title} : ${info.linksTable === 'absent' ? 'table absente (publipostage+ la crée au premier besoin)' : 'illisibles'}`];
+    if (!info.rules.length) return [`${title} : aucune`];
+    const describe = rule => (rule.mode === 'singleton'
+      ? `  - ${rule.table} : une seule ligne`
+      : `  - ${rule.table} : ${rule.cible} de ${rule.table} = ${rule.source} de la table présentée`);
+    return [`${title} :`, ...info.rules.map(describe)];
+  }
+
+  // Les vues publipostage+ du document ; celles dont la table n'est pas reliée aux projets ne peuvent pas être présentées : signalées.
+  function viewsText(info) {
+    if (!info.viewTables.length) return info.sectionsReadable ? 'aucune trouvée' : 'illisibles';
+    const options = tableOptions(info);
+    return info.viewTables.map(table => (options.includes(table) ? table : `${table} (sans lien avec ${PROJECT_TABLE} : ignorée)`)).join(', ');
+  }
+
   function diagText() {
     const state = ui.bridge && ui.bridge.getState();
     const hint = diagHint(state);
+    const linked = ui.linked;
+    const views = linked ? viewsText(linked.info) : null;
     const header = [
       `URL : ${ui.target ? ui.target.url : '—'}`,
       `Origine acceptée : ${ui.target ? ui.target.origin : '—'}`,
-      `Enregistrement sélectionné : ${LINKED_TABLE} #${ui.projectId == null ? '—' : ui.projectId}`,
+      `Enregistrement sélectionné : ${linked ? `${linked.table} #${linked.rowId}` : '—'}`,
+      ...(linked ? [`Table présentée : ${linked.table} (${linked.why})`, `Vues publipostage+ du document : ${views}`, ...ruleLines(linked.info)] : []),
       `État : ${state ? (PHASE_LABELS[state.phase] || state.phase) : 'non démarré'}`,
       ...(hint ? [hint] : []),
       `Mode Lecture par défaut : ${ui.readModeNote || 'non démarré'}`,
@@ -109,6 +293,7 @@
     panel.hidden = !panel.hidden;
     byId('redaction-status')?.setAttribute('aria-expanded', String(!panel.hidden));
     renderDiag();
+    if (!panel.hidden) refreshRules().then(renderDiag, () => {});
   }
 
   function onBridgeStatus(status) {
@@ -163,7 +348,7 @@
   }
 
   // --- Iframe + pont (créés à la première ouverture puis conservés : publipostage+ garde son état d'une visite à l'autre) ---
-  function ensureFrame() {
+  function ensureFrame(linked) {
     if (ui.frame) return;
     const wrap = byId('redaction-frame-wrap');
     if (!wrap) throw new Error('Zone Rédaction absente de la page');
@@ -177,8 +362,8 @@
     // Le pont écoute AVANT le chargement de l'iframe : son "prêt" arrive dès l'exécution de son grist.ready().
     ui.bridge = GristBridge.attach(frame, {
       origin: ui.target.origin,
-      tableId: LINKED_TABLE,
-      rowId: Number(ui.projectId),
+      tableId: linked.table,
+      rowId: Number(linked.rowId),
       optionsKey: OPTIONS_KEY,
       onStatus: onBridgeStatus,
       onLog: renderDiag,
@@ -195,7 +380,8 @@
     }, api.readyTimeoutMs);
   }
 
-  function reset() {
+  // Retire l'iframe et son pont ; la table choisie et les lectures du document (ui.info) sont conservées.
+  function dropFrame() {
     clearTimeout(ui.readyTimer);
     clearInterval(ui.readModeTimer);
     ui.readModeTimer = null;
@@ -206,22 +392,49 @@
     ui.bridge = null;
     ui.target = null;
     ui.timedOut = false;
+  }
+
+  function reset() {
+    ui.openToken += 1; // une ouverture encore en cours est abandonnée
+    ui.opening = null;
+    dropFrame();
+    ui.info = null;
+    ui.linked = null;
     ui.needsReload = false;
     setChip('waiting', 'Connexion à publipostage+…');
     const panel = byId('redaction-diag');
     if (panel) panel.hidden = true;
   }
 
+  // Une ouverture = résoudre la ligne à présenter (asynchrone : lectures du document), puis créer l'iframe, ou lui renvoyer une
+  // autre ligne. publipostage+ ne connaît qu'une table par chargement : si elle change, l'iframe est rechargée.
+  async function present(project, token) {
+    const linked = await resolveLinked(project);
+    if (token !== ui.openToken) return; // un clic plus récent est passé devant, ou la page a été réinitialisée
+    ui.linked = linked;
+    if (ui.frame && ui.bridge.getState().tableId !== linked.table) dropFrame();
+    if (ui.frame) ui.bridge.select(linked.rowId, linked.table); // le "select by" : publipostage+ reçoit cette ligne dans son onRecord
+    else ensureFrame(linked);
+    refreshTableSelect(linked);
+    if (linked.missing) window.CoreUtils?.showToast(`Aucune ligne ${linked.missing} pour ce projet : publipostage+ affiche le projet (table ${PROJECT_TABLE})`);
+    renderDiag();
+  }
+
+  // Retourne la promesse de l'ouverture (la vue, elle, s'affiche tout de suite).
   function open(projectId) {
     const project = findProject(projectId);
-    if (!project) { window.CoreUtils?.showToast('Projet introuvable', true); return; }
+    if (!project) { window.CoreUtils?.showToast('Projet introuvable', true); return Promise.resolve(); }
     ui.projectId = project.id;
     const crumb = byId('redaction-project');
     if (crumb) crumb.textContent = project.Acronyme || project.Projet || 'Sans acronyme';
-    ensureFrame();
-    ui.bridge.select(project.id, LINKED_TABLE); // le "select by" : publipostage+ reçoit cette ligne dans son onRecord
     showOnly(REDACTION_VIEW_ID);
     renderDiag();
+    const token = ++ui.openToken;
+    ui.opening = present(project, token).catch(err => {
+      console.error('Ouverture de la page Rédaction échouée :', err);
+      window.CoreUtils?.showToast(`Impossible d'ouvrir publipostage+ : ${err.message}`, true);
+    });
+    return ui.opening;
   }
 
   // Ce que publipostage+ a écrit dans le document (ses propres tables, voire des lignes de Projets) n'est pas dans le cache local :
@@ -255,6 +468,10 @@
     if (view && window.MutationObserver) new MutationObserver(flushReload).observe(view, { attributes: true, attributeFilter: ['class'] });
     byId('redaction-back')?.addEventListener('click', close);
     byId('redaction-status')?.addEventListener('click', toggleDiag);
+    byId('redaction-table')?.addEventListener('change', event => {
+      storeChoice(event.target.value);
+      if (ui.projectId != null) open(ui.projectId);
+    });
     byId('redaction-reload')?.addEventListener('click', () => {
       const projectId = ui.projectId;
       reset();
@@ -269,13 +486,16 @@
 
   const api = {
     open, close, reset, resolveTarget,
+    setTable: storeChoice, forgetTable: forgetChoice, // le choix du sélecteur, sans passer par l'interface (tests)
     readyTimeoutMs: 10000, // délai avant d'afficher "ne répond pas" (modifiable, notamment par les tests)
     // Pas et durée du pilotage du mode Lecture (cf. keepReadMode) : le démarrage de publipostage+ charge TipTap depuis esm.sh puis
     // attend jusqu'à 5 s la lecture des droits d'accès avant son switchMode('edit') final.
     readModeTickMs: 150,
     readModeGiveUpMs: 40000,
     get frame() { return ui.frame; },
-    get bridge() { return ui.bridge; }
+    get bridge() { return ui.bridge; },
+    get linked() { return ui.linked; },
+    get opening() { return ui.opening; }
   };
   window.PageRedaction = api;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

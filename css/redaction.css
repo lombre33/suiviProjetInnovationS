@@ -10,6 +10,12 @@
 .redaction-crumb { flex:1; min-width:0; margin:0; font-size:12.5px; font-weight:600; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .redaction-crumb strong { margin-left:2px; font-size:14px; font-weight:800; color:var(--text); }
 
+/* Table présentée à publipostage+ (cf. page-redaction.js) : dans la rangée du haut, visible seulement quand il y a un choix. */
+.redaction-table { flex:none; height:28px; max-width:200px; padding:0 8px 0 10px; border:1px solid var(--border-strong); border-radius:999px; background-color:var(--surface); color:var(--text); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.redaction-table:hover { background-color:var(--surface-sunken); }
+.redaction-table:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.redaction-table[hidden] { display:none; }
+
 .redaction-status { flex:none; display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 12px; border:1px solid var(--border-strong); border-radius:999px; background:var(--surface); color:var(--text-muted); font-size:12px; font-weight:700; cursor:pointer; }
 .redaction-status:hover { background:var(--surface-sunken); }
 .redaction-dot { width:8px; height:8px; border-radius:50%; background:var(--text-faint); flex:none; }

@@ -195,6 +195,58 @@
     });
   });
 
+  // Le mappage de publipostage+ (« Tables liées ») vit dans une table DU DOCUMENT, Publipostage_LiensTables (une règle par table cible,
+  // cf. js/grist-api.js de publipostage+ : ensureLinksTableExists / loadLinkRules / saveLinkRule / deleteLinkRule) : partagée par toutes
+  // ses vues, donc aussi par l'instance imbriquée, pourvu que le pont relaie ces appels sans les filtrer ni les déformer.
+  describe('Pont Grist — mappage de publipostage+ (Publipostage_LiensTables)', function () {
+    const LINKS = 'Publipostage_LiensTables';
+    const RULES = { id: [1, 2], TableCible: ['Projets', 'Structures'], Mode: ['match', 'singleton'], ColonneCible: ['id', ''], ColonneSource: ['Projet', ''] };
+
+    it('publipostage+ retrouve les règles déjà faites depuis une autre vue : la table est listée (pas recréée) et lue telle quelle', async function () {
+      window.__mockSetTable(LINKS, RULES);
+      await withNested({}, async ctx => {
+        const api = ctx.win().grist.docApi;
+        assertTrue((await api.listTables()).includes(LINKS), 'listée : ensureLinksTableExists() ne la recrée pas');
+        assertDeepEqual(await api.fetchTable(LINKS), RULES, 'les règles arrivent sans altération');
+        assertFalse(window.__TEST_CALLS__.some(call => call.type === 'AddTable'), 'aucune écriture pour simplement lire le mappage');
+      });
+    });
+
+    it('sans table de règles, publipostage+ la crée puis ajoute, modifie et retire une règle : chaque écriture atteint le document et se relit', async function () {
+      const written = [];
+      await withNested({ onWrite: actions => written.push(actions.map(action => action[0])) }, async ctx => {
+        const api = ctx.win().grist.docApi;
+        assertFalse((await api.listTables()).includes(LINKS));
+        await api.applyUserActions([['AddTable', LINKS, [
+          { id: 'TableCible', type: 'Text' }, { id: 'Mode', type: 'Text' }, { id: 'ColonneCible', type: 'Text' }, { id: 'ColonneSource', type: 'Text' }]]]);
+        assertTrue((await api.listTables()).includes(LINKS));
+        const added = await api.applyUserActions([['AddRecord', LINKS, null, { TableCible: 'Notifications', Mode: 'match', ColonneCible: 'Projet', ColonneSource: 'id' }]]);
+        const ruleId = added.retValues[0];
+        assertEqual(typeof ruleId, 'number', 'AddRecord rend l\'identifiant de la règle (retValues[0]), comme dans Grist');
+        assertDeepEqual(await api.fetchTable(LINKS),
+          { id: [ruleId], TableCible: ['Notifications'], Mode: ['match'], ColonneCible: ['Projet'], ColonneSource: ['id'] });
+        await api.applyUserActions([['UpdateRecord', LINKS, ruleId, { Mode: 'singleton', ColonneCible: '', ColonneSource: '' }]]);
+        assertEqual((await api.fetchTable(LINKS)).Mode[0], 'singleton');
+        await api.applyUserActions([['RemoveRecord', LINKS, ruleId]]);
+        assertDeepEqual((await api.fetchTable(LINKS)).id, [], 'la règle supprimée n\'est plus lue');
+        assertDeepEqual(written, [['AddTable'], ['AddRecord'], ['UpdateRecord'], ['RemoveRecord']], 'la page est prévenue de chaque écriture');
+      });
+    });
+
+    it('les règles et les métadonnées de colonnes (findReferenceColumns de publipostage+) se lisent par le même pont, sans invalider la ligne présentée', async function () {
+      installSchema();
+      window.__mockSetTable(LINKS, RULES);
+      await withNested({}, async ctx => {
+        const api = ctx.win().grist.docApi;
+        const [tables, columns] = await Promise.all([api.fetchTable('_grist_Tables'), api.fetchTable('_grist_Tables_column')]);
+        assertTrue(tables.tableId.includes('Projets') && columns.type.some(type => type === 'Ref:Programmes'), 'métadonnées relayées');
+        await waitFor(() => ctx.nested().normal.length >= 1, 'onRecord');
+        assertEqual(ctx.nested().normal[0].record.Acronyme, 'CONVENTIX');
+        assertDeepEqual(ctx.nested().unhandled, []);
+      });
+    });
+  });
+
   describe('Pont Grist — options du widget imbriqué', function () {
     it('à l\'ouverture, onOptions livre les options enregistrées SANS les autres options de ce widget, avec accessLevel full', async function () {
       window.__mockSetWidgetOptions({ [OPTIONS_KEY]: { gabarits: ['A', 'B'] }, autre: 'privé' });
