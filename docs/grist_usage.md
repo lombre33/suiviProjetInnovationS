@@ -45,6 +45,18 @@ lignes ni les colonnes, seulement les valeurs déjà calculées côté Grist.
 Les tables sont chargées en parallèle (`Promise.all`), contrairement à ce que laisse
 entendre la note « Chargement séquentiel des tables → paralléliser » de `docs/SPEC.mdd`.
 
+## Bulles d'aide (descriptions de colonnes)
+
+`CoreGrist.loadColumnDescriptions()` (`js/core/grist-api.js`), appelée une fois au
+démarrage par `js/app.js`, lit `_grist_Tables` et `_grist_Tables_column` (mêmes
+tables de métadonnées que `js/core/grist-bridge.js`, colonne `description` en
+plus) pour toutes les tables du document — lecture seule, jamais d'écriture.
+`js/components/help-tooltip.js` l'utilise pour poser une icône d'aide à côté
+d'un libellé de champ (modale projet, en-têtes de volet Notifications/Conventions
+de la page Administratif) : aucune icône quand la colonne n'a pas de description
+dans Grist, ou quand les métadonnées sont illisibles (droits d'accès) — le widget
+reste alors utilisable, simplement sans bulles d'aide.
+
 ## Convention de lecture
 
 - **Formule** = colonne calculée côté Grist : le widget peut la lire, jamais l'écrire.

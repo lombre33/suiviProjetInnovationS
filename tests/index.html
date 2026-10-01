@@ -104,6 +104,7 @@
     await loadScript('../js/core/state.js');
     await loadScript('../js/core/grist-api.js');
     await loadScript('../js/core/grist-bridge.js');
+    await loadScript('../js/components/help-tooltip.js');
     await loadScript('../js/components/project-modal.js');
     await loadScript('../js/components/poste-modal.js');
     await loadScript('../js/components/person-modal.js');
@@ -114,6 +115,7 @@
 
     // Test suites, one per audited feature.
     await loadScript('suite-kanban.js');
+    await loadScript('suite-help-tooltip.js');
     await loadScript('suite-project-modal.js');
     await loadScript('suite-person-modal.js');
     await loadScript('suite-poste-modal.js');

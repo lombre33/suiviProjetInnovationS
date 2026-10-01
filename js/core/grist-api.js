@@ -35,6 +35,14 @@
 
   let gristInstance = null;
   let readyPromise = null;
+  // Descriptions de colonnes (bulles d'aide) : {tableId: {colId: description}},
+  // lues une seule fois depuis les métadonnées _grist_Tables / _grist_Tables_column
+  // (même source que js/core/grist-bridge.js) et mises en cache pour le reste de la
+  // session — le schéma du document ne change pas pendant que le widget tourne.
+  // null tant que loadColumnDescriptions() n'a pas été appelée ou a échoué (droits
+  // d'accès insuffisants, document hors Grist) : getColumnDescription() renvoie alors
+  // '' partout, donc aucune icône d'aide nulle part plutôt qu'une erreur bloquante.
+  let columnDescriptions = null;
   const CoreGrist = {
     get gristInstance() { return gristInstance; },
     ready(timeoutMs = 10000) {
@@ -78,6 +86,39 @@
         return ['AddColumn', tableId, id, colInfo];
       }));
       return true;
+    },
+    // À appeler une fois au démarrage (js/app.js) : peuple le cache lu par
+    // getColumnDescription(). Ne renvoie rien et n'écrit jamais rien dans Grist ;
+    // une erreur (droits, document non-Grist dans les tests) laisse juste le cache
+    // vide, chaque bulle d'aide reste alors absente plutôt que de bloquer l'appli.
+    async loadColumnDescriptions() {
+      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      try {
+        const [tables, cols] = await Promise.all([
+          gristInstance.docApi.fetchTable('_grist_Tables'),
+          gristInstance.docApi.fetchTable('_grist_Tables_column')
+        ]);
+        const tableIdByRef = new Map();
+        tables.id.forEach((ref, i) => tableIdByRef.set(ref, tables.tableId[i]));
+        const byTable = {};
+        cols.id.forEach((ref, i) => {
+          const tableId = tableIdByRef.get(cols.parentId[i]);
+          const description = cols.description ? cols.description[i] : '';
+          if (!tableId || !description) return;
+          if (!byTable[tableId]) byTable[tableId] = {};
+          byTable[tableId][cols.colId[i]] = description;
+        });
+        columnDescriptions = byTable;
+      } catch (err) {
+        console.warn('Chargement des descriptions de colonnes a échoué :', err.message);
+        columnDescriptions = {};
+      }
+    },
+    // '' quand le schéma n'a pas (encore) été chargé, que la table/colonne est
+    // inconnue, ou que la colonne n'a aucune description dans Grist — jamais
+    // d'exception : c'est ce qui décide d'afficher ou non l'icône d'aide.
+    getColumnDescription(tableId, colId) {
+      return (columnDescriptions && columnDescriptions[tableId] && columnDescriptions[tableId][colId]) || '';
     },
     async loadAllTables() {
       const entries = await Promise.all(TABLE_NAMES.map(async name => {

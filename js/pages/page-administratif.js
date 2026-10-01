@@ -531,7 +531,8 @@
   }
 
   function nextStepBlock(project) {
-    return `<label class="admin-comment admin-nextstep"><span class="admin-field-label">Next step</span>` +
+    const help = window.HelpTooltip?.markup(homeRowFor(project, NEXT_STEP_FIELD).table, NEXT_STEP_FIELD) || '';
+    return `<label class="admin-comment admin-nextstep"><span class="admin-field-label">Next step${help}</span>` +
       `<textarea data-nextstep-project="${escape(project.id)}" rows="${viewMode === 'rows' ? 1 : 2}" placeholder="Prochaine étape à suivre…">${escape(readField(project, NEXT_STEP_FIELD))}</textarea></label>`;
   }
 
@@ -550,8 +551,9 @@
 
   // Dernière étape uniquement : badge + date d'envoi de la convention signée au porteur.
   function signedCell(project) {
+    const help = window.HelpTooltip?.markup(homeRowFor(project, TRANSMISE_FIELD).table, TRANSMISE_FIELD) || '';
     return `<div class="admin-signed-cell"><span class="admin-done-badge">Signée</span>` +
-      `<label class="admin-date"><span class="admin-field-label">Transmise au porteur le</span>` +
+      `<label class="admin-date"><span class="admin-field-label">Transmise au porteur le${help}</span>` +
       `<input type="date" data-transmise-project="${escape(project.id)}" value="${escape(CoreUtils.gristDateToInput(readField(project, TRANSMISE_FIELD)))}"></label></div>`;
   }
 
@@ -569,7 +571,12 @@
       `</div>`;
   }
 
+  // Colonne Grist dont ce volet affiche une étape : même statut pour tous les
+  // volets d'un même côté (notifications_Statut sur Notifications, Conventions_statut
+  // sur Projets), donc une bulle d'aide unique par en-tête de volet.
+  const STAGE_COLUMN = { notif: { table: 'Notifications', col: 'notifications_Statut' }, conv: { table: 'Projets', col: 'Conventions_statut' } };
   function buildPanels(side, stages, projectsByStage, cardFn) {
+    const stageHelp = window.HelpTooltip?.markup(STAGE_COLUMN[side].table, STAGE_COLUMN[side].col) || '';
     return stages.map((stageLabel, idx) => {
       const items = projectsByStage[idx] || [];
       const state = ensurePanelState(side, idx, items.length === 0);
@@ -578,7 +585,7 @@
       const label = stripOrdinal(stageLabel);
       return { key, idx, label, collapsedCls, count: items.length, state,
         html: `<section class="admin-panel${collapsedCls}"${side === 'conv' ? ` data-drop-panel="${escape(key)}"` : ''} aria-labelledby="admin-panel-${escape(key)}">` +
-          `<header class="admin-panel-header"><h4 id="admin-panel-${escape(key)}">${escape(label)}</h4>` +
+          `<header class="admin-panel-header"><h4 id="admin-panel-${escape(key)}">${escape(label)}${stageHelp}</h4>` +
           `<span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
           `<button type="button" class="kanban-icon-btn" data-toggle-panel="${escape(key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} le volet ${escape(label)}">${ICON_CHEVRON}</button>` +
           `<button type="button" class="kanban-icon-btn" data-hide-panel="${escape(key)}" aria-label="Masquer le volet ${escape(label)}">${ICON_EYE_OFF}</button>` +

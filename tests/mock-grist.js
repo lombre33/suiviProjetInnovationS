@@ -149,6 +149,11 @@
     // window.grist as gristInstance again).
     if (global.CoreGrist) {
       global.CoreGrist.ready();
+      // Vide le cache des descriptions de colonnes (bulles d'aide, js/components/help-tooltip.js) :
+      // interne à grist-api.js, jamais réinitialisé par le rechargement du magasin ci-dessus. Sans
+      // cet appel, une description posée par un test (via __mockSetTable('_grist_Tables_column', ...))
+      // resterait visible dans tous les tests suivants, y compris d'autres suites.
+      return global.CoreGrist.loadColumnDescriptions();
     }
   };
 })(window);

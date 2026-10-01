@@ -94,8 +94,12 @@
     for (const suite of suites) {
       for (const test of suite.tests) {
         try {
-          if (typeof global.__resetMockGrist === 'function') global.__resetMockGrist();
+          if (typeof global.__resetMockGrist === 'function') {
+            const reset = global.__resetMockGrist();
+            if (reset && typeof reset.then === 'function') await reset;
+          }
           document.querySelectorAll('.cp-modal').forEach(el => el.remove());
+          if (global.HelpTooltip && typeof global.HelpTooltip._resetForTests === 'function') global.HelpTooltip._resetForTests();
           await test.fn();
           results.push({ suite: suite.name, test: test.name, pass: true });
         } catch (err) {

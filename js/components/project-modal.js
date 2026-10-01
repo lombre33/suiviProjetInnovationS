@@ -8,6 +8,10 @@
     ? { getTable: name => global.CoreState.getTable(name) }
     : global.CoreGrist?.tables;
   const esc = v => global.CoreUtils.escapeHtml(v);
+  // Bulle d'aide Grist (description de colonne) accolée au libellé d'un champ —
+  // toujours la table Projets ici, seule table que cette modale écrit ; aucune
+  // icône si la colonne n'a pas de description (cf. js/components/help-tooltip.js).
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Projets', colId);
   const label = (r, fields) => fields.map(k => r?.[k]).find(v => v != null && v !== '') || '';
   const personLabel = r => label(r, ['nom_et_Prenom', 'Prenom', 'NOM']);
   const opeLabel = r => text(r?.N_OPE);
@@ -153,6 +157,7 @@
       render();
       input.focus();
     };
+    withHelp(wrap.querySelector('label'), key);
     parent.appendChild(wrap);
     return { wrap, input, refreshAvatar };
   }
@@ -202,6 +207,7 @@
     input.onblur = () => setTimeout(() => { list.classList.add('cp-hidden'); input.value = ''; }, 150);
     wrap._ids = ids;
     wrap._setIds = values => { ids.splice(0, ids.length, ...normaliseRefList(values)); renderChips(); };
+    withHelp(wrap.querySelector('label'), key);
     parent.appendChild(wrap);
     return { wrap, input, ids };
   }
@@ -236,6 +242,7 @@
     };
     select.addEventListener('change', render);
     render();
+    withHelp(wrap.querySelector('label'), id.replace(/^cp-/, ''));
     parent.appendChild(wrap);
     return { wrap, input: select, render };
   }
@@ -264,6 +271,7 @@
     const w = document.createElement('div');
     w.className = 'cp-field';
     w.innerHTML = `<label for="${id}">${esc(labelText)}${required ? ' *' : ''}</label><input id="${id}" type="${type}">`;
+    withHelp(w.querySelector('label'), id.replace(/^cp-/, ''));
     parent.appendChild(w);
     return w.querySelector('input');
   }
@@ -304,6 +312,7 @@
     statusWrap.className = 'cp-field';
     statusWrap.innerHTML = '<label for="cp-statut">Statut opérationnel</label><div class="cp-status-row"><select id="cp-statut"><option>en cours</option><option>Brouillon</option><option>En retard</option><option>cloturé avec Reliquat à traiter</option><option>Cloturé et reliquat traités</option><option selected>En attente des dispo des fonds</option><option>Suposé cloturé sans information sur ...</option></select><span class="cp-status-dot" id="cp-statut-dot"></span></div>';
     panels.general.appendChild(statusWrap);
+    withHelp(statusWrap.querySelector('label'), 'Statut_operationnel_projet');
     const statutSelect = statusWrap.querySelector('#cp-statut'), statutDot = statusWrap.querySelector('#cp-statut-dot');
     const renderStatusDot = () => {
       const v = statutSelect.value.toLowerCase();
@@ -326,6 +335,7 @@
     const comment = document.createElement('div');
     comment.className = 'cp-field';
     comment.innerHTML = '<label>Commentaire général de suivi</label><textarea id="cp-comment" rows="3"></textarea>';
+    withHelp(comment.querySelector('label'), 'comentaire_general_Suivi_projet');
     panels.porteurs.appendChild(comment);
 
     // Dates & OPE
@@ -347,6 +357,7 @@
     const opeWrap = document.createElement('div');
     opeWrap.className = 'cp-field cp-full';
     opeWrap.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE</label><div class="cp-chip-row"></div>';
+    withHelp(opeWrap.querySelector('label'), 'Action_Ligne_OPE_a_faire');
     panels.dates.appendChild(opeWrap);
     const opeSelect = document.createElement('select');
     opeSelect.id = 'cp-Action_Ligne_OPE_a_faire';
@@ -371,6 +382,7 @@
     const opeComment = document.createElement('div');
     opeComment.className = 'cp-field cp-full';
     opeComment.innerHTML = '<label for="cp-Commentaire_ligne_OPE">Commentaire ligne OPE</label><textarea id="cp-Commentaire_ligne_OPE" rows="3"></textarea>';
+    withHelp(opeComment.querySelector('label'), 'Commentaire_ligne_OPE');
     panels.dates.appendChild(opeComment);
 
     // Budget
@@ -398,6 +410,10 @@
     const conventionField = document.createElement('div');
     conventionField.className = 'cp-field cp-full';
     conventionField.innerHTML = '<label class="cp-switch-row"><span class="cp-switch"><input id="cp-Convention_de_reversement" type="checkbox"><span class="cp-switch-track"></span></span><span class="cp-switch-text"><span class="cp-switch-title">Convention de reversement</span><span class="cp-switch-hint">Active le partage du montant attribué avec un ou plusieurs partenaires.</span></span></label>';
+    // Le libellé entier est le <label> cliquable de l'interrupteur (cp-switch-row) :
+    // withHelp() insérerait l'icône après tout le bloc, loin du texte. On la pose
+    // ici juste après le titre, à l'intérieur de cp-switch-text.
+    withHelp(conventionField.querySelector('.cp-switch-title'), 'Convention_de_reversement');
     panels.conventions.appendChild(conventionField);
 
     const partnersWrap = document.createElement('div');
@@ -411,10 +427,12 @@
     const p1Wrap = document.createElement('div');
     p1Wrap.className = 'cp-field';
     p1Wrap.innerHTML = '<label for="cp-Convention_montant_partenaire_1">Montant partenaire 1</label><input id="cp-Convention_montant_partenaire_1" type="number" min="0" step="any">';
+    withHelp(p1Wrap.querySelector('label'), 'Convention_montant_partenaire_1');
     panels.conventions.appendChild(p1Wrap);
     const p2Wrap = document.createElement('div');
     p2Wrap.className = 'cp-field';
     p2Wrap.innerHTML = '<label for="cp-Convention_montant_partenaire_2">Montant partenaire 2</label><input id="cp-Convention_montant_partenaire_2" type="number" min="0" step="any">';
+    withHelp(p2Wrap.querySelector('label'), 'Convention_montant_partenaire_2');
     panels.conventions.appendChild(p2Wrap);
     const p1 = p1Wrap.querySelector('input'), p2 = p2Wrap.querySelector('input');
     p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); };

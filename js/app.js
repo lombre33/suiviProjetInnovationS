@@ -9,6 +9,7 @@ async function initializeApp() {
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
     const tables = await CoreGrist.loadAllTables(); Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
+    await CoreGrist.loadColumnDescriptions();
     if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();
     if (window.loadAdministratifUserPreferences) await window.loadAdministratifUserPreferences();
     renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); setupEventListeners();
