@@ -279,6 +279,7 @@
         if (originInput) {
           originInput.value = `${p} ${n}`;
           originInput.dataset.id = String(id);
+          originInput._cpRefSync?.();
         }
         const annuaire = tableRows('Annuaire');
         const updated = { ...(person || {}), ...fields, id: Number(id) };

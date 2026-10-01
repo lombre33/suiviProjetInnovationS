@@ -58,6 +58,15 @@
 /* Champs numériques : pas de curseurs +/- natifs, juste la saisie. */
 .cp-field input[type="number"] { -moz-appearance:textfield; }
 .cp-field input[type="number"]::-webkit-inner-spin-button, .cp-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+
+/* Champs date : la fenêtre de choix (calendrier) elle-même est rendue par le
+   navigateur et échappe totalement au CSS — seuls l'input et son icône peuvent être
+   habillés, ce qu'on aligne ici sur le reste du formulaire (teinte d'accent au survol
+   de l'icône plutôt que l'icône grise par défaut). */
+.cp-field input[type="date"] { color-scheme:light; padding-right:8px; }
+.cp-field input[type="date"]::-webkit-calendar-picker-indicator { margin-left:6px; padding:4px; border-radius:6px; cursor:pointer; opacity:.6; transition:opacity .12s ease, background .12s ease; }
+.cp-field input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity:1; background:var(--accent-soft,#e8f0fe); }
+.cp-field input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity:1; }
 .cp-visually-hidden { position:absolute!important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 /* Puces de sélection (type de projet, action ligne OPE) : remplace select/texte libre
@@ -94,7 +103,21 @@
 .cp-ref-person label { grid-column:1/-1; margin-bottom:7px; }
 .cp-ref-avatar { grid-column:1; width:24px; height:24px; border-radius:999px; background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; }
 .cp-ref-avatar:empty { background:transparent; }
-.cp-ref-person input { grid-column:2; }
+.cp-ref-control { position:relative; width:100%; }
+.cp-ref-person .cp-ref-control { grid-column:2; min-width:0; }
+
+/* Valeur retenue affichée "en bulle" (fond teinté, coins arrondis) plutôt qu'un simple
+   texte dans le champ de recherche, avec une croix de suppression au survol en haut à
+   droite du champ — avant ça, retirer un porteur déjà assigné obligeait à effacer le
+   texte affiché caractère par caractère. Le champ reste un <input> éditable : le
+   navigateur y positionne nativement le curseur au clic, avant ou après le texte ;
+   seule l'apparence change ici. */
+.cp-ref-has-value .cp-ref-control input { background:var(--accent-soft,#e8f0fe); border-color:var(--accent-soft-border,#c7dbfd); color:var(--accent-hover,#2558c4); font-weight:700; border-radius:999px; cursor:pointer; }
+.cp-ref-has-value .cp-ref-control input:hover { border-color:var(--accent-soft-border,#c7dbfd); }
+.cp-ref-clear { position:absolute; top:-8px; right:-8px; z-index:2; display:none; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:1px solid var(--border,#dde2ea); border-radius:999px; background:var(--surface,#fff); color:var(--text-muted,#667085); font-size:12px; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(9,16,35,.18); opacity:0; transition:opacity .12s ease, background .12s ease, color .12s ease, border-color .12s ease; }
+.cp-ref-has-value .cp-ref-clear { display:flex; }
+.cp-ref-has-value:hover .cp-ref-clear, .cp-ref-has-value .cp-ref-clear:focus-visible { opacity:1; }
+.cp-ref-clear:hover, .cp-ref-clear:focus-visible { background:var(--danger,#d84343); border-color:var(--danger,#d84343); color:#fff; outline:none; }
 
 /* Création de poste à la volée (onglet Poste de la fiche Personne) : un bouton "+"
    révèle le mini-formulaire directement sous le champ de recherche, sans ouvrir de

@@ -64,31 +64,53 @@
     const isPerson = table === 'Annuaire';
     const wrap = document.createElement('div');
     wrap.className = 'cp-field cp-ref' + (isPerson ? ' cp-ref-person' : '');
+    // .cp-ref-list reste imbriquée dans .cp-ref-control (pas un simple sibling du wrap) :
+    // input.parentElement.querySelector('.cp-ref-list') est le patron utilisé ailleurs
+    // (ensureCreateAction() dans person-modal.js, pickRef() dans les tests) pour
+    // retrouver la liste depuis l'input — la casser forcerait à toucher ces deux autres
+    // endroits pour un simple changement de structure interne à refField().
+    const control = `<div class="cp-ref-control"><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><button type="button" class="cp-ref-clear" aria-label="Retirer la valeur" tabindex="-1">×</button><div class="cp-ref-list cp-hidden"></div></div>`;
     wrap.innerHTML = isPerson
-      ? `<label>${esc(display.label)}${required ? ' *' : ''}</label><span class="cp-ref-avatar" aria-hidden="true"></span><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`
-      : `<label>${esc(display.label)}${required ? ' *' : ''}</label><input autocomplete="off" data-ref="${key}" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`;
-    const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list'), avatar = wrap.querySelector('.cp-ref-avatar');
+      ? `<label>${esc(display.label)}${required ? ' *' : ''}</label><span class="cp-ref-avatar" aria-hidden="true"></span>${control}`
+      : `<label>${esc(display.label)}${required ? ' *' : ''}</label>${control}`;
+    const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list'), avatar = wrap.querySelector('.cp-ref-avatar'), clearBtn = wrap.querySelector('.cp-ref-clear');
     const all = () => table === '__choice__' ? [] : rows(table);
     const displayValue = r => text(display.format ? display.format(r) : label(r, display.fields));
     const initials = str => (str || '').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    // Bascule l'affichage "bulle" (fond teinté + croix de suppression au survol) dès
+    // qu'une valeur est retenue, pour tous les champs référence — avant ça, retirer une
+    // valeur déjà choisie (un porteur par ex.) obligeait à effacer le texte affiché
+    // caractère par caractère. _cpRefSync est exposé sur l'input pour que les modales de
+    // création à la volée (personne, ligne OPE) puissent déclencher ce même rafraîchissement
+    // une fois la nouvelle valeur poussée dans input.value/dataset.id.
     const refreshAvatar = () => {
-      if (!avatar) return;
       const idNum = Number(input.dataset.id);
-      avatar.textContent = (Number.isFinite(idNum) && idNum > 0) ? initials(input.value) : '';
+      const hasValue = Number.isFinite(idNum) && idNum > 0;
+      wrap.classList.toggle('cp-ref-has-value', hasValue);
+      if (avatar) avatar.textContent = hasValue ? initials(input.value) : '';
     };
+    input._cpRefSync = refreshAvatar;
 
     const render = (clearSelection = true) => {
       if (clearSelection) { input.dataset.id = ''; refreshAvatar(); }
       const q = input.value.trim().toLowerCase();
       const matches = all().filter(r => displayValue(r).toLowerCase().includes(q)).slice(0, 30);
       list.innerHTML = matches.map(r => `<button type="button" data-id="${esc(r.id)}">${esc(displayValue(r))}</button>`).join('');
-      if (table === 'Annuaire' && !matches.length && q && typeof window.openCreatePersonModal === 'function') {
-        list.innerHTML = `<button type="button" data-create-person="${esc(input.value.trim())}">+ Créer "${esc(input.value.trim())}"</button>`;
+      if (!matches.length && q) {
+        if (table === 'Annuaire' && typeof window.openCreatePersonModal === 'function') {
+          list.innerHTML = `<button type="button" data-create-person="${esc(input.value.trim())}">+ Créer "${esc(input.value.trim())}"</button>`;
+        } else if (table === 'EcritureComptables' && typeof window.openCreateOpeModal === 'function') {
+          list.innerHTML = `<button type="button" data-create-ope="${esc(input.value.trim())}">+ Créer la ligne OPE "${esc(input.value.trim())}"</button>`;
+        }
       }
       list.classList.toggle('cp-hidden', !list.innerHTML);
       list.querySelectorAll('button').forEach(b => b.onclick = () => {
         if (b.dataset.createPerson !== undefined) {
           window.openCreatePersonModal(b.dataset.createPerson, input);
+          return;
+        }
+        if (b.dataset.createOpe !== undefined) {
+          window.openCreateOpeModal(b.dataset.createOpe, input);
           return;
         }
         input.value = b.textContent;
@@ -119,6 +141,18 @@
       list.classList.add('cp-hidden');
       if (!input.dataset.id) input.value = '';
     }, 150);
+    // mousedown (pas click) + preventDefault : évite que le blur de l'input (ci-dessus)
+    // ne parte avant le clic sur la croix, ce qui ferait interférer son minuteur de
+    // 150ms avec la suppression explicite demandée ici.
+    clearBtn.onmousedown = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      input.value = '';
+      input.dataset.id = '';
+      refreshAvatar();
+      render();
+      input.focus();
+    };
     parent.appendChild(wrap);
     return { wrap, input, refreshAvatar };
   }

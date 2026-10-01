@@ -180,6 +180,57 @@
     });
   });
 
+  describe('Modale Projet — champs référence affichés "en bulle" avec croix de suppression', function () {
+    it('passe en "bulle" (cp-ref-has-value) dès qu\'une valeur est sélectionnée, puis en sort si on retape', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Porteur_1');
+      assertTrue(!input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'pas de bulle tant qu\'aucune valeur n\'est retenue');
+
+      pickRef('Porteur_1', 'Alice', 'Alice Martin');
+      assertTrue(input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'la bulle doit apparaître une fois une personne sélectionnée');
+
+      fire(input, 'input');
+      assertTrue(!input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'retaper doit faire sortir du mode bulle (la valeur n\'est plus retenue tant que rien n\'est recliqué)');
+    });
+
+    it('la croix de suppression retire la valeur retenue sans ouvrir la fiche personne', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickRef('Porteur_1', 'Alice', 'Alice Martin');
+      const input = refInput('Porteur_1');
+      assertEqual(input.dataset.id, '1');
+
+      const original = window.openEditPersonModal;
+      let editOpened = false;
+      window.openEditPersonModal = () => { editOpened = true; };
+      try {
+        const clearBtn = input.closest('.cp-ref').querySelector('.cp-ref-clear');
+        assertTrue(!!clearBtn, 'un bouton de suppression doit exister sur le champ référence');
+        clearBtn.onmousedown(fakeEvent());
+      } finally {
+        window.openEditPersonModal = original;
+      }
+
+      assertEqual(input.value, '', 'la croix doit vider le champ');
+      assertEqual(input.dataset.id, '', 'la croix doit retirer l\'id retenu');
+      assertTrue(!input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'la bulle doit disparaître après suppression');
+      assertFalse(editOpened, 'cliquer la croix ne doit pas ouvrir la fiche personne (contrairement à un clic sur la bulle elle-même)');
+    });
+
+    it('ne pousse plus le porteur retiré via la croix lors de l\'enregistrement', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      pickRef('Accompagnateur', 'Bob', 'Bob Durand');
+      const input = refInput('Accompagnateur');
+      input.closest('.cp-ref').querySelector('.cp-ref-clear').onmousedown(fakeEvent());
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      const call = window.__TEST_CALLS__[0];
+      assertEqual(call.fields.Accompagnateur, null, 'le champ vidé via la croix ne doit pas être enregistré');
+    });
+  });
+
   describe('Modale Projet — prévisionnel financier et conventions', function () {
     it('calcule les totaux par année, par ligne et le total général', async function () {
       await loadFixtureState();
