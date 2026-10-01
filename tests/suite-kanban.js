@@ -66,6 +66,15 @@
       assertFalse(acronyms.includes('INCONNUX'), 'INCONNUX (Statut totalement inconnu) ne doit être affiché nulle part');
     });
 
+    it('Statut_Macro="En attente statut Notifications" (projet sans ligne Notifications liée) va en Instruction', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      const inconnux = tables.Projets.find(p => p.Acronyme === 'INCONNUX');
+      inconnux.Statut_Macro = 'En attente statut Notifications';
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderProjectsKanban();
+      assertTrue(!!cardIn(columnSection('Instruction'), 'INCONNUX'), 'un projet tout juste créé (pas encore de ligne Notifications) doit apparaître en Instruction');
+    });
+
     it('le compteur de la colonne reflète le nombre réel de cartes', async function () {
       await loadFixtureState();
       const section = columnSection('Instruction');

@@ -138,9 +138,13 @@
     if (!status) return null;
 
     // 1) Instruction
+    // "En attente statut Notifications" : Statut_Macro avant qu'une ligne
+    // Notifications ne soit liée au projet (cf. projet tout juste créé) —
+    // classé dans Instruction à la demande d'Antoine (01/10/2026).
     if (status === normalized('1) Information projet saisies')
         || status === normalized('2) Notification_relecture')
-        || status === normalized('3) Prette pour CTO')) {
+        || status === normalized('3) Prette pour CTO')
+        || status === normalized('En attente statut Notifications')) {
       return 'Instruction';
     }
 
