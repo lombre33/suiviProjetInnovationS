@@ -292,6 +292,14 @@ et la date, avec des seuils propres à chaque onglet :
 Étape terminée (Archivée, Convention signée) : date visible mais neutre. Les seuils sont dans
 `URGENCY_RULES` (`js/pages/page-administratif.js`). Aucune écriture dans Grist.
 
+### 6. L'onglet Conventions ne liste que les projets avec une convention (1er octobre 2026)
+
+`Conventions_statut` vaut « Convention en redaction » par défaut pour TOUTE ligne de `Projets`
+(`_default_Conventions_statut`), convention ou non. L'onglet Conventions de la page
+Administratif ne retient donc que les projets dont `Convention_de_reversement` est coché, comme
+le Kanban Projets et la formule `Statut_Macro`. Décocher la case retire le projet de l'onglet
+(son statut de convention est conservé et reparaît si on recoche).
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies
