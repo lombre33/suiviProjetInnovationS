@@ -602,7 +602,7 @@
   });
 
   describe('Administratif — volets repliables et masquables (même patron que le Kanban)', function () {
-    it('un volet replié cache ses cartes, un volet masqué disparaît et réapparaît via la puce "+ Libellé"', async function () {
+    it('un volet replié cache ses cartes, un volet masqué disparaît et réapparaît via la puce "œil"', async function () {
       await loadFixtureState();
       const panel = panelIn('admin-col-notif', 'Information projet saisies');
       panel.querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -613,7 +613,8 @@
       panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-hide-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       assertFalse(!!panelIn('admin-col-notif', 'Information projet saisies'), 'le volet masqué ne doit plus être dans le DOM');
       const chip = document.getElementById('admin-hidden-panels').querySelector('[data-restore-panel]');
-      assertTrue(!!chip && chip.textContent.includes('Information projet saisies'), 'une puce "+ Information projet saisies" doit apparaître');
+      assertTrue(!!chip && chip.textContent.includes('Information projet saisies'), 'une puce "Information projet saisies" doit apparaître');
+      assertTrue(!!chip.querySelector('svg'), 'la puce de restauration doit afficher une icône (œil ouvert), pas un "+" textuel');
       chip.dispatchEvent(new MouseEvent('click', { bubbles: true })); // restore, reset for other tests
       assertTrue(!!panelIn('admin-col-notif', 'Information projet saisies'), 'le volet doit réapparaître après restauration');
     });

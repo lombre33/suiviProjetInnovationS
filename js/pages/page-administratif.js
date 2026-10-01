@@ -61,6 +61,10 @@
   ];
   const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+  // Icône "œil ouvert" — symétrique de ICON_EYE_OFF (même eye-off sans la barre),
+  // utilisée pour restaurer un volet masqué (demande du 01/10/2026 : le "+"
+  // précédent n'était pas assez clair).
+  const ICON_EYE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
   const ICON_VIEW_CARDS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.3"></rect><rect x="14" y="3" width="7" height="7" rx="1.3"></rect><rect x="3" y="14" width="7" height="7" rx="1.3"></rect><rect x="14" y="14" width="7" height="7" rx="1.3"></rect></svg>';
   const ICON_GRIP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"></circle><circle cx="15" cy="6" r="1.7"></circle><circle cx="9" cy="12" r="1.7"></circle><circle cx="15" cy="12" r="1.7"></circle><circle cx="9" cy="18" r="1.7"></circle><circle cx="15" cy="18" r="1.7"></circle></svg>';
   const ICON_EXTERNAL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
@@ -603,7 +607,7 @@
     const hiddenPanels = panels.filter(p => p.state.hidden);
     container.hidden = hiddenPanels.length === 0;
     container.innerHTML = hiddenPanels.length
-      ? `<span class="kanban-hidden-label">Masqués :</span>${hiddenPanels.map(p => `<button type="button" class="kanban-restore-chip" data-restore-panel="${escape(p.key)}">+ ${escape(p.label)}</button>`).join('')}`
+      ? `<span class="kanban-hidden-label">Masqués :</span>${hiddenPanels.map(p => `<button type="button" class="kanban-restore-chip" data-restore-panel="${escape(p.key)}" aria-label="Afficher le volet ${escape(p.label)}">${ICON_EYE}<span>${escape(p.label)}</span></button>`).join('')}`
       : '';
     container.querySelectorAll('[data-restore-panel]').forEach(btn => btn.addEventListener('click', () => {
       const state = panelState[btn.dataset.restorePanel];

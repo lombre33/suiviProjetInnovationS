@@ -228,6 +228,7 @@
       const restoreBtn = hiddenBar.querySelector('[data-restore-column="Notifications"]');
       assertTrue(!!restoreBtn, 'une puce de restauration pour "Notifications" doit apparaître dans le bandeau, à côté de Réinitialiser');
       assertTrue(restoreBtn.textContent.includes('Notifications'));
+      assertTrue(!!restoreBtn.querySelector('svg'), 'la puce de restauration doit afficher une icône (œil ouvert), pas un "+" textuel');
 
       // Nettoyage : on restaure la colonne pour ne pas polluer les tests suivants.
       restoreBtn.click();
