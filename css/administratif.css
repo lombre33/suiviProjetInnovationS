@@ -48,7 +48,7 @@
 .admin-card-caption { display:block; font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .admin-card-badges { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
-.mode-rows .admin-card-badges { flex:0 0 180px; min-width:0; }
+.mode-rows .admin-card-badges { flex:0 1 200px; min-width:0; }
 .admin-cto-badge { display:inline-flex; align-items:center; height:21px; padding:0 8px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--border-strong); color:var(--text-muted); font-size:10.5px; font-weight:800; flex:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mode-rows .admin-cto-badge, .mode-rows .programme-badge { height:20px; padding:0 8px; font-size:10.5px; margin:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
@@ -118,3 +118,15 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .admin-date .admin-field-label { margin:0; }
 .admin-date input { height:28px; padding:0 8px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12px; }
 .admin-date input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+
+/* Date de début du projet (01/10/2026) : pastille en lecture seule, colorée selon
+   l'urgence (rouge / orange / vert ; neutre entre l'orange et 60 jours, et sur les
+   étapes terminées). La couleur n'est jamais seule : l'écart en jours est dans
+   l'infobulle et dans un texte masqué pour les lecteurs d'écran. Notifications :
+   avec les badges Programme / CTO ; Conventions : sous l'acronyme (la ligne est
+   déjà haute, aucune largeur ni hauteur en plus). */
+.admin-start { display:inline-flex; align-self:flex-start; flex:none; align-items:center; gap:5px; height:22px; padding:0 9px; border:1px solid var(--border-strong); border-radius:999px; background:var(--surface-sunken); color:var(--text-muted); font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; cursor:default; }
+.admin-start svg { flex:none; }
+.admin-start.is-red { background:var(--danger-soft); border-color:var(--danger-soft-border); color:#a32626; }
+.admin-start.is-orange { background:var(--warning-soft); border-color:var(--warning-soft-border); color:var(--warning); }
+.admin-start.is-green { background:var(--success-soft); border-color:var(--success-soft-border); color:#14724a; }

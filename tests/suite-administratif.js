@@ -748,6 +748,128 @@
     });
   });
 
+  describe('Administratif — date de début du projet et code d\'urgence (Notifications et Conventions)', function () {
+    const URGENCY = () => window.AdministratifUrgency;
+    // 1er octobre 2026, fin d'après-midi : "aujourd'hui" est figé, les dates sont données en offset de jours.
+    const TODAY = () => new Date(2026, 9, 1, 17, 45);
+    const inDays = n => Math.floor(Date.UTC(2026, 9, 1 + n) / 1000);
+
+    async function loadWithStartDates(dates, clock) {
+      URGENCY().setClock(clock || TODAY);
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(dates).forEach(([acronym, epoch]) => { tables.Projets.find(p => p.Acronyme === acronym).Date_debut_Projet = epoch; });
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+    }
+    const restoreClock = () => URGENCY().setClock();
+    const chipOf = (colId, label, acronym) => cardByAcronym(panelIn(colId, label), acronym).querySelector('[data-start-date]');
+    const NOTIF_1 = 'Information projet saisies';
+    const CONV_1 = 'Convention en redaction';
+
+    it('seuils Notifications : rouge < 7 j (dates passées incluses), orange de 7 à 21 j, neutre jusqu\'à 60 j, vert au-delà', function () {
+      const tone = days => URGENCY().toneFor('notif', days);
+      [[-30, 'red'], [-1, 'red'], [0, 'red'], [6, 'red'], [7, 'orange'], [21, 'orange'], [22, 'neutral'], [60, 'neutral'], [61, 'green'], [400, 'green']]
+        .forEach(([days, expected]) => assertEqual(tone(days), expected, `notifications, ${days} j`));
+    });
+
+    it('seuils Conventions : rouge < 14 j (dates passées incluses), orange < 30 j, neutre jusqu\'à 60 j, vert au-delà', function () {
+      const tone = days => URGENCY().toneFor('conv', days);
+      [[-30, 'red'], [0, 'red'], [13, 'red'], [14, 'orange'], [29, 'orange'], [30, 'neutral'], [60, 'neutral'], [61, 'green'], [400, 'green']]
+        .forEach(([days, expected]) => assertEqual(tone(days), expected, `conventions, ${days} j`));
+    });
+
+    it('le même projet n\'a pas la même couleur dans les deux onglets : début dans 10 j = orange en Notifications, rouge en Conventions', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: inDays(10) });
+        assertEqual(chipOf('admin-col-notif', NOTIF_1, 'INNOVX').dataset.urgency, 'orange');
+        assertEqual(chipOf('admin-col-conv', CONV_1, 'INNOVX').dataset.urgency, 'red');
+      } finally { restoreClock(); }
+    });
+
+    it('début dans 25 j : neutre en Notifications, orange en Conventions ; dans 90 j : vert partout', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: inDays(25), NOTIFY: inDays(90) });
+        assertEqual(chipOf('admin-col-notif', NOTIF_1, 'INNOVX').dataset.urgency, 'neutral');
+        assertEqual(chipOf('admin-col-conv', CONV_1, 'INNOVX').dataset.urgency, 'orange');
+        assertEqual(chipOf('admin-col-notif', 'envoyée pour signature VP', 'NOTIFY').dataset.urgency, 'green');
+        assertEqual(chipOf('admin-col-conv', CONV_1, 'NOTIFY').dataset.urgency, 'green');
+      } finally { restoreClock(); }
+    });
+
+    it('affiche la date jj/mm/aaaa en lecture seule, avec l\'écart en jours dans l\'infobulle', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: inDays(4) });
+        const chip = chipOf('admin-col-notif', NOTIF_1, 'INNOVX');
+        assertEqual(chip.querySelector('time').textContent, '05/10/2026');
+        assertEqual(chip.querySelector('time').getAttribute('datetime'), '2026-10-05');
+        assertIncludes(chip.title, 'dans 4 jours');
+        assertIncludes(chip.title, 'urgent');
+        assertIncludes(chip.querySelector('.visually-hidden').textContent, 'dans 4 jours', 'texte pour lecteurs d\'écran : la couleur n\'est pas seule');
+        assertEqual(chip.querySelectorAll('input, textarea, button, a').length, 0, 'lecture seule : aucun champ ni bouton');
+      } finally { restoreClock(); }
+    });
+
+    it('date vide ou illisible : rien du tout n\'est affiché (ni pastille, ni libellé, ni emplacement)', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: null, NOTIFY: 'bientôt', CONVENTIX: 0, FINANCX: 8e12, COURSIX: NaN });
+        assertEqual(document.querySelectorAll('#admin-col-notif .admin-start, #admin-col-conv .admin-start').length, 0, 'aucune pastille');
+        assertEqual(document.querySelectorAll('#admin-col-notif time, #admin-col-conv time').length, 0, 'aucune date');
+        assertFalse(/début du projet/i.test(document.getElementById('admin-col-notif').textContent + document.getElementById('admin-col-conv').textContent), 'aucun libellé');
+      } finally { restoreClock(); }
+    });
+
+    it('une date passée est rouge ("il y a N jours"), « demain » et « aujourd\'hui » sont reconnus', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: inDays(-3), NOTIFY: inDays(1), CONVENTIX: inDays(0) });
+        const past = chipOf('admin-col-notif', NOTIF_1, 'INNOVX');
+        assertEqual(past.dataset.urgency, 'red');
+        assertIncludes(past.title, 'il y a 3 jours');
+        assertIncludes(chipOf('admin-col-notif', 'envoyée pour signature VP', 'NOTIFY').title, 'demain');
+        assertIncludes(chipOf('admin-col-conv', 'Convention en signature', 'CONVENTIX').title, 'aujourd\'hui');
+      } finally { restoreClock(); }
+    });
+
+    it('étape terminée (Archivée / Convention signée) : la date reste visible mais sans couleur d\'alerte', async function () {
+      try {
+        await loadWithStartDates({ SIGNEX: inDays(2) });
+        const archived = chipOf('admin-col-notif', 'Archivee', 'SIGNEX');
+        const signed = chipOf('admin-col-conv', 'Convention signée de toutes les parties', 'SIGNEX');
+        assertEqual(archived.dataset.urgency, 'neutral', 'Archivée : plus d\'urgence');
+        assertEqual(signed.dataset.urgency, 'neutral', 'Convention signée : plus d\'urgence');
+        assertEqual(signed.querySelector('time').textContent, '03/10/2026');
+        assertFalse(archived.title.includes('urgent'));
+      } finally { restoreClock(); }
+    });
+
+    it('« aujourd\'hui » est le jour calendaire local : 23 h 59 et 0 h 01 donnent le même écart', async function () {
+      try {
+        const epoch = inDays(1);
+        URGENCY().setClock(() => new Date(2026, 9, 1, 23, 59));
+        assertEqual(URGENCY().daysUntil(epoch), 1);
+        URGENCY().setClock(() => new Date(2026, 9, 1, 0, 1));
+        assertEqual(URGENCY().daysUntil(epoch), 1);
+        URGENCY().setClock(() => new Date(2026, 9, 20, 12, 0)); // avant le passage à l'heure d'hiver (25/10)
+        assertEqual(URGENCY().daysUntil(Math.floor(Date.UTC(2026, 10, 2) / 1000)), 13, 'insensible au changement d\'heure');
+      } finally { restoreClock(); }
+    });
+
+    it('la pastille suit aussi la vue cartes, et se met à jour si la date change dans les données', async function () {
+      try {
+        await loadWithStartDates({ INNOVX: inDays(100) });
+        assertEqual(chipOf('admin-col-notif', NOTIF_1, 'INNOVX').dataset.urgency, 'green');
+        document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        assertTrue(document.querySelector('#admin-col-notif .admin-panel-body').classList.contains('mode-cards'));
+        assertEqual(chipOf('admin-col-notif', NOTIF_1, 'INNOVX').dataset.urgency, 'green', 'visible en vue cartes');
+        window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX').Date_debut_Projet = inDays(3);
+        window.renderAdministratif();
+        assertEqual(chipOf('admin-col-notif', NOTIF_1, 'INNOVX').dataset.urgency, 'red', 'recalculé au rendu suivant');
+      } finally {
+        document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); // reset pour les autres tests
+        restoreClock();
+      }
+    });
+  });
+
   describe('Administratif — échappement HTML des données Grist', function () {
     it('échappe l\'acronyme avant de l\'insérer dans le HTML', async function () {
       const tables = await window.CoreGrist.loadAllTables();

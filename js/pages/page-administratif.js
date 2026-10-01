@@ -40,6 +40,21 @@
   const NEXT_STEP_FIELD = 'next_step';
   const TRANSMISE_FIELD = 'Transmise_signee_au_porteur_le';
   const LINK_FIELD = 'Lien_convention';
+  // Date de début du projet (Projets.Date_debut_Projet, Date Grist = secondes
+  // epoch à minuit UTC) affichée en lecture seule sur chaque carte, colorée selon
+  // l'urgence (demande d'Antoine du 01/10/2026). Seuils en jours AVANT le début,
+  // par onglet : en dessous de `red` rouge, jusqu'à `orange` orange, au-delà de
+  // 60 jours vert, entre les deux neutre. Date passée = rouge. Inclusif côté
+  // orange pour Notifications ("entre une et trois semaines"), strict pour
+  // Conventions ("moins de 2 semaines", "moins d'un mois", mois = 30 jours).
+  const START_DATE_FIELD = 'Date_debut_Projet';
+  const URGENCY_GREEN_ABOVE_DAYS = 60;
+  const URGENCY_RULES = {
+    notif: { redBelow: 7, orangeUpTo: 21, orangeInclusive: true },
+    conv: { redBelow: 14, orangeUpTo: 30, orangeInclusive: false }
+  };
+  const URGENCY_LABELS = { red: 'urgent', orange: 'à surveiller', green: 'pas d\'urgence', neutral: '' };
+  const ICON_CALENDAR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>';
   // 4 états (ajout de "Non relu" le 18/09/2026 — pas de puce remplie, état par
   // défaut avant toute relecture). Les 3 points de la bulle se remplissent un
   // par un jusqu'à l'étape atteinte (0, 1, 2 ou 3 points).
@@ -186,6 +201,50 @@
     if (etabs[0]) defs.push({ label: text(etabs[0].Acronyme || etabs[0].Nom_complet), field: 'convention_statut_partenaire_1' });
     if (etabs[1]) defs.push({ label: text(etabs[1].Acronyme || etabs[1].Nom_complet), field: 'convention_statut_partenaire_2' });
     return defs.map(def => ({ ...def, statusIndex: partnerStatusIndex(project, def.field) }));
+  }
+
+  // Horloge remplaçable (tests). "Aujourd'hui" est une date CALENDAIRE locale, pas un
+  // instant : la date de début est un jour (minuit UTC), l'écart en jours ne dépend
+  // donc ni de l'heure de la journée ni des changements d'heure.
+  let nowFn = () => new Date();
+  function daysUntilStart(epochSeconds) {
+    const now = nowFn();
+    const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.floor((epochSeconds * 1000 - todayUtc) / 86400000);
+  }
+  function urgencyTone(side, days) {
+    const rule = URGENCY_RULES[side];
+    if (days < rule.redBelow) return 'red'; // inclut les dates passées
+    if (rule.orangeInclusive ? days <= rule.orangeUpTo : days < rule.orangeUpTo) return 'orange';
+    return days > URGENCY_GREEN_ABOVE_DAYS ? 'green' : 'neutral';
+  }
+  function relativeDays(days) {
+    if (days === 0) return 'aujourd\'hui';
+    if (days === 1) return 'demain';
+    if (days === -1) return 'hier';
+    return days > 0 ? `dans ${days} jours` : `il y a ${-days} jours`;
+  }
+  // null quand la colonne est vide ou illisible : alors rien ne s'affiche.
+  // Étape terminée (isDone) : la date reste visible mais sans couleur d'alerte,
+  // l'urgence ne s'applique plus.
+  function startDateInfo(project, side, isDone) {
+    const raw = project[START_DATE_FIELD];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+    const iso = CoreUtils.gristDateToInput(raw); // '' pour 0 / hors plage
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null; // années à 4 chiffres seulement
+    const days = daysUntilStart(raw);
+    const tone = isDone ? 'neutral' : urgencyTone(side, days);
+    const [year, month, day] = iso.split('-');
+    const sentence = [relativeDays(days), URGENCY_LABELS[tone]].filter(Boolean).join(', ');
+    return { iso, tone, display: `${day}/${month}/${year}`, sentence };
+  }
+  // Pastille en lecture seule ; chaîne vide quand il n'y a pas de date : rien n'est affiché.
+  function startDateChip(project, side, isDone) {
+    const info = startDateInfo(project, side, isDone);
+    if (!info) return '';
+    return `<span class="admin-start is-${info.tone}" data-start-date="${escape(project.id)}" data-urgency="${info.tone}" title="${escape(`Début du projet le ${info.display} (${info.sentence})`)}">` +
+      `${ICON_CALENDAR}<time datetime="${escape(info.iso)}">${escape(info.display)}</time>` +
+      `<span class="visually-hidden"> — début du projet, ${escape(info.sentence)}</span></span>`;
   }
 
   // État d'affichage des volets (repliés / masqués) et du mode cartes/lignes —
@@ -462,7 +521,7 @@
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>` +
       `<span class="admin-card-caption">${escape(holder)}</span></button>` +
-      `<div class="admin-card-badges">${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
+      `<div class="admin-card-badges">${startDateChip(project, 'notif', isLast)}${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
       `${cto ? `<span class="admin-cto-badge">${escape(cto)}</span>` : ''}</div>` +
       commentBlock(project) + redactButton(project) +
       (isLast
@@ -502,7 +561,7 @@
     return `<div class="admin-card admin-card-conv" data-project-id="${escape(project.id)}">` +
       `<span class="admin-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
-      `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
+      `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span>${startDateChip(project, 'conv', isLast)}</button>` +
       `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div>` +
       `<div class="admin-notes">${commentBlock(project)}${nextStepBlock(project)}</div>` +
       linkCell(project) +
@@ -792,6 +851,12 @@
   }
 
   window.renderAdministratif = function () { renderFilters(); render(); };
+  // Logique d'urgence exposée pour les tests (seuils) ; setClock() fige "aujourd'hui".
+  window.AdministratifUrgency = {
+    toneFor: urgencyTone,
+    daysUntil: daysUntilStart,
+    setClock(fn) { nowFn = typeof fn === 'function' ? fn : () => new Date(); }
+  };
   window.loadAdministratifUserPreferences = loadAdministratifUserPreferences;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

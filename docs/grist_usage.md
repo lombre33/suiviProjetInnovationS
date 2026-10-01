@@ -263,6 +263,23 @@ formules ne sont jamais écrites par le widget), pas un changement de code. Les 
 onglet Conventions) ne figurent pas non plus dans l'export ; le widget déduit leur table
 (`Projets` par défaut, sinon la fiche `Notifications` du projet) des colonnes chargées.
 
+### 5. Date de début du projet et code d'urgence (page Administratif, 1er octobre 2026)
+
+`Projets.Date_debut_Projet` (Date, déjà documentée) est affichée en lecture seule sur les
+cartes Notifications (avec les badges) et Conventions (sous l'acronyme) ; colonne vide : rien
+ne s'affiche. La couleur dépend de l'écart en jours entre aujourd'hui (jour calendaire local)
+et la date, avec des seuils propres à chaque onglet :
+
+| Couleur | Notifications | Conventions |
+|---|---|---|
+| rouge | date passée, ou début dans moins de 7 jours | date passée, ou début dans moins de 14 jours |
+| orange | 7 à 21 jours | 14 à 29 jours |
+| neutre | 22 à 60 jours | 30 à 60 jours |
+| vert | plus de 60 jours | plus de 60 jours |
+
+Étape terminée (Archivée, Convention signée) : date visible mais neutre. Les seuils sont dans
+`URGENCY_RULES` (`js/pages/page-administratif.js`). Aucune écriture dans Grist.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies
