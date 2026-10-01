@@ -701,6 +701,182 @@
     });
   });
 
+  describe('Rédaction — modifier le projet (modale projet du widget)', function () {
+    const projectModal = () => byId('cp-project-modal');
+    const modalOpen = () => !!projectModal() && !projectModal().classList.contains('cp-hidden');
+    const clickEdit = () => fireMouse(byId('redaction-edit'), 'click');
+    const saveModal = () => projectModal().querySelector('[data-cp-save]').onclick();
+    const projectUpdates = () => window.__TEST_CALLS__.filter(call => call.type === 'UpdateRecord' && call.table === 'Projets');
+    const lastRecord = () => nested().normal[nested().normal.length - 1].record;
+
+    // Page ouverte sur NOTIFY (projet 11), publipostage+ connecté et sa première ligne reçue. `table` : cf. withPage.
+    async function openNotify(fn, table = 'Projets') {
+      await withPage(fakeWidget(), async () => {
+        await clickRedact('NOTIFY');
+        await window.PageRedaction.bridge.whenReady(8000);
+        await waitFor(() => nested().normal.length >= 1, 'première ligne reçue par publipostage+');
+        await fn();
+      }, table);
+    }
+
+    it('le vrai index.html : « Modifier le projet » est dans la rangée du haut, entre le fil d\'ariane et la puce, sans rangée en plus', async function () {
+      const res = await fetch('../index.html', { cache: 'no-store' });
+      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      const bar = doc.querySelector('#view-redaction .redaction-bar');
+      const button = doc.getElementById('redaction-edit');
+      assertTrue(!!button && button.parentElement === bar, 'le bouton est dans la rangée du haut');
+      assertEqual(button.getAttribute('aria-label'), 'Modifier le projet');
+      const order = Array.from(bar.children).map(el => el.id || el.className);
+      assertDeepEqual(order, ['redaction-back', 'redaction-crumb', 'redaction-edit', 'redaction-table', 'redaction-status'],
+        'ordre : retour, fil d\'ariane, modifier, table, puce');
+      assertEqual(doc.getElementById('view-redaction').children.length, 3, 'rangée du haut, journal et iframe : rien de plus');
+    });
+
+    it('la feuille de style : pastille de 28 px comme les autres de la rangée, libellé masqué sous 700 px (icône seule)', async function () {
+      const css = await (await fetch('../css/redaction.css', { cache: 'no-store' })).text();
+      const rule = css.match(/\.redaction-edit\s*\{([^}]*)\}/);
+      assertTrue(!!rule, 'règle .redaction-edit');
+      assertIncludes(rule[1], 'height:28px');
+      assertIncludes(rule[1], 'flex:none');
+      assertTrue(/@media \(max-width:700px\)\s*\{[^@]*\.redaction-edit span\s*\{\s*display:none;/.test(css), 'sous 700 px, seule l\'icône reste');
+    });
+
+    it('la rangée manque de place : le chemin du fil d\'ariane s\'abrège, jamais l\'acronyme du projet', async function () {
+      const css = await (await fetch('../css/redaction.css', { cache: 'no-store' })).text();
+      const path = css.match(/\.redaction-crumb-path\s*\{([^}]*)\}/);
+      const acronym = css.match(/\.redaction-crumb strong\s*\{([^}]*)\}/);
+      assertTrue(!!path && !!acronym, 'règles du chemin et de l\'acronyme');
+      assertIncludes(path[1], 'min-width:0', 'le chemin peut rétrécir');
+      assertIncludes(path[1], 'text-overflow:ellipsis');
+      assertIncludes(acronym[1], 'flex:none', 'l\'acronyme ne rétrécit pas avant le chemin');
+      const doc = new DOMParser().parseFromString(await (await fetch('../index.html', { cache: 'no-store' })).text(), 'text/html');
+      assertEqual(doc.querySelector('.redaction-crumb > .redaction-crumb-path').textContent, 'Administratif · Notifications ·');
+      assertTrue(doc.querySelector('.redaction-crumb > strong#redaction-project') !== null, 'l\'acronyme est un enfant direct du fil d\'ariane');
+    });
+
+    it('cliquer « Modifier le projet » ouvre la modale du projet en cours, remplie, PAR-DESSUS la page : la vue et l\'iframe restent', async function () {
+      await openNotify(async () => {
+        const frame = window.PageRedaction.frame;
+        assertFalse(modalOpen(), 'modale fermée tant qu\'on n\'a pas cliqué');
+        clickEdit();
+        await waitFor(modalOpen, 'modale projet ouverte');
+        assertEqual(projectModal().dataset.mode, 'edit', 'modification, pas création');
+        assertEqual(projectModal().querySelector('.cp-head h2').textContent, 'Modifier le projet');
+        assertEqual(projectModal().querySelector('#cp-Acronyme').value, 'NOTIFY');
+        assertEqual(projectModal().querySelector('#cp-Projet').value, 'Projet Notif');
+        assertFalse(byId('view-redaction').classList.contains('hidden'), 'la page Rédaction reste affichée dessous');
+        assertTrue(window.PageRedaction.frame === frame, 'publipostage+ n\'est ni rechargé ni retiré');
+        assertEqual(document.querySelectorAll('#redaction-frame-wrap iframe').length, 1);
+      });
+    });
+
+    it('enregistrer la modale : le projet est mis à jour et publipostage+ relit sa ligne (valeurs à jour) ; le fil d\'ariane suit l\'acronyme', async function () {
+      await openNotify(async () => {
+        const before = nested().normal.length;
+        clickEdit();
+        await waitFor(modalOpen, 'modale projet ouverte');
+        setValue(projectModal().querySelector('#cp-Acronyme'), 'NOTIFY2');
+        await saveModal();
+        assertEqual(projectUpdates().length, 1, 'un seul UpdateRecord sur Projets');
+        assertEqual(projectUpdates()[0].id, 11);
+        assertEqual(projectUpdates()[0].fields.Acronyme, 'NOTIFY2');
+        assertFalse(modalOpen(), 'la modale se referme');
+        await waitFor(() => nested().normal.length > before && lastRecord().Acronyme === 'NOTIFY2', 'publipostage+ relit la ligne du projet');
+        assertEqual(lastRecord().id, 11);
+        await waitFor(() => byId('redaction-project').textContent === 'NOTIFY2', 'fil d\'ariane à jour');
+        assertEqual(nested().unhandled.length, 0, 'aucun échec RPC côté publipostage+');
+      });
+    });
+
+    it('avec la fiche Notifications présentée : enregistrer le projet fait relire cette fiche à publipostage+', async function () {
+      await openNotify(async () => {
+        assertEqual(nested().tableId, 'Notifications');
+        const before = nested().normal.length;
+        clickEdit();
+        await waitFor(modalOpen, 'modale projet ouverte');
+        setValue(projectModal().querySelector('#cp-Acronyme'), 'NOTIFY3');
+        await saveModal();
+        await waitFor(() => nested().normal.length > before, 'publipostage+ relit sa ligne');
+        assertEqual(lastRecord().id, 2, 'la fiche Notifications du projet 11, pas la ligne du projet');
+        assertEqual(window.PageRedaction.linked.table, 'Notifications');
+      }, null);
+    });
+
+    it('fermer la modale sans enregistrer : aucune écriture, et publipostage+ ne reçoit rien de plus', async function () {
+      await openNotify(async () => {
+        const before = nested().normal.length;
+        clickEdit();
+        await waitFor(modalOpen, 'modale projet ouverte');
+        setValue(projectModal().querySelector('#cp-Acronyme'), 'JAMAIS');
+        projectModal().querySelector('[data-cp-cancel]').onclick();
+        await wait(300);
+        assertFalse(modalOpen());
+        assertEqual(projectUpdates().length, 0);
+        assertEqual(nested().normal.length, before, 'aucun nouvel onRecord');
+        assertEqual(byId('redaction-project').textContent, 'NOTIFY');
+      });
+    });
+
+    it('un projet enregistré ailleurs (évènement project-created) est aussi relu par publipostage+', async function () {
+      await openNotify(async () => {
+        const before = nested().normal.length;
+        window.__mockSetTable('Projets', Object.assign(JSON.parse(JSON.stringify(window.__FIXTURES__.Projets)), {
+          Acronyme: window.__FIXTURES__.Projets.Acronyme.map(a => (a === 'NOTIFY' ? 'AILLEURS' : a))
+        }));
+        window.dispatchEvent(new CustomEvent('project-created'));
+        await waitFor(() => nested().normal.length > before && lastRecord().Acronyme === 'AILLEURS', 'publipostage+ relit la ligne');
+        await waitFor(() => byId('redaction-project').textContent === 'AILLEURS', 'fil d\'ariane à jour');
+      });
+    });
+
+    it('si publipostage+ a écrit dans le document depuis l\'ouverture, la modale part des valeurs à jour (cache rechargé avant)', async function () {
+      await openNotify(async () => {
+        // publipostage+ écrit dans le document PAR LE PONT : le cache local du widget est alors périmé (rechargé au retour, d'ordinaire).
+        await window.PageRedaction.frame.contentWindow.grist.docApi.applyUserActions([['UpdateRecord', 'Projets', 11, { Acronyme: 'ECRIT_PAR_PP' }]]);
+        assertEqual(window.CoreState.getTable('Projets').find(p => p.id === 11).Acronyme, 'NOTIFY', 'cache local périmé');
+        clickEdit();
+        await waitFor(modalOpen, 'modale projet ouverte');
+        assertEqual(projectModal().querySelector('#cp-Acronyme').value, 'ECRIT_PAR_PP');
+      });
+    });
+
+    it('sans la modale projet (script absent) : message, aucune exception, rien ne change', async function () {
+      await openNotify(async () => {
+        const modal = window.ProjectModal;
+        window.ProjectModal = undefined;
+        try {
+          clickEdit();
+          await wait(50);
+          assertIncludes(byId('toast').textContent, 'indisponible');
+          assertFalse(byId('view-redaction').classList.contains('hidden'));
+        } finally { window.ProjectModal = modal; }
+      });
+    });
+
+    it('si la modale projet échoue à s\'ouvrir : message d\'erreur, la page Rédaction reste en place', async function () {
+      await openNotify(async () => {
+        const modal = window.ProjectModal;
+        window.ProjectModal = { open() { throw new Error('boum'); } };
+        try {
+          clickEdit();
+          await wait(50);
+          assertIncludes(byId('toast').textContent, 'Impossible d\'ouvrir la fiche du projet : boum');
+          assertFalse(byId('view-redaction').classList.contains('hidden'));
+        } finally { window.ProjectModal = modal; }
+      });
+    });
+
+    it('projet disparu du cache local depuis l\'ouverture : « Projet introuvable », la modale ne s\'ouvre pas', async function () {
+      await openNotify(async () => {
+        window.CoreState.setTable('Projets', window.CoreState.getTable('Projets').filter(p => p.id !== 11));
+        clickEdit();
+        await wait(50);
+        assertIncludes(byId('toast').textContent, 'Projet introuvable');
+        assertFalse(modalOpen());
+      });
+    });
+  });
+
   describe('Rédaction — URL du widget imbriqué', function () {
     it('par défaut : publipostage+ sur GitHub Pages, origine correspondante', function () {
       resetPage();

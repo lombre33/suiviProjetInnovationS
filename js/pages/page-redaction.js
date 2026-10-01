@@ -6,6 +6,8 @@
  * Le widget imbriqué ne peut pas parler à Grist directement (Grist n'écoute que l'iframe de CE widget) : tout passe
  * par js/core/grist-bridge.js, qui lui relaie l'API document et lui présente une ligne liée au projet comme
  * enregistrement sélectionné (le "select by" d'un widget lié). publipostage+ s'ouvre en mode Lecture (cf. keepReadMode).
+ * « Modifier le projet » ouvre la modale projet du widget (project-modal.js, que cette page ne modifie pas) par-dessus la page ;
+ * à l'enregistrement, publipostage+ relit sa ligne (cf. onProjectSaved).
  *
  * Quelle ligne, de quelle table ? publipostage+ résout les #Variable d'une AUTRE table par une règle de liaison (« Tables
  * liées », rangée dans la table du document Publipostage_LiensTables, une règle par table cible) construite DEPUIS sa table
@@ -75,6 +77,12 @@
   function showOnly(viewId) {
     document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
     byId(viewId)?.classList.remove('hidden');
+  }
+
+  // Fil d'ariane : l'acronyme du projet (ou son nom).
+  function setCrumb(project) {
+    const crumb = byId('redaction-project');
+    if (crumb) crumb.textContent = project.Acronyme || project.Projet || 'Sans acronyme';
   }
 
   // --- Table présentée à publipostage+ (lue dans le document, jamais écrite d'ici) ---
@@ -425,8 +433,7 @@
     const project = findProject(projectId);
     if (!project) { window.CoreUtils?.showToast('Projet introuvable', true); return Promise.resolve(); }
     ui.projectId = project.id;
-    const crumb = byId('redaction-project');
-    if (crumb) crumb.textContent = project.Acronyme || project.Projet || 'Sans acronyme';
+    setCrumb(project);
     showOnly(REDACTION_VIEW_ID);
     renderDiag();
     const token = ++ui.openToken;
@@ -463,10 +470,43 @@
     return flushReload();
   }
 
+  // --- Modifier le projet : la modale projet du widget, ouverte PAR-DESSUS cette page (elle est fixe et plein écran) ---
+  // publipostage+ reste en place dessous, avec son modèle et son mode : on ne change pas de vue.
+  async function editProject() {
+    const modal = window.ProjectModal;
+    if (!modal || typeof modal.open !== 'function') { window.CoreUtils?.showToast('La fiche du projet est indisponible', true); return; }
+    // publipostage+ a pu écrire dans le document depuis l'ouverture : la modale ne doit pas partir de valeurs périmées, qu'elle
+    // réécrirait à l'enregistrement.
+    if (ui.needsReload) { ui.needsReload = false; await refreshTables(); }
+    const project = findProject(ui.projectId);
+    if (!project) { window.CoreUtils?.showToast('Projet introuvable', true); return; }
+    try {
+      modal.open(project);
+    } catch (err) {
+      console.error('Ouverture de la fiche du projet échouée :', err);
+      window.CoreUtils?.showToast(`Impossible d'ouvrir la fiche du projet : ${err.message}`, true);
+    }
+  }
+
+  // La modale projet vient d'enregistrer (l'évènement garde son nom de création, il part aussi après une modification, cf.
+  // project-modal.js : saveProject) : le document a changé. publipostage+ relit sa ligne (onRecord/onRecords) et le fil d'ariane
+  // suit l'acronyme. Le cache local est rechargé par js/app.js sur ce même évènement ; la lecture ci-dessous n'en dépend pas.
+  async function onProjectSaved() {
+    if (ui.bridge) ui.bridge.refresh();
+    if (ui.projectId == null) return;
+    try {
+      const data = await readTable(PROJECT_TABLE);
+      const at = (data.id || []).findIndex(id => String(id) === String(ui.projectId));
+      if (at !== -1) setCrumb({ Acronyme: (data.Acronyme || [])[at], Projet: (data.Projet || [])[at] });
+    } catch (err) { console.warn('Fil d\'ariane non rafraîchi après l\'enregistrement du projet :', err.message); }
+  }
+
   function init() {
     const view = byId(REDACTION_VIEW_ID);
     if (view && window.MutationObserver) new MutationObserver(flushReload).observe(view, { attributes: true, attributeFilter: ['class'] });
     byId('redaction-back')?.addEventListener('click', close);
+    byId('redaction-edit')?.addEventListener('click', editProject);
+    window.addEventListener('project-created', onProjectSaved);
     byId('redaction-status')?.addEventListener('click', toggleDiag);
     byId('redaction-table')?.addEventListener('change', event => {
       storeChoice(event.target.value);

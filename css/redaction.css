@@ -7,8 +7,20 @@
 
 .redaction-bar { display:flex; align-items:center; gap:12px; height:36px; margin-bottom:12px; }
 .redaction-back { flex:none; }
-.redaction-crumb { flex:1; min-width:0; margin:0; font-size:12.5px; font-weight:600; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.redaction-crumb strong { margin-left:2px; font-size:14px; font-weight:800; color:var(--text); }
+/* Fil d'ariane : quand la rangée manque de place, c'est le chemin « Administratif · Notifications » qui s'abrège (…), jamais l'acronyme du projet. */
+.redaction-crumb { flex:1; min-width:0; display:flex; align-items:baseline; gap:5px; margin:0; font-size:12.5px; font-weight:600; color:var(--text-muted); white-space:nowrap; overflow:hidden; }
+.redaction-crumb-path { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.redaction-crumb strong { flex:none; max-width:70%; overflow:hidden; text-overflow:ellipsis; font-size:14px; font-weight:800; color:var(--text); }
+
+/* Ouvre la fiche du projet (la modale projet du widget, par-dessus la page) : dans la rangée du haut, aucune rangée en plus.
+   Sous 700 px (comme le reste du widget) seule l'icône reste, le libellé étant porté par aria-label et title. */
+.redaction-edit { flex:none; display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 12px; border:1px solid var(--accent); border-radius:999px; background:var(--accent-soft); color:var(--accent-hover); font:inherit; font-size:12px; font-weight:800; cursor:pointer; transition:background .12s ease; }
+.redaction-edit:hover { background:var(--accent); color:#fff; }
+.redaction-edit:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (max-width:700px) {
+  .redaction-edit { padding:0 9px; }
+  .redaction-edit span { display:none; }
+}
 
 /* Table présentée à publipostage+ (cf. page-redaction.js) : dans la rangée du haut, visible seulement quand il y a un choix. */
 .redaction-table { flex:none; height:28px; max-width:200px; padding:0 8px 0 10px; border:1px solid var(--border-strong); border-radius:999px; background-color:var(--surface); color:var(--text); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
