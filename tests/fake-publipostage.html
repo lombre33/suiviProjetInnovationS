@@ -5,6 +5,19 @@
 <title>Faux publipostage+ (tests du pont Grist)</title>
 </head>
 <body>
+<script>
+  // Sélecteur de modèles de publipostage+ (index.html : <select id="template-select">, « unique source de vérité » du modèle affiché, cf.
+  // js/template-tree-select.js), seulement avec ?templates=1. Comme chez lui, une option vide « Nouveau modèle » ; les tests y ajoutent les
+  // options et changent .value, sans évènement : l'arbre de choix de publipostage+ pose lui aussi .value sans le déclencher. Créé AVANT le
+  // grist.ready() ci-dessous : chez publipostage+ le <select> est dans le HTML de la page, donc présent dès que le widget se dit prêt.
+  (function () {
+    if (!new URLSearchParams(location.search).has('templates')) return;
+    var select = document.createElement('select');
+    select.id = 'template-select';
+    select.innerHTML = '<option value="">— Nouveau modèle —</option>';
+    document.body.appendChild(select);
+  })();
+</script>
 <!-- Widget imbriqué de test. Il charge le VRAI client grist-plugin-api de Grist (vendor/, cf. vendor/README.md) et s'abonne comme le
      fait publipostage+ (js/grist-api.js de lombre33/publipostageGrist) : grist.ready({requiredAccess:'full'}), DEUX onRecord
      (includeColumns 'shown' puis 'normal'), onOptions, et tableId via grist.getTable(). Les tests (même origine) lisent

@@ -42,6 +42,7 @@
     window.PageRedaction.readyTimeoutMs = 10000;
     window.PageRedaction.readModeTickMs = 150;
     window.PageRedaction.readModeGiveUpMs = 40000;
+    window.PageRedaction.templateTickMs = 1000;
     history.replaceState(null, '', location.pathname);
     byId('view-administratif').classList.remove('hidden');
     byId('view-redaction').classList.add('hidden');
@@ -727,18 +728,18 @@
       assertTrue(!!button && button.parentElement === bar, 'le bouton est dans la rangée du haut');
       assertEqual(button.getAttribute('aria-label'), 'Modifier le projet');
       const order = Array.from(bar.children).map(el => el.id || el.className);
-      assertDeepEqual(order, ['redaction-back', 'redaction-crumb', 'redaction-edit', 'redaction-table', 'redaction-status'],
-        'ordre : retour, fil d\'ariane, modifier, table, puce');
-      assertEqual(doc.getElementById('view-redaction').children.length, 3, 'rangée du haut, journal et iframe : rien de plus');
+      assertDeepEqual(order, ['redaction-back', 'redaction-crumb', 'redaction-edit', 'redaction-vars', 'redaction-table', 'redaction-status'],
+        'ordre : retour, fil d\'ariane, modifier, variables hors modale, table, puce');
+      assertEqual(doc.getElementById('view-redaction').children.length, 4, 'rangée du haut, journal, panneau des variables et iframe : rien de plus');
     });
 
-    it('la feuille de style : pastille de 28 px comme les autres de la rangée, libellé masqué sous 700 px (icône seule)', async function () {
+    it('la feuille de style : pastille de 28 px comme les autres de la rangée, libellé masqué sous 900 px (icône seule)', async function () {
       const css = await (await fetch('../css/redaction.css', { cache: 'no-store' })).text();
       const rule = css.match(/\.redaction-edit\s*\{([^}]*)\}/);
       assertTrue(!!rule, 'règle .redaction-edit');
       assertIncludes(rule[1], 'height:28px');
       assertIncludes(rule[1], 'flex:none');
-      assertTrue(/@media \(max-width:700px\)\s*\{[^@]*\.redaction-edit span\s*\{\s*display:none;/.test(css), 'sous 700 px, seule l\'icône reste');
+      assertTrue(/@media \(max-width:900px\)\s*\{[^@]*\.redaction-edit span\s*\{\s*display:none;/.test(css), 'sous 900 px, seule l\'icône reste');
     });
 
     it('la rangée manque de place : le chemin du fil d\'ariane s\'abrège, jamais l\'acronyme du projet', async function () {
@@ -874,6 +875,459 @@
         assertIncludes(byId('toast').textContent, 'Projet introuvable');
         assertFalse(modalOpen());
       });
+    });
+  });
+
+  describe('Rédaction — variables du modèle affiché hors de la modale projet', function () {
+    const TEMPLATES = 'Publipostage_Modeles';
+    // Une pastille de variable, comme publipostage+ l'enregistre (js/editor-nodes.js).
+    const badge = (table, column) => `<span class="var-badge" contenteditable="false" data-table="${table}" data-column="${column}" data-key="${column}">#${column}</span>`;
+    const para = (...badges) => `<p>${badges.join(' ')}</p>`;
+    const pill = () => byId('redaction-vars');
+    const panel = () => byId('redaction-vars-panel');
+    const openLog = () => fireMouse(byId('redaction-status'), 'click');
+    const logText = () => byId('redaction-log').textContent;
+    const analysed = () => window.PageRedaction.vars.note === 'analysé';
+
+    // Table Publipostage_Modeles du document : rows = [{id, Nom, Contenu, HeaderFooter, TypeModele}].
+    function installTemplates(rows) {
+      window.__mockSetTable(TEMPLATES, {
+        id: rows.map(row => row.id), Nom: rows.map(row => row.Nom || `Modèle ${row.id}`), Contenu: rows.map(row => row.Contenu || ''),
+        HeaderFooter: rows.map(row => row.HeaderFooter || ''), TypeModele: rows.map(row => row.TypeModele || 'document')
+      });
+    }
+
+    // Choisit le modèle dans le <select id="template-select"> du faux publipostage+ : .value posé sans évènement, comme son arbre de choix.
+    function selectTemplate(id) {
+      const select = window.PageRedaction.frame.contentDocument.getElementById('template-select');
+      assertTrue(!!select, 'le faux publipostage+ doit être ouvert avec ?templates=1');
+      if (!Array.from(select.options).some(option => option.value === String(id))) select.appendChild(new Option(`Modèle ${id}`, String(id)));
+      select.value = String(id);
+    }
+
+    // Page ouverte sur NOTIFY avec le faux publipostage+ doté d'un sélecteur de modèles ; lecture du modèle accélérée.
+    async function openWithTemplates(rows, fn, table = 'Projets') {
+      await withPage(`${fakeWidget()}?templates=1`, async () => {
+        window.PageRedaction.templateTickMs = 40;
+        if (rows) installTemplates(rows);
+        await clickRedact('NOTIFY');
+        await window.PageRedaction.bridge.whenReady(8000);
+        await fn();
+      }, table);
+    }
+
+    const groupsOf = () => Array.from(panel().querySelectorAll('.redaction-vars-group')).map(group =>
+      `${group.querySelector('h5').textContent} => ${Array.from(group.querySelectorAll('li')).map(li => li.textContent).join(', ')}`);
+
+    it('le modèle affiché est analysé : la pastille compte les variables que la modale ne modifie pas, le panneau les liste par table', async function () {
+      const content = para(badge('Projets', 'Acronyme'), badge('Projets', 'Description_rapide_projet'), badge('Projets', 'Date_debut_Projet'), badge('Annuaire', 'Email'));
+      await openWithTemplates([{ id: 1, Nom: 'Courrier de notification', Contenu: content }], async () => {
+        assertTrue(pill().hidden, 'rien à signaler tant qu\'aucun modèle n\'est ouvert');
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        assertEqual(byId('redaction-vars-count').textContent, '2');
+        assertEqual(byId('redaction-vars-words').textContent, 'variables hors modale');
+        assertIncludes(pill().title, 'ne permet pas de modifier');
+        assertTrue(panel().hidden, 'le détail ne s\'ouvre pas tout seul');
+        fireMouse(pill(), 'click');
+        assertFalse(panel().hidden);
+        assertEqual(pill().getAttribute('aria-expanded'), 'true');
+        assertIncludes(byId('redaction-vars-title').textContent, 'Courrier de notification');
+        assertDeepEqual(groupsOf(), ['Colonnes de Projets absentes de la modale => Description_rapide_projet', 'Table Annuaire (hors modale projet) => Email']);
+        assertIncludes(panel().querySelector('.redaction-vars-summary').textContent, '2 variables du modèle sur 4 se modifient dans la modale');
+        fireMouse(pill(), 'click');
+        assertTrue(panel().hidden, 'un second clic referme le panneau');
+        assertEqual(pill().getAttribute('aria-expanded'), 'false');
+      });
+    });
+
+    it('le journal indique le modèle repéré et les colonnes hors modale (noms de tables et de colonnes seulement)', async function () {
+      const content = para(badge('Projets', 'Acronyme'), badge('Projets', 'Lien_convention'), badge('Annuaire', 'Email'));
+      await openWithTemplates([{ id: 7, Nom: 'Courrier', Contenu: content }], async () => {
+        await waitFor(() => window.PageRedaction.vars.note === 'aucun modèle ouvert (nouveau modèle)', 'premier passage de la lecture');
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : aucun modèle ouvert (nouveau modèle)');
+        selectTemplate(7);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        assertIncludes(logText(), 'Modèle affiché : « Courrier » (#7) : 3 variables, 2 hors modale, 0 calculée');
+        assertIncludes(logText(), '  - Projets : Lien_convention');
+        assertIncludes(logText(), '  - Annuaire : Email');
+      });
+    });
+
+    it('publipostage+ sans sélecteur de modèles (page pas chargée, version différente) : aucune pastille, aucune erreur, le journal le dit', async function () {
+      await withPage(fakeWidget(), async () => { // sans ?templates=1 : pas de <select id="template-select">
+        window.PageRedaction.templateTickMs = 40;
+        await clickRedact('NOTIFY');
+        await window.PageRedaction.bridge.whenReady(8000);
+        await waitFor(() => window.PageRedaction.vars.note === 'en attente de la liste des modèles de publipostage+', 'sélecteur introuvable repéré');
+        assertTrue(pill().hidden);
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : en attente de la liste des modèles de publipostage+');
+        assertEqual(window.PageRedaction.vars.templateId, null);
+      });
+    });
+
+    it('toutes les variables du modèle sont dans la modale : aucune pastille', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Acronyme'), badge('Projets', 'Porteur_1'), badge('Projets', 'c2026_M10_Fonctionnement')) }], async () => {
+        selectTemplate(1);
+        await waitFor(analysed, 'modèle analysé');
+        assertTrue(pill().hidden);
+      });
+    });
+
+    it('changer de modèle dans publipostage+ met la pastille et le panneau ouvert à jour, sans évènement : la lecture est périodique', async function () {
+      await openWithTemplates([
+        { id: 1, Contenu: para(badge('Projets', 'Acronyme')) },
+        { id: 2, Nom: 'Autre', Contenu: para(badge('Projets', 'Lien_convention')) },
+        { id: 3, Nom: 'Troisième', Contenu: para(badge('Projets', 'Description_rapide_projet'), badge('Annuaire', 'Email')) }
+      ], async () => {
+        selectTemplate(1);
+        await waitFor(analysed, 'modèle 1 analysé');
+        assertTrue(pill().hidden);
+        selectTemplate(2);
+        await waitFor(() => !pill().hidden, 'pastille du modèle 2');
+        assertEqual(byId('redaction-vars-count').textContent, '1');
+        assertEqual(byId('redaction-vars-words').textContent, 'variable hors modale', 'singulier');
+        fireMouse(pill(), 'click');
+        assertDeepEqual(groupsOf(), ['Colonnes de Projets absentes de la modale => Lien_convention']);
+        selectTemplate(3);
+        await waitFor(() => byId('redaction-vars-count').textContent === '2', 'pastille du modèle 3');
+        assertEqual(byId('redaction-vars-words').textContent, 'variables hors modale', 'pluriel');
+        assertFalse(panel().hidden, 'le panneau reste ouvert');
+        assertIncludes(byId('redaction-vars-title').textContent, 'Troisième');
+        assertDeepEqual(groupsOf(), ['Colonnes de Projets absentes de la modale => Description_rapide_projet', 'Table Annuaire (hors modale projet) => Email']);
+        selectTemplate(1);
+        await waitFor(() => pill().hidden, 'pastille retirée');
+        assertTrue(panel().hidden, 'plus rien à signaler : le panneau ouvert se ferme');
+      });
+    });
+
+    it('une fois un modèle repéré, publipostage+ n\'est plus interrogé : le document n\'est relu qu\'au changement de modèle', async function () {
+      await openWithTemplates([
+        { id: 1, Contenu: para(badge('Projets', 'Lien_convention')) },
+        { id: 2, Contenu: para(badge('Projets', 'Acronyme')) }
+      ], async () => {
+        const fetchTable = window.grist.docApi.fetchTable;
+        let reads = 0;
+        window.grist.docApi.fetchTable = name => { if (name === TEMPLATES) reads += 1; return fetchTable(name); };
+        try {
+          selectTemplate(1);
+          await waitFor(() => !pill().hidden, 'pastille affichée');
+          await wait(400); // une dizaine de passages de la lecture périodique
+          assertEqual(reads, 1, 'une seule lecture de la table des modèles');
+          selectTemplate(2);
+          await waitFor(() => pill().hidden, 'pastille retirée (le modèle 2 n\'a rien à signaler)');
+          await wait(250);
+          assertEqual(reads, 2);
+        } finally { window.grist.docApi.fetchTable = fetchTable; }
+      });
+    });
+
+    it('un nouveau modèle (aucune valeur dans le sélecteur) : pas de pastille, le journal le dit', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        selectTemplate('');
+        await waitFor(() => pill().hidden, 'pastille retirée');
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : aucun modèle ouvert (nouveau modèle)');
+      });
+    });
+
+    it('les colonnes calculées par une formule sont à part, non comptées, et la pastille ne parle que de ce que la modale pourrait changer', async function () {
+      const content = para(badge('Projets', 'Statut_Macro'), badge('Projets', 'Acronyme'), badge('Projets', 'Description_rapide_projet'), badge('Projets', 'Lien_convention'), badge('Projets', 'Note_interne'));
+      await openWithTemplates([{ id: 1, Contenu: content }], async () => {
+        window.__mockSetTable('_grist_Tables', { id: [1, 2], tableId: ['Projets', 'Notifications'], summarySourceTable: [0, 0] });
+        // Statut_Macro : formule. Lien_convention : colonne vide (isFormula sans formule). Note_interne : formule déclenchée (isFormula faux, formule non vide) :
+        // ces deux-là se modifient à la main, elles ne sont pas « calculées ».
+        window.__mockSetTable('_grist_Tables_column', {
+          id: [1, 2, 3, 4, 5, 6], parentId: [1, 1, 1, 1, 1, 2], colId: ['Statut_Macro', 'Acronyme', 'Description_rapide_projet', 'Lien_convention', 'Note_interne', 'Projet'],
+          type: ['Text', 'Text', 'Text', 'Text', 'Text', 'Ref:Projets'], isFormula: [true, false, false, true, false, false], formula: ['$Statut', '', '', '', '$Acronyme', ''],
+          displayCol: [0, 0, 0, 0, 0, 0], parentPos: [1, 2, 3, 4, 5, 1]
+        });
+        window.PageRedaction.reset(); // relit les métadonnées (formules)
+        await clickRedact('NOTIFY');
+        await window.PageRedaction.bridge.whenReady(8000);
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        assertEqual(byId('redaction-vars-count').textContent, '3', 'Statut_Macro (calculée) n\'est pas comptée ; la colonne vide et la formule déclenchée le sont');
+        fireMouse(pill(), 'click');
+        assertDeepEqual(groupsOf(), ['Colonnes de Projets absentes de la modale => Description_rapide_projet, Lien_convention, Note_interne', 'Calculées par Grist, non modifiables => Statut_Macro']);
+        assertTrue(panel().querySelector('.redaction-vars-group.is-muted') !== null, 'groupe des colonnes calculées estompé');
+      });
+    });
+
+    it('avec la fiche Notifications présentée à publipostage+, une pastille sans table (modèle ancien) est rattachée à Notifications', async function () {
+      const bare = '<span class="var-badge" contenteditable="false" data-column="Statut" data-key="Statut">#Statut</span>';
+      await openWithTemplates([{ id: 1, Contenu: `<p>${bare} ${badge('Projets', 'Acronyme')}</p>` }], async () => {
+        assertEqual(window.PageRedaction.linked.table, 'Notifications');
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        fireMouse(pill(), 'click');
+        assertDeepEqual(groupsOf(), ['Table Notifications (hors modale projet) => Statut']);
+        assertIncludes(panel().querySelector('.redaction-vars-summary').textContent, '1 variable du modèle sur 2 se modifie dans la modale');
+      }, 'Notifications');
+    });
+
+    it('un modèle macro n\'est pas analysé : pas de pastille, le journal le dit', async function () {
+      await openWithTemplates([{ id: 1, Contenu: '{"slots":[]}', TypeModele: 'macro' }], async () => {
+        selectTemplate(1);
+        await waitFor(() => window.PageRedaction.vars.note === 'modèle macro : non analysé', 'macro repérée');
+        assertTrue(pill().hidden);
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : modèle macro : non analysé');
+      });
+    });
+
+    it('l\'en-tête et le pied de page du modèle comptent aussi', async function () {
+      const headerFooter = JSON.stringify({ enabled: true, header: { default: para(badge('Structures', 'Acronyme')), first: '' }, footer: { default: '', first: '' } });
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Acronyme')), HeaderFooter: headerFooter }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        fireMouse(pill(), 'click');
+        assertDeepEqual(groupsOf(), ['Table Structures (hors modale projet) => Acronyme']);
+      });
+    });
+
+    it('publipostage+ enregistre le modèle (écriture par le pont) : l\'analyse est relancée', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Acronyme')) }], async () => {
+        selectTemplate(1);
+        await waitFor(analysed, 'modèle analysé');
+        assertTrue(pill().hidden);
+        const edited = para(badge('Projets', 'Acronyme'), badge('Projets', 'Lien_convention'));
+        await window.PageRedaction.frame.contentWindow.grist.docApi.applyUserActions([['UpdateRecord', TEMPLATES, 1, { Contenu: edited }]]);
+        await waitFor(() => !pill().hidden, 'pastille après l\'enregistrement du modèle');
+        assertEqual(byId('redaction-vars-count').textContent, '1');
+      });
+    });
+
+    it('un résultat d\'analyse devenu périmé (modèle changé entre-temps) est ignoré', async function () {
+      await openWithTemplates([
+        { id: 1, Contenu: para(badge('Projets', 'Lien_convention')) },
+        { id: 2, Contenu: para(badge('Projets', 'Acronyme')) }
+      ], async () => {
+        const fetchTable = window.grist.docApi.fetchTable;
+        let slow = true;
+        window.grist.docApi.fetchTable = async name => {
+          const data = await fetchTable(name);
+          if (name === TEMPLATES && slow) { slow = false; await wait(300); } // la première lecture (modèle 1) arrive après la seconde
+          return data;
+        };
+        try {
+          selectTemplate(1);
+          await waitFor(() => window.PageRedaction.vars.templateId === '1', 'modèle 1 repéré');
+          selectTemplate(2);
+          await waitFor(analysed, 'modèle 2 analysé');
+          await wait(500);
+          assertTrue(pill().hidden, 'le résultat du modèle 1, arrivé en retard, ne doit pas s\'afficher');
+          assertEqual(window.PageRedaction.vars.templateId, '2');
+        } finally { window.grist.docApi.fetchTable = fetchTable; }
+      });
+    });
+
+    it('la table des modèles illisible (droits d\'accès) : aucune pastille, aucune exception, le journal le dit', async function () {
+      await openWithTemplates(null, async () => {
+        selectTemplate(1); // la table Publipostage_Modeles n'existe pas dans ce document
+        await waitFor(() => String(window.PageRedaction.vars.note).startsWith('lecture impossible'), 'lecture refusée repérée');
+        assertTrue(pill().hidden);
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : lecture impossible');
+      });
+    });
+
+    it('un modèle absent de la table : aucune pastille, le journal le dit', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(99);
+        await waitFor(() => String(window.PageRedaction.vars.note).includes('introuvable'), 'modèle introuvable repéré');
+        assertTrue(pill().hidden);
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : modèle #99 introuvable dans Publipostage_Modeles');
+      });
+    });
+
+    it('page imbriquée d\'une autre origine (contenu inaccessible) : aucune pastille, aucune erreur, le journal le dit', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        Object.defineProperty(window.PageRedaction.frame, 'contentDocument', { get() { throw new Error('SecurityError : origine différente'); } });
+        await waitFor(() => String(window.PageRedaction.vars.note).startsWith('impossible'), 'autre origine repérée');
+        assertTrue(pill().hidden);
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : impossible : page imbriquée d\'une autre origine');
+      });
+    });
+
+    it('iframe retirée de la page (hors de la page Rédaction) : la lecture du modèle s\'arrête sans erreur', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        window.PageRedaction.frame.remove();
+        await waitFor(() => window.PageRedaction.vars.note === 'arrêté : iframe retirée', 'iframe retirée repérée');
+        assertEqual(window.PageRedaction.vars.timer, null, 'plus de lecture périodique');
+      });
+    });
+
+    it('Échap ferme le panneau ; ouvrir le journal de diagnostic le ferme, et inversement : jamais deux panneaux superposés', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        fireMouse(pill(), 'click');
+        assertFalse(panel().hidden);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assertTrue(panel().hidden, 'Échap');
+        fireMouse(pill(), 'click');
+        openLog();
+        assertTrue(panel().hidden, 'le journal remplace le panneau');
+        assertFalse(byId('redaction-diag').hidden);
+        fireMouse(pill(), 'click');
+        assertFalse(panel().hidden);
+        assertTrue(byId('redaction-diag').hidden, 'le panneau remplace le journal');
+      });
+    });
+
+    it('page masquée (Retour) : le panneau se referme et la lecture du modèle est suspendue ; elle reprend dès que la page est de nouveau affichée', async function () {
+      await openWithTemplates([
+        { id: 1, Contenu: para(badge('Projets', 'Lien_convention')) },
+        { id: 2, Contenu: para(badge('Projets', 'Lien_convention'), badge('Projets', 'Description_rapide_projet')) }
+      ], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        fireMouse(pill(), 'click');
+        assertFalse(panel().hidden);
+        await window.PageRedaction.close();
+        assertTrue(panel().hidden, 'Retour referme le panneau');
+        assertEqual(pill().getAttribute('aria-expanded'), 'false');
+        selectTemplate(2);
+        await wait(250);
+        assertEqual(window.PageRedaction.vars.templateId, '1', 'rien n\'est lu tant que la page est masquée');
+        assertEqual(byId('redaction-vars-count').textContent, '1');
+        await clickRedact('NOTIFY');
+        await waitFor(() => window.PageRedaction.vars.templateId === '2' && byId('redaction-vars-count').textContent === '2', 'modèle 2 repéré à l\'affichage');
+      });
+    });
+
+    it('« Recharger » repart de zéro : plus de pastille ni de modèle mémorisé', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        fireMouse(byId('redaction-reload'), 'click');
+        assertTrue(pill().hidden, 'pastille retirée tout de suite');
+        assertEqual(window.PageRedaction.vars.templateId, null);
+        await window.PageRedaction.opening;
+        await waitFor(() => window.PageRedaction.vars.templateId === '', 'nouvelle page : aucun modèle ouvert');
+        assertTrue(pill().hidden);
+      });
+    });
+
+    it('changer la table présentée recharge publipostage+ : le modèle de la nouvelle page est relu, pas celui de l\'ancienne', async function () {
+      await openWithTemplates([{ id: 1, Contenu: para(badge('Projets', 'Lien_convention')) }], async () => {
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        const select = byId('redaction-table');
+        assertFalse(select.hidden);
+        select.value = 'Notifications';
+        fire(select, 'change');
+        await window.PageRedaction.opening;
+        assertTrue(pill().hidden, 'nouvelle page, pas encore de modèle');
+        assertEqual(window.PageRedaction.vars.templateId, null);
+        await waitFor(() => window.PageRedaction.vars.templateId === '', 'nouvelle page lue');
+      });
+    });
+  });
+
+  describe('Rédaction — mise en page réelle de la rangée du haut', function () {
+    // La vraie page (index.html et ses feuilles de style) dans une iframe hors écran, mesurée pour de bon : seuls les scripts et la police
+    // distante sont retirés (la suite n'a pas besoin d'Internet, et la police de repli rend la mesure reproductible d'une machine à l'autre).
+    async function realPage() {
+      const text = async url => (await fetch(url, { cache: 'no-store' })).text();
+      const html = await text('../index.html');
+      const hrefs = Array.from(new DOMParser().parseFromString(html, 'text/html').querySelectorAll('link[rel="stylesheet"]')).map(link => link.getAttribute('href'));
+      const sheets = await Promise.all(hrefs.map(href => text(`../${href}`)));
+      const styles = sheets.map(css => `<style>${css.replace(/@import[^;]*;/g, '')}</style>`).join('');
+      const page = html.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<link\b[^>]*rel="stylesheet"[^>]*>/g, '')
+        .replace('</head>', `${styles}</head>`).replace('class="view hidden redaction-view"', 'class="view redaction-view"');
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:fixed;top:0;left:-20000px;height:700px;border:0';
+      frame.srcdoc = page;
+      document.body.appendChild(frame);
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      return frame;
+    }
+
+    // La rangée telle qu'elle est quand la personne travaille : acronyme, table choisie, puce d'état, et (ou non) la pastille des variables.
+    function fillBar(doc, { pill, chipClass, chipText }) {
+      doc.getElementById('redaction-project').textContent = 'NOTIFY';
+      const select = doc.getElementById('redaction-table');
+      select.innerHTML = '<option>Notifications</option>';
+      select.hidden = false;
+      const chip = doc.getElementById('redaction-status');
+      chip.className = `redaction-status ${chipClass}`;
+      doc.getElementById('redaction-status-text').textContent = chipText;
+      const vars = doc.getElementById('redaction-vars');
+      vars.hidden = !pill;
+      doc.getElementById('redaction-vars-count').textContent = '5';
+      doc.getElementById('redaction-vars-words').textContent = 'variables hors modale';
+    }
+
+    // Une seule rangée de 36 px, rien qui dépasse à droite, et l'acronyme du projet entier à l'écran.
+    function checkBar(frame, width, label) {
+      frame.style.width = `${width}px`;
+      const doc = frame.contentDocument;
+      const bar = doc.querySelector('.redaction-bar');
+      const box = bar.getBoundingClientRect();
+      assertTrue(box.width > 0 && box.height <= 40, `${label} à ${width} px : une seule rangée (hauteur ${box.height})`);
+      assertTrue(bar.scrollWidth <= bar.clientWidth + 1, `${label} à ${width} px : la rangée déborde (${bar.scrollWidth} > ${bar.clientWidth})`);
+      Array.from(bar.children).filter(el => !el.hidden && el.getBoundingClientRect().width > 0).forEach(el => {
+        assertTrue(el.getBoundingClientRect().right <= box.right + 1, `${label} à ${width} px : #${el.id || el.className} dépasse de la rangée`);
+      });
+      const acronym = doc.getElementById('redaction-project');
+      const crumb = doc.querySelector('.redaction-crumb').getBoundingClientRect();
+      assertTrue(acronym.scrollWidth <= acronym.clientWidth + 1 && acronym.getBoundingClientRect().right <= crumb.right + 1,
+        `${label} à ${width} px : l'acronyme du projet est tronqué (${acronym.scrollWidth} > ${acronym.clientWidth})`);
+    }
+
+    it('connectée, avec la pastille des variables : de 560 à 1600 px, une seule rangée et l\'acronyme du projet toujours entier', async function () {
+      const frame = await realPage();
+      try {
+        fillBar(frame.contentDocument, { pill: true, chipClass: 'is-ready', chipText: 'publipostage+ connecté' });
+        [560, 640, 700, 760, 820, 880, 899, 900, 901, 960, 1000, 1100, 1101, 1280, 1600].forEach(width => checkBar(frame, width, 'avec pastille'));
+      } finally { frame.remove(); }
+    });
+
+    it('en attente de publipostage+ (puce avec son texte), sans pastille : de 700 à 1600 px, une seule rangée et l\'acronyme entier', async function () {
+      const frame = await realPage();
+      try {
+        fillBar(frame.contentDocument, { pill: false, chipClass: 'is-waiting', chipText: 'Connexion à publipostage+…' });
+        [700, 760, 820, 899, 901, 1000, 1280, 1600].forEach(width => checkBar(frame, width, 'en attente'));
+      } finally { frame.remove(); }
+    });
+
+    it('étroit, la puce connectée n\'est plus que son point (le texte reste en infobulle) ; en erreur elle garde son texte', async function () {
+      const frame = await realPage();
+      try {
+        const doc = frame.contentDocument;
+        const textOf = () => doc.getElementById('redaction-status-text').getBoundingClientRect().width;
+        fillBar(doc, { pill: true, chipClass: 'is-ready', chipText: 'publipostage+ connecté' });
+        frame.style.width = '1280px';
+        assertTrue(textOf() > 0, 'large : le texte de la puce est affiché');
+        frame.style.width = '800px';
+        assertEqual(textOf(), 0, 'étroit : connectée, la puce se réduit à son point');
+        fillBar(doc, { pill: true, chipClass: 'is-error', chipText: 'publipostage+ ne répond pas' });
+        assertTrue(textOf() > 0, 'étroit mais en erreur : le texte reste affiché');
+      } finally { frame.remove(); }
+    });
+
+    it('la pastille garde son nombre quand la rangée est étroite, ses mots seulement au-dessus de 1100 px', async function () {
+      const frame = await realPage();
+      try {
+        const doc = frame.contentDocument;
+        fillBar(doc, { pill: true, chipClass: 'is-ready', chipText: 'publipostage+ connecté' });
+        const words = () => doc.getElementById('redaction-vars-words').getBoundingClientRect().width;
+        frame.style.width = '1280px';
+        assertTrue(words() > 0, 'large : « variables hors modale »');
+        frame.style.width = '1000px';
+        assertEqual(words(), 0, 'étroit : le nombre seul');
+        assertTrue(doc.getElementById('redaction-vars-count').getBoundingClientRect().width > 0, 'le nombre reste');
+      } finally { frame.remove(); }
     });
   });
 

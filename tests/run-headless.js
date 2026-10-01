@@ -82,7 +82,7 @@ async function main() {
       page.on('pageerror', err => browserLogs.push(`[pageerror] ${err.message}`));
 
       await page.goto(`${baseUrl}/tests/index.html`, { waitUntil: 'load' });
-      await page.waitForSelector('#test-summary', { timeout: 30000 });
+      await page.waitForSelector('#test-summary', { timeout: 60000 }); // la suite grossit : 30 s deviendraient justes sur un runner lent
 
       const summary = await page.$eval('#test-summary', el => ({
         passed: Number(el.dataset.passed),
