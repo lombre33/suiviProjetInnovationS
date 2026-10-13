@@ -225,10 +225,10 @@
   // dans un <select> invisible (accessible au clavier/lecteur d'écran) que les
   // puces pilotent ; collectFields()/populateModal() continuent de lire/écrire
   // refs.type.input.value exactement comme avec l'ancien champ texte+datalist.
-  function chipGroup(parent, id, labelText, options, initialValue) {
+  function chipGroup(parent, id, labelText, options, initialValue, required = false) {
     const wrap = document.createElement('div');
     wrap.className = 'cp-field cp-full';
-    wrap.innerHTML = `<label for="${id}">${esc(labelText)}</label><div class="cp-chip-row"></div>`;
+    wrap.innerHTML = `<label for="${id}">${esc(labelText)}${required ? ' *' : ''}</label><div class="cp-chip-row"></div>`;
     const select = document.createElement('select');
     select.id = id;
     select.className = 'cp-visually-hidden';
@@ -306,7 +306,7 @@
     refs.programme.wrap.classList.add('cp-full');
     field(panels.general, 'Projet', 'cp-Projet', 'text', true);
     field(panels.general, 'Acronyme', 'cp-Acronyme', 'text', true);
-    refs.type = chipGroup(panels.general, 'cp-Type_projet', 'Type de projet', TYPE_OPTIONS, 'Projet');
+    refs.type = chipGroup(panels.general, 'cp-Type_projet', 'Type de projet', TYPE_OPTIONS, 'Projet', true);
 
     const statusWrap = document.createElement('div');
     statusWrap.className = 'cp-field';
@@ -324,12 +324,16 @@
 
     // Porteurs — liste verticale plutôt qu'une grille 2 colonnes : chaque champ
     // Annuaire porte son avatar (initiales) via refField(..., table:'Annuaire').
+    // Porteur 1, VP porteur et Accompagnateur sont obligatoires à la création (demande
+    // d'Antoine du 13/10/2026, cf. validateRequiredFields()) ; Porteur_2/Porteur_3 restent
+    // optionnels.
+    const REQUIRED_PORTEUR_KEYS = ['Porteur_1', 'VP_porteur_2', 'Accompagnateur'];
     ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur'].forEach(k => {
       refs[k] = refField(panels.porteurs, k, 'Annuaire', {
         label: k === 'VP_porteur_2' ? 'VP porteur' : k.replace('_', ' '),
         fields: ['nom_et_Prenom', 'Prenom', 'NOM'],
         format: personLabel
-      }, k === 'Porteur_1');
+      }, REQUIRED_PORTEUR_KEYS.includes(k));
     });
 
     const comment = document.createElement('div');
@@ -339,8 +343,8 @@
     panels.porteurs.appendChild(comment);
 
     // Dates & OPE
-    refs.Instance_ratachee = refField(panels.dates, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] });
-    refs.Date_limite_financement = field(panels.dates, 'Date limite de financement', 'cp-Date_limite_financement', 'date');
+    refs.Instance_ratachee = refField(panels.dates, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] }, true);
+    refs.Date_limite_financement = field(panels.dates, 'Date limite de financement', 'cp-Date_limite_financement', 'date', true);
     refs.Date_debut_Projet = field(panels.dates, 'Date de début du projet', 'cp-Date_debut_Projet', 'date');
     refs.Date_de_fin_Projet = field(panels.dates, 'Date de fin du projet', 'cp-Date_de_fin_Projet', 'date');
     refs.Periode = field(panels.dates, 'Période (calculée)', 'cp-Periode', 'text');
@@ -356,7 +360,7 @@
 
     const opeWrap = document.createElement('div');
     opeWrap.className = 'cp-field cp-full';
-    opeWrap.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE</label><div class="cp-chip-row"></div>';
+    opeWrap.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE *</label><div class="cp-chip-row"></div>';
     withHelp(opeWrap.querySelector('label'), 'Action_Ligne_OPE_a_faire');
     panels.dates.appendChild(opeWrap);
     const opeSelect = document.createElement('select');
@@ -630,12 +634,49 @@
     return fields;
   }
 
+  // Liste des champs obligatoires à la création (demande d'Antoine du 13/10/2026) — pas
+  // à l'édition, pour ne jamais bloquer l'enregistrement d'une fiche déjà existante et
+  // incomplète (beaucoup de projets réels n'ont pas encore ces champs renseignés).
+  // L'ordre suit celui des onglets (TABS) : en cas de plusieurs champs manquants,
+  // saveProject() bascule sur le premier onglet concerné en partant de la gauche.
+  function validateRequiredFields(m, refs) {
+    const get = id => m.querySelector('#' + id)?.value.trim() || '';
+    const hasId = ref => !!(ref && ref.input && ref.input.dataset.id);
+    const budgetTotal = () => [...m.querySelectorAll('[data-fin]')].reduce((sum, i) => sum + normaliseBudgetValue(i.value), 0);
+
+    const checks = [
+      { tab: 'general', label: 'Programme', ok: hasId(refs.programme) },
+      { tab: 'general', label: 'Projet', ok: !!get('cp-Projet') },
+      { tab: 'general', label: 'Acronyme', ok: !!get('cp-Acronyme') },
+      { tab: 'general', label: 'Type de projet', ok: !!refs.type.input.value },
+      { tab: 'porteurs', label: 'Porteur 1', ok: hasId(refs.Porteur_1) },
+      { tab: 'porteurs', label: 'VP porteur', ok: hasId(refs.VP_porteur_2) },
+      { tab: 'porteurs', label: 'Accompagnateur', ok: hasId(refs.Accompagnateur) },
+      { tab: 'dates', label: 'Instance rattachée', ok: hasId(refs.Instance_ratachee) },
+      { tab: 'dates', label: 'Date limite de financement', ok: !!refs.Date_limite_financement.value },
+      { tab: 'dates', label: 'Action ligne OPE', ok: !!refs.Action_Ligne_OPE_a_faire.value },
+      { tab: 'budget', label: 'Budget (le total ne peut pas être à 0)', ok: budgetTotal() !== 0 }
+    ];
+    // Partenaire(s) et montant de convention ne sont exigés que si "Convention de
+    // reversement" est activée — sinon ces champs n'ont pas de sens.
+    if (m.querySelector('#cp-Convention_de_reversement').checked) {
+      const conventionAmount = (Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0) +
+        (Number(m.querySelector('#cp-Convention_montant_partenaire_2').value) || 0);
+      checks.push({ tab: 'conventions', label: 'Partenaire(s) de convention', ok: refs.Partenaire_s_convention_reversement.ids.length >= 1 });
+      checks.push({ tab: 'conventions', label: 'Montant de convention (ne peut pas être à 0)', ok: conventionAmount !== 0 });
+    }
+    return checks.filter(c => !c.ok);
+  }
+
   async function saveProject(m, refs) {
     const mode = m.dataset.mode || 'create', record = m._projectRecord;
-    const get = id => m.querySelector('#' + id)?.value.trim() || '';
-    if (!refs.programme.input.dataset.id || !refs.Porteur_1.input.dataset.id || !get('cp-Projet') || !get('cp-Acronyme')) {
-      m.querySelector('#cp-project-error').textContent = 'Programme, projet, acronyme et Porteur 1 sont obligatoires.';
-      return;
+    if (mode === 'create') {
+      const missing = validateRequiredFields(m, refs);
+      if (missing.length) {
+        m.querySelector('#cp-project-error').textContent = `Champs obligatoires manquants : ${missing.map(c => c.label).join(', ')}.`;
+        m._setActiveTab(missing[0].tab);
+        return;
+      }
     }
     try {
       const fields = collectFields(m, refs);

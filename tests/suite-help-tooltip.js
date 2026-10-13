@@ -54,7 +54,9 @@
       const modal = window.ProjectModal.open();
       const programmeIcon = Array.from(modal.querySelectorAll('.cp-ref label')).find(l => l.textContent.startsWith('Programme'))?.parentElement.querySelector('.help-icon');
       assertTrue(!!programmeIcon, 'le champ référence Programme doit porter l\'icône d\'aide');
-      const typeIcon = Array.from(modal.querySelectorAll('label')).find(l => l.textContent === 'Type de projet')?.parentElement.querySelector('.help-icon');
+      // startsWith (pas d'égalité stricte) : "Type de projet" est devenu obligatoire le
+      // 13/10/2026, son libellé porte donc désormais un suffixe " *" (project-modal.js).
+      const typeIcon = Array.from(modal.querySelectorAll('label')).find(l => l.textContent.startsWith('Type de projet'))?.parentElement.querySelector('.help-icon');
       assertTrue(!!typeIcon, 'le champ Type de projet (chipGroup) doit porter l\'icône d\'aide');
     });
   });
