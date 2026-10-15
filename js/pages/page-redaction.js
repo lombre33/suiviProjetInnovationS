@@ -41,9 +41,14 @@
 
   const PHASE_LABELS = { waiting: 'en attente du widget', ready: 'connecté', rejected: 'origine refusée' };
 
+  // Variables du modèle affiché que la modale projet ne permet pas de modifier (cf. watchTemplate, redaction-variables.js) :
+  // templateId (valeur de #template-select de publipostage+), name, result (RedactionVariables.analyse) ou null, note (état au journal).
+  const newVars = () => ({ templateId: null, name: '', result: null, note: 'non démarré', timer: null, scheduled: null, token: 0 });
+
   const ui = {
     frame: null, bridge: null, target: null, readyTimer: null, timedOut: false, projectId: null, needsReload: false,
     readModeTimer: null, readModeNote: null,
+    vars: newVars(),
     linked: null,     // {table, rowId, why, missing} : la ligne présentée à publipostage+ (cf. resolveLinked)
     info: null,       // promesse de loadInfo() : lue une fois par ouverture de la page (« Recharger » la relit)
     openToken: 0,     // un clic plus récent, ou un reset, invalide une ouverture encore en cours
@@ -109,7 +114,7 @@
   // Une section est celle de publipostage+ si elle charge la même adresse que cette page, ou une adresse qui le nomme (autre déploiement).
   const isPublipostageUrl = (url, targetKey) => !!url && (siteKey(url) === targetKey || /publipostage/i.test(url));
 
-  const emptyInfo = () => ({ linkable: { [DEFAULT_TABLE]: DEFAULT_REF_COLUMN }, viewTables: [], sectionsReadable: false, rules: null, linksTable: 'unknown' });
+  const emptyInfo = () => ({ linkable: { [DEFAULT_TABLE]: DEFAULT_REF_COLUMN }, viewTables: [], sectionsReadable: false, rules: null, linksTable: 'unknown', formulas: new Set() });
   const listTablesOrNull = () => {
     const api = window.grist && window.grist.docApi;
     return api && api.listTables ? Promise.resolve(api.listTables()).catch(() => null) : Promise.resolve(null);
@@ -142,6 +147,9 @@
       info.linkable = {};
       columns.id.forEach((ref, i) => {
         const tableId = tableIdByRef.get(columns.parentId[i]); // '' : table dont l'accès est refusé
+        // Colonnes calculées par une formule (isFormula sans formule = colonne vide ; formule déclenchée = isFormula faux) : aucune
+        // modale ne peut les modifier (cf. variables du modèle affiché).
+        if (tableId && columns.isFormula && columns.isFormula[i] && columns.formula && columns.formula[i]) info.formulas.add(`${tableId}.${columns.colId[i]}`);
         if (!tableId || tableId === PROJECT_TABLE || summaryRefs.has(columns.parentId[i]) || /^(_grist_|GristHidden_)/.test(tableId)) return;
         if (columns.type[i] !== `Ref:${PROJECT_TABLE}`) return;
         if (!info.linkable[tableId] || columns.colId[i] === DEFAULT_REF_COLUMN) info.linkable[tableId] = columns.colId[i];
@@ -238,6 +246,7 @@
     chip.classList.add(`is-${phase}`);
     const text = byId('redaction-status-text');
     if (text) text.textContent = label;
+    chip.title = label; // sous 900 px, connectée, la puce n'affiche plus que son point (css/redaction.css)
   }
 
   // Piste à suivre selon l'état, pour diagnostiquer sans ouvrir la console du navigateur.
@@ -280,6 +289,7 @@
       `Origine acceptée : ${ui.target ? ui.target.origin : '—'}`,
       `Enregistrement sélectionné : ${linked ? `${linked.table} #${linked.rowId}` : '—'}`,
       ...(linked ? [`Table présentée : ${linked.table} (${linked.why})`, `Vues publipostage+ du document : ${views}`, ...ruleLines(linked.info)] : []),
+      ...varsLines(),
       `État : ${state ? (PHASE_LABELS[state.phase] || state.phase) : 'non démarré'}`,
       ...(hint ? [hint] : []),
       `Mode Lecture par défaut : ${ui.readModeNote || 'non démarré'}`,
@@ -295,13 +305,19 @@
     if (panel && log && !panel.hidden) log.textContent = diagText();
   }
 
+  function closeDiag() {
+    const panel = byId('redaction-diag');
+    if (panel) panel.hidden = true;
+    byId('redaction-status')?.setAttribute('aria-expanded', 'false');
+  }
+
   function toggleDiag() {
     const panel = byId('redaction-diag');
     if (!panel) return;
     panel.hidden = !panel.hidden;
     byId('redaction-status')?.setAttribute('aria-expanded', String(!panel.hidden));
     renderDiag();
-    if (!panel.hidden) refreshRules().then(renderDiag, () => {});
+    if (!panel.hidden) { closeVars(); refreshRules().then(renderDiag, () => {}); }
   }
 
   function onBridgeStatus(status) {
@@ -355,6 +371,155 @@
     ui.readModeTimer = setInterval(tick, api.readModeTickMs);
   }
 
+  // --- Variables du modèle affiché que la modale projet ne permet pas de modifier (demande d'Antoine du 01/10/2026) ---
+  // Quel modèle publipostage+ affiche-t-il ? Son <select id="template-select"> en est « l'unique source de vérité » (js/template-tree-select.js :
+  // l'arbre de choix n'est qu'une couche visuelle par-dessus), lisible comme pour keepReadMode parce que les deux pages sont de même origine.
+  // Le modèle se lit ensuite dans la table Publipostage_Modeles du document, et redaction-variables.js en tire les variables. Sans l'un ou
+  // l'autre : aucun signalement (jamais d'erreur), et le journal dit pourquoi. Seul ce qui est enregistré est analysé : l'auto-enregistrement
+  // de publipostage+ passe par le pont (onWrite), qui relance l'analyse.
+  const TEMPLATES_TABLE = 'Publipostage_Modeles';
+  const TEMPLATE_SELECT_ID = 'template-select';
+
+  function setVarsNote(note) {
+    if (ui.vars.note === note) return;
+    ui.vars.note = note;
+    renderDiag();
+  }
+
+  function stopTemplateWatch(note) {
+    clearInterval(ui.vars.timer);
+    ui.vars.timer = null;
+    setVarsNote(note);
+  }
+
+  function watchTemplate(frame) {
+    clearInterval(ui.vars.timer);
+    const tick = () => {
+      if (!frame.isConnected) { stopTemplateWatch('arrêté : iframe retirée'); return; }
+      if (!isVisible()) return; // page masquée : rien à lire ni à afficher, la lecture reprend à l'affichage
+      const doc = frameDocument(frame);
+      if (!doc) { stopTemplateWatch('impossible : page imbriquée d\'une autre origine'); return; }
+      const select = doc.getElementById(TEMPLATE_SELECT_ID);
+      if (!select) { setVarsNote('en attente de la liste des modèles de publipostage+'); return; }
+      if (select.value === ui.vars.templateId) return;
+      ui.vars.templateId = select.value;
+      analyseTemplate(select.value);
+    };
+    ui.vars.timer = setInterval(tick, api.templateTickMs);
+  }
+
+  async function analyseTemplate(templateId) {
+    const vars = ui.vars;
+    const token = ++vars.token;
+    const done = (result, name, note) => {
+      if (vars !== ui.vars || token !== vars.token) return; // page réinitialisée, ou une analyse plus récente est passée devant
+      Object.assign(vars, { result, name, note });
+      renderVars();
+      renderDiag();
+    };
+    if (!templateId) { done(null, '', 'aucun modèle ouvert (nouveau modèle)'); return; }
+    try {
+      const [data, info] = await Promise.all([readTable(TEMPLATES_TABLE), getInfo()]);
+      const at = (data.id || []).findIndex(id => String(id) === String(templateId));
+      if (at === -1) { done(null, '', `modèle #${templateId} introuvable dans ${TEMPLATES_TABLE}`); return; }
+      const name = String((data.Nom && data.Nom[at]) || '');
+      const extracted = RedactionVariables.fromTemplateRow({
+        Contenu: data.Contenu && data.Contenu[at], HeaderFooter: data.HeaderFooter && data.HeaderFooter[at], TypeModele: data.TypeModele && data.TypeModele[at]
+      });
+      if (extracted.skipped) { done(null, name, `modèle ${extracted.skipped} : non analysé`); return; }
+      const presentedTable = (ui.linked && ui.linked.table) || PROJECT_TABLE;
+      done(RedactionVariables.analyse(extracted.variables, { formulas: info.formulas, presentedTable }), name, 'analysé');
+    } catch (err) { done(null, '', `lecture impossible : ${err.message}`); }
+  }
+
+  // publipostage+ a écrit dans le document (auto-enregistrement du modèle, par exemple) : le modèle affiché a pu changer.
+  function scheduleTemplateAnalysis() {
+    const vars = ui.vars;
+    if (vars.templateId == null) return; // aucun modèle repéré pour l'instant : le prochain passage de watchTemplate le lira
+    clearTimeout(vars.scheduled);
+    vars.scheduled = setTimeout(() => { vars.scheduled = null; if (vars === ui.vars) analyseTemplate(vars.templateId); }, api.templateTickMs);
+  }
+
+  function resetVars() {
+    clearInterval(ui.vars.timer);
+    clearTimeout(ui.vars.scheduled);
+    ui.vars = newVars();
+    renderVars();
+  }
+
+  // Le contenu du panneau : les colonnes que la modale ne permet pas de modifier, par table (Projets d'abord), puis les colonnes calculées.
+  function fillVarsPanel() {
+    const title = byId('redaction-vars-title');
+    const list = byId('redaction-vars-list');
+    if (!title || !list) return;
+    const { result, name } = ui.vars;
+    title.textContent = name ? `Modèle « ${name} »` : 'Modèle affiché';
+    list.textContent = '';
+    if (!result) return;
+    const addGroup = (heading, entries, muted) => {
+      const section = document.createElement('section');
+      section.className = muted ? 'redaction-vars-group is-muted' : 'redaction-vars-group';
+      const head = document.createElement('h5');
+      head.textContent = heading;
+      const items = document.createElement('ul');
+      entries.forEach(entry => {
+        const item = document.createElement('li');
+        item.textContent = entry.column;
+        items.appendChild(item);
+      });
+      section.append(head, items);
+      list.appendChild(section);
+    };
+    result.outside.forEach(group => addGroup(group.table === PROJECT_TABLE ? 'Colonnes de Projets absentes de la modale' : `Table ${group.table} (hors modale projet)`, group.columns, false));
+    if (result.formulas.length) addGroup('Calculées par Grist, non modifiables', result.formulas, true);
+    const summary = document.createElement('p');
+    summary.className = 'redaction-vars-summary';
+    summary.textContent = `${result.covered} variable${result.covered > 1 ? 's' : ''} du modèle sur ${result.total} se modifie${result.covered > 1 ? 'nt' : ''} dans la modale.`;
+    list.appendChild(summary);
+  }
+
+  // La pastille de la rangée du haut : seulement quand le modèle affiché utilise des colonnes que la modale ne permet pas de modifier.
+  function renderVars() {
+    const pill = byId('redaction-vars');
+    if (!pill) return;
+    const outside = RedactionVariables.countOutside(ui.vars.result);
+    const words = `variable${outside > 1 ? 's' : ''} hors modale`;
+    pill.hidden = outside === 0;
+    const count = byId('redaction-vars-count');
+    if (count) count.textContent = String(outside);
+    const wordsEl = byId('redaction-vars-words');
+    if (wordsEl) wordsEl.textContent = words;
+    pill.title = `${outside} ${words} : le modèle affiché utilise ${outside > 1 ? 'des colonnes' : 'une colonne'} que la modale du projet ne permet pas de modifier`;
+    pill.setAttribute('aria-label', pill.title);
+    const panel = byId('redaction-vars-panel');
+    if (outside === 0) closeVars();
+    else if (panel && !panel.hidden) fillVarsPanel();
+  }
+
+  function closeVars() {
+    const panel = byId('redaction-vars-panel');
+    if (panel) panel.hidden = true;
+    byId('redaction-vars')?.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleVars() {
+    const panel = byId('redaction-vars-panel');
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    byId('redaction-vars')?.setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden) { fillVarsPanel(); closeDiag(); }
+  }
+
+  // Au journal de diagnostic : le modèle repéré et ce qu'on en a tiré (noms de tables et de colonnes seulement).
+  function varsLines() {
+    const { result, name, templateId, note } = ui.vars;
+    if (!result) return [`Modèle affiché : ${note}`];
+    const outside = RedactionVariables.countOutside(result);
+    const lines = [`Modèle affiché : « ${name} » (#${templateId}) : ${result.total} variable${result.total > 1 ? 's' : ''}, ${outside} hors modale, ${result.formulas.length} calculée${result.formulas.length > 1 ? 's' : ''}`];
+    result.outside.forEach(group => lines.push(`  - ${group.table} : ${group.columns.map(entry => entry.column).join(', ')}`));
+    return lines;
+  }
+
   // --- Iframe + pont (créés à la première ouverture puis conservés : publipostage+ garde son état d'une visite à l'autre) ---
   function ensureFrame(linked) {
     if (ui.frame) return;
@@ -375,10 +540,11 @@
       optionsKey: OPTIONS_KEY,
       onStatus: onBridgeStatus,
       onLog: renderDiag,
-      onWrite: () => { ui.needsReload = true; flushReload(); }
+      onWrite: () => { ui.needsReload = true; flushReload(); scheduleTemplateAnalysis(); }
     });
     frame.src = ui.target.url;
     keepReadMode(frame);
+    watchTemplate(frame);
     ui.readyTimer = setTimeout(() => {
       if (ui.bridge && !ui.bridge.getState().ready && ui.bridge.getState().phase !== 'rejected') {
         ui.timedOut = true;
@@ -394,6 +560,7 @@
     clearInterval(ui.readModeTimer);
     ui.readModeTimer = null;
     ui.readModeNote = null;
+    resetVars();
     if (ui.bridge) ui.bridge.detach();
     if (ui.frame) ui.frame.remove();
     ui.frame = null;
@@ -466,6 +633,7 @@
   }
 
   function close() {
+    closeVars();
     showOnly(ADMIN_VIEW_ID);
     return flushReload();
   }
@@ -506,6 +674,8 @@
     if (view && window.MutationObserver) new MutationObserver(flushReload).observe(view, { attributes: true, attributeFilter: ['class'] });
     byId('redaction-back')?.addEventListener('click', close);
     byId('redaction-edit')?.addEventListener('click', editProject);
+    byId('redaction-vars')?.addEventListener('click', toggleVars);
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeVars(); });
     window.addEventListener('project-created', onProjectSaved);
     byId('redaction-status')?.addEventListener('click', toggleDiag);
     byId('redaction-table')?.addEventListener('change', event => {
@@ -532,9 +702,11 @@
     // attend jusqu'à 5 s la lecture des droits d'accès avant son switchMode('edit') final.
     readModeTickMs: 150,
     readModeGiveUpMs: 40000,
+    templateTickMs: 1000, // pas de la lecture du modèle affiché par publipostage+ (cf. watchTemplate)
     get frame() { return ui.frame; },
     get bridge() { return ui.bridge; },
     get linked() { return ui.linked; },
+    get vars() { return ui.vars; },
     get opening() { return ui.opening; }
   };
   window.PageRedaction = api;

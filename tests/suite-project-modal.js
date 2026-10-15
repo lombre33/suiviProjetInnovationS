@@ -27,12 +27,26 @@
     return tables;
   }
 
+  // Remplit tous les champs obligatoires à la création (cf. validateRequiredFields()
+  // dans project-modal.js, demande d'Antoine du 13/10/2026) : Programme, Projet,
+  // Acronyme, Type de projet (valeur par défaut déjà posée), Porteur 1, VP porteur,
+  // Accompagnateur, Instance rattachée, Date limite de financement, Action ligne OPE,
+  // et un budget total non nul.
   async function fillMinimalValidProject() {
     window.ProjectModal.open();
     pickRef('Programme', 'Programme A', 'Programme A');
     setValue(modalEl().querySelector('#cp-Projet'), 'Mon nouveau projet');
     setValue(modalEl().querySelector('#cp-Acronyme'), 'MNP');
     pickRef('Porteur_1', 'Alice', 'Alice Martin');
+    pickRef('VP_porteur_2', 'Bob', 'Bob Durand');
+    pickRef('Accompagnateur', 'Bob', 'Bob Durand');
+    pickRef('Instance_ratachee', 'Comité', 'Comité innovation#3 - 2026-03-15');
+    setValue(modalEl().querySelector('#cp-Date_limite_financement'), '2027-01-15');
+    const opeChip = modalEl().querySelector('.cp-chip-row [data-value="Creation de ligne"]');
+    opeChip.click();
+    const fin = modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]');
+    setValue(fin, '1000');
+    fire(fin, 'input');
   }
 
   describe('Modale Projet — validation des champs obligatoires', function () {
@@ -219,15 +233,18 @@
     });
 
     it('ne pousse plus le porteur retiré via la croix lors de l\'enregistrement', async function () {
+      // Porteur_3 reste optionnel (contrairement à Accompagnateur, devenu obligatoire
+      // le 13/10/2026) : on peut donc le vider puis enregistrer sans être bloqué par
+      // validateRequiredFields().
       await loadFixtureState();
       await fillMinimalValidProject();
-      pickRef('Accompagnateur', 'Bob', 'Bob Durand');
-      const input = refInput('Accompagnateur');
+      pickRef('Porteur_3', 'Bob', 'Bob Durand');
+      const input = refInput('Porteur_3');
       input.closest('.cp-ref').querySelector('.cp-ref-clear').onmousedown(fakeEvent());
 
       await modalEl().querySelector('[data-cp-save]').onclick();
       const call = window.__TEST_CALLS__[0];
-      assertEqual(call.fields.Accompagnateur, null, 'le champ vidé via la croix ne doit pas être enregistré');
+      assertEqual(call.fields.Porteur_3, null, 'le champ vidé via la croix ne doit pas être enregistré');
     });
   });
 
@@ -319,6 +336,94 @@
       setValue(input, '12a3b.4.5xyz');
       fire(input, 'input');
       assertEqual(input.value, '123.45', 'les lettres doivent être retirées et un seul point décimal conservé');
+    });
+  });
+
+  describe('Modale Projet — champs obligatoires à la création (13/10/2026)', function () {
+    it('liste les champs manquants dans le message d\'erreur et bascule sur le premier onglet concerné (de gauche à droite)', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickRef('Programme', 'Programme A', 'Programme A');
+      setValue(modalEl().querySelector('#cp-Projet'), 'Mon nouveau projet');
+      setValue(modalEl().querySelector('#cp-Acronyme'), 'MNP');
+      // Rien dans Porteurs/Dates/Budget : le premier onglet avec un champ manquant,
+      // en partant de la gauche (Général, Porteurs, Dates & OPE, Budget, Convention),
+      // est Porteurs.
+      modalEl().querySelector('[data-cp-tab="budget"]').click();
+      assertEqual(modalEl().dataset.activeTab, 'budget');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      const error = modalEl().querySelector('#cp-project-error').textContent;
+      assertIncludes(error, 'Porteur 1');
+      assertIncludes(error, 'VP porteur');
+      assertIncludes(error, 'Accompagnateur');
+      assertIncludes(error, 'Instance rattachée');
+      assertIncludes(error, 'Date limite de financement');
+      assertIncludes(error, 'Action ligne OPE');
+      assertIncludes(error, 'Budget');
+      assertTrue(!error.includes('Programme'), 'Programme est déjà rempli, il ne doit pas apparaître dans les champs manquants');
+      assertTrue(!error.includes('Acronyme'), 'Acronyme est déjà rempli, il ne doit pas apparaître dans les champs manquants');
+      assertEqual(modalEl().dataset.activeTab, 'porteurs', 'doit basculer sur le premier onglet incomplet en partant de la gauche (Porteurs), pas rester sur Budget');
+      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun appel Grist tant que des champs obligatoires manquent');
+    });
+
+    it('bascule sur Budget si seul le budget total est manquant (tous les autres champs remplis)', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      setValue(modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]'), '0');
+      fire(modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement"]'), 'input');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertIncludes(modalEl().querySelector('#cp-project-error').textContent, 'Budget');
+      assertEqual(modalEl().dataset.activeTab, 'budget');
+      assertEqual(window.__TEST_CALLS__.length, 0);
+    });
+
+    it('Convention de reversement cochée : exige au moins un partenaire et un montant non nul', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      setValue(modalEl().querySelector('#cp-Convention_montant_partenaire_1'), '0');
+      setValue(modalEl().querySelector('#cp-Convention_montant_partenaire_2'), '0');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      const error = modalEl().querySelector('#cp-project-error').textContent;
+      assertIncludes(error, 'Partenaire');
+      assertIncludes(error, 'Montant de convention');
+      assertEqual(modalEl().dataset.activeTab, 'conventions');
+      assertEqual(window.__TEST_CALLS__.length, 0);
+    });
+
+    it('Convention de reversement décochée : aucune exigence sur partenaires/montant', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      assertFalse(modalEl().querySelector('#cp-Convention_de_reversement').checked, 'décochée par défaut');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertEqual(window.__TEST_CALLS__.length, 1, 'la création doit réussir sans convention activée');
+    });
+
+    it('n\'applique aucune validation de champs obligatoires en édition (une fiche ancienne incomplète reste modifiable)', async function () {
+      const tables = await loadFixtureState();
+      // INNOVX (fixture) n'a ni VP_porteur_2, ni Date_limite_financement, ni Action
+      // ligne OPE renseignés — désormais tous obligatoires à la création, mais pas
+      // en édition : la fiche doit rester enregistrable telle quelle.
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'VP porteur non renseigné dans la fixture');
+      assertEqual(modalEl().querySelector('#cp-Date_limite_financement').value, '', 'Date limite de financement non renseignée dans la fixture');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertEqual(window.__TEST_CALLS__.length, 1, 'l\'édition doit réussir malgré les champs obligatoires manquants');
+      assertEqual(window.__TEST_CALLS__[0].type, 'UpdateRecord');
+      assertEqual(modalEl().querySelector('#cp-project-error').textContent, '');
     });
   });
 

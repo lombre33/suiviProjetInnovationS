@@ -7,8 +7,18 @@
 (function () {
   'use strict';
 
-  async function loadFixtureState() {
+  // L'onglet Conventions ne liste que les projets dont Convention_de_reversement est coché
+  // (cf. needsConvention). La plupart des tests de cette suite manipulent des projets
+  // quelconques des fixtures : on les coche tous, sauf demande contraire (`keepFlags`,
+  // cases telles que dans les fixtures — seuls CONVENTIX et SIGNEX ont une convention).
+  async function loadTables({ keepFlags } = {}) {
     const tables = await window.CoreGrist.loadAllTables();
+    if (!keepFlags) tables.Projets.forEach(project => { project.Convention_de_reversement = true; });
+    return tables;
+  }
+
+  async function loadFixtureState() {
+    const tables = await loadTables();
     Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
     window.renderAdministratif();
   }
@@ -248,7 +258,7 @@
     });
 
     it('reconnaît les anciens libellés Choice (lignes Grist pas encore migrées) au lieu de faire disparaître le projet', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       const byAcronym = acr => tables.Projets.find(p => p.Acronyme === acr);
       byAcronym('INNOVX').Conventions_statut = '2) Convention Relecture Partenaire(s)';
       byAcronym('NOTIFY').Conventions_statut = '4) Convention en signature partenaire';
@@ -265,7 +275,7 @@
 
   describe('Administratif — Conventions : reconnaissance tolérante de l\'étape', function () {
     it('un libellé sans numéro d\'étape (valeur par défaut Grist) est rangé dans l\'étape correspondante', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'FINANCX').Conventions_statut = 'Convention en redaction';
       tables.Projets.find(p => p.Acronyme === 'COURSIX').Conventions_statut = 'convention EN RELECTURE';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
@@ -275,7 +285,7 @@
     });
 
     it('une valeur inconnue ou vide n\'affiche le projet nulle part et ne provoque aucune erreur (dont les noms de propriété d\'objet)', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       ['constructor', '__proto__', '', 'Autre chose'].forEach((value, i) => { tables.Projets[i].Conventions_statut = value; });
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -286,7 +296,7 @@
 
   describe('Administratif — Conventions : champ "Next step"', function () {
     it('affiche, sous le commentaire, un second champ titré "Next step" alimenté par la colonne next_step', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = 'Relancer le juridique';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -321,7 +331,7 @@
 
     it('échappe le contenu de next_step (le texte reste du texte, aucune balise injectée)', async function () {
       const payload = '</textarea><img src=x onerror=alert(1)>';
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = payload;
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -331,7 +341,7 @@
     });
 
     it('ne réécrit pas next_step sur un simple passage dans le champ, même si le navigateur normalise sa valeur (CRLF, saut de ligne initial)', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step = 'a\r\nb';
       tables.Projets.find(p => p.Acronyme === 'NOTIFY').next_step = '\nfoo';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
@@ -411,7 +421,7 @@
     });
 
     it('affiche la date déjà enregistrée dans Grist', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'SIGNEX').Transmise_signee_au_porteur_le = epochOf('2026-09-30');
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -425,7 +435,7 @@
     });
 
     it('écrit sur la fiche Notifications si c\'est là que la colonne existe (table d\'origine non documentée)', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.forEach(p => { delete p.Transmise_signee_au_porteur_le; });
       tables.Notifications.forEach(n => { n.Transmise_signee_au_porteur_le = null; });
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
@@ -454,7 +464,7 @@
     const leave = el => el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
 
     it('sans lien : seule une icône d\'ajout est proposée ; avec lien : icône d\'ouverture (nouvel onglet) + icône de modification', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'NOTIFY').Lien_convention = 'https://exemple.org/convention.pdf';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -520,7 +530,7 @@
     });
 
     it('n\'affiche jamais comme lien cliquable une valeur non http(s) déjà présente dans Grist', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'javascript:alert(1)';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -529,7 +539,7 @@
     });
 
     it('vider le champ supprime le lien', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'https://exemple.org/x';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -543,7 +553,7 @@
     });
 
     it('échappe l\'URL dans l\'attribut href', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'INNOVX').Lien_convention = 'https://exemple.org/?q="><img src=x onerror=alert(1)>';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -756,7 +766,7 @@
 
     async function loadWithStartDates(dates, clock) {
       URGENCY().setClock(clock || TODAY);
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       Object.entries(dates).forEach(([acronym, epoch]) => { tables.Projets.find(p => p.Acronyme === acronym).Date_debut_Projet = epoch; });
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
@@ -870,9 +880,59 @@
     });
   });
 
+  describe('Administratif — l\'onglet Conventions ne liste que les projets avec une convention (case « Convention de reversement »)', function () {
+    const convAcronyms = () => Array.from(document.querySelectorAll('#admin-col-conv .admin-card .project-acronym')).map(el => el.textContent).sort();
+    async function loadWithFlags(flags) {
+      const tables = await loadTables({ keepFlags: true });
+      Object.entries(flags).forEach(([acronym, value]) => { tables.Projets.find(p => p.Acronyme === acronym).Convention_de_reversement = value; });
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      return tables;
+    }
+
+    it('un projet sans convention n\'apparaît pas dans « Convention en redaction », même avec la valeur par défaut de Grist (libellé sans numéro)', async function () {
+      // Grist donne « Convention en redaction » (sans « 1) ») à TOUTE ligne : c'est le cas signalé par Antoine.
+      await loadWithFlags({ INNOVX: false, COURSIX: false, FINANCX: false });
+      const tables = window.CoreState.getTable('Projets');
+      ['INNOVX', 'COURSIX', 'FINANCX'].forEach(acronym => { tables.find(p => p.Acronyme === acronym).Conventions_statut = 'Convention en redaction'; });
+      window.renderAdministratif();
+      assertEqual(document.querySelectorAll('#admin-col-conv .admin-panel')[0].querySelectorAll('.admin-card').length, 0, 'volet « Convention en redaction » vide');
+      assertDeepEqual(convAcronyms(), ['CONVENTIX', 'SIGNEX'], 'seuls les projets avec convention sont listés');
+    });
+
+    it('les fixtures telles quelles : seuls CONVENTIX (en signature) et SIGNEX (signée) ont une convention', async function () {
+      await loadWithFlags({});
+      assertDeepEqual(convAcronyms(), ['CONVENTIX', 'SIGNEX']);
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'));
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX'));
+    });
+
+    it('cocher la case fait apparaître le projet dans son volet d\'étape, la décocher le retire', async function () {
+      await loadWithFlags({ INNOVX: false });
+      assertFalse(convAcronyms().includes('INNOVX'));
+      window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX').Convention_de_reversement = true;
+      window.renderAdministratif();
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 'coché : dans « Convention en redaction » (étape 1)');
+      window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX').Convention_de_reversement = false;
+      window.renderAdministratif();
+      assertFalse(convAcronyms().includes('INNOVX'), 'décoché : retiré de tous les volets');
+    });
+
+    it('même lecture de la case que le Kanban : true, 1, « oui » ou « cochée » comptent ; false, 0, vide, null non', async function () {
+      await loadWithFlags({ INNOVX: 1, NOTIFY: 'oui', FINANCX: 'cochée', COURSIX: 'true', INCONNUX: 0, CONVENTIX: '', SIGNEX: null });
+      assertDeepEqual(convAcronyms(), ['COURSIX', 'FINANCX', 'INNOVX', 'NOTIFY']);
+    });
+
+    it('l\'onglet Notifications n\'est pas filtré par cette case', async function () {
+      await loadWithFlags({ INNOVX: false, NOTIFY: false });
+      assertTrue(!!cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX'), 'INNOVX reste en Notifications');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-notif', 'envoyée pour signature VP'), 'NOTIFY'), 'NOTIFY reste en Notifications');
+    });
+  });
+
   describe('Administratif — échappement HTML des données Grist', function () {
     it('échappe l\'acronyme avant de l\'insérer dans le HTML', async function () {
-      const tables = await window.CoreGrist.loadAllTables();
+      const tables = await loadTables();
       tables.Projets[0].Acronyme = '<img src=x onerror=alert(1)>';
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();

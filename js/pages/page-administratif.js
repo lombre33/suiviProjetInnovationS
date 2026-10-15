@@ -141,6 +141,15 @@
     const row = notifRowFor(projectId);
     return row ? NOTIF_STAGES.indexOf(text(row.notifications_Statut)) : -1;
   }
+  // Un projet n'entre dans l'onglet Conventions que si sa case « Convention de
+  // reversement » est cochée : même règle que le Kanban Projets (classifyStatus) et
+  // que la formule Statut_Macro de Grist. Sans ce filtre, TOUS les projets s'y
+  // retrouvaient, car Conventions_statut vaut « Convention en redaction » par défaut
+  // pour n'importe quelle ligne (signalé par Antoine le 01/10/2026).
+  function needsConvention(project) {
+    const value = project.Convention_de_reversement;
+    return value === true || value === 1 || ['true', 'oui', 'cochee'].includes(normalized(value));
+  }
   function convStageIndex(project) {
     const value = text(project.Conventions_statut);
     const idx = CONV_STAGES.indexOf(value);
@@ -606,7 +615,8 @@
     const projects = filteredProjects();
 
     const notifByStage = NOTIF_STAGES.map((_, idx) => projects.filter(p => notifStageIndex(p.id) === idx));
-    const convByStage = CONV_STAGES.map((_, idx) => projects.filter(p => convStageIndex(p) === idx));
+    const convProjects = projects.filter(needsConvention);
+    const convByStage = CONV_STAGES.map((_, idx) => convProjects.filter(p => convStageIndex(p) === idx));
     const notifPanels = buildPanels('notif', NOTIF_STAGES, notifByStage, notifCard);
     const convPanels = buildPanels('conv', CONV_STAGES, convByStage, convCard);
 
