@@ -73,7 +73,12 @@ button,input,select,textarea { font:inherit; }
    une bulle flottante, jamais d'icône sans description. */
 .help-icon { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:4px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--text-faint); cursor:help; vertical-align:middle; }
 .help-icon:hover, .help-icon:focus-visible { color:var(--accent); }
-.help-tooltip-bubble { position:absolute; z-index:500; max-width:280px; padding:8px 11px; border-radius:var(--radius-sm); background:var(--text); color:#fff; font-size:12.5px; font-weight:500; line-height:1.4; box-shadow:var(--shadow-float); pointer-events:none; }
+/* z-index au-dessus de toute modale (.cp-modal:1000, .cp-person-modal:1010 pour
+   les modales imbriquées personne/poste/OPE, cf. css/creation-projet.css) : sans
+   ça la bulle, ajoutée telle quelle à la fin de <body>, se retrouvait DERRIÈRE
+   l'overlay flouté (backdrop-filter) d'une modale ouverte — bug signalé par
+   Antoine le 15/10/2026, la bulle s'affichait floue et illisible en arrière-plan. */
+.help-tooltip-bubble { position:absolute; z-index:2000; max-width:280px; padding:8px 11px; border-radius:var(--radius-sm); background:var(--text); color:#fff; font-size:12.5px; font-weight:500; line-height:1.4; box-shadow:var(--shadow-float); pointer-events:none; }
 .help-tooltip-bubble[hidden] { display:none; }
 .help-tooltip-bubble::after { content:''; position:absolute; left:50%; top:100%; width:8px; height:8px; margin-left:-4px; margin-top:-4px; background:inherit; transform:rotate(45deg); border-radius:0 0 2px; }
 .help-tooltip-bubble.is-below::after { top:0; margin-top:-4px; border-radius:2px 0 0; }

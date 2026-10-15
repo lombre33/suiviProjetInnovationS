@@ -109,6 +109,33 @@
     });
   });
 
+  // Bug signalé par Antoine le 15/10/2026 : la bulle (ajoutée à la fin de <body>)
+  // s'affichait DERRIÈRE l'overlay flouté d'une modale ouverte (.cp-modal, z-index
+  // 1000 ; .cp-person-modal pour les modales imbriquées personne/poste/OPE, 1010) —
+  // floue et illisible. Un z-index ne protège que contre les éléments de SON propre
+  // contexte d'empilement : il faut donc strictement dépasser celui de toute modale,
+  // pas seulement être "grand". Vérifié sur les feuilles de style réelles (lues en
+  // texte, comme la suite Rédaction le fait déjà pour redaction.css) plutôt qu'en
+  // rendu, car tests/index.html ne charge aucun CSS.
+  describe('Bulle d\'aide — toujours au-dessus d\'une modale ouverte (z-index)', function () {
+    it('le z-index de .help-tooltip-bubble dépasse celui de .cp-modal et .cp-person-modal', async function () {
+      const style = await (await fetch('../style.css', { cache: 'no-store' })).text();
+      const creation = await (await fetch('../css/creation-projet.css', { cache: 'no-store' })).text();
+      const zIndexOf = (css, selector) => {
+        const rule = css.match(new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`));
+        assertTrue(!!rule, `règle ${selector} introuvable`);
+        const z = rule[1].match(/z-index:\s*(\d+)/);
+        assertTrue(!!z, `z-index absent de ${selector}`);
+        return Number(z[1]);
+      };
+      const bubbleZ = zIndexOf(style, '.help-tooltip-bubble');
+      const modalZ = zIndexOf(creation, '.cp-modal');
+      const nestedModalZ = zIndexOf(creation, '.cp-person-modal');
+      assertTrue(bubbleZ > modalZ, `la bulle (${bubbleZ}) doit passer au-dessus de .cp-modal (${modalZ})`);
+      assertTrue(bubbleZ > nestedModalZ, `la bulle (${bubbleZ}) doit passer au-dessus de .cp-person-modal (${nestedModalZ})`);
+    });
+  });
+
   describe('Bulle d\'aide — page Administratif (en-têtes de volet)', function () {
     async function renderWithStageHelp() {
       await installDescriptions([
