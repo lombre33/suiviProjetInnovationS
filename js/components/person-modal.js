@@ -10,6 +10,9 @@
 
   const text = value => value == null ? '' : String(value);
   const escapeHtml = value => global.CoreUtils.escapeHtml(value);
+  // Bulle d'aide Grist (description de colonne) — toujours la table Annuaire ici,
+  // seule table que cette modale écrit (cf. js/components/help-tooltip.js).
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Annuaire', colId);
 
   const label = (row, fields) => {
     for (const field of fields) {
@@ -39,6 +42,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'cp-field cp-ref cp-full';
     wrap.innerHTML = `<label for="${id}">${escapeHtml(labelText)}</label><input id="${id}" autocomplete="off" placeholder="Rechercher…"><div class="cp-ref-list cp-hidden"></div>`;
+    if (id === 'cpp-poste') withHelp(wrap.querySelector('label'), 'Poste2');
     const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list');
     if (initialValue) input.value = initialValue;
     if (initialId != null && initialId !== '') input.dataset.id = String(initialId);
@@ -177,18 +181,22 @@
     const nom = document.createElement('div');
     nom.className = 'cp-field';
     nom.innerHTML = '<label for="cpp-nom">Nom *</label><input id="cpp-nom" type="text" required>';
+    withHelp(nom.querySelector('label'), 'NOM');
     panels.identite.appendChild(nom);
     const prenom = document.createElement('div');
     prenom.className = 'cp-field';
     prenom.innerHTML = '<label for="cpp-prenom">Prénom *</label><input id="cpp-prenom" type="text" required>';
+    withHelp(prenom.querySelector('label'), 'Prenom');
     panels.identite.appendChild(prenom);
     const email = document.createElement('div');
     email.className = 'cp-field';
     email.innerHTML = '<label for="cpp-email">Email</label><input id="cpp-email" type="email">';
+    withHelp(email.querySelector('label'), 'Email');
     panels.identite.appendChild(email);
     const tel = document.createElement('div');
     tel.className = 'cp-field';
     tel.innerHTML = '<label for="cpp-tel">Tel</label><input id="cpp-tel" type="text">';
+    withHelp(tel.querySelector('label'), 'Telephone');
     panels.identite.appendChild(tel);
 
     const nomInput = modal.querySelector('#cpp-nom'), prenomInput = modal.querySelector('#cpp-prenom');

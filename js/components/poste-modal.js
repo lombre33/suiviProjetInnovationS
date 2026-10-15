@@ -4,6 +4,9 @@
   const text = value => value == null ? '' : String(value);
   const rows = name => global.CoreState?.getTable ? (global.CoreState.getTable(name) || []) : [];
   const esc = value => global.CoreUtils.escapeHtml(value);
+  // Bulle d'aide Grist (description de colonne) — toujours la table Postes2 ici,
+  // seule table que cette modale écrit (cf. js/components/help-tooltip.js).
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Postes2', colId);
 
   const refId = value => {
     if (value && typeof value === 'object') return value.id ?? value.rowId;
@@ -62,10 +65,11 @@
     return max + 1;
   }
 
-  function refSelect(parent, id, labelText, table, fields, value) {
+  function refSelect(parent, id, labelText, table, fields, value, colId) {
     const wrap = document.createElement('div');
     wrap.className = 'cp-field';
     wrap.innerHTML = `<label for="${id}">${esc(labelText)}</label><select id="${id}"><option value="">— Sélectionner —</option></select>`;
+    if (colId) withHelp(wrap.querySelector('label'), colId);
     const select = wrap.querySelector('select');
     parent.appendChild(wrap);
     const render = (items, selected) => {
@@ -93,22 +97,25 @@
     const editing = !!poste;
     const id = suffix => `${idPrefix}-${suffix}`;
 
-    const structure = refSelect(parent, id('structure'), 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']));
-    const employeur = refSelect(parent, id('employeur'), 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']));
+    const structure = refSelect(parent, id('structure'), 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']), 'Structure2');
+    const employeur = refSelect(parent, id('employeur'), 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']), 'Employeur_tutelle');
 
     const titreWrap = document.createElement('div');
     titreWrap.className = 'cp-field cp-full';
     titreWrap.innerHTML = `<label for="${id('titre')}">Titre du poste *</label><input id="${id('titre')}" type="text" required>`;
+    withHelp(titreWrap.querySelector('label'), 'Titre');
     parent.appendChild(titreWrap);
 
     const precisionWrap = document.createElement('div');
     precisionWrap.className = 'cp-field cp-full';
     precisionWrap.innerHTML = `<label for="${id('precisions')}">Précisions du poste</label><textarea id="${id('precisions')}" rows="3"></textarea>`;
+    withHelp(precisionWrap.querySelector('label'), 'Precisions_Poste');
     parent.appendChild(precisionWrap);
 
     const nameWrap = document.createElement('div');
     nameWrap.className = 'cp-field cp-full';
     nameWrap.innerHTML = `<label for="${id('nom-poste')}">Nom du poste (calculé)</label><input id="${id('nom-poste')}" type="text" readonly aria-readonly="true" class="cp-readonly">`;
+    withHelp(nameWrap.querySelector('label'), 'Nom_du_poste');
     parent.appendChild(nameWrap);
 
     const titreInput = titreWrap.querySelector('input');

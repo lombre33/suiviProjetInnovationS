@@ -52,9 +52,10 @@ démarrage par `js/app.js`, lit `_grist_Tables` et `_grist_Tables_column` (même
 tables de métadonnées que `js/core/grist-bridge.js`, colonne `description` en
 plus) pour toutes les tables du document — lecture seule, jamais d'écriture.
 `js/components/help-tooltip.js` l'utilise pour poser une icône d'aide à côté
-d'un libellé de champ (modale projet, en-têtes de volet Notifications/Conventions
-de la page Administratif) : aucune icône quand la colonne n'a pas de description
-dans Grist, ou quand les métadonnées sont illisibles (droits d'accès) — le widget
+d'un libellé de champ : sur toutes les modales (projet, personne, poste, ligne
+OPE) et sur les en-têtes de volet Notifications/Conventions de la page
+Administratif — aucune icône quand la colonne n'a pas de description dans
+Grist, ou quand les métadonnées sont illisibles (droits d'accès) — le widget
 reste alors utilisable, simplement sans bulles d'aide.
 
 ## Convention de lecture

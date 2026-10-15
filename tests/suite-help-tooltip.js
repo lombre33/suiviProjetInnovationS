@@ -138,6 +138,33 @@
     });
   });
 
+  // Demande d'Antoine le 15/10/2026 : par défaut sur CHAQUE modale, pas seulement
+  // la modale projet — étendu aux modales Personne, Poste et ligne OPE.
+  describe('Bulle d\'aide — modales Personne, Poste et ligne OPE', function () {
+    it('modale Personne : Nom a l\'icône (description connue), Email n\'en a aucune (pas de description)', async function () {
+      await installDescriptions([{ table: 'Annuaire', col: 'NOM', description: 'Nom de famille, en majuscules.' }]);
+      const modal = window.openCreatePersonModal();
+      const nomIcon = modal.querySelector('#cpp-nom').closest('.cp-field').querySelector('.help-icon');
+      assertTrue(!!nomIcon, 'Nom a une description : icône attendue');
+      const emailIcon = modal.querySelector('#cpp-email').closest('.cp-field').querySelector('.help-icon');
+      assertFalse(!!emailIcon, 'Email n\'a pas de description : aucune icône attendue');
+    });
+
+    it('modale Poste : Titre du poste a l\'icône (description connue)', async function () {
+      await installDescriptions([{ table: 'Postes2', col: 'Titre', description: 'Intitulé du poste, affiché dans le nom calculé.' }]);
+      const modal = window.openCreatePosteModal();
+      const titreIcon = modal.querySelector('#cpp-titre').closest('.cp-field').querySelector('.help-icon');
+      assertTrue(!!titreIcon, 'Titre du poste a une description : icône attendue');
+    });
+
+    it('modale ligne OPE : N° de ligne OPE a l\'icône (description connue)', async function () {
+      await installDescriptions([{ table: 'EcritureComptables', col: 'N_OPE', description: 'Numéro de la ligne budgétaire dans EcritureComptables.' }]);
+      const modal = window.openCreateOpeModal();
+      const nopeIcon = modal.querySelector('#cpo-nope').closest('.cp-field').querySelector('.help-icon');
+      assertTrue(!!nopeIcon, 'N° de ligne OPE a une description : icône attendue');
+    });
+  });
+
   describe('Bulle d\'aide — page Administratif (en-têtes de volet)', function () {
     async function renderWithStageHelp() {
       await installDescriptions([

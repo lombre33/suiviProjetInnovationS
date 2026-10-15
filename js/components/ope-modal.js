@@ -10,6 +10,9 @@
     ? (global.CoreState.getTable(name) || []) : [];
   const esc = value => global.CoreUtils.escapeHtml(value);
   const extractAddedRecordId = response => global.CoreUtils.extractAddedRecordId(response);
+  // Bulle d'aide Grist (description de colonne) — toujours la table EcritureComptables
+  // ici, seule table que cette modale écrit (cf. js/components/help-tooltip.js).
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'EcritureComptables', colId);
 
   const api = () => {
     const value = global.CoreGrist?.gristInstance;
@@ -39,6 +42,7 @@
     const opeWrap = document.createElement('div');
     opeWrap.className = 'cp-field cp-full';
     opeWrap.innerHTML = '<label for="cpo-nope">N° de ligne OPE *</label><input id="cpo-nope" type="text" required>';
+    withHelp(opeWrap.querySelector('label'), 'N_OPE');
     form.appendChild(opeWrap);
     const opeInput = opeWrap.querySelector('input');
     opeInput.value = text(initialName).trim();
@@ -50,6 +54,7 @@
     const structureWrap = document.createElement('div');
     structureWrap.className = 'cp-field cp-full';
     structureWrap.innerHTML = `<label for="cpo-structure">Installée chez</label><select id="cpo-structure"><option value="">— Sélectionner —</option>${structures.map(s => `<option value="${esc(s.id)}">${esc(text(s.Acronyme))}</option>`).join('')}</select>`;
+    withHelp(structureWrap.querySelector('label'), 'installe_chez');
     form.appendChild(structureWrap);
     const structureSelect = structureWrap.querySelector('select');
 
