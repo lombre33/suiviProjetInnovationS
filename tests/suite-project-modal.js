@@ -434,4 +434,108 @@
       assertTrue(!modalEl().querySelector('[data-cp-panel="porteurs"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee ne doit plus être dans le panneau Porteurs');
     });
   });
+
+  // Pré-remplissages demandés le 15/10/2026 : uniquement à la création (jamais en
+  // édition), le champ reste modifiable/effaçable ensuite. Les fixtures standards
+  // (Annuaire sans "Etienne DUGUET", Suivi_Instance sans colonne `date`) ne
+  // déclenchent aucun pré-remplissage : déjà couvert par les tests "champs
+  // obligatoires" plus haut, qui s'appuient sur ces deux champs restant vides.
+  describe('Modale Projet — pré-remplissage VP porteur (Etienne DUGUET) à la création (15/10/2026)', function () {
+    function addAnnuaireRow(row) {
+      const current = window.CoreState.getTable('Annuaire');
+      window.CoreState.setTable('Annuaire', [...current, row]);
+      return row.id;
+    }
+
+    it('pré-remplit VP porteur quand une seule fiche "Etienne DUGUET" existe (insensible aux accents)', async function () {
+      const tables = await loadFixtureState();
+      const id = Math.max(...tables.Annuaire.map(r => r.id)) + 1;
+      addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Étienne', nom_et_Prenom: 'Étienne DUGUET' });
+      window.ProjectModal.open();
+      assertEqual(refInput('VP_porteur_2').dataset.id, String(id), 'Étienne DUGUET doit être pré-rempli comme VP porteur à la création');
+      assertEqual(refInput('VP_porteur_2').value, 'Étienne DUGUET');
+    });
+
+    it('ne pré-remplit rien si plusieurs fiches "Etienne DUGUET" existent (ambigu)', async function () {
+      const tables = await loadFixtureState();
+      const base = Math.max(...tables.Annuaire.map(r => r.id));
+      addAnnuaireRow({ id: base + 1, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
+      addAnnuaireRow({ id: base + 2, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
+      window.ProjectModal.open();
+      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'deux fiches correspondantes : trop ambigu pour en présélectionner une');
+    });
+
+    it('la valeur pré-remplie reste modifiable et effaçable', async function () {
+      const tables = await loadFixtureState();
+      const id = Math.max(...tables.Annuaire.map(r => r.id)) + 1;
+      addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
+      window.ProjectModal.open();
+      assertEqual(refInput('VP_porteur_2').dataset.id, String(id));
+      pickRef('VP_porteur_2', 'Alice', 'Alice Martin');
+      assertEqual(refInput('VP_porteur_2').dataset.id, '1', 'doit pouvoir remplacer la valeur pré-remplie par un autre choix');
+      refInput('VP_porteur_2').closest('.cp-ref').querySelector('.cp-ref-clear').onmousedown(fakeEvent());
+      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'doit pouvoir effacer la valeur pré-remplie via la croix');
+    });
+
+    it('ne s\'applique pas en édition, même si une fiche "Etienne DUGUET" correspond', async function () {
+      const tables = await loadFixtureState();
+      const id = Math.max(...tables.Annuaire.map(r => r.id)) + 1;
+      addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
+      const record = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'INNOVX n\'a pas de VP porteur dans la fixture : l\'édition ne doit pas en choisir un à sa place');
+    });
+  });
+
+  describe('Modale Projet — pré-remplissage Instance rattachée (date la plus proche) à la création (15/10/2026)', function () {
+    function daysFromNow(days) { return Math.floor(Date.now() / 1000) + days * 86400; }
+
+    it('choisit la prochaine instance à venir plutôt qu\'une passée ou plus lointaine', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [
+        { id: 1, Nom: 'Comité passé', date: daysFromNow(-30) },
+        { id: 2, Nom: 'Comité prochain', date: daysFromNow(10) },
+        { id: 3, Nom: 'Comité plus tard', date: daysFromNow(60) }
+      ]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '2', 'doit choisir la plus proche instance à venir');
+    });
+
+    it('retombe sur l\'instance passée la plus récente si aucune n\'est à venir', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [
+        { id: 1, Nom: 'Comité ancien', date: daysFromNow(-90) },
+        { id: 2, Nom: 'Comité récent', date: daysFromNow(-5) }
+      ]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '2', 'doit choisir la plus récente passée en l\'absence d\'instance à venir');
+    });
+
+    it('laisse le champ vide si aucune instance n\'a de date renseignée', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [{ id: 1, Nom: 'Comité sans date' }]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '', 'aucune date connue : ne doit rien présélectionner');
+    });
+
+    it('la valeur pré-remplie reste modifiable', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [
+        { id: 1, Nom: 'Comité passé', date: daysFromNow(-30) },
+        { id: 2, Nom: 'Comité prochain', date: daysFromNow(10) }
+      ]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '2');
+      pickRef('Instance_ratachee', 'Comité passé', 'Comité passé');
+      assertEqual(refInput('Instance_ratachee').dataset.id, '1', 'doit pouvoir remplacer la valeur pré-remplie par un autre choix');
+    });
+
+    it('ne s\'applique pas en édition', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [{ id: 99, Nom: 'Comité prochain', date: daysFromNow(10) }]);
+      const record = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'NOTIFY');
+      window.ProjectModal.open(record);
+      assertEqual(refInput('Instance_ratachee').dataset.id, '', 'NOTIFY n\'a pas d\'instance rattachée dans la fixture : l\'édition ne doit pas en choisir une à sa place');
+    });
+  });
 })();

@@ -689,6 +689,36 @@
     }
   }
 
+  // Insensible aux accents/casse : la fiche Annuaire peut porter "Étienne" ou
+  // "Etienne" selon la saisie d'origine côté Grist.
+  function normaliseName(v) {
+    return text(v).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  }
+
+  // Pré-remplissage VP porteur (création uniquement) : ne renvoie une personne que
+  // si elle est identifiée sans ambiguïté (nom+prénom exacts, une seule fiche) —
+  // sinon le champ reste vide plutôt que de pousser une mauvaise référence.
+  function findDefaultVpPorteur() {
+    const matches = rows('Annuaire').filter(r => normaliseName(r.NOM) === 'duguet' && normaliseName(r.Prenom) === 'etienne');
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  // Pré-remplissage Instance rattachée (création uniquement) : l'instance la plus
+  // proche dans le temps — la prochaine à venir, sinon la plus récente passée.
+  // Suivi_Instance.date est un Grist Date() (timestamp Unix en secondes), même
+  // convention que js/core/utils.js (gristDateToInput) ; les instances sans date
+  // sont ignorées.
+  function findNearestInstance() {
+    const now = Math.floor(Date.now() / 1000);
+    const dated = rows('Suivi_Instance')
+      .map(r => ({ row: r, date: Number(r.date) }))
+      .filter(x => Number.isFinite(x.date) && x.date !== 0);
+    if (!dated.length) return null;
+    const upcoming = dated.filter(x => x.date >= now).sort((a, b) => a.date - b.date);
+    if (upcoming.length) return upcoming[0].row;
+    return dated.sort((a, b) => b.date - a.date)[0].row;
+  }
+
   global.ProjectModal = {
     open(record) {
       const m = createModal();
@@ -705,6 +735,10 @@
         m._refs.type.render();
         m.querySelector('#cp-Convention_montant_partenaire_1').value = String(conventionTotal(m));
         syncConventionAmounts(m, true);
+        const vp = findDefaultVpPorteur();
+        if (vp) setRef(m._refs.VP_porteur_2, vp.id, 'Annuaire', ['nom_et_Prenom', 'Prenom', 'NOM']);
+        const instance = findNearestInstance();
+        if (instance) setRef(m._refs.Instance_ratachee, instance.id, 'Suivi_Instance', ['Nom', 'name']);
       }
       m.classList.remove('cp-hidden');
       m._setActiveTab('general');

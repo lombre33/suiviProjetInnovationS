@@ -81,6 +81,82 @@
     return { wrap, select, render };
   }
 
+  // Même champ référence "recherche + liste déroulante" que project-modal.js (refField) :
+  // réutilise les classes cp-ref/cp-ref-control/cp-ref-clear/cp-ref-list déjà stylées dans
+  // creation-projet.css, plutôt qu'un <select> natif — demande d'Antoine du 15/10/2026
+  // (recherche dynamique sur le champ Structure). La vraie valeur (id) continue de vivre
+  // dans un <select> caché qui garde le même id et déclenche toujours 'change' : tout le
+  // reste de buildPosteFieldset() (structure.select.value, addEventListener('change', ...),
+  // getFields()) continue de fonctionner sans modification, seule la façade change.
+  function searchableRefSelect(parent, id, labelText, table, fields, value, colId) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cp-field cp-ref';
+    wrap.innerHTML = `<label for="${id}-search">${esc(labelText)}</label><div class="cp-ref-control"><input id="${id}-search" autocomplete="off" placeholder="Rechercher…"><button type="button" class="cp-ref-clear" aria-label="Retirer la valeur" tabindex="-1">×</button><div class="cp-ref-list cp-hidden"></div></div>`;
+    if (colId) withHelp(wrap.querySelector('label'), colId);
+    const input = wrap.querySelector('input'), list = wrap.querySelector('.cp-ref-list'), clearBtn = wrap.querySelector('.cp-ref-clear');
+    const select = document.createElement('select');
+    select.id = id;
+    select.className = 'cp-visually-hidden';
+    wrap.appendChild(select);
+    parent.appendChild(wrap);
+
+    const displayValue = row => label(row, fields);
+
+    // Le <select> caché garde TOUTES les options de la table, comme refSelect() —
+    // pas seulement celle sélectionnée — pour que du code extérieur (tests,
+    // buildPosteFieldset) puisse continuer à faire select.value = id puis déclencher
+    // 'change' sans jamais passer par la liste de recherche visible.
+    const syncFacade = () => {
+      const row = rows(table).find(r => String(r.id) === String(select.value));
+      input.value = row ? displayValue(row) : '';
+      wrap.classList.toggle('cp-ref-has-value', !!row);
+    };
+
+    const render = (items, selected) => {
+      select.innerHTML = '<option value=""></option>' +
+        items.map(row => `<option value="${esc(row.id)}">${esc(displayValue(row))}</option>`).join('');
+      if (selected != null && selected !== '') select.value = String(refId(selected));
+      syncFacade();
+    };
+
+    const selectRow = row => {
+      select.value = row ? String(row.id) : '';
+      syncFacade();
+      select.dispatchEvent(new Event('change'));
+    };
+
+    const renderList = () => {
+      const q = input.value.trim().toLowerCase();
+      const matches = rows(table).filter(row => displayValue(row).toLowerCase().includes(q)).slice(0, 30);
+      list.innerHTML = matches.map(row => `<button type="button" data-id="${esc(row.id)}">${esc(displayValue(row))}</button>`).join('');
+      list.classList.toggle('cp-hidden', !list.innerHTML);
+      list.querySelectorAll('button').forEach(b => b.onclick = () => {
+        selectRow(rows(table).find(row => String(row.id) === b.dataset.id));
+        list.classList.add('cp-hidden');
+      });
+    };
+
+    input.oninput = () => { wrap.classList.remove('cp-ref-has-value'); renderList(); };
+    input.onfocus = () => renderList();
+    // Comme refField() (project-modal.js) : du texte tapé sans sélectionner de suggestion
+    // ne doit pas rester affiché comme si une structure avait été retenue — on revient à
+    // l'état réel du <select> caché (sa dernière vraie sélection, vide ou non).
+    input.onblur = () => setTimeout(() => {
+      list.classList.add('cp-hidden');
+      syncFacade();
+    }, 150);
+    clearBtn.onmousedown = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectRow(null);
+      renderList();
+      input.focus();
+    };
+
+    render(rows(table), value);
+    return { wrap, select, input, render };
+  }
+
   async function save(mode, poste, fields) {
     const action = mode === 'edit'
       ? ['UpdateRecord', 'Postes2', Number(poste.id), fields]
@@ -97,7 +173,7 @@
     const editing = !!poste;
     const id = suffix => `${idPrefix}-${suffix}`;
 
-    const structure = refSelect(parent, id('structure'), 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']), 'Structure2');
+    const structure = searchableRefSelect(parent, id('structure'), 'Structure *', 'Structures', ['Acronyme', 'Nom_Complet'], fieldValue(poste, ['Structure2']), 'Structure2');
     const employeur = refSelect(parent, id('employeur'), 'Tutelle / Employeur *', 'Etablissements', ['Acronyme', 'Nom_complet'], fieldValue(poste, ['Employeur_tutelle']), 'Employeur_tutelle');
 
     const titreWrap = document.createElement('div');
@@ -165,7 +241,9 @@
       structureSelect: structure.select,
       employeurSelect: employeur.select,
       titreInput, precisionsInput, nameInput,
-      focus() { structure.select.focus(); },
+      // structure est maintenant un champ recherche (searchableRefSelect) : le <select>
+      // sous-jacent est visuellement masqué, on focalise donc le vrai champ visible.
+      focus() { (structure.input || structure.select).focus(); },
       getFields() {
         return {
           Structure2: Number(structure.select.value.trim()) || 0,
