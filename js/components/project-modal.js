@@ -519,10 +519,14 @@
     return '';
   }
 
+  // Une colonne Grist Date() est un timestamp Unix en secondes (un nombre), jamais une
+  // chaîne ISO — déléguer à CoreUtils.gristDateToInput (même convention que
+  // js/core/utils.js) plutôt que de redécouper une chaîne : un ancien découpage naïf ici
+  // affichait un champ vide en édition dès qu'une date réelle était enregistrée, les
+  // fixtures de test n'ayant jamais couvert ce cas (toujours null) — bug signalé par
+  // Antoine le 16/10/2026.
   function dateInputValue(value) {
-    if (!value) return '';
-    const s = String(value);
-    return s.includes('T') ? s.slice(0, 10) : s;
+    return global.CoreUtils.gristDateToInput(value);
   }
 
   function dateFieldValue(input) {

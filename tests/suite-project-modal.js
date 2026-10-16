@@ -130,6 +130,23 @@
       assertEqual(refInput('Ligne_OPE').value, 'OPE-2026-001', 'Ligne_OPE (ReferenceList) doit être déballée pour l\'affichage');
     });
 
+    // Bug signalé par Antoine le 16/10/2026 : "Date limite de financement" (et les deux
+    // autres champs date) n'affichait rien en édition. Cause : Grist stocke une colonne
+    // Date() en timestamp Unix (secondes, un nombre), jamais en chaîne ISO — l'ancienne
+    // fonction locale dateInputValue() se contentait de découper une chaîne, ce qui
+    // laissait le <input type="date"> avec une valeur invalide (silencieusement vidée
+    // par le navigateur). Les fixtures de ces 3 champs sont toujours à null, d'où le
+    // test ici avec un enregistrement modifié plutôt que la fixture partagée.
+    it('affiche la date dans les champs Date_limite_financement/Date_debut_Projet/Date_de_fin_Projet en édition', async function () {
+      const tables = await loadFixtureState();
+      const base = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      const record = { ...base, Date_limite_financement: 1805500800, Date_debut_Projet: 1798675200, Date_de_fin_Projet: 1830297600 };
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-Date_limite_financement').value, '2027-03-20');
+      assertEqual(modalEl().querySelector('#cp-Date_debut_Projet').value, '2026-12-31');
+      assertEqual(modalEl().querySelector('#cp-Date_de_fin_Projet').value, '2028-01-01');
+    });
+
     it('envoie UpdateRecord (pas AddRecord) avec l\'id existant lors de l\'enregistrement', async function () {
       const tables = await loadFixtureState();
       const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
