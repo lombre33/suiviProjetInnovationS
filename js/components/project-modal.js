@@ -84,9 +84,12 @@
     // Bascule l'affichage "bulle" (fond teinté + croix de suppression au survol) dès
     // qu'une valeur est retenue, pour tous les champs référence — avant ça, retirer une
     // valeur déjà choisie (un porteur par ex.) obligeait à effacer le texte affiché
-    // caractère par caractère. _cpRefSync est exposé sur l'input pour que les modales de
-    // création à la volée (personne, ligne OPE) puissent déclencher ce même rafraîchissement
-    // une fois la nouvelle valeur poussée dans input.value/dataset.id.
+    // caractère par caractère. _cpRefSync est appelé à chaque sélection/suppression
+    // "commise" (clic sur une suggestion, croix de suppression, et par les modales de
+    // création à la volée comme personne/ligne OPE une fois la nouvelle valeur poussée
+    // dans input.value/dataset.id) — jamais pendant la simple frappe de recherche. Par
+    // défaut il ne fait que rafraîchir la bulle, mais project-modal.js le surcharge pour
+    // le champ Ligne_OPE afin de recalculer aussi "Installée chez (rapporté)".
     const refreshAvatar = () => {
       const idNum = Number(input.dataset.id);
       const hasValue = Number.isFinite(idNum) && idNum > 0;
@@ -119,7 +122,7 @@
         }
         input.value = b.textContent;
         input.dataset.id = b.dataset.id;
-        refreshAvatar();
+        input._cpRefSync();
         list.classList.add('cp-hidden');
       });
     };
@@ -153,7 +156,7 @@
       event.stopPropagation();
       input.value = '';
       input.dataset.id = '';
-      refreshAvatar();
+      input._cpRefSync();
       render();
       input.focus();
     };
@@ -360,6 +363,23 @@
     refs.Ligne_OPE_installe_chez.readOnly = true;
     refs.Ligne_OPE_installe_chez.classList.add('cp-readonly');
     refs.Ligne_OPE_installe_chez.setAttribute('aria-readonly', 'true');
+
+    // "Installée chez" est un champ rapporté en lecture seule : côté Grist c'est la
+    // formule Ligne_OPE_installe_chez (ReferenceList, recalculée seulement après
+    // enregistrement) — on ne peut pas s'y fier tant qu'on modifie la ligne OPE dans la
+    // modale (jamais à jour avant sauvegarde, d'où le brut "L,43" affiché avant ce
+    // correctif). On le recalcule donc nous-mêmes depuis la ligne OPE réellement
+    // sélectionnée (CoreState), à chaque fois que cette sélection change (clic sur une
+    // suggestion, croix de suppression, ou création d'une nouvelle ligne OPE à la volée).
+    const refreshInstalleChez = () => {
+      const ligneId = refs.Ligne_OPE.input.dataset.id;
+      const ligne = ligneId ? rows('Lignes_OPE').find(r => String(r.id) === String(ligneId)) : null;
+      const structure = ligne?.installe_chez ? rows('Structures').find(r => String(r.id) === String(ligne.installe_chez)) : null;
+      refs.Ligne_OPE_installe_chez.value = structure ? label(structure, ['Acronyme', 'Nom_Complet']) : '';
+    };
+    const ligneOpeSync = refs.Ligne_OPE.input._cpRefSync;
+    refs.Ligne_OPE.input._cpRefSync = () => { ligneOpeSync(); refreshInstalleChez(); };
+    refs._refreshInstalleChez = refreshInstalleChez;
 
     const opeWrap = document.createElement('div');
     opeWrap.className = 'cp-field cp-full';
@@ -572,7 +592,6 @@
     m._renderStatusDot();
     set('cp-comment', ['comentaire_general_Suivi_projet', 'commentaire_general_Suivi_projet']);
     set('cp-Periode', ['Periode']);
-    set('cp-Ligne_OPE_installe_chez', ['Ligne_OPE_installe_chez']);
     set('cp-Commentaire_ligne_OPE', ['Commentaire_ligne_OPE']);
     ['Date_limite_financement', 'Date_debut_Projet', 'Date_de_fin_Projet'].forEach(setDate);
 
@@ -582,6 +601,7 @@
     const refTables = { Porteur_1: 'Annuaire', Porteur_2: 'Annuaire', Porteur_3: 'Annuaire', VP_porteur_signataire_notif: 'Annuaire', Accompagnateur: 'Annuaire', Instance_ratachee: 'Suivi_Instance' };
     Object.keys(refTables).forEach(k => setRef(refs[k], valueOf(record, [k]), refTables[k], ['nom_et_Prenom', 'Prenom', 'NOM', 'Nom', 'name', 'Acronyme', 'Nom_complet']));
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
+    refs._refreshInstalleChez();
     refs.Action_Ligne_OPE_a_faire.value = text(valueOf(record, ['Action_Ligne_OPE_a_faire']));
 
     const conventionEnabled = valueOf(record, ['Convention_de_reversement']);

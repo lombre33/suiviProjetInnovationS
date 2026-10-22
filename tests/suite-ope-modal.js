@@ -68,6 +68,10 @@
       assertEqual(input.value, 'OPE-2027-010', 'le champ Ligne OPE d\'origine doit afficher le numéro créé');
       assertEqual(input.dataset.id, String(call.id), 'le champ Ligne OPE d\'origine doit porter l\'id Grist réellement créé');
       assertTrue(input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'le champ doit immédiatement passer en "bulle" remplie après création');
+      // Bug signalé par Antoine le 22/10/2026 : "Installée chez (rapporté)" ne se
+      // mettait pas à jour tout seul après la création d'une ligne OPE depuis la modale.
+      assertEqual(projectModalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'LAB1',
+        '"Installée chez (rapporté)" doit refléter tout de suite la Structure de la ligne OPE qui vient d\'être créée, sans attendre un réenregistrement');
 
       const lignesOpe = window.CoreState.getTable('Lignes_OPE');
       assertTrue(lignesOpe.some(row => Number(row.id) === Number(call.id) && row.N_OPE === 'OPE-2027-010'), 'la nouvelle ligne OPE doit être ajoutée au cache CoreState pour rester sélectionnable sans recharger');

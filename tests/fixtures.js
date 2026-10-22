@@ -66,8 +66,9 @@
       Nom: ['Comité innovation#3 - 2026-03-15']
     },
     Lignes_OPE: {
-      id: [1],
-      N_OPE: ['OPE-2026-001']
+      id: [1, 2],
+      N_OPE: ['OPE-2026-001', 'OPE-2026-002'],
+      installe_chez: [1, 2]
     },
     // Etablissement (singular) intentionally absent: the live app never loads this
     // table name (see project_dead_code_inventory memory) and code must fall back

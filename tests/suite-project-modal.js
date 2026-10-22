@@ -187,6 +187,40 @@
       assertDeepEqual(call.fields.Ligne_OPE, ['L']);
     });
 
+    // Bugs signalés par Antoine le 22/10/2026 (capture à l'appui) sur le champ rapporté
+    // "Installée chez" : 1) affichait le brut Grist "L,43" (String(['L', 43])) au lieu du
+    // nom de la structure, 2) ne se mettait pas à jour tant qu'on changeait la ligne OPE
+    // dans la modale sans la réenregistrer. Cause commune : le champ lisait directement
+    // la formule Ligne_OPE_installe_chez (ReferenceList, recalculée côté Grist seulement
+    // après sauvegarde) au lieu de la recalculer lui-même depuis la ligne OPE réellement
+    // sélectionnée.
+    it('"Installée chez (rapporté)" affiche le nom de la structure en édition, jamais le brut Grist ("L,43")', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'LAB1',
+        'doit résoudre la Structure réelle de la ligne OPE, pas afficher ["L", id] tel quel');
+    });
+
+    it('"Installée chez (rapporté)" se met à jour sans réenregistrer quand on choisit une autre ligne OPE existante', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'LAB1');
+      pickRef('Ligne_OPE', 'OPE-2026-002', 'OPE-2026-002');
+      assertEqual(modalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'DIR1',
+        'changer de ligne OPE dans la modale doit recalculer "Installée chez" tout de suite');
+    });
+
+    it('"Installée chez (rapporté)" se vide quand on retire la ligne OPE (croix de suppression)', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'LAB1');
+      fireMouse(refInput('Ligne_OPE').parentElement.querySelector('.cp-ref-clear'), 'mousedown');
+      assertEqual(modalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, '', 'retirer la ligne OPE doit aussi vider le champ rapporté');
+    });
+
     it('efface le texte tapé dans un champ référence si aucune suggestion n\'est cliquée', async function () {
       await loadFixtureState();
       window.ProjectModal.open();
