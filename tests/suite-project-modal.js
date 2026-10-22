@@ -38,7 +38,7 @@
     setValue(modalEl().querySelector('#cp-Projet'), 'Mon nouveau projet');
     setValue(modalEl().querySelector('#cp-Acronyme'), 'MNP');
     pickRef('Porteur_1', 'Alice', 'Alice Martin');
-    pickRef('VP_porteur_2', 'Bob', 'Bob Durand');
+    pickRef('VP_porteur_signataire_notif', 'Bob', 'Bob Durand');
     pickRef('Accompagnateur', 'Bob', 'Bob Durand');
     pickRef('Instance_ratachee', 'Comité', 'Comité innovation#3 - 2026-03-15');
     setValue(modalEl().querySelector('#cp-Date_limite_financement'), '2027-01-15');
@@ -73,6 +73,10 @@
       assertEqual(call.fields.Projet, 'Mon nouveau projet');
       assertEqual(call.fields.Acronyme, 'MNP');
       assertEqual(call.fields.Porteur_1, 1);
+      // Bug signalé par Antoine le 22/10/2026 : VP porteur doit être poussé dans
+      // VP_porteur_signataire_notif, pas dans VP_porteur_2 (colonne Grist distincte).
+      assertEqual(call.fields.VP_porteur_signataire_notif, 2, 'VP porteur doit être poussé dans VP_porteur_signataire_notif');
+      assertEqual(call.fields.VP_porteur_2, undefined, 'VP_porteur_2 ne doit plus jamais être écrit par la modale');
       assertEqual(call.fields.Type_projet, 'Projet', 'valeur par défaut de Type_projet');
       assertEqual(call.fields.Statut_operationnel_projet, 'En attente des dispo des fonds', 'valeur par défaut du statut opérationnel');
       assertTrue(modalEl().classList.contains('cp-hidden'), 'la modale doit se refermer après création');
@@ -428,12 +432,12 @@
 
     it('n\'applique aucune validation de champs obligatoires en édition (une fiche ancienne incomplète reste modifiable)', async function () {
       const tables = await loadFixtureState();
-      // INNOVX (fixture) n'a ni VP_porteur_2, ni Date_limite_financement, ni Action
+      // INNOVX (fixture) n'a ni VP_porteur_signataire_notif, ni Date_limite_financement, ni Action
       // ligne OPE renseignés — désormais tous obligatoires à la création, mais pas
       // en édition : la fiche doit rester enregistrable telle quelle.
       const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
       window.ProjectModal.open(record);
-      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'VP porteur non renseigné dans la fixture');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, '', 'VP porteur non renseigné dans la fixture');
       assertEqual(modalEl().querySelector('#cp-Date_limite_financement').value, '', 'Date limite de financement non renseignée dans la fixture');
 
       await modalEl().querySelector('[data-cp-save]').onclick();
@@ -441,6 +445,45 @@
       assertEqual(window.__TEST_CALLS__.length, 1, 'l\'édition doit réussir malgré les champs obligatoires manquants');
       assertEqual(window.__TEST_CALLS__[0].type, 'UpdateRecord');
       assertEqual(modalEl().querySelector('#cp-project-error').textContent, '');
+    });
+
+    // Demande d'Antoine du 22/10/2026 : en édition, ne jamais bloquer l'enregistrement
+    // (déjà le cas ci-dessus), mais afficher un bandeau orange (non bloquant, distinct
+    // du message d'erreur rouge) listant ce qui manque encore.
+    it('affiche un bandeau orange listant les champs obligatoires manquants en édition, sans bloquer', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      const warning = modalEl().querySelector('#cp-project-warning');
+      assertIncludes(warning.textContent, 'VP porteur');
+      assertIncludes(warning.textContent, 'Date limite de financement');
+      assertIncludes(warning.textContent, 'Action ligne OPE');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertEqual(window.__TEST_CALLS__.length, 1, 'le bandeau est informatif, il ne doit jamais bloquer l\'enregistrement');
+    });
+
+    it('n\'affiche aucun bandeau en édition quand tous les champs obligatoires sont déjà remplis', async function () {
+      const tables = await loadFixtureState();
+      // INNOVX (fixture) n'a que 3 champs manquants : VP porteur, Date limite de
+      // financement et Action ligne OPE (Porteur_1/Accompagnateur/Instance_ratachee/
+      // budget sont déjà renseignés) — on les complète pour obtenir un cas réellement
+      // complet et vérifier que le bandeau se vide en conséquence.
+      const record = tables.Projets.find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      pickRef('VP_porteur_signataire_notif', 'Bob', 'Bob Durand');
+      setValue(modalEl().querySelector('#cp-Date_limite_financement'), '2027-01-15');
+      const opeChip = modalEl().querySelector('.cp-chip-row [data-value="Creation de ligne"]');
+      opeChip.click();
+      // Le bandeau ne se recalcule qu'à l'ouverture et au clic sur Enregistrer (comme la
+      // validation de création) : on déclenche donc l'enregistrement pour le rafraîchir.
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertEqual(modalEl().querySelector('#cp-project-warning').textContent, '', 'plus aucun champ manquant : le bandeau doit rester vide');
+    });
+
+    it('n\'affiche jamais le bandeau orange en création (le message rouge bloquant suffit)', function () {
+      window.ProjectModal.open();
+      assertEqual(modalEl().querySelector('#cp-project-warning').textContent, '', 'pas de bandeau orange en création');
     });
   });
 
@@ -469,8 +512,8 @@
       const id = Math.max(...tables.Annuaire.map(r => r.id)) + 1;
       addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Étienne', nom_et_Prenom: 'Étienne DUGUET' });
       window.ProjectModal.open();
-      assertEqual(refInput('VP_porteur_2').dataset.id, String(id), 'Étienne DUGUET doit être pré-rempli comme VP porteur à la création');
-      assertEqual(refInput('VP_porteur_2').value, 'Étienne DUGUET');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, String(id), 'Étienne DUGUET doit être pré-rempli comme VP porteur à la création');
+      assertEqual(refInput('VP_porteur_signataire_notif').value, 'Étienne DUGUET');
     });
 
     it('ne pré-remplit rien si plusieurs fiches "Etienne DUGUET" existent (ambigu)', async function () {
@@ -479,7 +522,7 @@
       addAnnuaireRow({ id: base + 1, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
       addAnnuaireRow({ id: base + 2, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
       window.ProjectModal.open();
-      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'deux fiches correspondantes : trop ambigu pour en présélectionner une');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, '', 'deux fiches correspondantes : trop ambigu pour en présélectionner une');
     });
 
     it('la valeur pré-remplie reste modifiable et effaçable', async function () {
@@ -487,11 +530,11 @@
       const id = Math.max(...tables.Annuaire.map(r => r.id)) + 1;
       addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
       window.ProjectModal.open();
-      assertEqual(refInput('VP_porteur_2').dataset.id, String(id));
-      pickRef('VP_porteur_2', 'Alice', 'Alice Martin');
-      assertEqual(refInput('VP_porteur_2').dataset.id, '1', 'doit pouvoir remplacer la valeur pré-remplie par un autre choix');
-      refInput('VP_porteur_2').closest('.cp-ref').querySelector('.cp-ref-clear').onmousedown(fakeEvent());
-      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'doit pouvoir effacer la valeur pré-remplie via la croix');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, String(id));
+      pickRef('VP_porteur_signataire_notif', 'Alice', 'Alice Martin');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, '1', 'doit pouvoir remplacer la valeur pré-remplie par un autre choix');
+      refInput('VP_porteur_signataire_notif').closest('.cp-ref').querySelector('.cp-ref-clear').onmousedown(fakeEvent());
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, '', 'doit pouvoir effacer la valeur pré-remplie via la croix');
     });
 
     it('ne s\'applique pas en édition, même si une fiche "Etienne DUGUET" correspond', async function () {
@@ -500,7 +543,7 @@
       addAnnuaireRow({ id, NOM: 'DUGUET', Prenom: 'Etienne', nom_et_Prenom: 'Etienne DUGUET' });
       const record = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
       window.ProjectModal.open(record);
-      assertEqual(refInput('VP_porteur_2').dataset.id, '', 'INNOVX n\'a pas de VP porteur dans la fixture : l\'édition ne doit pas en choisir un à sa place');
+      assertEqual(refInput('VP_porteur_signataire_notif').dataset.id, '', 'INNOVX n\'a pas de VP porteur dans la fixture : l\'édition ne doit pas en choisir un à sa place');
     });
   });
 

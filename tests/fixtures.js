@@ -80,7 +80,7 @@
       Porteur_1: [1, 1, 1, 1, 1, 1, 1],
       Porteur_2: [0, 0, 0, 0, 0, 0, 0],
       Porteur_3: [0, 0, 0, 0, 0, 0, 0],
-      VP_porteur_2: [0, 0, 0, 0, 0, 0, 0],
+      VP_porteur_signataire_notif: [0, 0, 0, 0, 0, 0, 0],
       Accompagnateur: [2, 2, 2, 2, 2, 2, 2],
       Instance_ratachee: [1, 0, 1, 0, 1, 0, 0],
       Type_projet: ['Projet', 'Projet', 'Projet', 'Projet', 'Projet', 'Projet', 'Projet'],

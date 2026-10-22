@@ -286,6 +286,7 @@
       `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${esc(t.label)}</button>`).join('')}</div>` +
       `<div id="cp-project-form" class="cp-body"></div>` +
       `<p id="cp-project-error" class="cp-error" role="alert"></p>` +
+      `<p id="cp-project-warning" class="cp-warning-banner" role="status"></p>` +
       `<div class="cp-actions"><div class="cp-steps" id="cp-project-steps" aria-hidden="true"></div><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>Créer le projet</button></div>` +
       `</div>`;
     document.body.appendChild(m);
@@ -327,10 +328,10 @@
     // Porteur 1, VP porteur et Accompagnateur sont obligatoires à la création (demande
     // d'Antoine du 13/10/2026, cf. validateRequiredFields()) ; Porteur_2/Porteur_3 restent
     // optionnels.
-    const REQUIRED_PORTEUR_KEYS = ['Porteur_1', 'VP_porteur_2', 'Accompagnateur'];
-    ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur'].forEach(k => {
+    const REQUIRED_PORTEUR_KEYS = ['Porteur_1', 'VP_porteur_signataire_notif', 'Accompagnateur'];
+    ['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_signataire_notif', 'Accompagnateur'].forEach(k => {
       refs[k] = refField(panels.porteurs, k, 'Annuaire', {
-        label: k === 'VP_porteur_2' ? 'VP porteur' : k.replace('_', ' '),
+        label: k === 'VP_porteur_signataire_notif' ? 'VP porteur' : k.replace('_', ' '),
         fields: ['nom_et_Prenom', 'Prenom', 'NOM'],
         format: personLabel
       }, REQUIRED_PORTEUR_KEYS.includes(k));
@@ -576,7 +577,7 @@
     setRef(refs.programme, valueOf(record, ['Programme']), 'Programmes', ['Programme']);
     setRef(refs.type, valueOf(record, ['Type_projet']), '__choice__');
     refs.type.render();
-    const refTables = { Porteur_1: 'Annuaire', Porteur_2: 'Annuaire', Porteur_3: 'Annuaire', VP_porteur_2: 'Annuaire', Accompagnateur: 'Annuaire', Instance_ratachee: 'Suivi_Instance' };
+    const refTables = { Porteur_1: 'Annuaire', Porteur_2: 'Annuaire', Porteur_3: 'Annuaire', VP_porteur_signataire_notif: 'Annuaire', Accompagnateur: 'Annuaire', Instance_ratachee: 'Suivi_Instance' };
     Object.keys(refTables).forEach(k => setRef(refs[k], valueOf(record, [k]), refTables[k], ['nom_et_Prenom', 'Prenom', 'NOM', 'Nom', 'name', 'Acronyme', 'Nom_complet']));
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'EcritureComptables', ['N_OPE']);
     refs.Action_Ligne_OPE_a_faire.value = text(valueOf(record, ['Action_Ligne_OPE_a_faire']));
@@ -616,7 +617,7 @@
       Porteur_1: Number(refs.Porteur_1.input.dataset.id),
       Porteur_2: Number(refs.Porteur_2.input.dataset.id) || null,
       Porteur_3: Number(refs.Porteur_3.input.dataset.id) || null,
-      VP_porteur_2: Number(refs.VP_porteur_2.input.dataset.id) || null,
+      VP_porteur_signataire_notif: Number(refs.VP_porteur_signataire_notif.input.dataset.id) || null,
       Accompagnateur: Number(refs.Accompagnateur.input.dataset.id) || null,
       Instance_ratachee: Number(refs.Instance_ratachee.input.dataset.id) || null,
       Date_limite_financement: dateFieldValue(refs.Date_limite_financement),
@@ -654,7 +655,7 @@
       { tab: 'general', label: 'Acronyme', ok: !!get('cp-Acronyme') },
       { tab: 'general', label: 'Type de projet', ok: !!refs.type.input.value },
       { tab: 'porteurs', label: 'Porteur 1', ok: hasId(refs.Porteur_1) },
-      { tab: 'porteurs', label: 'VP porteur', ok: hasId(refs.VP_porteur_2) },
+      { tab: 'porteurs', label: 'VP porteur', ok: hasId(refs.VP_porteur_signataire_notif) },
       { tab: 'porteurs', label: 'Accompagnateur', ok: hasId(refs.Accompagnateur) },
       { tab: 'dates', label: 'Instance rattachée', ok: hasId(refs.Instance_ratachee) },
       { tab: 'dates', label: 'Date limite de financement', ok: !!refs.Date_limite_financement.value },
@@ -672,6 +673,16 @@
     return checks.filter(c => !c.ok);
   }
 
+  // Édition d'un projet ancien incomplet (demande d'Antoine du 22/10/2026) : contrairement
+  // à la création, l'enregistrement n'est jamais bloqué, mais un bandeau orange (non
+  // bloquant, distinct du message d'erreur rouge) rappelle ce qu'il manque encore.
+  function renderMissingBanner(m, refs) {
+    const el = m.querySelector('#cp-project-warning');
+    if (!el) return;
+    const missing = validateRequiredFields(m, refs);
+    el.textContent = missing.length ? `Champs obligatoires manquants : ${missing.map(c => c.label).join(', ')}.` : '';
+  }
+
   async function saveProject(m, refs) {
     const mode = m.dataset.mode || 'create', record = m._projectRecord;
     if (mode === 'create') {
@@ -681,6 +692,8 @@
         m._setActiveTab(missing[0].tab);
         return;
       }
+    } else {
+      renderMissingBanner(m, refs);
     }
     try {
       const fields = collectFields(m, refs);
@@ -731,6 +744,7 @@
       m.querySelector('.cp-head h2').textContent = record ? 'Modifier le projet' : 'Créer un projet';
       m.querySelector('[data-cp-save]').textContent = record ? 'Enregistrer les modifications' : 'Créer le projet';
       m.querySelector('#cp-project-error').textContent = '';
+      m.querySelector('#cp-project-warning').textContent = '';
       populateModal(m, m._refs, record);
       if (!record) {
         m.querySelector('#cp-statut').value = 'En attente des dispo des fonds';
@@ -740,9 +754,11 @@
         m.querySelector('#cp-Convention_montant_partenaire_1').value = String(conventionTotal(m));
         syncConventionAmounts(m, true);
         const vp = findDefaultVpPorteur();
-        if (vp) setRef(m._refs.VP_porteur_2, vp.id, 'Annuaire', ['nom_et_Prenom', 'Prenom', 'NOM']);
+        if (vp) setRef(m._refs.VP_porteur_signataire_notif, vp.id, 'Annuaire', ['nom_et_Prenom', 'Prenom', 'NOM']);
         const instance = findNearestInstance();
         if (instance) setRef(m._refs.Instance_ratachee, instance.id, 'Suivi_Instance', ['Nom', 'name']);
+      } else {
+        renderMissingBanner(m, m._refs);
       }
       m.classList.remove('cp-hidden');
       m._setActiveTab('general');

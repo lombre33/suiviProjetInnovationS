@@ -82,7 +82,7 @@ reste alors utilisable, simplement sans bulles d'aide.
 | `Statut_operationnel_projet` | Choice | défaut `En attente des dispo des fonds` |
 | `comentaire_general_Suivi_projet` | Text | orthographe réelle, un seul `m` |
 | `Porteur_1` | Reference → `Annuaire` | obligatoire côté widget |
-| `Porteur_2`, `Porteur_3`, `VP_porteur_2`, `Accompagnateur` | Reference → `Annuaire` | |
+| `Porteur_2`, `Porteur_3`, `VP_porteur_signataire_notif`, `Accompagnateur` | Reference → `Annuaire` | |
 | `Instance_ratachee` | Reference → `Suivi_Instance` | orthographe réelle, un seul `t` |
 | `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` | Date | |
 | `Ligne_OPE` | **ReferenceList** → `EcritureComptables` | écrite au format `['L', id]`, voir écart 2 ci-dessous |
@@ -251,7 +251,7 @@ même format que `Partenaire_s_convention_reversement` (`['L', id]` ou `['L']` �
 
 ### 3. Champs référence : texte libre bloqué au blur — corrigé le 18 septembre 2026
 
-Les champs référence de la modale projet (`Porteur_1/2/3`, `VP_porteur_2`,
+Les champs référence de la modale projet (`Porteur_1/2/3`, `VP_porteur_signataire_notif`,
 `Accompagnateur`, `Instance_ratachee`, `Ligne_OPE`) et le champ Poste de la fiche
 Personne laissaient du texte tapé affiché même sans clic sur une suggestion : l'id
 interne restait vide mais le champ semblait renseigné, et rien n'empêchait de croire

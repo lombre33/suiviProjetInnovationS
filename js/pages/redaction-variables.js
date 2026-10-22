@@ -21,7 +21,7 @@
   // À tenir à jour avec la modale : un test relit ce que la vraie modale enregistre et échoue si la liste ne suit plus.
   const MODAL_FIELDS = Object.freeze([
     'Programme', 'Projet', 'Acronyme', 'Type_projet', 'Statut_operationnel_projet', 'comentaire_general_Suivi_projet',
-    'Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur', 'Instance_ratachee',
+    'Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_signataire_notif', 'Accompagnateur', 'Instance_ratachee',
     'Date_limite_financement', 'Date_debut_Projet', 'Date_de_fin_Projet',
     'Ligne_OPE', 'Action_Ligne_OPE_a_faire', 'Commentaire_ligne_OPE',
     'Convention_de_reversement', 'Partenaire_s_convention_reversement', 'Convention_montant_partenaire_1', 'Convention_montant_partenaire_2',

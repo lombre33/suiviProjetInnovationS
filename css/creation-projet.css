@@ -171,6 +171,8 @@
 
 .cp-error { margin:10px 22px 0; color:var(--danger,#d84343); font-size:13px; font-weight:600; }
 .cp-error:empty { display:none; }
+.cp-warning-banner { margin:10px 22px 0; padding:8px 12px; border:1px solid var(--warning-soft-border,#fbd9ab); border-radius:var(--radius-sm,7px); background:var(--warning-soft,#fff4e5); color:var(--warning,#b45309); font-size:13px; font-weight:600; }
+.cp-warning-banner:empty { display:none; }
 .cp-person-modal { z-index:1010; }
 .cp-hidden { display:none!important; }
 
@@ -190,4 +192,5 @@
   .cp-actions { flex-wrap:wrap; padding:12px 16px; }
   .cp-steps { width:100%; margin-right:0; order:-1; }
   .cp-error { margin:10px 16px 0; }
+  .cp-warning-banner { margin:10px 16px 0; }
 }

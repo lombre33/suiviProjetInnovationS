@@ -322,7 +322,7 @@
   // listener's own button is always pre-empted by the bail-out checks below before it
   // would run. Left in place defensively (e.g. an Annuaire field rendered by a future
   // component that doesn't implement that same fallback itself).
-  const personRefKeys = new Set(['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_2', 'Accompagnateur']);
+  const personRefKeys = new Set(['Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_signataire_notif', 'Accompagnateur']);
 
   function ensureCreateAction(input) {
     if (!input || !personRefKeys.has(input.dataset.ref)) return;

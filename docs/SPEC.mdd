@@ -54,7 +54,7 @@ Chargement séquentiel des tables → paralléliser.
 
 ### Modalité et champs du projet
 
-La création de projet est une modale réutilisable, accessible depuis plusieurs pages via `window.openProjectCreation` (le bouton `#btn-new-project` de la page Projets est raccordé). Elle propose : `Programme` (référence vers `Programmes`, recherche/autocomplétion), `Projet`, `Acronyme`, `comentaire_general_Suivi_projet` facultatif, `Statut_operationnel_projet` (défaut Grist), `Type_projet`, `Porteur_1` obligatoire, `Porteur_2`, `Porteur_3`, `VP_porteur_2` et `Accompagnateur` (références vers `Annuaire`), ainsi que `Instance_ratachee`.
+La création de projet est une modale réutilisable, accessible depuis plusieurs pages via `window.openProjectCreation` (le bouton `#btn-new-project` de la page Projets est raccordé). Elle propose : `Programme` (référence vers `Programmes`, recherche/autocomplétion), `Projet`, `Acronyme`, `comentaire_general_Suivi_projet` facultatif, `Statut_operationnel_projet` (défaut Grist), `Type_projet`, `Porteur_1` obligatoire, `Porteur_2`, `Porteur_3`, `VP_porteur_signataire_notif` et `Accompagnateur` (références vers `Annuaire`), ainsi que `Instance_ratachee`.
 
 La valeur par défaut documentée par le schéma pour `Statut_operationnel_projet` est `En attente des dispo des fonds`. Le schéma décrit la colonne comme `Choice`, mais ne publie pas la liste complète de choix ; l'interface ne bloque donc pas une valeur gérée côté Grist. Le défaut documenté de `Type_projet` est `Projet`.
 
@@ -72,7 +72,7 @@ Le volet reprend les trois types Fonctionnement, Investissement et Personnel, av
 
 ### Colonnes et tables de référence confirmées
 
-- `Projets` : `Programme`, `Projet`, `Acronyme`, `comentaire_general_Suivi_projet`, `Porteur_1`, `Porteur_2`, `Porteur_3`, `VP_porteur_2`, `Accompagnateur`, `Type_projet`, `Statut_operationnel_projet`, `Instance_ratachee`, `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` et colonnes financières ci-dessus.
+- `Projets` : `Programme`, `Projet`, `Acronyme`, `comentaire_general_Suivi_projet`, `Porteur_1`, `Porteur_2`, `Porteur_3`, `VP_porteur_signataire_notif`, `Accompagnateur`, `Type_projet`, `Statut_operationnel_projet`, `Instance_ratachee`, `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` et colonnes financières ci-dessus.
 - `Annuaire` : `Prenom`, `NOM`, `Email`, `Telephone`, `Poste2`, `Poste_secondaire`.
 - `Postes2` : `Titre`, `Precisions_Poste`, `Structure2`, `Employeur_tutelle`, `Mission_Principale`.
 - `Structures` : `Acronyme`, `Nom_Complet` et les cinq références de tutelle listées ci-dessus.
