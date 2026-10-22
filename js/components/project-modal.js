@@ -103,7 +103,7 @@
       if (!matches.length && q) {
         if (table === 'Annuaire' && typeof window.openCreatePersonModal === 'function') {
           list.innerHTML = `<button type="button" data-create-person="${esc(input.value.trim())}">+ Créer "${esc(input.value.trim())}"</button>`;
-        } else if (table === 'EcritureComptables' && typeof window.openCreateOpeModal === 'function') {
+        } else if (table === 'Lignes_OPE' && typeof window.openCreateOpeModal === 'function') {
           list.innerHTML = `<button type="button" data-create-ope="${esc(input.value.trim())}">+ Créer la ligne OPE "${esc(input.value.trim())}"</button>`;
         }
       }
@@ -355,7 +355,7 @@
     refs.Periode.classList.add('cp-readonly');
     refs.Periode.setAttribute('aria-readonly', 'true');
 
-    refs.Ligne_OPE = refField(panels.dates, 'Ligne_OPE', 'EcritureComptables', { label: 'Ligne OPE', fields: ['N_OPE'], format: opeLabel });
+    refs.Ligne_OPE = refField(panels.dates, 'Ligne_OPE', 'Lignes_OPE', { label: 'Ligne OPE', fields: ['N_OPE'], format: opeLabel });
     refs.Ligne_OPE_installe_chez = field(panels.dates, 'Installée chez (rapporté)', 'cp-Ligne_OPE_installe_chez', 'text');
     refs.Ligne_OPE_installe_chez.readOnly = true;
     refs.Ligne_OPE_installe_chez.classList.add('cp-readonly');
@@ -581,7 +581,7 @@
     refs.type.render();
     const refTables = { Porteur_1: 'Annuaire', Porteur_2: 'Annuaire', Porteur_3: 'Annuaire', VP_porteur_signataire_notif: 'Annuaire', Accompagnateur: 'Annuaire', Instance_ratachee: 'Suivi_Instance' };
     Object.keys(refTables).forEach(k => setRef(refs[k], valueOf(record, [k]), refTables[k], ['nom_et_Prenom', 'Prenom', 'NOM', 'Nom', 'name', 'Acronyme', 'Nom_complet']));
-    setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'EcritureComptables', ['N_OPE']);
+    setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
     refs.Action_Ligne_OPE_a_faire.value = text(valueOf(record, ['Action_Ligne_OPE_a_faire']));
 
     const conventionEnabled = valueOf(record, ['Convention_de_reversement']);

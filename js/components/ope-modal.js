@@ -1,4 +1,4 @@
-/* Création d'une ligne OPE (table EcritureComptables) à la volée, depuis le champ
+/* Création d'une ligne OPE (table Lignes_OPE) à la volée, depuis le champ
    "Ligne OPE" de l'onglet Dates & OPE de la modale Projet — même patron que le
    "+ Créer" du champ Porteur (person-modal.js) : refField() (project-modal.js)
    propose ce bouton quand la recherche ne correspond à aucune ligne existante. */
@@ -10,9 +10,9 @@
     ? (global.CoreState.getTable(name) || []) : [];
   const esc = value => global.CoreUtils.escapeHtml(value);
   const extractAddedRecordId = response => global.CoreUtils.extractAddedRecordId(response);
-  // Bulle d'aide Grist (description de colonne) — toujours la table EcritureComptables
+  // Bulle d'aide Grist (description de colonne) — toujours la table Lignes_OPE
   // ici, seule table que cette modale écrit (cf. js/components/help-tooltip.js).
-  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'EcritureComptables', colId);
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Lignes_OPE', colId);
 
   const api = () => {
     const value = global.CoreGrist?.gristInstance;
@@ -21,7 +21,7 @@
   };
 
   function addRecord(fields) {
-    return api().docApi.applyUserActions([['AddRecord', 'EcritureComptables', null, fields]]);
+    return api().docApi.applyUserActions([['AddRecord', 'Lignes_OPE', null, fields]]);
   }
 
   function openCreateOpeModal(initialName = '', originInput) {
@@ -75,7 +75,7 @@
         const installeChez = Number(structureSelect.value) || null;
         const fields = { N_OPE: nOpe, installe_chez: installeChez };
         const result = await addRecord(fields);
-        const current = rows('EcritureComptables');
+        const current = rows('Lignes_OPE');
         let id = extractAddedRecordId(result);
         if (!id) {
           const found = current.filter(row => row.N_OPE === nOpe).pop();
@@ -85,7 +85,7 @@
 
         const updated = { N_OPE: nOpe, installe_chez: installeChez, id: Number(id) };
         if (global.CoreState?.setTable) {
-          global.CoreState.setTable('EcritureComptables', [...current, updated]);
+          global.CoreState.setTable('Lignes_OPE', [...current, updated]);
         }
         if (originInput) {
           originInput.value = nOpe;

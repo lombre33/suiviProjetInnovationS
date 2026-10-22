@@ -26,7 +26,7 @@ neuf noms. Les huit premiers correspondent exactement aux huit tables de
 | `Programmes` | programme d'un projet, filtre du Kanban (lecture) |
 | `Etablissements` | tutelle/employeur d'un poste, partenaires de convention (lecture) |
 | `Suivi_Instance` | instance rattachée à un projet, filtre du Kanban (lecture) |
-| `EcritureComptables` | ligne OPE d'un projet (lecture) |
+| `Lignes_OPE` | ligne OPE d'un projet (lecture) |
 
 Le neuvième nom, `Etablissement` (au singulier), **n'existe pas dans le schéma**. Le
 chargement échoue silencieusement (`loadAllTables()` intercepte l'erreur et renvoie un
@@ -85,7 +85,7 @@ reste alors utilisable, simplement sans bulles d'aide.
 | `Porteur_2`, `Porteur_3`, `VP_porteur_signataire_notif`, `Accompagnateur` | Reference → `Annuaire` | |
 | `Instance_ratachee` | Reference → `Suivi_Instance` | orthographe réelle, un seul `t` |
 | `Date_debut_Projet`, `Date_de_fin_Projet`, `Date_limite_financement` | Date | |
-| `Ligne_OPE` | **ReferenceList** → `EcritureComptables` | écrite au format `['L', id]`, voir écart 2 ci-dessous |
+| `Ligne_OPE` | **ReferenceList** → `Lignes_OPE` | écrite au format `['L', id]`, voir écart 2 ci-dessous |
 | `Action_Ligne_OPE_a_faire` | Choice | défaut `à determiner` |
 | `Commentaire_ligne_OPE` | Text | |
 | `Convention_de_reversement` | Bool | |
@@ -210,7 +210,11 @@ Lecture seule.
 
 Le code essaie aussi une clé `name` en minuscules, absente du schéma.
 
-## EcritureComptables
+## Lignes_OPE
+
+Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait
+`EcritureComptables` jusque-là, d'où le nom encore utilisé dans les entrées de
+`VERSION.md` antérieures à cette date.
 
 Lecture seule : `N_OPE` (Text), étiquette de la ligne OPE dans la modale projet.
 `totalCPConsomme`, `installe_chez` et la formule `N_OPE_LibelleOperation` ne sont pas
@@ -242,7 +246,7 @@ conversion des colonnes est une action Grist, pas un changement de code.
 
 ### 2. `Ligne_OPE` — corrigé le 18 septembre 2026
 
-`Projets.Ligne_OPE` est déclarée `grist.ReferenceList('EcritureComptables')`. Le widget
+`Projets.Ligne_OPE` est déclarée `grist.ReferenceList('Lignes_OPE')`. Le widget
 la traitait comme une référence simple : il écrivait un identifiant numérique au lieu du
 format `['L', id…]` attendu, et à la relecture `setRef()` recevait un tableau dont il
 lisait `.id`, ce qui laissait le champ vide même quand une ligne OPE était rattachée.

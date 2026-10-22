@@ -1,7 +1,7 @@
 /**
  * Non-regression suite: création d'une ligne OPE à la volée (js/components/ope-modal.js),
  * depuis le champ "Ligne OPE" de l'onglet Dates & OPE de la modale Projet — même patron
- * que le "+ Créer" du champ Porteur (person-modal.js), mais table EcritureComptables.
+ * que le "+ Créer" du champ Porteur (person-modal.js), mais table Lignes_OPE.
  */
 (function () {
   'use strict';
@@ -60,7 +60,7 @@
       assertEqual(window.__TEST_CALLS__.length, 1, 'un seul appel Grist attendu');
       const call = window.__TEST_CALLS__[0];
       assertEqual(call.type, 'AddRecord');
-      assertEqual(call.table, 'EcritureComptables');
+      assertEqual(call.table, 'Lignes_OPE');
       assertEqual(call.fields.N_OPE, 'OPE-2027-010');
       assertEqual(call.fields.installe_chez, 1, 'la Structure sélectionnée (par Acronyme) doit être poussée comme référence');
 
@@ -69,8 +69,8 @@
       assertEqual(input.dataset.id, String(call.id), 'le champ Ligne OPE d\'origine doit porter l\'id Grist réellement créé');
       assertTrue(input.closest('.cp-ref').classList.contains('cp-ref-has-value'), 'le champ doit immédiatement passer en "bulle" remplie après création');
 
-      const ecritures = window.CoreState.getTable('EcritureComptables');
-      assertTrue(ecritures.some(row => Number(row.id) === Number(call.id) && row.N_OPE === 'OPE-2027-010'), 'la nouvelle ligne OPE doit être ajoutée au cache CoreState pour rester sélectionnable sans recharger');
+      const lignesOpe = window.CoreState.getTable('Lignes_OPE');
+      assertTrue(lignesOpe.some(row => Number(row.id) === Number(call.id) && row.N_OPE === 'OPE-2027-010'), 'la nouvelle ligne OPE doit être ajoutée au cache CoreState pour rester sélectionnable sans recharger');
     });
 
     it('refuse la création sans numéro de ligne OPE', async function () {

@@ -6,7 +6,7 @@
   'use strict';
 
   const TABLE_NAMES = ['Projets', 'Annuaire', 'Postes2', 'Structures',
-    'Programmes', 'Etablissements', 'Etablissement', 'Suivi_Instance', 'EcritureComptables', 'Notifications'];
+    'Programmes', 'Etablissements', 'Etablissement', 'Suivi_Instance', 'Lignes_OPE', 'Notifications'];
 
   // docApi.fetchTable returns column-oriented data; the UI consumes records.
   function toRecords(table) {

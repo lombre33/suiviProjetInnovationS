@@ -65,7 +65,7 @@
       id: [1],
       Nom: ['Comité innovation#3 - 2026-03-15']
     },
-    EcritureComptables: {
+    Lignes_OPE: {
       id: [1],
       N_OPE: ['OPE-2026-001']
     },
@@ -139,7 +139,7 @@
       Date_de_fin_Projet: [null, null, null, null, null, null, null],
       Date_limite_financement: [null, null, null, null, null, null, null],
       // ReferenceList (not a plain Reference, unlike most *_id-looking columns here):
-      // INNOVX (first row) is rattachée to EcritureComptables#1, the rest are empty.
+      // INNOVX (first row) is rattachée to Lignes_OPE#1, the rest are empty.
       Ligne_OPE: [['L', 1], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
       Ligne_OPE_installe_chez: ['', '', '', '', '', '', ''],
       Action_Ligne_OPE_a_faire: ['', '', '', '', '', '', ''],

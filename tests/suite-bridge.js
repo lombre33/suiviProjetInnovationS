@@ -43,7 +43,7 @@
     const shown = (table, col, id) => fixtures[table][col][fixtures[table].id.indexOf(id)];
     projets.gristHelper_Display2 = projets.Programme.map(id => shown('Programmes', 'Programme', id));
     projets.gristHelper_Display3 = projets.Porteur_1.map(id => shown('Annuaire', 'nom_et_Prenom', id));
-    projets.gristHelper_Display4 = projets.Ligne_OPE.map(list => ['L', ...list.slice(1).map(id => shown('EcritureComptables', 'N_OPE', id))]);
+    projets.gristHelper_Display4 = projets.Ligne_OPE.map(list => ['L', ...list.slice(1).map(id => shown('Lignes_OPE', 'N_OPE', id))]);
     projets.gristHelper_Display5 = projets.Partenaire_s_convention_reversement.map(list => ['L', ...list.slice(1).map(id => shown('Etablissements', 'Acronyme', id))]);
     projets.manualSort = [7, 6, 5, 4, 3, 2, 1]; // ordre inverse des id : le tri de la vue par défaut de Grist
     projets.Date_debut_Projet[2] = 1790000000; // CONVENTIX (id 12)
@@ -52,7 +52,7 @@
 
     const types = {
       Projets: {
-        Programme: 'Ref:Programmes', Porteur_1: 'Ref:Annuaire', Ligne_OPE: 'RefList:EcritureComptables',
+        Programme: 'Ref:Programmes', Porteur_1: 'Ref:Annuaire', Ligne_OPE: 'RefList:Lignes_OPE',
         Partenaire_s_convention_reversement: 'RefList:Etablissements', Date_debut_Projet: 'Date',
         Date_limite_financement: 'DateTime:Europe/Paris', Convention_de_reversement: 'Bool',
         c2026_M10_Fonctionnement: 'Numeric', manualSort: 'ManualSortPos'

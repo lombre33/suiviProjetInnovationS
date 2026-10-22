@@ -158,7 +158,7 @@
     });
 
     it('modale ligne OPE : N° de ligne OPE a l\'icône (description connue)', async function () {
-      await installDescriptions([{ table: 'EcritureComptables', col: 'N_OPE', description: 'Numéro de la ligne budgétaire dans EcritureComptables.' }]);
+      await installDescriptions([{ table: 'Lignes_OPE', col: 'N_OPE', description: 'Numéro de la ligne budgétaire dans Lignes_OPE.' }]);
       const modal = window.openCreateOpeModal();
       const nopeIcon = modal.querySelector('#cpo-nope').closest('.cp-field').querySelector('.help-icon');
       assertTrue(!!nopeIcon, 'N° de ligne OPE a une description : icône attendue');
