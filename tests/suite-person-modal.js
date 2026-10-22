@@ -117,4 +117,43 @@
       assertEqual(call.fields.Email, 'alice.martin+updated@example.org');
     });
   });
+
+  // Demande d'Antoine du 22/10/2026 : vérifier la navigation clavier sur les autres
+  // champs du même patron de recherche (CoreUtils.wireRefListKeyNav, branché sur
+  // searchableField() pour le champ Poste).
+  describe('Fiche Annuaire — navigation clavier dans le champ Poste', function () {
+    it('les flèches déplacent la surbrillance avec effet de boucle, Entrée sélectionne le bon poste', async function () {
+      await loadFixtureState();
+      window.openCreatePersonModal();
+      const input = modalEl().querySelector('#cpp-poste');
+      setValue(input, 'LAB1');
+      fire(input, 'input');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      const buttons = () => Array.from(list.querySelectorAll('button'));
+      assertEqual(buttons().length, 2, 'les deux postes des fixtures contiennent "LAB1" dans leur nom calculé');
+      const secondLabel = buttons()[1].textContent;
+
+      fireKey(input, 'ArrowDown');
+      fireKey(input, 'ArrowDown');
+      assertTrue(buttons()[1].classList.contains('is-active'), 'la deuxième flèche bas doit surligner le deuxième poste');
+      fireKey(input, 'Enter');
+
+      assertEqual(input.value, secondLabel, 'Entrée doit sélectionner le poste surligné (le deuxième), pas le premier');
+      assertEqual(input.dataset.id, '2');
+      assertTrue(list.classList.contains('cp-hidden'), 'la liste doit se refermer après Entrée');
+    });
+
+    it('Échap referme la liste sans retenir de poste', async function () {
+      await loadFixtureState();
+      window.openCreatePersonModal();
+      const input = modalEl().querySelector('#cpp-poste');
+      setValue(input, 'LAB1');
+      fire(input, 'input');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertFalse(list.classList.contains('cp-hidden'), 'la liste doit être ouverte avant Échap');
+      fireKey(input, 'Escape');
+      assertTrue(list.classList.contains('cp-hidden'), 'Échap doit refermer la liste');
+      assertEqual(input.dataset.id, undefined, 'Échap ne doit retenir aucun poste');
+    });
+  });
 })();

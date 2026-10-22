@@ -123,4 +123,40 @@
       assertEqual(call.fields.Titre, 'Titre modifié');
     });
   });
+
+  // Demande d'Antoine du 22/10/2026 : vérifier la navigation clavier sur les autres
+  // champs du même patron de recherche (CoreUtils.wireRefListKeyNav, branché sur
+  // searchableRefSelect() pour le champ Structure).
+  describe('Fiche Poste — navigation clavier dans le champ Structure', function () {
+    it('les flèches déplacent la surbrillance avec effet de boucle, Entrée sélectionne la bonne structure', async function () {
+      await loadFixtureState();
+      window.openCreatePosteModal();
+      const input = modalEl().querySelector('#cpp-structure-search');
+      fire(input, 'focus');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      const buttons = () => Array.from(list.querySelectorAll('button'));
+      assertEqual(buttons().length, 2, 'les fixtures proposent deux structures (LAB1, DIR1)');
+
+      fireKey(input, 'ArrowDown');
+      fireKey(input, 'ArrowDown');
+      assertTrue(buttons()[1].classList.contains('is-active'), 'la deuxième flèche bas doit surligner la deuxième structure (DIR1)');
+      fireKey(input, 'Enter');
+
+      assertEqual(modalEl().querySelector('#cpp-structure').value, '2', 'Entrée doit sélectionner la structure surlignée (DIR1, id 2), pas la première');
+      assertEqual(input.value, 'DIR1');
+      assertTrue(list.classList.contains('cp-hidden'), 'la liste doit se refermer après Entrée');
+    });
+
+    it('Échap referme la liste sans changer la structure sélectionnée', async function () {
+      await loadFixtureState();
+      window.openCreatePosteModal();
+      const input = modalEl().querySelector('#cpp-structure-search');
+      fire(input, 'focus');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertFalse(list.classList.contains('cp-hidden'), 'la liste doit être ouverte avant Échap');
+      fireKey(input, 'Escape');
+      assertTrue(list.classList.contains('cp-hidden'), 'Échap doit refermer la liste');
+      assertEqual(modalEl().querySelector('#cpp-structure').value, '', 'Échap ne doit valider aucune structure');
+    });
+  });
 })();

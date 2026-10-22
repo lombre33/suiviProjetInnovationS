@@ -598,4 +598,82 @@
       assertEqual(refInput('Instance_ratachee').dataset.id, '', 'NOTIFY n\'a pas d\'instance rattachée dans la fixture : l\'édition ne doit pas en choisir une à sa place');
     });
   });
+
+  // Demande d'Antoine du 22/10/2026 : « flèche du bas ne permet pas de naviguer dans
+  // le dropdown » — CoreUtils.wireRefListKeyNav() (js/core/utils.js), branché sur
+  // refField() ET multiRefField(). Ces tests vérifient le vrai déplacement (pas
+  // seulement "une touche ne plante pas") en identifiant l'option surlignée par son
+  // texte avant/après chaque touche.
+  describe('Modale Projet — navigation clavier dans les dropdowns de recherche', function () {
+    it('Programme (refField) : les flèches déplacent la surbrillance avec effet de boucle, Entrée valide l\'option surlignée', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Programme');
+      setValue(input, 'Programme');
+      fire(input, 'input');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      const buttons = () => Array.from(list.querySelectorAll('button'));
+      assertEqual(buttons().length, 2, 'les fixtures proposent deux programmes (Programme A, Programme B)');
+
+      fireKey(input, 'ArrowDown');
+      assertTrue(buttons()[0].classList.contains('is-active'), 'la première flèche bas doit surligner la première option');
+      fireKey(input, 'ArrowDown');
+      assertFalse(buttons()[0].classList.contains('is-active'), 'la surbrillance doit quitter la première option');
+      assertTrue(buttons()[1].classList.contains('is-active'), 'la deuxième flèche bas doit surligner la deuxième option');
+      fireKey(input, 'ArrowDown');
+      assertTrue(buttons()[0].classList.contains('is-active'), 'après la dernière option, la flèche bas doit boucler sur la première');
+      fireKey(input, 'ArrowUp');
+      assertTrue(buttons()[1].classList.contains('is-active'), 'depuis la première option, la flèche haut doit boucler sur la dernière');
+
+      fireKey(input, 'Enter');
+      assertEqual(input.value, 'Programme B', 'Entrée doit valider l\'option surlignée (la deuxième), pas la première');
+      assertTrue(!!input.dataset.id, 'un id doit être retenu après une sélection au clavier');
+      assertTrue(list.classList.contains('cp-hidden'), 'la liste doit se refermer après Entrée');
+    });
+
+    it('Programme (refField) : Échap referme la liste sans rien valider', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Programme');
+      setValue(input, 'Programme A');
+      fire(input, 'input');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertFalse(list.classList.contains('cp-hidden'), 'la liste doit être ouverte avant Échap');
+      fireKey(input, 'Escape');
+      assertTrue(list.classList.contains('cp-hidden'), 'Échap doit refermer la liste');
+      assertEqual(input.dataset.id, '', 'Échap ne doit valider aucune option');
+    });
+
+    it('Partenaire(s) de convention (multiRefField) : les flèches déplacent la surbrillance, Entrée ajoute la bonne puce', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Partenaire_s_convention_reversement');
+      fire(input, 'focus');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      const buttons = () => Array.from(list.querySelectorAll('button'));
+      assertTrue(buttons().length >= 2, 'les fixtures Etablissements proposent plusieurs partenaires');
+      const secondLabel = buttons()[1].textContent;
+
+      fireKey(input, 'ArrowDown');
+      fireKey(input, 'ArrowDown');
+      assertTrue(buttons()[1].classList.contains('is-active'), 'la deuxième flèche bas doit surligner la deuxième option');
+
+      fireKey(input, 'Enter');
+      const chips = input.parentElement.querySelector('.cp-ref-chips');
+      assertIncludes(chips.textContent, secondLabel, 'Entrée doit ajouter la puce de l\'option surlignée (la deuxième), pas la première');
+      assertEqual(chips.children.length, 1, 'une seule puce ajoutée');
+    });
+
+    it('Partenaire(s) de convention (multiRefField) : Échap referme la liste sans ajouter de puce', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = refInput('Partenaire_s_convention_reversement');
+      fire(input, 'focus');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertFalse(list.classList.contains('cp-hidden'), 'la liste doit être ouverte avant Échap');
+      fireKey(input, 'Escape');
+      assertTrue(list.classList.contains('cp-hidden'), 'Échap doit refermer la liste');
+      assertEqual(input.parentElement.querySelector('.cp-ref-chips').children.length, 0, 'Échap ne doit ajouter aucune puce');
+    });
+  });
 })();

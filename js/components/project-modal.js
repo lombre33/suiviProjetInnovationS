@@ -157,6 +157,7 @@
       render();
       input.focus();
     };
+    global.CoreUtils.wireRefListKeyNav(input, list);
     withHelp(wrap.querySelector('label'), key);
     parent.appendChild(wrap);
     return { wrap, input, refreshAvatar };
@@ -205,6 +206,7 @@
     // déjà l'input ; si l'utilisateur tape puis quitte le champ sans cliquer, ce texte
     // ne correspond à aucun objet ajouté et ne doit pas rester affiché comme s'il l'était.
     input.onblur = () => setTimeout(() => { list.classList.add('cp-hidden'); input.value = ''; }, 150);
+    global.CoreUtils.wireRefListKeyNav(input, list);
     wrap._ids = ids;
     wrap._setIds = values => { ids.splice(0, ids.length, ...normaliseRefList(values)); renderChips(); };
     withHelp(wrap.querySelector('label'), key);

@@ -80,6 +80,7 @@
       list.classList.add('cp-hidden');
       if (!input.dataset.id) input.value = '';
     }, 150);
+    global.CoreUtils.wireRefListKeyNav(input, list);
     parent.appendChild(wrap);
     return input;
   }

@@ -60,6 +60,12 @@
     el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
   };
 
+  // Simule une touche clavier (ArrowDown/ArrowUp/Enter/Escape…) sur un champ, pour les
+  // tests de navigation clavier des dropdowns de recherche (CoreUtils.wireRefListKeyNav).
+  global.fireKey = function (el, key) {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  };
+
   global.fakeEvent = function () {
     return { preventDefault() {}, stopPropagation() {} };
   };

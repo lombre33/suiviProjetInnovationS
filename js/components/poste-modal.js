@@ -152,6 +152,7 @@
       renderList();
       input.focus();
     };
+    global.CoreUtils.wireRefListKeyNav(input, list);
 
     render(rows(table), value);
     return { wrap, select, input, render };

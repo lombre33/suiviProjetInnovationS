@@ -109,5 +109,42 @@
     return visit(response, 0);
   }
 
-  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId };
+  // Branche Flèches/Entrée/Échap sur un champ de recherche + sa liste de suggestions
+  // (le motif ".cp-ref" répété dans project-modal.js, poste-modal.js, person-modal.js).
+  // `list` est le conteneur stable des boutons <button> ; son innerHTML est reconstruit
+  // à chaque frappe par le render() de l'appelant, donc on relit toujours les boutons
+  // au moment de la touche plutôt que de les mettre en cache.
+  function wireRefListKeyNav(input, list) {
+    const items = () => Array.from(list.querySelectorAll('button'));
+    const setActive = index => {
+      const all = items();
+      all.forEach(b => b.classList.remove('is-active'));
+      if (index >= 0 && index < all.length) {
+        all[index].classList.add('is-active');
+        all[index].scrollIntoView({ block: 'nearest' });
+      }
+    };
+    input.addEventListener('keydown', event => {
+      if (list.classList.contains('cp-hidden')) return;
+      const all = items();
+      if (!all.length) return;
+      const activeIndex = all.findIndex(b => b.classList.contains('is-active'));
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActive((activeIndex + 1) % all.length);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActive((activeIndex - 1 + all.length) % all.length);
+      } else if (event.key === 'Enter') {
+        if (activeIndex >= 0) {
+          event.preventDefault();
+          all[activeIndex].click();
+        }
+      } else if (event.key === 'Escape') {
+        list.classList.add('cp-hidden');
+      }
+    });
+  }
+
+  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);
