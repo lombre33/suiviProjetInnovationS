@@ -464,6 +464,106 @@
       assertEqual(window.__TEST_CALLS__.length, 1, 'la création doit réussir sans convention activée');
     });
 
+    it('bloque la création si le Fonctionnement ne couvre pas la convention', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const investissement = modalEl().querySelector('[data-fin="c2026_M20_Investissement"]');
+      setValue(investissement, '500');
+      fire(investissement, 'input'); // Fonctionnement=1000, total=1500 : p1/p2 auto-synchronisés sur 1500
+      const partner = refInput('Partenaire_s_convention_reversement');
+      fire(partner, 'focus');
+      partner.parentElement.querySelector('.cp-ref-list button').click();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertIncludes(modalEl().querySelector('#cp-project-error').textContent, 'Fonctionnement');
+      assertEqual(modalEl().dataset.activeTab, 'budget', 'doit basculer sur l\'onglet Budget');
+      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun enregistrement tant que le Fonctionnement ne couvre pas la convention');
+    });
+
+    it('n\'empêche pas la création quand le Fonctionnement couvre exactement la convention', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject(); // Fonctionnement=1000, aucune autre ligne : p1/p2 auto-synchronisés sur 1000
+      const partner = refInput('Partenaire_s_convention_reversement');
+      fire(partner, 'focus');
+      partner.parentElement.querySelector('.cp-ref-list button').click();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertEqual(window.__TEST_CALLS__.length, 1, 'le Fonctionnement couvre exactement la convention : l\'enregistrement doit passer');
+    });
+
+    it('bloque aussi en édition, pas seulement à la création', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX'); // Convention_de_reversement déjà activée dans la fixture
+      window.ProjectModal.open(record);
+      const investissement = modalEl().querySelector('[data-fin="c2026_M20_Investissement"]');
+      setValue(investissement, '500');
+      fire(investissement, 'input'); // Fonctionnement=0 (fixture), convention auto-synchronisée sur 500
+
+      await modalEl().querySelector('[data-cp-save]').onclick();
+
+      assertIncludes(modalEl().querySelector('#cp-project-error').textContent, 'Fonctionnement');
+      assertEqual(window.__TEST_CALLS__.length, 0, 'l\'édition doit aussi être bloquée, pas seulement la création');
+    });
+
+    it('la pop-up d\'explication apparaît quand l\'utilisateur coche la case, pas à l\'ouverture d\'un projet où elle l\'est déjà', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      window.ProjectModal.open(record);
+      assertTrue(document.getElementById('cp-convention-notice').classList.contains('cp-hidden'),
+        'la pop-up ne doit pas s\'afficher seulement parce que la convention était déjà active dans la fiche');
+
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = false;
+      fire(checkbox, 'change');
+      assertTrue(document.getElementById('cp-convention-notice').classList.contains('cp-hidden'), 'décocher ne doit pas afficher la pop-up');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      assertFalse(document.getElementById('cp-convention-notice').classList.contains('cp-hidden'), 'cocher doit afficher la pop-up d\'explication');
+    });
+
+    it('le bouton "Relire l\'onglet Budget" de la pop-up referme la pop-up et bascule sur l\'onglet Budget', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      modalEl()._setActiveTab('conventions');
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      const notice = document.getElementById('cp-convention-notice');
+      assertFalse(notice.classList.contains('cp-hidden'));
+
+      notice.querySelector('[data-cp-convention-review]').click();
+
+      assertTrue(notice.classList.contains('cp-hidden'), 'la pop-up doit se refermer');
+      assertEqual(modalEl().dataset.activeTab, 'budget', 'doit basculer sur l\'onglet Budget');
+    });
+
+    it('le message permanent de l\'onglet Budget suit l\'état de la case, y compris à l\'ouverture d\'un projet où elle est déjà cochée', async function () {
+      const tables = await loadFixtureState();
+      window.ProjectModal.open();
+      const banner = () => document.getElementById('cp-budget-convention-notice');
+      assertTrue(banner().classList.contains('cp-hidden'), 'masqué par défaut en création (case décochée)');
+
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      assertFalse(banner().classList.contains('cp-hidden'), 'visible dès que la case est cochée');
+      checkbox.checked = false;
+      fire(checkbox, 'change');
+      assertTrue(banner().classList.contains('cp-hidden'), 'masqué à nouveau si la case est décochée');
+
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      window.ProjectModal.open(record);
+      assertFalse(banner().classList.contains('cp-hidden'), 'doit être visible dès l\'ouverture d\'un projet où la convention est déjà active');
+    });
+
     it('n\'applique aucune validation de champs obligatoires en édition (une fiche ancienne incomplète reste modifiable)', async function () {
       const tables = await loadFixtureState();
       // INNOVX (fixture) n'a ni VP_porteur_signataire_notif, ni Date_limite_financement, ni Action

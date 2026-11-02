@@ -156,6 +156,7 @@
 .cp-fin input { width:100%; box-sizing:border-box; min-width:60px; padding:7px 8px; border:1px solid var(--border-strong,#c3cad6); border-radius:6px; background:var(--surface,#fff); font:inherit; font-size:12.5px; }
 .cp-fin input:focus { outline:none; border-color:var(--accent,#2f6fed); box-shadow:0 0 0 3px var(--accent-soft,#e8f0fe); }
 .cp-row-total { background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-weight:800; white-space:nowrap; }
+.cp-budget-notice { margin:12px 0 0; padding:9px 12px; border:1px solid var(--accent-soft-border,#c7dbfd); border-radius:var(--radius-sm,7px); background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:12.5px; font-weight:600; }
 
 .cp-readonly { background:var(--surface-sunken,#eef1f6)!important; color:var(--text-muted,#667085)!important; cursor:not-allowed; }
 

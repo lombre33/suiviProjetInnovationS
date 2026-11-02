@@ -264,6 +264,29 @@
     return Number(valueOf(m._projectRecord, ['Montant_attribue_Total'])) || 0;
   }
 
+  // Demande d'Antoine du 02/11/2026 : le montant reversé via une convention doit être
+  // intégralement couvert par le budget de Fonctionnement (M10), jamais l'Investissement
+  // (M20) ni le Personnel (M30) — on isole donc ici le total de la seule ligne
+  // "Fonctionnement" du tableau budgétaire, à comparer au montant de la convention.
+  function fonctionnementTotal(m) {
+    const row = m.querySelector('.cp-fin tbody tr[data-detail="Details_depense_s_Fonctionnement"]');
+    if (!row) return 0;
+    return [...row.querySelectorAll('[data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
+  }
+
+  // Bloque l'enregistrement (création ET édition, cf. saveProject()) tant que le
+  // Fonctionnement ne couvre pas l'intégralité du montant reversé.
+  function conventionFonctionnementIssue(m) {
+    if (!m.querySelector('#cp-Convention_de_reversement').checked) return null;
+    const conventionAmount = (Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0) +
+      (Number(m.querySelector('#cp-Convention_montant_partenaire_2').value) || 0);
+    const fonctionnement = fonctionnementTotal(m);
+    if (conventionAmount > fonctionnement) {
+      return `Le budget de Fonctionnement (${global.CoreUtils.formatCurrency(fonctionnement)}) doit couvrir l'intégralité du montant de la convention de reversement (${global.CoreUtils.formatCurrency(conventionAmount)}).`;
+    }
+    return null;
+  }
+
   function syncConventionAmounts(m, force = false) {
     const p1 = m.querySelector('#cp-Convention_montant_partenaire_1'), p2 = m.querySelector('#cp-Convention_montant_partenaire_2');
     if (!p1 || !p2) return;
@@ -433,6 +456,16 @@
     }));
     panels.budget.appendChild(table);
 
+    // Message permanent (demande d'Antoine du 02/11/2026), visible tant que la
+    // convention de reversement est active, quel que soit le montant déjà saisi —
+    // distinct du blocage rouge de saveProject() qui, lui, ne s'affiche que si le
+    // Fonctionnement ne couvre pas déjà le montant reversé.
+    const budgetConventionNotice = document.createElement('p');
+    budgetConventionNotice.id = 'cp-budget-convention-notice';
+    budgetConventionNotice.className = 'cp-budget-notice cp-hidden';
+    budgetConventionNotice.textContent = 'Convention de reversement active : l’intégralité du montant reversé doit être couverte par le budget de Fonctionnement ci-dessus (jamais l’Investissement ni le Personnel).';
+    panels.budget.appendChild(budgetConventionNotice);
+
     // Conventions
     const conventionField = document.createElement('div');
     conventionField.className = 'cp-field cp-full';
@@ -504,6 +537,35 @@
     m.querySelector('[data-cp-cancel]').onclick = () => m.classList.add('cp-hidden');
     m.querySelector('[data-cp-close]').onclick = () => m.classList.add('cp-hidden');
     m.querySelector('[data-cp-save]').onclick = () => saveProject(m, refs);
+
+    // Pop-up d'explication (demande d'Antoine du 02/11/2026), affichée seulement quand
+    // l'utilisateur coche lui-même l'interrupteur — jamais à l'ouverture d'un projet où
+    // la convention est déjà active, puisque conventionCheckbox.checked= (populateModal)
+    // est une affectation directe et ne déclenche pas l'évènement 'change'.
+    const conventionNotice = document.createElement('div');
+    conventionNotice.id = 'cp-convention-notice';
+    conventionNotice.className = 'cp-modal cp-person-modal cp-hidden';
+    conventionNotice.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><h2>Convention de reversement</h2><button type="button" data-cp-convention-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-body"><p>L’intégralité du montant reversé via la convention doit être couverte par le budget de <strong>Fonctionnement</strong> — jamais l’Investissement ni le Personnel. Vérifiez la répartition dans l’onglet Budget avant d’enregistrer.</p></div>` +
+      `<div class="cp-actions"><button type="button" data-cp-convention-close>Fermer</button><button type="button" data-cp-convention-review>Relire l’onglet Budget</button></div>` +
+      `</div>`;
+    document.body.appendChild(conventionNotice);
+    const closeConventionNotice = () => conventionNotice.classList.add('cp-hidden');
+    conventionNotice.querySelectorAll('[data-cp-convention-close]').forEach(b => b.onclick = closeConventionNotice);
+    conventionNotice.querySelector('[data-cp-convention-review]').onclick = () => {
+      closeConventionNotice();
+      setActiveTab('budget');
+    };
+
+    const refreshBudgetConventionNotice = () => budgetConventionNotice.classList.toggle('cp-hidden', !conventionField.querySelector('#cp-Convention_de_reversement').checked);
+    conventionField.querySelector('#cp-Convention_de_reversement').addEventListener('change', event => {
+      refreshBudgetConventionNotice();
+      if (event.target.checked) conventionNotice.classList.remove('cp-hidden');
+    });
+    refs._refreshBudgetConventionNotice = refreshBudgetConventionNotice;
+    refs._conventionNotice = conventionNotice;
+
     m._refs = refs;
     return m;
   }
@@ -607,6 +669,7 @@
     const conventionEnabled = valueOf(record, ['Convention_de_reversement']);
     const conventionCheck = m.querySelector('#cp-Convention_de_reversement');
     if (conventionCheck) conventionCheck.checked = Boolean(conventionEnabled === true || conventionEnabled === 1 || conventionEnabled === 'true');
+    refs._refreshBudgetConventionNotice();
     refs.Partenaire_s_convention_reversement.wrap._setIds(valueOf(record, ['Partenaire_s_convention_reversement']));
 
     const total = Number(valueOf(record, ['Montant_attribue_Total'])) || 0,
@@ -717,6 +780,14 @@
     } else {
       renderMissingBanner(m, refs);
     }
+    // Bloque dans les deux modes (demande d'Antoine du 02/11/2026 : "ne pas laisser
+    // valider"), contrairement aux champs obligatoires qui ne bloquent qu'à la création.
+    const conventionIssue = conventionFonctionnementIssue(m);
+    if (conventionIssue) {
+      m.querySelector('#cp-project-error').textContent = conventionIssue;
+      m._setActiveTab('budget');
+      return;
+    }
     try {
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
@@ -767,6 +838,7 @@
       m.querySelector('[data-cp-save]').textContent = record ? 'Enregistrer les modifications' : 'Créer le projet';
       m.querySelector('#cp-project-error').textContent = '';
       m.querySelector('#cp-project-warning').textContent = '';
+      m._refs._conventionNotice.classList.add('cp-hidden');
       populateModal(m, m._refs, record);
       if (!record) {
         m.querySelector('#cp-statut').value = 'En attente des dispo des fonds';
