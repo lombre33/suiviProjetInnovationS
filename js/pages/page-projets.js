@@ -173,9 +173,21 @@
     const input = document.getElementById(id);
     return input?.dataset.selectedValue || '';
   }
+  // Filtre Programme : multi-sélection (demande du 02/11/2026). Les valeurs
+  // cochées sont stockées sur l'input (dataset.selectedValues), encodées en
+  // liste séparée par des virgules — même pattern que les colonnes
+  // repliées/masquées (encodeColumnList/decodeColumnList) ; rétro-compatible
+  // avec une ancienne valeur à un seul programme déjà enregistrée.
+  function multiComboValues(id) {
+    return decodeColumnList(document.getElementById(id)?.dataset.selectedValues);
+  }
+  function multiSummary(values) {
+    if (!values.length) return '';
+    return values.length === 1 ? values[0] : `${values.length} programmes sélectionnés`;
+  }
   function currentFilters() {
     return {
-      programme: comboValue('filter-programme'),
+      programmes: multiComboValues('filter-programme'),
       instance: comboValue('filter-instance'),
       search: normalized(document.getElementById('filter-search')?.value)
     };
@@ -186,7 +198,7 @@
       const acronym = text(project.Acronyme);
       const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
       const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
-      return (!filters.programme || programme === filters.programme) &&
+      return (!filters.programmes.length || filters.programmes.includes(programme)) &&
         (!filters.instance || instance === filters.instance) &&
         (!filters.search || normalized(acronym).includes(filters.search));
     });
@@ -218,9 +230,32 @@
       saveUserPreferences();
     }));
   }
+  // Liste à cases pour le multi-sélection : reste ouverte après chaque clic
+  // (pas de list.hidden=true) pour permettre de cocher plusieurs programmes
+  // d'affilée ; ne se ferme qu'au blur du champ (setupMultiCombo).
+  function renderMultiCombo(id, values, placeholder) {
+    const input = document.getElementById(id);
+    const list = document.getElementById(`${id}-list`);
+    if (!input || !list) return;
+    const selected = multiComboValues(id);
+    input.value = multiSummary(selected);
+    list.innerHTML = `<button type="button" class="combo-option" data-value="">${escape(placeholder)}</button>` +
+      values.map(value => {
+        const isSelected = selected.includes(value);
+        return `<button type="button" class="combo-option${isSelected ? ' is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}"><span class="combo-check" aria-hidden="true"></span>${escape(value)}</button>`;
+      }).join('');
+    list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
+      event.preventDefault();
+      const value = button.dataset.value;
+      const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+      input.dataset.selectedValues = encodeColumnList(next);
+      renderMultiCombo(id, values, placeholder);
+      render();
+      saveUserPreferences();
+    }));
+  }
   function renderFilters() {
-    renderCombo('filter-programme', options(['Programme', 'Programme_Axe_InnovationS'],
-      document.getElementById('filter-programme')?.value), 'Tous les programmes');
+    renderMultiCombo('filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes');
     renderCombo('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances'],
       document.getElementById('filter-instance')?.value), 'Toutes les instances');
   }
@@ -269,11 +304,14 @@
     }));
   }
   function applyStoredFilters(row) {
-    const combos = { 'filter-programme': row.Filtre_programme, 'filter-instance': row.Filtre_instance };
-    Object.entries(combos).forEach(([id, value]) => {
-      const input = document.getElementById(id);
-      if (input && value) { input.value = value; input.dataset.selectedValue = value; }
-    });
+    const programmeInput = document.getElementById('filter-programme');
+    if (programmeInput && row.Filtre_programme) {
+      const values = decodeColumnList(row.Filtre_programme);
+      programmeInput.dataset.selectedValues = encodeColumnList(values);
+      programmeInput.value = multiSummary(values);
+    }
+    const instanceInput = document.getElementById('filter-instance');
+    if (instanceInput && row.Filtre_instance) { instanceInput.value = row.Filtre_instance; instanceInput.dataset.selectedValue = row.Filtre_instance; }
     const search = document.getElementById('filter-search');
     if (search && row.Filtre_recherche) search.value = row.Filtre_recherche;
   }
@@ -315,7 +353,7 @@
     const fields = {
       Kanban_colonnes_repliees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].collapsed).map(c => c.key)),
       Kanban_colonnes_masquees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].hidden).map(c => c.key)),
-      Filtre_programme: comboValue('filter-programme'),
+      Filtre_programme: encodeColumnList(multiComboValues('filter-programme')),
       Filtre_instance: comboValue('filter-instance'),
       Filtre_recherche: document.getElementById('filter-search')?.value || ''
     };
@@ -352,17 +390,30 @@
       if (!input.dataset.selectedValue) input.value = '';
     }, 150));
   }
+  // Pas de saisie libre pour le multi-sélection : le champ n'est qu'un
+  // déclencheur (lecture seule) qui ouvre la liste à cases au focus.
+  function setupMultiCombo(id, fieldNames, placeholder) {
+    const input = document.getElementById(id);
+    const list = document.getElementById(`${id}-list`);
+    if (!input || !list) return;
+    input.readOnly = true;
+    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder); });
+    input.addEventListener('blur', () => setTimeout(() => {
+      list.hidden = true;
+      input.value = multiSummary(multiComboValues(id));
+    }, 150));
+  }
   function init() {
     renderFilters();
-    setupCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
+    setupMultiCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
     setupCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances');
     render();
     document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferences(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
-      ['filter-programme', 'filter-instance'].forEach(id => {
-        const input = document.getElementById(id);
-        if (input) { input.value = ''; input.dataset.selectedValue = ''; }
-      });
+      const programmeInput = document.getElementById('filter-programme');
+      if (programmeInput) { programmeInput.value = ''; programmeInput.dataset.selectedValues = ''; }
+      const instanceInput = document.getElementById('filter-instance');
+      if (instanceInput) { instanceInput.value = ''; instanceInput.dataset.selectedValue = ''; }
       const search = document.getElementById('filter-search');
       if (search) search.value = '';
       renderFilters();

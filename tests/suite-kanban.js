@@ -156,6 +156,30 @@
       setValue(search, '');
       fire(search, 'input');
     });
+
+    it('le filtre Programme accepte plusieurs valeurs cochées à la fois (union des projets correspondants)', async function () {
+      await loadFixtureState();
+      selectCombo('filter-programme', 'Programme A');
+      selectCombo('filter-programme', 'Programme B');
+      const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertTrue(visibleAcronyms.includes('INNOVX'), 'INNOVX (Programme A) doit rester visible');
+      assertTrue(visibleAcronyms.includes('NOTIFY'), 'NOTIFY (Programme B) doit redevenir visible une fois les deux programmes cochés');
+      assertEqual(document.getElementById('filter-programme').value, '2 programmes sélectionnés', 'le champ doit afficher un résumé du nombre de programmes cochés');
+      assertFalse(document.getElementById('filter-programme-list').hidden, 'cocher une option ne doit pas fermer la liste (on doit pouvoir en cocher une autre)');
+      document.getElementById('clear-filters').click();
+    });
+
+    it('cocher une seconde fois un programme déjà coché le décoche (bascule)', async function () {
+      await loadFixtureState();
+      selectCombo('filter-programme', 'Programme A');
+      selectCombo('filter-programme', 'Programme B');
+      selectCombo('filter-programme', 'Programme A');
+      const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertFalse(visibleAcronyms.includes('INNOVX'), 'INNOVX (Programme A décoché) doit disparaître');
+      assertTrue(visibleAcronyms.includes('NOTIFY'), 'NOTIFY (Programme B toujours coché) doit rester visible');
+      assertEqual(document.getElementById('filter-programme').value, 'Programme B', 'un seul programme coché doit afficher son nom plutôt qu\'un résumé');
+      document.getElementById('clear-filters').click();
+    });
   });
 
   describe('Kanban Projets — ouverture de la fiche projet au clic', function () {
@@ -343,6 +367,39 @@
       // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
       columnSection('Instruction').querySelector('[data-toggle-collapse]').click();
       document.getElementById('kanban-hidden-columns').querySelector('[data-restore-column="Notifications"]').click();
+      document.getElementById('clear-filters').click();
+      await wait(0);
+    });
+
+    it('un filtre Programme multi-sélectionné (plusieurs valeurs) est encodé en liste et restauré intégralement après rechargement', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+
+      const programmeInput = document.getElementById('filter-programme');
+      fire(programmeInput, 'focus');
+      const list = document.getElementById('filter-programme-list');
+      ['Programme A', 'Programme B'].forEach(label => {
+        const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
+        assertTrue(!!button, `option "${label}" introuvable dans filter-programme`);
+        fireMouse(button, 'mousedown');
+      });
+      await wait(0);
+
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      assertDeepEqual(rows[0].Filtre_programme.split(',').sort(), ['Programme A', 'Programme B'].sort(),
+        'les deux programmes cochés doivent être enregistrés en liste séparée par des virgules');
+
+      // Simule un rechargement : un second chargement doit retrouver et
+      // réappliquer les deux programmes, sans qu'aucun ne soit perdu.
+      await window.loadKanbanUserPreferences();
+      window.renderProjectsKanban();
+
+      assertEqual(document.getElementById('filter-programme').value, '2 programmes sélectionnés', 'le résumé doit être restauré après rechargement');
+      const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertTrue(visibleAcronyms.includes('INNOVX'), 'INNOVX (Programme A) doit rester visible après rechargement');
+      assertTrue(visibleAcronyms.includes('NOTIFY'), 'NOTIFY (Programme B) doit rester visible après rechargement');
+
+      // Nettoyage.
       document.getElementById('clear-filters').click();
       await wait(0);
     });

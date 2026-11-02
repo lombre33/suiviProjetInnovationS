@@ -679,7 +679,7 @@
       const after = await window.CoreGrist.getTable('Preferences_Widget');
       assertTrue('Admin_notif_repliees' in after[0], 'la colonne Admin_notif_repliees doit avoir été ajoutée');
       const addColumnCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget');
-      assertEqual(addColumnCalls.length, 4, 'les 4 colonnes Admin_notif/conv_repliees/masquees doivent être ajoutées');
+      assertEqual(addColumnCalls.length, 7, 'les 4 colonnes Admin_notif/conv_repliees/masquees et les 3 colonnes de filtres doivent être ajoutées');
       const addTableCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
       assertEqual(addTableCalls.length, 1, 'la table ne doit pas être recréée, seulement complétée');
     });
@@ -754,6 +754,45 @@
       // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
       panelIn('admin-col-notif', 'Information projet saisies').querySelector('[data-toggle-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       document.getElementById('admin-hidden-panels').querySelector('[data-restore-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(0);
+    });
+
+    it('persiste les filtres (Programme multi-sélection, Instance, recherche) — absents avant le 02/11/2026', async function () {
+      await loadFixtureState();
+      await window.loadKanbanUserPreferences();
+      await window.loadAdministratifUserPreferences();
+
+      const programmeInput = document.getElementById('admin-filter-programme');
+      fire(programmeInput, 'focus');
+      const list = document.getElementById('admin-filter-programme-list');
+      ['Programme A', 'Programme B'].forEach(label => {
+        const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
+        assertTrue(!!button, `option "${label}" introuvable dans admin-filter-programme`);
+        fireMouse(button, 'mousedown');
+      });
+      const search = document.getElementById('admin-filter-search');
+      setValue(search, 'INNOVX');
+      fire(search, 'input');
+      await wait(0);
+
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      assertDeepEqual(rows[0].Admin_filtre_programme.split(',').sort(), ['Programme A', 'Programme B'].sort(),
+        'les deux programmes cochés doivent être enregistrés en liste séparée par des virgules');
+      assertEqual(rows[0].Admin_filtre_recherche, 'INNOVX', 'la recherche doit être enregistrée');
+
+      // Simule un rechargement de page : un second chargement doit retrouver et
+      // réappliquer le filtre Programme multi-sélectionné et la recherche, sans
+      // créer de nouvelle ligne de préférences.
+      await window.loadAdministratifUserPreferences();
+      window.renderAdministratif();
+
+      assertEqual(document.getElementById('admin-filter-programme').value, '2 programmes sélectionnés', 'le résumé doit être restauré après rechargement');
+      assertEqual(document.getElementById('admin-filter-search').value, 'INNOVX', 'la recherche doit être restaurée après rechargement');
+      const addRecordCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget');
+      assertEqual(addRecordCalls.length, 1, 'le rechargement ne doit pas créer de nouvelle ligne de préférences');
+
+      // Nettoyage : réinitialiser les filtres pour ne pas polluer les tests suivants.
+      document.getElementById('admin-clear-filters').click();
       await wait(0);
     });
   });
