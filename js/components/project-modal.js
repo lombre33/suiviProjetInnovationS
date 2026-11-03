@@ -274,18 +274,30 @@
     return [...row.querySelectorAll('[data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
   }
 
+  // Montant total de la convention de reversement (somme des deux partenaires),
+  // partagé par le garde-fou Fonctionnement ci-dessous et par le rappel 70/30.
+  function conventionAmount(m) {
+    return (Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0) +
+      (Number(m.querySelector('#cp-Convention_montant_partenaire_2').value) || 0);
+  }
+
   // Bloque l'enregistrement (création ET édition, cf. saveProject()) tant que le
   // Fonctionnement ne couvre pas l'intégralité du montant reversé.
   function conventionFonctionnementIssue(m) {
     if (!m.querySelector('#cp-Convention_de_reversement').checked) return null;
-    const conventionAmount = (Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0) +
-      (Number(m.querySelector('#cp-Convention_montant_partenaire_2').value) || 0);
+    const amount = conventionAmount(m);
     const fonctionnement = fonctionnementTotal(m);
-    if (conventionAmount > fonctionnement) {
-      return `Le budget de Fonctionnement (${global.CoreUtils.formatCurrency(fonctionnement)}) doit couvrir l'intégralité du montant de la convention de reversement (${global.CoreUtils.formatCurrency(conventionAmount)}).`;
+    if (amount > fonctionnement) {
+      return `Le budget de Fonctionnement (${global.CoreUtils.formatCurrency(fonctionnement)}) doit couvrir l'intégralité du montant de la convention de reversement (${global.CoreUtils.formatCurrency(amount)}).`;
     }
     return null;
   }
+
+  // Demande d'Antoine du 03/11/2026 : seuil au-delà duquel le versement d'une
+  // convention de reversement se fait en deux fois (70 % puis 30 %) plutôt qu'en
+  // une fois — simple rappel non bloquant, à la différence du garde-fou Fonctionnement
+  // ci-dessus qui bloque l'enregistrement.
+  const CONVENTION_SEUIL_7030 = 20000;
 
   function syncConventionAmounts(m, force = false) {
     const p1 = m.querySelector('#cp-Convention_montant_partenaire_1'), p2 = m.querySelector('#cp-Convention_montant_partenaire_2');
@@ -469,7 +481,7 @@
       inp.value = '0';
       inp.dataset.fin = fs[i];
       tr.children[Number(year) - 2025].appendChild(inp);
-      inp.oninput = () => { sanitizeNumericInput(inp); updateFinancialTotals(table); syncConventionAmounts(m); };
+      inp.oninput = () => { sanitizeNumericInput(inp); updateFinancialTotals(table); syncConventionAmounts(m); checkConvention7030(m); };
     }));
     panels.budget.appendChild(table);
 
@@ -512,8 +524,8 @@
     withHelp(p2Wrap.querySelector('label'), 'Convention_montant_partenaire_2');
     panels.conventions.appendChild(p2Wrap);
     const p1 = p1Wrap.querySelector('input'), p2 = p2Wrap.querySelector('input');
-    p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); };
-    p2.oninput = () => { m._conventionPartner2Manual = true; syncConventionAmounts(m); };
+    p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); checkConvention7030(m); };
+    p2.oninput = () => { m._conventionPartner2Manual = true; syncConventionAmounts(m); checkConvention7030(m); };
 
     // Onglets + indicateur d'étape (points, cf. maquette).
     const tabButtons = {};
@@ -575,10 +587,41 @@
       setActiveTab('budget');
     };
 
+    // Rappel non bloquant (demande d'Antoine du 03/11/2026) : au-delà de
+    // CONVENTION_SEUIL_7030, le versement se fait en deux fois (70 % puis 30 %).
+    // Affiché une seule fois par franchissement du seuil (m._convention7030Shown) pour ne
+    // pas réapparaître à chaque frappe tant que le montant reste au-dessus ; se réarme si
+    // le montant repasse en dessous. Jamais à la seule ouverture de la modale — déclenché
+    // uniquement par une saisie (budget, montants partenaires) ou la coche de
+    // l'interrupteur, jamais par populateModal() qui réinitialise le drapeau sans ouvrir
+    // la pop-up (cf. ProjectModal.open()).
+    const convention7030Notice = document.createElement('div');
+    convention7030Notice.id = 'cp-convention-7030-notice';
+    convention7030Notice.className = 'cp-modal cp-person-modal cp-hidden';
+    convention7030Notice.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
+      `<div class="cp-head"><h2>Montant supérieur à 20 000 €</h2><button type="button" data-cp-convention-7030-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-body"><p>Le montant de cette convention de reversement dépasse 20 000 € : le versement se fera en deux fois, <strong>70 %</strong> puis <strong>30 %</strong>.</p></div>` +
+      `<div class="cp-actions"><button type="button" data-cp-convention-7030-close>Fermer</button></div>` +
+      `</div>`;
+    document.body.appendChild(convention7030Notice);
+    convention7030Notice.querySelectorAll('[data-cp-convention-7030-close]').forEach(b => b.onclick = () => convention7030Notice.classList.add('cp-hidden'));
+    function checkConvention7030(modal) {
+      if (!modal.querySelector('#cp-Convention_de_reversement').checked) { modal._convention7030Shown = false; return; }
+      const aboveThreshold = conventionAmount(modal) > CONVENTION_SEUIL_7030;
+      if (aboveThreshold && !modal._convention7030Shown) {
+        modal._convention7030Shown = true;
+        convention7030Notice.classList.remove('cp-hidden');
+      } else if (!aboveThreshold) {
+        modal._convention7030Shown = false;
+      }
+    }
+    refs._convention7030Notice = convention7030Notice;
+
     const refreshBudgetConventionNotice = () => budgetConventionNotice.classList.toggle('cp-hidden', !conventionField.querySelector('#cp-Convention_de_reversement').checked);
     conventionField.querySelector('#cp-Convention_de_reversement').addEventListener('change', event => {
       refreshBudgetConventionNotice();
       if (event.target.checked) conventionNotice.classList.remove('cp-hidden');
+      checkConvention7030(m);
     });
     refs._refreshBudgetConventionNotice = refreshBudgetConventionNotice;
     refs._conventionNotice = conventionNotice;
@@ -955,6 +998,8 @@
       m.querySelector('#cp-project-error').textContent = '';
       m.querySelector('#cp-project-warning').textContent = '';
       m._refs._conventionNotice.classList.add('cp-hidden');
+      m._refs._convention7030Notice.classList.add('cp-hidden');
+      m._convention7030Shown = false;
       populateModal(m, m._refs, record);
       if (!record) {
         m.querySelector('#cp-statut').value = 'En attente des dispo des fonds';

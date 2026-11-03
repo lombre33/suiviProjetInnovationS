@@ -621,6 +621,114 @@
     });
   });
 
+  // Demande d'Antoine du 03/11/2026 : au-delà de 20 000 €, rappeler (pop-up non bloquante)
+  // que le versement d'une convention de reversement se fait en 70 % puis 30 %.
+  describe('Modale Projet — rappel versement 70/30 au-delà de 20 000 € (03/11/2026)', function () {
+    function notice() { return document.getElementById('cp-convention-7030-notice'); }
+    // Fait passer le total du budget (donc le montant de convention, synchronisé
+    // automatiquement sur le total tant que les deux champs partenaire ne sont pas
+    // modifiés à la main) au-dessus ou en dessous du seuil, via la ligne Investissement.
+    function setInvestissement(value) {
+      const investissement = modalEl().querySelector('[data-fin="c2026_M20_Investissement"]');
+      setValue(investissement, value);
+      fire(investissement, 'input');
+    }
+
+    it('affiche la pop-up quand le montant dépasse 20 000 € via une ligne de budget (synchronisation automatique)', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      assertTrue(notice().classList.contains('cp-hidden'), 'pas encore affichée : montant à 1000 sous le seuil');
+
+      setInvestissement('24000'); // Fonctionnement=1000 + Investissement=24000 => total 25000, synchronisé sur les partenaires
+      assertFalse(notice().classList.contains('cp-hidden'), 'le montant synchronisé automatiquement doit déclencher la pop-up');
+    });
+
+    it('affiche la pop-up quand les deux champs partenaire sont modifiés à la main pour dépasser 20 000 €', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+
+      // Une fois les deux champs modifiés à la main, la synchronisation automatique
+      // (qui recalque sinon l'un sur le total moins l'autre) ne les touche plus.
+      const p1 = modalEl().querySelector('#cp-Convention_montant_partenaire_1');
+      const p2 = modalEl().querySelector('#cp-Convention_montant_partenaire_2');
+      setValue(p1, '15000');
+      fire(p1, 'input');
+      setValue(p2, '10000');
+      fire(p2, 'input');
+      assertFalse(notice().classList.contains('cp-hidden'), '15000 + 10000 = 25000 > 20000 doit déclencher la pop-up');
+    });
+
+    it('affiche la pop-up en cochant la case si le montant est déjà au-dessus du seuil', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      setInvestissement('24000');
+      assertTrue(notice().classList.contains('cp-hidden'), 'la case n\'est pas encore cochée : pas de pop-up');
+
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      assertFalse(notice().classList.contains('cp-hidden'), 'cocher la case alors que le montant dépasse déjà 20 000 € doit afficher la pop-up');
+    });
+
+    it('ne réaffiche pas la pop-up à chaque frappe tant que le montant reste au-dessus du seuil', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      setInvestissement('24000');
+      assertFalse(notice().classList.contains('cp-hidden'));
+      notice().querySelector('[data-cp-convention-7030-close]').click();
+      assertTrue(notice().classList.contains('cp-hidden'), 'fermée par l\'utilisateur');
+
+      setInvestissement('29000'); // total 30000, toujours au-dessus du seuil
+      assertTrue(notice().classList.contains('cp-hidden'), 'ne doit pas se rouvrir toute seule : le seuil n\'a pas été re-franchi depuis le bas');
+    });
+
+    it('réarme la pop-up si le montant redescend sous le seuil puis le dépasse à nouveau', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      setInvestissement('24000'); // total 25000
+      assertFalse(notice().classList.contains('cp-hidden'));
+      notice().querySelector('[data-cp-convention-7030-close]').click();
+
+      setInvestissement('14000'); // total 15000, sous le seuil
+      assertTrue(notice().classList.contains('cp-hidden'), 'redescend sous le seuil : toujours masquée');
+
+      setInvestissement('20000'); // total 21000, repasse au-dessus
+      assertFalse(notice().classList.contains('cp-hidden'), 'un nouveau franchissement du seuil doit réafficher la pop-up');
+    });
+
+    it('n\'affiche pas la pop-up seulement parce qu\'on ouvre un projet déjà au-dessus du seuil', async function () {
+      const tables = await loadFixtureState();
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Convention_montant_partenaire_1 = 25000;
+      window.ProjectModal.open(record);
+      assertTrue(notice().classList.contains('cp-hidden'), 'l\'ouverture seule ne doit jamais déclencher la pop-up');
+    });
+
+    it('le bouton Fermer referme la pop-up', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const checkbox = modalEl().querySelector('#cp-Convention_de_reversement');
+      checkbox.checked = true;
+      fire(checkbox, 'change');
+      setInvestissement('24000');
+      assertFalse(notice().classList.contains('cp-hidden'));
+      notice().querySelector('[data-cp-convention-7030-close]').click();
+      assertTrue(notice().classList.contains('cp-hidden'));
+    });
+  });
+
   describe('Modale Projet — champ Instance rattachée dans Dates & OPE', function () {
     it('se trouve dans le panneau Dates & OPE, plus dans Porteurs', function () {
       window.ProjectModal.open();
