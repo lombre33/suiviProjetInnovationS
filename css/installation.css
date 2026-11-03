@@ -1,0 +1,61 @@
+/* Page Installation des fonds — 3 colonnes (DIESE / Ailleurs / Sans ligne OPE),
+ * visibles ensemble par défaut ; sélecteur dans le bandeau de filtre pour
+ * n'en afficher qu'une (retour d'Antoine du 03/11/2026). Volets par étape de
+ * Statut_installation_fonds, glisser-déposer entre volets d'une même colonne
+ * (même patron que Conventions, cf. page-administratif.js) — jamais de
+ * bouton "Suivant", et un projet ne peut pas changer de colonne par glisser
+ * (la colonne vient de Lignes_OPE.installe_chez, pas d'un choix manuel).
+ * Maquette validée : https://claude.ai/artifact/V2Y6KUVgYviy8A5umgzuWS
+ */
+
+.install-tabs { display:flex; gap:2px; flex:none; height:36px; align-items:center; background:var(--surface-sunken); border-radius:999px; padding:3px; }
+.install-tab { appearance:none; border:0; background:transparent; height:30px; padding:0 14px; border-radius:999px; font:inherit; font-size:12.5px; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; }
+.install-tab.is-active { background:var(--surface); color:var(--text); box-shadow:var(--shadow-card); }
+
+.install-panels-wrap { display:flex; flex-wrap:wrap; align-items:flex-start; gap:16px; }
+.install-panels-wrap.is-single { justify-content:center; }
+.install-column { flex:1 1 320px; min-width:300px; display:flex; flex-direction:column; gap:12px; }
+.install-panels-wrap.is-single .install-column { flex:0 1 760px; max-width:760px; }
+.install-column.is-hidden { display:none; }
+.install-column-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:0 2px; }
+.install-column-head h3 { margin:0; font-size:14.5px; font-weight:800; color:var(--text); }
+.install-side-count { font-size:11.5px; font-weight:700; color:var(--text-faint); }
+
+.install-panels { display:flex; flex-direction:column; gap:12px; }
+.install-panel { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-sunken); overflow:hidden; }
+.install-panel-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:var(--surface); border-bottom:1px solid var(--border); }
+.install-panel-header h4 { flex:1; margin:0; font-size:12.5px; font-weight:800; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.install-panel.is-collapsed [data-toggle-install-panel] svg { transform:rotate(-90deg); }
+.install-panel.is-collapsed .install-panel-body { display:none; }
+.install-panel-body { padding:10px; display:flex; flex-direction:column; gap:10px; min-height:54px; }
+.install-panel.is-drop-target { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-soft); }
+
+.install-card { position:relative; display:flex; flex-direction:column; gap:8px; padding:10px 12px 10px 28px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); box-shadow:var(--shadow-card); }
+.install-card.is-dragging { opacity:.4; }
+.install-drag-handle { position:absolute; top:10px; left:6px; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; color:var(--text-faint); cursor:grab; }
+.install-card:hover .install-drag-handle { color:var(--text-muted); }
+
+.install-card-identity { appearance:none; border:0; background:transparent; padding:0; cursor:pointer; text-align:left; color:inherit; }
+.install-acronym { display:block; font-size:14px; font-weight:800; color:var(--text); }
+
+.install-badges { display:flex; flex-wrap:wrap; gap:5px; }
+.install-chip { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px; font-size:10.5px; font-weight:800; white-space:nowrap; border:1px solid transparent; }
+.install-chip-action { background:var(--accent-soft); color:var(--accent-hover); border-color:var(--accent-soft-border); }
+.install-chip-action.is-warn { background:var(--warning-soft); color:var(--warning); border-color:var(--warning-soft-border); }
+.install-chip-ope { background:var(--surface-sunken); color:var(--text-muted); border-color:var(--border-strong); }
+.install-chip-ope.is-muted { color:var(--text-faint); font-style:italic; font-weight:700; }
+
+.install-field-label { display:block; margin-bottom:3px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+.install-comment textarea { display:block; width:100%; min-height:36px; padding:7px 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12.5px; resize:vertical; }
+.install-comment textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+
+.install-amount-row { display:flex; align-items:baseline; gap:6px; }
+.install-amount-label { font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+.install-amount-value { font-size:15px; font-weight:800; color:var(--text); }
+
+.install-budget-row { display:flex; gap:10px; padding-top:6px; border-top:1px dashed var(--border); }
+.install-budget-item { display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
+.install-budget-label { font-size:9.5px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--text-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.install-budget-value { font-size:12px; font-weight:700; color:var(--text-muted); }
+
+@media (max-width:860px) { .install-panels-wrap { flex-direction:column; } .install-column { min-width:0; } }

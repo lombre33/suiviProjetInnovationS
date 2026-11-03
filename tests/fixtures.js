@@ -27,17 +27,19 @@
       ]
     },
     Structures: {
-      id: [1, 2],
-      Acronyme: ['LAB1', 'DIR1'],
-      Nom_Complet: ['Laboratoire Un', 'Direction Générale'],
-      Etablissement_Tutuelle_gestionaire: [1, 1],
-      Co_tutuelle_1_Principale: [2, 0],
-      Co_tutuelle_2_principales: [0, 0],
-      Tutuelle_Secondaire_1: [0, 0],
-      Tutuelle_Secondaire_2: [0, 0],
-      Directon_Structure_mere: [2, 0],
+      // id 3 "DIESE" added for the page Installation des fonds (DIESE/ailleurs
+      // split, read from Lignes_OPE.installe_chez) — no tutelle data needed for it.
+      id: [1, 2, 3],
+      Acronyme: ['LAB1', 'DIR1', 'DIESE'],
+      Nom_Complet: ['Laboratoire Un', 'Direction Générale', 'DIESE'],
+      Etablissement_Tutuelle_gestionaire: [1, 1, 1],
+      Co_tutuelle_1_Principale: [2, 0, 0],
+      Co_tutuelle_2_principales: [0, 0, 0],
+      Tutuelle_Secondaire_1: [0, 0, 0],
+      Tutuelle_Secondaire_2: [0, 0, 0],
+      Directon_Structure_mere: [2, 0, 0],
       // LAB1 (id 1) has two tutelles (UBX + CNRS); DIR1 (id 2) has one (UBX only).
-      Toutes_les_tutelles: [['L', 1, 2], ['L', 1]]
+      Toutes_les_tutelles: [['L', 1, 2], ['L', 1], ['L', 1]]
     },
     Postes2: {
       id: [1, 2],
@@ -66,9 +68,10 @@
       Nom: ['Comité innovation#3 - 2026-03-15']
     },
     Lignes_OPE: {
-      id: [1, 2],
-      N_OPE: ['OPE-2026-001', 'OPE-2026-002'],
-      installe_chez: [1, 2]
+      // id 3 installée chez DIESE (id 3 côté Structures) — page Installation des fonds.
+      id: [1, 2, 3],
+      N_OPE: ['OPE-2026-001', 'OPE-2026-002', 'OPE-2026-003'],
+      installe_chez: [1, 2, 3]
     },
     // Table système, jamais chargée par CoreGrist.loadAllTables() : project-modal.js
     // (pièces jointes Notification/Convention) la lit à la demande via fetchTable().
@@ -129,7 +132,17 @@
       Details_depense_s_Fonctionnement: ['Depenses de fonctionnement', 'Depenses de fonctionnement', 'Depenses de fonctionnement', 'Depenses de fonctionnement', 'Depenses de fonctionnement', 'Depenses de fonctionnement', 'Depenses de fonctionnement'],
       Details_depense_s_Investissement: ["Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement"],
       Details_depense_s_Personnel: ['Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel'],
-      Montant_attribue_Total: [1000, 0, 0, 0, 0, 0, 0],
+      Montant_attribue_Total: [1000, 5000, 0, 0, 0, 0, 0],
+      // Page Installation des fonds : rappel budget par grande masse (totaux
+      // tous exercices, formules Grist Total_Fonctionnement/Total_investissement/
+      // Total_Personnel — valeurs renseignées seulement pour INNOVX/NOTIFY).
+      Total_Fonctionnement: [700, 3000, 0, 0, 0, 0, 0],
+      Total_investissement: [200, 1500, 0, 0, 0, 0, 0],
+      Total_Personnel: [100, 500, 0, 0, 0, 0, 0],
+      // Statut_installation_fonds : colonne créée par js/pages/page-installation.js
+      // (ensureColumns), absente de docs/grist_structure. INNOVX en 2e étape,
+      // NOTIFY en 3e, le reste vide (= 1re étape par défaut côté JS).
+      Statut_installation_fonds: ['2) Ouverture demandée à la DF', '3) Installé', '', '', '', '', ''],
       Convention_montant_partenaire_1: [0, 0, 0, 0, 0, 0, 0],
       Convention_montant_partenaire_2: [0, 0, 0, 0, 0, 0, 0],
       // CONVENTIX (id 12) a 2 partenaires (CNRS, INSERM) en plus de l'UB (toujours
@@ -146,10 +159,16 @@
       Date_de_fin_Projet: [null, null, null, null, null, null, null],
       Date_limite_financement: [null, null, null, null, null, null, null],
       // ReferenceList (not a plain Reference, unlike most *_id-looking columns here):
-      // INNOVX (first row) is rattachée to Lignes_OPE#1, the rest are empty.
-      Ligne_OPE: [['L', 1], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
+      // INNOVX -> Lignes_OPE#1 (installée chez LAB1, donc "ailleurs"), NOTIFY ->
+      // Lignes_OPE#3 (installée chez DIESE), le reste n'a aucune ligne OPE
+      // ("non classé" côté page Installation des fonds).
+      Ligne_OPE: [['L', 1], ['L', 3], ['L'], ['L'], ['L'], ['L'], ['L']],
       Ligne_OPE_installe_chez: ['', '', '', '', '', '', ''],
-      Action_Ligne_OPE_a_faire: ['', '', '', '', '', '', ''],
+      // INNOVX reste sans action renseignée (requis par le test "champs obligatoires
+      // manquants en édition" de suite-project-modal.js, qui attend "Action ligne
+      // OPE" dans le bandeau pour ce projet précis) ; NOTIFY porte les deux valeurs
+      // utiles à la page Installation des fonds (pastille d'alerte + pastille normale).
+      Action_Ligne_OPE_a_faire: ['', 'à determiner', '', '', '', '', ''],
       Commentaire_ligne_OPE: ['', '', '', '', '', '', ''],
       comentaire_general_Suivi_projet: ['', '', '', '', '', '', ''],
       // Colonnes ajoutées le 29/09/2026 (page Administratif, onglet Conventions).

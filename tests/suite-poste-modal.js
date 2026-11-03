@@ -135,7 +135,7 @@
       fire(input, 'focus');
       const list = input.parentElement.querySelector('.cp-ref-list');
       const buttons = () => Array.from(list.querySelectorAll('button'));
-      assertEqual(buttons().length, 2, 'les fixtures proposent deux structures (LAB1, DIR1)');
+      assertEqual(buttons().length, 3, 'les fixtures proposent trois structures (LAB1, DIR1, DIESE)');
 
       fireKey(input, 'ArrowDown');
       fireKey(input, 'ArrowDown');

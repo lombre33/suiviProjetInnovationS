@@ -13,8 +13,9 @@ async function initializeApp() {
     await CoreGrist.loadColumnDescriptions();
     if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();
     if (window.loadAdministratifUserPreferences) await window.loadAdministratifUserPreferences();
+    if (window.loadInstallationUserPreferences) await window.loadInstallationUserPreferences();
     if (window.loadTodoUserPreferences) await window.loadTodoUserPreferences();
-    renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); window.renderTodo?.(); setupEventListeners();
+    renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); window.renderInstallation?.(); window.renderTodo?.(); setupEventListeners();
   } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
 }
 function viewProject(projectId) {
@@ -40,7 +41,7 @@ function setupEventListeners() {
     try {
       const tables = await CoreGrist.loadAllTables();
       Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
-      renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); window.renderTodo?.();
+      renderProjectsKanban(CoreState.getTable('Projets') || []); window.renderAdministratif?.(); window.renderInstallation?.(); window.renderTodo?.();
     } catch (error) {
       console.error('Project refresh error:', error);
     }

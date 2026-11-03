@@ -62,6 +62,44 @@
   </div>
   </section>
 
+  <section id="view-installation-fonds" class="view" aria-label="Installation des fonds">
+    <div class="project-filters install-filters" role="search" aria-label="Filtres Installation des fonds">
+      <div class="install-tabs" role="tablist" aria-label="Colonnes à afficher">
+        <button type="button" class="install-tab is-active" data-install-tab="all" role="tab" aria-selected="true">Toutes</button>
+        <button type="button" class="install-tab" data-install-tab="diese" role="tab" aria-selected="false">DIESE</button>
+        <button type="button" class="install-tab" data-install-tab="ailleurs" role="tab" aria-selected="false">Ailleurs</button>
+        <button type="button" class="install-tab" data-install-tab="non_classe" role="tab" aria-selected="false">Sans OPE</button>
+      </div>
+      <label class="filter-combo"><span class="visually-hidden">Programme</span>
+        <input id="install-filter-programme" type="search" placeholder="Tous les programmes" autocomplete="off" role="combobox" aria-controls="install-filter-programme-list" aria-autocomplete="list">
+        <span id="install-filter-programme-list" class="combo-list" role="listbox" hidden></span>
+      </label>
+      <label class="filter-combo"><span class="visually-hidden">Instance</span>
+        <input id="install-filter-instance" type="search" placeholder="Toutes les instances" autocomplete="off" role="combobox" aria-controls="install-filter-instance-list" aria-autocomplete="list">
+        <span id="install-filter-instance-list" class="combo-list" role="listbox" hidden></span>
+      </label>
+      <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="install-filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
+      <button id="install-clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
+    </div>
+    <div id="install-panels-wrap" class="install-panels-wrap">
+      <section class="install-column" data-install-column="diese" aria-label="Lignes installées DIESE">
+        <div class="install-column-head"><h3>Lignes installées DIESE</h3><span class="install-side-count" id="install-count-diese"></span></div>
+        <div id="install-col-diese" class="install-panels"></div>
+        <div id="install-hidden-diese" class="kanban-hidden-columns" hidden></div>
+      </section>
+      <section class="install-column" data-install-column="ailleurs" aria-label="Lignes installées ailleurs">
+        <div class="install-column-head"><h3>Lignes installées ailleurs</h3><span class="install-side-count" id="install-count-ailleurs"></span></div>
+        <div id="install-col-ailleurs" class="install-panels"></div>
+        <div id="install-hidden-ailleurs" class="kanban-hidden-columns" hidden></div>
+      </section>
+      <section class="install-column" data-install-column="non_classe" aria-label="Sans ligne OPE">
+        <div class="install-column-head"><h3>Sans ligne OPE</h3><span class="install-side-count" id="install-count-non_classe"></span></div>
+        <div id="install-col-non_classe" class="install-panels"></div>
+        <div id="install-hidden-non_classe" class="kanban-hidden-columns" hidden></div>
+      </section>
+    </div>
+  </section>
+
   <section id="view-redaction" class="view hidden redaction-view" aria-label="Rédaction de la notification">
     <div class="redaction-bar">
       <button type="button" id="redaction-back" class="btn btn-secondary redaction-back">← Retour</button>
@@ -128,6 +166,7 @@
     await loadScript('../js/components/ope-modal.js');
     await loadScript('../js/pages/page-projets.js');
     await loadScript('../js/pages/page-administratif.js');
+    await loadScript('../js/pages/page-installation.js');
     await loadScript('../js/pages/page-todo.js');
     await loadScript('../js/pages/redaction-variables.js');
     await loadScript('../js/pages/page-redaction.js');
@@ -140,6 +179,7 @@
     await loadScript('suite-poste-modal.js');
     await loadScript('suite-ope-modal.js');
     await loadScript('suite-administratif.js');
+    await loadScript('suite-installation.js');
     await loadScript('suite-todo.js');
     await loadScript('suite-bridge.js');
     await loadScript('suite-redaction.js');
