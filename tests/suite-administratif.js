@@ -383,55 +383,153 @@
     });
   });
 
-  describe('Administratif — Conventions : date de transmission au porteur (dernière étape uniquement)', function () {
-    it('le champ date n\'apparaît que sur les cartes de la dernière étape', async function () {
+  // ── Popover (dates de transmission, responsables) : posé sur <body>, hors du squelette de test ──
+  const popoverEl = () => document.querySelector('.admin-popover');
+  const closePopover = () => window.AdministratifConv.closePopover();
+  const lastStageCard = acronym => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), acronym);
+  const transmitBtn = (card, kind) => card.querySelector(`[data-pop-anchor^="${kind}:"]`);
+  const projectWrites = column => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && column in c.fields);
+  // Fige « aujourd'hui » (jour calendaire local) le temps d'un test.
+  async function withClock(date, fn) {
+    window.AdministratifUrgency.setClock(() => date);
+    try { return await fn(); } finally { window.AdministratifUrgency.setClock(); }
+  }
+  async function pickDate(iso) {
+    const input = popoverEl().querySelector('.admin-pop-date-input');
+    setValue(input, iso);
+    fire(input, 'change');
+    await wait(0);
+  }
+
+  describe('Administratif — Conventions : « Transmise au porteur le » (icônes e-mail et papier, dernière étape uniquement)', function () {
+    it('une seule phrase « Transmise au porteur le » suivie de deux icônes (e-mail, papier), sur les cartes de la dernière étape uniquement', async function () {
       await loadFixtureState();
-      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('input[type="date"][data-transmise-project]'), 'présent à la dernière étape');
-      assertEqual(document.querySelectorAll('#admin-col-conv input[type="date"]').length, 1, 'absent de toutes les autres étapes');
-      assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('.admin-done-badge').textContent, 'Signée');
+      const card = lastStageCard('SIGNEX');
+      assertEqual(card.querySelectorAll('.admin-transmit .admin-field-label').length, 1, 'une seule phrase');
+      assertEqual(card.querySelector('.admin-transmit .admin-field-label').textContent.trim(), 'Transmise au porteur le');
+      assertEqual(card.querySelectorAll('.admin-transmit-btn').length, 2, 'deux icônes');
+      assertTrue(!!transmitBtn(card, 'mail') && !!transmitBtn(card, 'paper'));
+      assertEqual(card.querySelector('.admin-done-badge').textContent, 'Signée');
+      assertEqual(document.querySelectorAll('#admin-col-conv .admin-transmit').length, 1, 'absent de toutes les autres étapes');
+      assertEqual(document.querySelectorAll('#admin-col-conv input[type="date"][data-transmise-project]').length, 0, 'plus de champ date en clair');
     });
 
-    it('enregistre la date (minuit UTC, format Grist) dans Transmise_signee_au_porteur_le, et null quand on l\'efface', async function () {
-      await loadFixtureState();
-      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
-      setValue(input(), '2026-10-05');
-      fire(input(), 'change');
-      await wait(0);
-      const writes = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
-      assertEqual(writes()[0].table, 'Projets');
-      assertEqual(writes()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-10-05'));
-      assertEqual(input().value, '2026-10-05', 'la valeur enregistrée est réaffichée telle quelle après rendu');
-      setValue(input(), '');
-      fire(input(), 'change');
-      await wait(0);
-      assertEqual(writes()[1].fields.Transmise_signee_au_porteur_le, null, 'effacer la date vide la colonne');
-    });
-
-    it('ne réécrit pas la colonne à chaque frappe partielle de l\'année (0002, 0020, 0202 avant 2026)', async function () {
-      await loadFixtureState();
-      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
-      for (const partial of ['0002-05-10', '0020-05-10', '0202-05-10']) { setValue(input(), partial); fire(input(), 'change'); }
-      await wait(0);
-      const writes = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
-      assertEqual(writes().length, 0, 'aucune écriture pour des années implausibles');
-      setValue(input(), '2026-05-10'); fire(input(), 'change');
-      await wait(0);
-      assertEqual(writes().length, 1);
-      assertEqual(writes()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-05-10'));
-    });
-
-    it('affiche la date déjà enregistrée dans Grist', async function () {
+    it('icône grise sans date, bleue avec la date affichée à côté une fois renseignée (chaque canal indépendant)', async function () {
       const tables = await loadTables();
       tables.Projets.find(p => p.Acronyme === 'SIGNEX').Transmise_signee_au_porteur_le = epochOf('2026-09-30');
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
-      assertEqual(cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]').value, '2026-09-30');
+      const card = lastStageCard('SIGNEX');
+      assertTrue(transmitBtn(card, 'mail').classList.contains('is-set'), 'e-mail renseigné : bleue');
+      assertEqual(transmitBtn(card, 'mail').querySelector('.admin-transmit-date').textContent, '30/09/2026');
+      assertIncludes(transmitBtn(card, 'mail').title, 'par e-mail le 30/09/2026');
+      assertFalse(transmitBtn(card, 'paper').classList.contains('is-set'), 'papier vide : grise');
+      assertFalse(!!transmitBtn(card, 'paper').querySelector('.admin-transmit-date'), 'pas de date affichée sans date');
+      assertIncludes(transmitBtn(card, 'paper').title, 'Pas encore transmise sur papier');
     });
 
-    it('le champ date apparaît dès qu\'une carte est déposée dans la dernière étape', async function () {
+    it('un clic sur l\'icône e-mail ouvre la saisie de date ; choisir une date l\'enregistre dans la colonne historique (minuit UTC) et bleuit l\'icône', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      assertTrue(!!popoverEl(), 'le popover de date s\'ouvre');
+      assertEqual(popoverEl().querySelector('.admin-field-label').textContent, 'Transmise par e-mail le');
+      assertFalse(!!popoverEl().querySelector('[data-pop-clear]'), 'rien à effacer sans date');
+      await pickDate('2026-10-05');
+      const writes = projectWrites('Transmise_signee_au_porteur_le');
+      assertEqual(writes.length, 1);
+      assertEqual(writes[0].table, 'Projets');
+      assertEqual(writes[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-10-05'));
+      assertFalse(!!popoverEl(), 'le popover se referme une fois la date enregistrée');
+      const mail = transmitBtn(lastStageCard('SIGNEX'), 'mail');
+      assertTrue(mail.classList.contains('is-set'));
+      assertEqual(mail.querySelector('.admin-transmit-date').textContent, '05/10/2026');
+    });
+
+    it('l\'icône papier écrit sa propre colonne, sans toucher à la date e-mail', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
+      assertEqual(popoverEl().querySelector('.admin-field-label').textContent, 'Transmise sur papier le');
+      await pickDate('2026-10-07');
+      assertEqual(projectWrites('Transmise_signee_au_porteur_papier_le')[0].fields.Transmise_signee_au_porteur_papier_le, epochOf('2026-10-07'));
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le').length, 0, 'la date e-mail n\'est pas écrite');
+      const card = lastStageCard('SIGNEX');
+      assertTrue(transmitBtn(card, 'paper').classList.contains('is-set'));
+      assertFalse(transmitBtn(card, 'mail').classList.contains('is-set'));
+    });
+
+    it('« Aujourd\'hui » enregistre le jour calendaire local, « Effacer » (proposé seulement s\'il y a une date) vide la colonne et regrise l\'icône', async function () {
+      await loadFixtureState();
+      await withClock(new Date(2026, 10, 3, 23, 50), async () => {
+        fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+        fireMouse(popoverEl().querySelector('[data-pop-today]'), 'click');
+        await wait(0);
+      });
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le')[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-11-03'));
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      fireMouse(popoverEl().querySelector('[data-pop-clear]'), 'click');
+      await wait(0);
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le')[1].fields.Transmise_signee_au_porteur_le, null);
+      assertFalse(transmitBtn(lastStageCard('SIGNEX'), 'mail').classList.contains('is-set'), 'icône de nouveau grise');
+    });
+
+    it('ne réécrit pas la colonne à chaque frappe partielle de l\'année (0002, 0020, 0202) et ne se referme pas tant que la saisie n\'est pas plausible', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      for (const partial of ['0002-05-10', '0020-05-10', '0202-05-10']) await pickDate(partial);
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le').length, 0, 'aucune écriture pour des années implausibles');
+      assertTrue(!!popoverEl(), 'on peut finir de taper');
+      await pickDate('2026-05-10');
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le').length, 1);
+    });
+
+    it('vider un segment à la main (valeur vide le temps de la saisie) n\'efface rien et ne ferme pas le popover', async function () {
+      const tables = await loadTables();
+      tables.Projets.find(p => p.Acronyme === 'SIGNEX').Transmise_signee_au_porteur_le = epochOf('2026-09-30');
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      await pickDate('');
+      assertEqual(projectWrites('Transmise_signee_au_porteur_le').length, 0);
+      assertTrue(!!popoverEl());
+    });
+
+    it('le popover se referme au second clic sur l\'icône, à Échap, à un clic à l\'extérieur et au changement d\'onglet — jamais au clic dedans', async function () {
+      await loadFixtureState();
+      const open = () => fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      open(); assertTrue(!!popoverEl());
+      open(); assertFalse(!!popoverEl(), 'second clic : referme');
+      open();
+      fireMouse(popoverEl().querySelector('.admin-pop-date-input'), 'mousedown');
+      assertTrue(!!popoverEl(), 'un clic dans le popover ne le ferme pas');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assertFalse(!!popoverEl(), 'Échap');
+      open();
+      fireMouse(document.body, 'mousedown');
+      assertFalse(!!popoverEl(), 'clic à l\'extérieur');
+      open();
+      document.querySelector('[data-admin-tab="notif"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assertFalse(!!popoverEl(), 'changement d\'onglet (Notifications : retour à l\'onglet par défaut)');
+    });
+
+    it('un rendu complet pendant que le popover est ouvert le conserve, ré-ancré sur la nouvelle icône ; si la carte disparaît, il se ferme', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      window.renderAdministratif();
+      assertTrue(!!popoverEl(), 'toujours ouvert après un rendu');
+      const anchor = transmitBtn(lastStageCard('SIGNEX'), 'mail');
+      assertTrue(anchor.isConnected);
+      const search = document.getElementById('admin-filter-search');
+      search.value = 'INNOVX';
+      fire(search, 'input');
+      assertFalse(!!popoverEl(), 'SIGNEX filtré : plus d\'ancre, popover fermé');
+      search.value = '';
+      fire(search, 'input');
+    });
+
+    it('les icônes apparaissent dès qu\'une carte arrive dans la dernière étape', async function () {
       await loadFixtureState();
       await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'), panelIn('admin-col-conv', 'Convention signée de toutes les parties'));
-      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'CONVENTIX').querySelector('[data-transmise-project]'));
+      assertTrue(!!transmitBtn(lastStageCard('CONVENTIX'), 'mail'));
     });
 
     it('écrit sur la fiche Notifications si c\'est là que la colonne existe (table d\'origine non documentée)', async function () {
@@ -440,13 +538,410 @@
       tables.Notifications.forEach(n => { n.Transmise_signee_au_porteur_le = null; });
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
-      const input = cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), 'SIGNEX').querySelector('[data-transmise-project]');
-      setValue(input, '2026-10-05');
-      fire(input, 'change');
-      await wait(0);
-      const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && 'Transmise_signee_au_porteur_le' in c.fields);
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      await pickDate('2026-10-05');
+      const call = projectWrites('Transmise_signee_au_porteur_le')[0];
       assertEqual(call.table, 'Notifications', 'la colonne vit dans Notifications → écriture sur Notifications');
       assertEqual(call.id, 4, 'fiche Notifications du projet SIGNEX (Projet = 16)');
+    });
+
+    it('si l\'écriture échoue : message d\'erreur, icône inchangée', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
+        await pickDate('2026-10-07');
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertFalse(transmitBtn(lastStageCard('SIGNEX'), 'paper').classList.contains('is-set'), 'toujours grise');
+      assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+  });
+
+  describe('Administratif — Conventions : « Dernière action » (colonne convention_Date_derniere_modification)', function () {
+    it('un champ date « Dernière action » accompagne le commentaire (sur la même ligne), puis le Next step dessous ; absent des cartes Notifications', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      const lines = card.querySelectorAll('.admin-notes-line');
+      assertEqual(lines.length, 2);
+      assertTrue(!!lines[0].querySelector('[data-comment-project]') && !!lines[0].querySelector('[data-lastaction-project]'), 'commentaire + dernière action sur la première ligne');
+      assertTrue(!!lines[1].querySelector('[data-nextstep-project]'), 'Next step sur la seconde');
+      assertEqual(lines[0].querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
+      assertEqual(document.querySelectorAll('#admin-col-notif [data-lastaction-project]').length, 0);
+    });
+
+    it('affiche la date enregistrée, l\'enregistre (minuit UTC) sur Projets et la vide en écrivant null', async function () {
+      const tables = await loadTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').convention_Date_derniere_modification = epochOf('2026-10-20');
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-lastaction-project]');
+      assertEqual(input().value, '2026-10-20');
+      setValue(input(), '2026-11-02');
+      fire(input(), 'change');
+      await wait(0);
+      const writes = projectWrites('convention_Date_derniere_modification');
+      assertEqual(writes[0].table, 'Projets');
+      assertEqual(writes[0].fields.convention_Date_derniere_modification, epochOf('2026-11-02'));
+      setValue(input(), '');
+      fire(input(), 'change');
+      await wait(0);
+      assertEqual(projectWrites('convention_Date_derniere_modification')[1].fields.convention_Date_derniere_modification, null);
+    });
+
+    it('ignore les frappes partielles de l\'année et n\'écrit rien si la date n\'a pas changé', async function () {
+      await loadFixtureState();
+      const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-lastaction-project]');
+      for (const partial of ['0002-05-10', '0202-05-10']) { setValue(input(), partial); fire(input(), 'change'); }
+      fire(input(), 'change'); // valeur vide inchangée
+      await wait(0);
+      assertEqual(projectWrites('convention_Date_derniere_modification').length, 0);
+    });
+
+    it('le champ de commentaire libre garde sa saisie et reste enregistré à la sortie (cellule voisine de la date)', async function () {
+      await loadFixtureState();
+      const field = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-comment-project]');
+      setValue(field, 'Relance faite');
+      fire(field, 'blur');
+      await wait(0);
+      assertEqual(projectWrites('comentaire_general_Suivi_projet')[0].fields.comentaire_general_Suivi_projet, 'Relance faite');
+    });
+  });
+
+  describe('Administratif — Conventions : responsables du next step (tags depuis l\'Annuaire)', function () {
+    const innovCard = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+    const tagsOf = card => Array.from(card.querySelectorAll('.admin-tag')).map(tag => tag.dataset.person);
+    const openPeople = () => fireMouse(innovCard().querySelector('[data-pop-anchor^="people:"]'), 'click');
+    const personBtn = id => popoverEl().querySelector(`[data-toggle-person="${id}"]`);
+    async function withTagged(ids, extraPeople) {
+      const tables = await loadTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step_responsable = ['L', ...ids];
+      if (extraPeople) tables.Annuaire.push(...extraPeople);
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+    }
+
+    it('sans responsable : uniquement le bouton « désigner » ; avec des responsables : une pastille d\'initiales par personne, nom complet en infobulle et en texte masqué', async function () {
+      await loadFixtureState();
+      assertEqual(innovCard().querySelectorAll('.admin-tag').length, 0);
+      assertTrue(!!innovCard().querySelector('.admin-avatar-add'), 'bouton pour désigner');
+      await withTagged([1, 2]);
+      const tags = innovCard().querySelectorAll('.admin-tag');
+      assertEqual(tags.length, 2);
+      assertEqual(tags[0].querySelector('.admin-avatar').textContent, 'AM', 'initiales Prénom + Nom');
+      assertEqual(tags[0].title, 'Alice Martin');
+      assertEqual(tags[0].querySelector('.visually-hidden').textContent, 'Alice Martin', 'lisible par un lecteur d\'écran');
+      assertEqual(tags[1].querySelector('.admin-avatar').textContent, 'BD');
+      assertIncludes(innovCard().querySelector('.admin-avatar-add').getAttribute('aria-label'), 'Modifier');
+    });
+
+    it('le bouton ouvre la liste de l\'Annuaire avec recherche ; cocher une personne écrit une ReferenceList [\'L\', id] sur Projets et affiche sa pastille sans refaire tout le rendu', async function () {
+      await loadFixtureState();
+      const textarea = innovCard().querySelector('[data-nextstep-project]');
+      openPeople();
+      assertTrue(!!popoverEl().querySelector('.admin-pop-search'));
+      assertEqual(popoverEl().querySelectorAll('[data-toggle-person]').length, 2, 'toutes les personnes de l\'Annuaire');
+      fireMouse(personBtn(1), 'click');
+      await wait(0);
+      const writes = projectWrites('next_step_responsable');
+      assertEqual(writes[0].table, 'Projets');
+      assertEqual(writes[0].id, 10);
+      assertDeepEqual(writes[0].fields.next_step_responsable, ['L', 1], 'format ReferenceList de Grist');
+      assertDeepEqual(tagsOf(innovCard()), ['1']);
+      assertTrue(textarea.isConnected && textarea === innovCard().querySelector('[data-nextstep-project]'), 'le reste de la carte n\'est pas reconstruit (pas de perte de saisie)');
+      assertTrue(personBtn(1).classList.contains('is-selected') && personBtn(1).getAttribute('aria-selected') === 'true', 'la ligne cochée est marquée');
+      assertTrue(!!popoverEl(), 'la liste reste ouverte pour en cocher d\'autres');
+    });
+
+    it('cocher puis décocher, et cocher deux personnes d\'affilée sans attendre Grist : la dernière écriture porte la liste complète', async function () {
+      await loadFixtureState();
+      openPeople();
+      fireMouse(personBtn(1), 'click');
+      fireMouse(personBtn(2), 'click'); // avant que Grist ait répondu à la première
+      await wait(0);
+      const writes = projectWrites('next_step_responsable');
+      assertDeepEqual(writes[writes.length - 1].fields.next_step_responsable, ['L', 1, 2]);
+      assertDeepEqual(tagsOf(innovCard()), ['1', '2']);
+      fireMouse(personBtn(1), 'click');
+      await wait(0);
+      assertDeepEqual(projectWrites('next_step_responsable').pop().fields.next_step_responsable, ['L', 2], 'décocher retire la personne');
+      assertDeepEqual(tagsOf(innovCard()), ['2']);
+    });
+
+    it('la croix de la pastille retire la personne (sans ouvrir la liste)', async function () {
+      await withTagged([1, 2]);
+      fireMouse(innovCard().querySelector('[data-untag$=":1"]'), 'click');
+      await wait(0);
+      assertDeepEqual(projectWrites('next_step_responsable')[0].fields.next_step_responsable, ['L', 2]);
+      assertDeepEqual(tagsOf(innovCard()), ['2']);
+      assertFalse(!!popoverEl(), 'la liste ne s\'ouvre pas');
+      fireMouse(innovCard().querySelector('[data-untag$=":2"]'), 'click');
+      await wait(0);
+      assertDeepEqual(projectWrites('next_step_responsable')[1].fields.next_step_responsable, ['L'], 'liste vide = [\'L\']');
+      assertEqual(tagsOf(innovCard()).length, 0);
+    });
+
+    it('la recherche filtre par nom ou par e-mail et indique quand personne ne correspond', async function () {
+      await loadFixtureState();
+      openPeople();
+      const search = popoverEl().querySelector('.admin-pop-search');
+      setValue(search, 'dur');
+      fire(search, 'input');
+      assertDeepEqual(Array.from(popoverEl().querySelectorAll('[data-toggle-person]')).map(b => b.dataset.togglePerson), ['2']);
+      setValue(search, 'ALICE.MARTIN@');
+      fire(search, 'input');
+      assertDeepEqual(Array.from(popoverEl().querySelectorAll('[data-toggle-person]')).map(b => b.dataset.togglePerson), ['1'], 'insensible à la casse, e-mail inclus');
+      setValue(search, 'zzz');
+      fire(search, 'input');
+      assertEqual(popoverEl().querySelectorAll('[data-toggle-person]').length, 0);
+      assertIncludes(popoverEl().textContent, 'Personne ne correspond');
+    });
+
+    it('au clavier : flèche bas puis Entrée coche la première personne ; Échap ferme et rend le focus au bouton', async function () {
+      await loadFixtureState();
+      openPeople();
+      const search = popoverEl().querySelector('.admin-pop-search');
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await wait(0);
+      assertDeepEqual(projectWrites('next_step_responsable')[0].fields.next_step_responsable, ['L', 1]);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assertFalse(!!popoverEl());
+    });
+
+    it('au-delà de 3 responsables, les suivants se replient en « +N » (même liste, nom des autres en infobulle)', async function () {
+      const extra = [3, 4, 5].map(id => ({ id, NOM: `Nom${id}`, Prenom: `Prenom${id}`, Email: `p${id}@example.org`, Telephone: '', Poste2: 0, nom_et_Prenom: `Prenom${id} Nom${id}` }));
+      await withTagged([1, 2, 3, 4, 5], extra);
+      assertEqual(innovCard().querySelectorAll('.admin-tag').length, 3);
+      const more = innovCard().querySelector('.admin-avatar-more');
+      assertEqual(more.textContent, '+2');
+      assertIncludes(more.title, 'Prenom4 Nom4');
+      assertIncludes(more.title, 'Prenom5 Nom5');
+      fireMouse(more, 'click');
+      assertTrue(!!popoverEl(), 'ouvre la liste pour modifier');
+    });
+
+    it('un identifiant absent de l\'Annuaire ne casse rien (pastille « ? », libellé neutre)', async function () {
+      await withTagged([99]);
+      const tag = innovCard().querySelector('.admin-tag');
+      assertEqual(tag.querySelector('.admin-avatar').textContent, '?', 'pastille neutre');
+      assertIncludes(tag.title, '99');
+    });
+
+    it('échappe les noms de l\'Annuaire (pastille, infobulle et liste)', async function () {
+      const payload = '<img src=x onerror=alert(1)> Zed';
+      const tables = await loadTables();
+      tables.Annuaire[0].nom_et_Prenom = payload; tables.Annuaire[0].Prenom = ''; tables.Annuaire[0].NOM = '';
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').next_step_responsable = ['L', 1];
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      openPeople();
+      assertEqual(document.querySelectorAll('#admin-col-conv img, .admin-popover img').length, 0, 'aucune balise injectée');
+      assertEqual(innovCard().querySelector('.admin-tag').title, payload);
+      assertEqual(popoverEl().querySelector('[data-toggle-person="1"] .admin-pop-name').firstChild.textContent, payload, 'texte affiché tel quel');
+    });
+
+    it('si l\'écriture échoue : la pastille disparaît (retour à l\'état enregistré) et un message le dit', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        openPeople();
+        fireMouse(personBtn(1), 'click');
+        await wait(0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual(tagsOf(innovCard()).length, 0);
+      assertFalse(personBtn(1).classList.contains('is-selected'), 'la ligne n\'est plus cochée');
+      assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+
+    it('n\'apparaît pas sur les cartes Notifications', async function () {
+      await loadFixtureState();
+      assertEqual(document.querySelectorAll('#admin-col-notif .admin-tags').length, 0);
+    });
+  });
+
+  describe('Administratif — Conventions : le volet suit les statuts de signature', function () {
+    const pill = (card, index) => card.querySelectorAll('.admin-partner-pill')[index];
+    const stageWrites = () => convWrites();
+    async function withStatuses(acronym, { ub, p1, p2, stage }) {
+      const tables = await loadTables();
+      const project = tables.Projets.find(p => p.Acronyme === acronym);
+      if (ub !== undefined) project.convention_statut_UB = ub;
+      if (p1 !== undefined) project.convention_statut_partenaire_1 = p1;
+      if (p2 !== undefined) project.convention_statut_partenaire_2 = p2;
+      if (stage) project.Conventions_statut = stage;
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+    }
+
+    it('règle : tous signés → signée ; sinon le signataire le plus avancé (relu → relecture, en cours de signature ou signé → signature) ; rien → rédaction', function () {
+      const stage = window.AdministratifConv.stageFromStatuses;
+      assertEqual(stage([0]), 0, 'UB seul, non relu');
+      assertEqual(stage([0, 0, 0]), 0);
+      assertEqual(stage([1, 0, 0]), 1, 'un relu');
+      assertEqual(stage([1, 1, 1]), 1, 'tous relus, la signature n\'a pas commencé');
+      assertEqual(stage([2, 0, 0]), 2, 'un en cours de signature');
+      assertEqual(stage([3, 0, 0]), 2, 'un signé, les autres pas : signature');
+      assertEqual(stage([3, 3, 2]), 2);
+      assertEqual(stage([3]), 3, 'UB seul, signé : tous ont signé');
+      assertEqual(stage([3, 3, 3]), 3);
+    });
+
+    it('faire passer un statut de « Non relu » à « Relu » déplace la carte en relecture, en une seule écriture qui porte les deux colonnes', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      fireMouse(pill(card, 0), 'click');
+      await wait(0);
+      const writes = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'convention_statut_UB' in c.fields);
+      assertEqual(writes.length, 1, 'une seule écriture');
+      assertEqual(writes[0].fields.convention_statut_UB, 'Relu');
+      assertEqual(writes[0].fields.Conventions_statut, '2) Convention en relecture', 'étape écrite avec son libellé Grist exact');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en relecture'), 'INNOVX'), 'la carte a changé de volet');
+      assertFalse(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'));
+      assertIncludes(document.getElementById('toast').textContent, 'Convention en relecture');
+    });
+
+    it('« en cours de signature » place la carte en signature', async function () {
+      await withStatuses('INNOVX', { ub: 'Relu', stage: '2) Convention en relecture' });
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en relecture'), 'INNOVX');
+      fireMouse(pill(card, 0), 'click'); // Relu → en cours de signature
+      await wait(0);
+      assertEqual(stageWrites()[0].fields.Conventions_statut, '3) Convention en signature');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'INNOVX'));
+    });
+
+    it('dès que tous les signataires ont signé, la carte passe en « signée de toutes les parties » et les icônes de transmission apparaissent', async function () {
+      await withStatuses('CONVENTIX', { ub: 'Signé', p1: 'Signé', p2: 'en cours de signature' });
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
+      fireMouse(pill(card, 2), 'click'); // INSERM : en cours de signature → Signé
+      await wait(0);
+      assertEqual(stageWrites()[0].fields.Conventions_statut, '4) Convention signée de toutes les parties');
+      assertTrue(!!transmitBtn(lastStageCard('CONVENTIX'), 'mail'));
+    });
+
+    it('défaire une signature fait revenir la carte d\'une étape (signée → signature)', async function () {
+      await loadFixtureState();
+      fireMouse(pill(lastStageCard('SIGNEX'), 1), 'click'); // UBX : Signé → Non relu (retour au début du cycle)
+      await wait(0);
+      assertEqual(stageWrites()[0].fields.Conventions_statut, '3) Convention en signature', 'l\'UB a encore signé : toujours en signature');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'SIGNEX'));
+    });
+
+    it('un clic qui ne change pas l\'étape implicite n\'écrit que le statut (pas de Conventions_statut)', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
+      fireMouse(pill(card, 2), 'click'); // INSERM : Non relu → Relu, l'UB / le CNRS sont déjà plus loin
+      await wait(0);
+      const write = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && 'convention_statut_partenaire_2' in c.fields);
+      assertFalse('Conventions_statut' in write.fields, 'étape inchangée, rien d\'autre écrit');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX'));
+    });
+
+    it('une carte rangée plus loin à la main n\'est pas ramenée en arrière par un statut qui avance (statuts jamais renseignés)', async function () {
+      await withStatuses('INNOVX', { stage: '3) Convention en signature' }); // glissée en signature, statuts tous « Non relu »
+      const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'INNOVX');
+      fireMouse(pill(card, 0), 'click'); // UB : Non relu → Relu
+      await wait(0);
+      assertEqual(stageWrites().length, 0, 'l\'étape n\'est pas réécrite');
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'INNOVX'), 'la carte reste en signature');
+    });
+
+    it('le glisser-déposer manuel reste possible (étapes que les statuts ne peuvent pas deviner)', async function () {
+      await loadFixtureState();
+      await dragCardTo(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), panelIn('admin-col-conv', 'Convention en relecture'));
+      assertEqual(stageWrites()[0].fields.Conventions_statut, '2) Convention en relecture');
+    });
+
+    it('si l\'écriture échoue : ni le statut ni la carte ne bougent', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        fireMouse(pill(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 0), 'click');
+        await wait(0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertTrue(!!cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 'toujours en rédaction');
+      assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+  });
+
+  describe('Administratif — Conventions : colonnes créées par le widget au premier lancement', function () {
+    const NEW = ['next_step_responsable', 'Transmise_signee_au_porteur_papier_le'];
+    const addColumns = () => window.__TEST_CALLS__.filter(c => c.type === 'AddColumn');
+    async function withoutColumns(names, { inNotifications } = {}) {
+      const projets = JSON.parse(JSON.stringify(window.__FIXTURES__.Projets));
+      names.forEach(name => delete projets[name]);
+      window.__mockSetTable('Projets', projets);
+      if (inNotifications) {
+        const notifs = JSON.parse(JSON.stringify(window.__FIXTURES__.Notifications));
+        inNotifications.forEach(name => { notifs[name] = notifs.id.map(() => null); });
+        window.__mockSetTable('Notifications', notifs);
+      }
+      await window.CoreGrist.ready();
+    }
+
+    it('crée les deux colonnes neuves dans Projets : référence multiple vers Annuaire et date, jamais des formules', async function () {
+      await withoutColumns(NEW);
+      assertTrue(await window.ensureAdministratifColumns(), 'a créé des colonnes');
+      const added = addColumns();
+      assertEqual(added.length, 2);
+      assertTrue(added.every(c => c.table === 'Projets'));
+      const byId = Object.fromEntries(added.map(c => [c.colId, c.colInfo]));
+      assertEqual(byId.next_step_responsable.type, 'RefList:Annuaire');
+      assertEqual(byId.Transmise_signee_au_porteur_papier_le.type, 'Date');
+      added.forEach(c => assertFalse(c.colInfo.isFormula, `${c.colId} : donnée, pas formule`));
+      added.forEach(c => assertFalse('description' in c.colInfo, 'la description n\'est pas passée à AddColumn'));
+    });
+
+    it('ne crée rien quand les colonnes existent déjà, ni quand elles existent déjà côté Notifications (pas de doublon qui masquerait les valeurs)', async function () {
+      assertFalse(await window.ensureAdministratifColumns(), 'fixtures complètes : rien à faire');
+      assertEqual(addColumns().length, 0);
+      await withoutColumns(NEW, { inNotifications: ['next_step_responsable'] });
+      await window.ensureAdministratifColumns();
+      assertEqual(addColumns().map(c => c.colId).join(), 'Transmise_signee_au_porteur_papier_le', 'seule la colonne vraiment absente est créée');
+    });
+
+    it('pose la description des colonnes créées dans les métadonnées Grist, pour alimenter les bulles d\'aide', async function () {
+      await withoutColumns(NEW);
+      window.__mockSetTable('_grist_Tables', { id: [1], tableId: ['Projets'] });
+      window.__mockSetTable('_grist_Tables_column', { id: [1], parentId: [1], colId: ['Acronyme'], description: [''] });
+      await window.ensureAdministratifColumns();
+      const described = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === '_grist_Tables_column');
+      assertEqual(described.length, 2, 'une description par colonne créée');
+      assertTrue(described.every(c => c.fields.description.length > 30), 'descriptions explicites');
+      await window.CoreGrist.loadColumnDescriptions();
+      assertTrue(window.CoreGrist.getColumnDescription('Projets', 'next_step_responsable').length > 0, 'la bulle d\'aide peut la lire');
+    });
+
+    it('schéma non modifiable : pas d\'exception, un message liste les colonnes à créer à la main', async function () {
+      await withoutColumns(NEW);
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('droits insuffisants'); };
+      let result;
+      try { result = await window.ensureAdministratifColumns(); } finally { window.grist.docApi.applyUserActions = original; }
+      assertFalse(result);
+      const toast = document.getElementById('toast').textContent;
+      NEW.forEach(name => assertIncludes(toast, name));
+    });
+
+    it('schéma de Projets illisible : ne devine rien et ne crée rien', async function () {
+      const original = window.grist.docApi.fetchTable;
+      window.grist.docApi.fetchTable = async () => { throw new Error('refusé'); };
+      try { assertFalse(await window.ensureAdministratifColumns()); } finally { window.grist.docApi.fetchTable = original; }
+      assertEqual(addColumns().length, 0);
+    });
+  });
+
+  describe('Administratif — Conventions : bulles d\'aide des nouveaux champs', function () {
+    it('« Dernière action » et « Transmise au porteur le » affichent l\'icône d\'aide quand la colonne Grist a une description', async function () {
+      window.__mockSetTable('_grist_Tables', { id: [1], tableId: ['Projets'] });
+      window.__mockSetTable('_grist_Tables_column', { id: [1, 2], parentId: [1, 1], colId: ['convention_Date_derniere_modification', 'Transmise_signee_au_porteur_le'], description: ['Date de la dernière action', 'Date d\'envoi par e-mail'] });
+      await window.CoreGrist.loadColumnDescriptions();
+      await loadFixtureState();
+      const open = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+      assertTrue(!!open.querySelector('.admin-lastaction .help-icon'), 'icône sur « Dernière action »');
+      assertTrue(!!lastStageCard('SIGNEX').querySelector('.admin-transmit .help-icon'), 'icône sur « Transmise au porteur le »');
     });
   });
 

@@ -305,6 +305,35 @@ Administratif ne retient donc que les projets dont `Convention_de_reversement` e
 le Kanban Projets et la formule `Statut_Macro`. Décocher la case retire le projet de l'onglet
 (son statut de convention est conservé et reparaît si on recoche).
 
+### 7. Onglet Conventions : volet automatique, transmission au porteur, responsables, dernière action (3 novembre 2026)
+
+**Volet automatique.** Chaque clic sur la pastille d'un signataire (UB, partenaire 1, partenaire 2)
+écrit le statut de signature ET `Projets.Conventions_statut` dans la même `UpdateRecord` ; la carte
+change donc de volet sans glisser-déposer. Règle : tous les signataires « Signée » → « 4) Convention
+signée de toutes les parties » ; sinon le volet suit le signataire le plus avancé (relecture, puis
+signature). Un clic qui fait avancer ne recule jamais une carte placée plus loin à la main ; un clic
+qui fait reculer ne la fait jamais avancer ; le glisser-déposer reste possible.
+`convention_statut_UB/partenaire_1/partenaire_2` et `Conventions_statut` sont donc écrites ensemble.
+
+**Colonnes.** Deux colonnes sont nouvelles et créées par le widget au premier lancement qui suit la
+mise à jour (`ensureAdministratifColumns`, avec une description pour les bulles d'aide) :
+
+| Colonne | Type | Usage |
+| --- | --- | --- |
+| `Projets.next_step_responsable` | **ReferenceList** → `Annuaire` | personnes taguées sur la prochaine étape, écrite au format `['L', id…]` |
+| `Projets.Transmise_signee_au_porteur_papier_le` | Date | date de transmission du document papier au porteur |
+
+Colonnes déjà existantes réutilisées : `Transmise_signee_au_porteur_le` (lue comme la date de
+transmission **par e-mail**), `convention_Date_derniere_modification` (affichée et modifiable comme
+« Dernière action »), `next_step`, `comentaire_general_Suivi_projet`. Les colonnes de `Notifications`
+ne sont pas doublonnées : une colonne déjà présente dans `Projets` ou `Notifications` n'est pas recréée.
+Si le widget n'a pas les droits de modifier le schéma (ou si Grist refuse), un message liste les
+colonnes à créer à la main ; les cartes restent utilisables sans.
+
+**Réglage Grist conseillé.** Sur `next_step_responsable`, régler « Colonne à afficher » sur
+`nom_et_Prenom` pour une lecture lisible dans Grist (le widget résout lui-même les noms depuis
+`Annuaire`). La future page To Do filtre sur cette colonne.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies

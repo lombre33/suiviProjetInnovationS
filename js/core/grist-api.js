@@ -33,6 +33,30 @@
     }));
   }
 
+  // Pose la description (métadonnée _grist_Tables_column.description) des colonnes
+  // qu'on vient de créer. Les références de ligne des métadonnées ne se connaissent
+  // qu'après coup, d'où la relecture. Silencieux en cas d'échec (droits, schéma de
+  // métadonnées inattendu) : la colonne existe, seule la bulle d'aide manquera.
+  async function describeColumns(tableId, columns) {
+    const wanted = columns.filter(col => col.description);
+    if (!wanted.length) return;
+    try {
+      const [tables, cols] = await Promise.all([
+        gristInstance.docApi.fetchTable('_grist_Tables'),
+        gristInstance.docApi.fetchTable('_grist_Tables_column')
+      ]);
+      const tableRef = tables.id[tables.tableId.indexOf(tableId)];
+      const actions = [];
+      wanted.forEach(col => {
+        const at = cols.id.findIndex((ref, i) => cols.parentId[i] === tableRef && cols.colId[i] === col.id);
+        if (at !== -1) actions.push(['UpdateRecord', '_grist_Tables_column', cols.id[at], { description: col.description }]);
+      });
+      if (actions.length) await gristInstance.docApi.applyUserActions(actions);
+    } catch (err) {
+      console.warn(`Description des colonnes de ${tableId} non enregistrée :`, err.message);
+    }
+  }
+
   let gristInstance = null;
   let readyPromise = null;
   // Descriptions de colonnes (bulles d'aide) : {tableId: {colId: description}},
@@ -75,6 +99,9 @@
     // crée la table QUE si elle est absente, et ignore les colonnes demandées
     // sinon — nécessaire pour qu'une table Grist partagée entre plusieurs pages,
     // comme Preferences_Widget, puisse grandir au fil des besoins de chacune).
+    // Une colonne peut porter `description` : texte posé en métadonnée de la colonne
+    // (il alimente les bulles d'aide, cf. HelpTooltip) — au mieux : un échec n'annule
+    // jamais la création des colonnes.
     async ensureColumns(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
       const existing = await gristInstance.docApi.fetchTable(tableId);
@@ -82,9 +109,10 @@
       const missing = columns.filter(col => !existingIds.has(col.id));
       if (!missing.length) return false;
       await gristInstance.docApi.applyUserActions(missing.map(col => {
-        const { id, ...colInfo } = col;
+        const { id, description, ...colInfo } = col;
         return ['AddColumn', tableId, id, colInfo];
       }));
+      await describeColumns(tableId, missing);
       return true;
     },
     // À appeler une fois au démarrage (js/app.js) : peuple le cache lu par

@@ -156,6 +156,12 @@
       next_step: ['', '', '', '', '', '', ''],
       Transmise_signee_au_porteur_le: [null, null, null, null, null, null, null],
       Lien_convention: ['', '', '', '', '', '', ''],
+      // Ajoutées le 03/11/2026 : date papier (la date e-mail est Transmise_signee_au_porteur_le),
+      // responsables du next step (RefList vers Annuaire) ; convention_Date_derniere_modification
+      // (« Dernière action ») existait déjà dans Projets (docs/grist_structure).
+      Transmise_signee_au_porteur_papier_le: [null, null, null, null, null, null, null],
+      next_step_responsable: [['L'], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
+      convention_Date_derniere_modification: [null, null, null, null, null, null, null],
       Description_rapide_projet: ['', '', '', '', '', '', '']
     },
     // Table séparée (grist_structure : Notifications.Projet = Reference('Projets')),

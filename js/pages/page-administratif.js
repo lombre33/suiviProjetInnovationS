@@ -38,8 +38,28 @@
   // Colonnes ajoutées le 29/09/2026 (absentes de docs/grist_structure) ; la table
   // qui les porte (Projets ou Notifications) est déduite des colonnes chargées.
   const NEXT_STEP_FIELD = 'next_step';
-  const TRANSMISE_FIELD = 'Transmise_signee_au_porteur_le';
   const LINK_FIELD = 'Lien_convention';
+  // Transmission de la convention signée au porteur (demande du 03/11/2026) : deux dates,
+  // une par canal, sous une seule phrase « Transmise au porteur le » + deux icônes.
+  // La colonne historique (date unique du 29/09/2026) devient la date d'e-mail ; la
+  // date papier est une colonne neuve, créée par le widget (CONV_NEW_COLUMNS).
+  const TRANSMISE_MAIL_FIELD = 'Transmise_signee_au_porteur_le';
+  const TRANSMISE_PAPER_FIELD = 'Transmise_signee_au_porteur_papier_le';
+  // Qui doit faire la prochaine étape : ReferenceList vers Annuaire, format Grist
+  // ['L', id, …]. Nom convenu avec le fil « To Do », qui lit cette colonne.
+  const NEXT_STEP_RESP_FIELD = 'next_step_responsable';
+  // « Dernière action » : colonne Date qui existait déjà dans Projets
+  // (docs/grist_structure), jamais utilisée jusqu'ici par le widget.
+  const LAST_ACTION_FIELD = 'convention_Date_derniere_modification';
+  // Colonnes que le widget crée lui-même au premier lancement si elles manquent
+  // (ensureAdministratifColumns). Seules les colonnes réellement neuves : créer une
+  // colonne déjà présente côté Notifications masquerait les valeurs existantes.
+  const CONV_NEW_COLUMNS = [
+    { id: NEXT_STEP_RESP_FIELD, type: 'RefList:Annuaire', isFormula: false,
+      description: 'Personnes (Annuaire) qui doivent réaliser la prochaine étape de la convention. Renseignée depuis la page Administratif du widget ; sert aussi à la page To Do.' },
+    { id: TRANSMISE_PAPER_FIELD, type: 'Date', isFormula: false,
+      description: 'Date à laquelle la convention signée a été transmise au porteur par courrier papier. Son équivalent par e-mail est Transmise_signee_au_porteur_le.' }
+  ];
   // Date de début du projet (Projets.Date_debut_Projet, Date Grist = secondes
   // epoch à minuit UTC) affichée en lecture seule sur chaque carte, colorée selon
   // l'urgence (demande d'Antoine du 01/10/2026). Seuils en jours AVANT le début,
@@ -85,6 +105,9 @@
   const ICON_EXTERNAL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
   const ICON_LINK_EDIT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7 21l-4 1 1-4z"></path></svg>';
   const ICON_LINK_ADD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+  const ICON_MAIL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"></rect><polyline points="3 7 12 13.5 21 7"></polyline></svg>';
+  const ICON_PAPER = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 2.5 14 8 19 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>';
+  const ICON_USER_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><line x1="19" y1="7" x2="19" y2="13"></line><line x1="16" y1="10" x2="22" y2="10"></line></svg>';
   const ICON_VIEW_ROWS ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>';
 
   const text = value => value == null ? '' : String(value);
@@ -173,16 +196,24 @@
   function readField(project, column) { return homeRowFor(project, column).row[column]; }
   // Valeur locale mise à jour AVANT l'écriture : un rendu déclenché pendant
   // l'aller-retour Grist (clic ailleurs) ne doit pas réafficher l'ancienne valeur
-  // — un blur ultérieur l'écraserait alors dans Grist. Annulée si l'écriture échoue.
+  // — un blur ultérieur l'écraserait alors dans Grist. Annulée si l'écriture échoue,
+  // sauf si une écriture plus récente de la même cellule est passée entre-temps :
+  // elle porte la valeur complète et fait foi (ex. deux personnes cochées d'affilée).
+  const latestWrite = new Map();
   async function writeProjectColumn(project, column, value) {
     const { table, row } = homeRowFor(project, column);
     const existed = column in row;
     const previous = row[column];
+    const cell = `${table}:${row.id}:${column}`;
+    const token = (latestWrite.get(cell) || 0) + 1;
+    latestWrite.set(cell, token);
     row[column] = value;
     try {
       await writeFields(table, row.id, { [column]: value });
     } catch (err) {
-      if (existed) row[column] = previous; else delete row[column];
+      if (latestWrite.get(cell) === token) {
+        if (existed) row[column] = previous; else delete row[column];
+      }
       throw err;
     }
   }
@@ -210,6 +241,17 @@
     if (etabs[0]) defs.push({ label: text(etabs[0].Acronyme || etabs[0].Nom_complet), field: 'convention_statut_partenaire_1' });
     if (etabs[1]) defs.push({ label: text(etabs[1].Acronyme || etabs[1].Nom_complet), field: 'convention_statut_partenaire_2' });
     return defs.map(def => ({ ...def, statusIndex: partnerStatusIndex(project, def.field) }));
+  }
+
+  // Étape qu'impliquent les statuts de signature (UB + partenaires de la convention) :
+  // « signée de toutes les parties » quand tous ont signé ; sinon la convention est
+  // là où en est le signataire le plus avancé — un « Relu » la place en relecture, un
+  // « en cours de signature » (ou un signataire qui a déjà signé) en signature, tant
+  // que tout le monde n'a pas signé. Demande d'Antoine du 03/11/2026.
+  function stageFromStatuses(indexes) {
+    const signed = PARTNER_STATUSES.length - 1;
+    if (indexes.every(i => i === signed)) return CONV_STAGES.length - 1;
+    return Math.min(Math.max(...indexes), CONV_STAGES.length - 2);
   }
 
   // Horloge remplaçable (tests). "Aujourd'hui" est une date CALENDAIRE locale, pas un
@@ -472,17 +514,32 @@
     }
   }
   const saveNextStep = (project, value) => saveProjectColumn(project, NEXT_STEP_FIELD, value, 'du next step');
-  async function saveTransmissionDate(project, inputValue) {
-    const epoch = inputValue ? Math.floor(new Date(`${inputValue}T00:00:00Z`).getTime() / 1000) : null;
-    if (inputValue && Number.isNaN(epoch)) return;
-    // Le champ date déclenche "change" à chaque frappe complète (0002, 0020, 0202… avant 2026) :
-    // seules les années plausibles sont enregistrées.
-    if (inputValue && !(Number(inputValue.split('-')[0]) >= 1900 && Number(inputValue.split('-')[0]) <= 2100)) return;
-    if ((CoreUtils.gristDateToInput(readField(project, TRANSMISE_FIELD)) || '') === (inputValue || '')) return;
+  // Enregistre une colonne Date (secondes epoch à minuit UTC). Renvoie null quand la
+  // saisie est partielle et ignorée, true quand la valeur est enregistrée (ou déjà
+  // là), false quand l'écriture a échoué. Le champ date déclenche "change" à chaque
+  // frappe complète (0002, 0020, 0202… avant 2026) : seules les années plausibles
+  // sont enregistrées.
+  async function saveDateColumn(project, column, inputValue, errorLabel) {
+    if (inputValue) {
+      const year = Number(inputValue.split('-')[0]);
+      if (!(year >= 1900 && year <= 2100)) return null;
+    }
+    const epoch = inputValue ? Math.floor(Date.parse(`${inputValue}T00:00:00Z`) / 1000) : null;
+    if (inputValue && Number.isNaN(epoch)) return null;
+    if ((CoreUtils.gristDateToInput(readField(project, column)) || '') === (inputValue || '')) return true;
     try {
-      await writeProjectColumn(project, TRANSMISE_FIELD, epoch);
-    } catch (err) { CoreUtils.showToast(`Échec de l'enregistrement de la date (${err.message})`, true); }
+      await writeProjectColumn(project, column, epoch);
+      return true;
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'enregistrement ${errorLabel} (${err.message})`, true);
+      return false;
+    }
   }
+  const frDate = iso => iso.split('-').reverse().join('/');
+  const todayIso = () => {
+    const now = nowFn();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
   // Seule la cellule du lien est réécrite (jamais tout l'arbre) : un rendu complet
   // déclenché par le blur détacherait la cible du clic suivant, qui serait perdu.
   const findLinkCell = projectId => Array.from(document.querySelectorAll('#admin-col-conv [data-link-cell]')).find(cell => cell.dataset.linkCell === String(projectId));
@@ -521,12 +578,195 @@
     if (!(await saving)) refreshLinkCell(project);
   }
 
+  // ── Popover flottant : dates de transmission, choix des responsables du next step ──
+  // Un seul à la fois, posé sur <body> en position fixe (les volets ont overflow:hidden
+  // et rogneraient tout ce qui dépasse). render() reconstruit le DOM : le popover est
+  // ré-ancré par sa clé (syncPopover) et fermé si son ancre a disparu.
+  const popover = { el: null, key: null, anchor: null };
+  const closestFrom = (target, selector) => (target && target.closest) ? target.closest(selector) : null;
+  const anchorFor = key => Array.from(document.querySelectorAll('[data-pop-anchor]')).find(el => el.dataset.popAnchor === key) || null;
+  function positionPopover() {
+    if (!popover.el || !popover.anchor) return;
+    const margin = 8;
+    const rect = popover.anchor.getBoundingClientRect();
+    const width = popover.el.offsetWidth, height = popover.el.offsetHeight;
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    let top = rect.bottom + 6;
+    if (top + height > window.innerHeight - margin && rect.top - height - 6 >= margin) top = rect.top - height - 6;
+    popover.el.style.left = `${left}px`;
+    popover.el.style.top = `${Math.max(margin, top)}px`;
+  }
+  function closePopover(restoreFocus) {
+    if (!popover.el) return;
+    const key = popover.key;
+    popover.el.remove();
+    popover.el = popover.key = popover.anchor = null;
+    const anchor = restoreFocus ? anchorFor(key) : null;
+    if (anchor) anchor.focus();
+  }
+  function syncPopover() {
+    if (!popover.el) return;
+    const anchor = anchorFor(popover.key);
+    if (!anchor) { closePopover(); return; }
+    popover.anchor = anchor;
+    positionPopover();
+  }
+  // Rouvrir l'ancre du popover déjà ouvert le referme (même bouton = interrupteur).
+  function openPopover(anchor, key, label, html, setup) {
+    const wasOpen = popover.el && popover.key === key;
+    closePopover();
+    if (wasOpen) return;
+    const el = document.createElement('div');
+    el.className = 'admin-popover';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', label);
+    el.innerHTML = html;
+    document.body.appendChild(el);
+    Object.assign(popover, { el, key, anchor });
+    positionPopover();
+    setup(el);
+  }
+
+  // Les cellules sont réécrites une à une (jamais tout l'arbre) : un rendu complet
+  // détacherait la cible du clic suivant, qui serait perdu (cf. refreshLinkCell).
+  function replaceCell(attribute, project, html) {
+    const cell = Array.from(document.querySelectorAll(`#admin-col-conv [${attribute}]`)).find(el => el.getAttribute(attribute) === String(project.id));
+    if (cell) cell.outerHTML = html;
+  }
+  const refreshTransmitCell = project => replaceCell('data-transmit-cell', project, signedCell(project));
+  const refreshTagsCell = project => replaceCell('data-tags-cell', project, tagsCell(project));
+
+  const TRANSMIT_KINDS = {
+    mail: { column: TRANSMISE_MAIL_FIELD, channel: 'par e-mail', icon: ICON_MAIL },
+    paper: { column: TRANSMISE_PAPER_FIELD, channel: 'sur papier', icon: ICON_PAPER }
+  };
+  function openDatePopover(anchor, project, kind) {
+    const { column, channel } = TRANSMIT_KINDS[kind];
+    const iso = CoreUtils.gristDateToInput(readField(project, column));
+    const html = `<div class="admin-pop-date"><span class="admin-field-label">Transmise ${channel} le</span>` +
+      `<input type="date" class="admin-pop-date-input" value="${escape(iso)}" aria-label="Date de transmission ${channel}">` +
+      `<div class="admin-pop-actions"><button type="button" class="admin-pop-btn" data-pop-today>Aujourd'hui</button>` +
+      `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div></div>`;
+    openPopover(anchor, `${kind}:${project.id}`, `Date de transmission ${channel}`, html, el => {
+      const input = el.querySelector('input');
+      const commit = async value => {
+        const saved = await saveDateColumn(project, column, value, 'de la date de transmission');
+        if (saved === null) return; // saisie partielle : on laisse finir de taper
+        refreshTransmitCell(project);
+        closePopover(true);
+      };
+      // Vider un segment à la main vide la valeur le temps de la saisie : seul « Effacer » supprime la date.
+      input.addEventListener('change', () => { if (input.value) commit(input.value); });
+      el.querySelector('[data-pop-today]').addEventListener('click', () => commit(todayIso()));
+      const clear = el.querySelector('[data-pop-clear]');
+      if (clear) clear.addEventListener('click', () => commit(''));
+      input.focus();
+    });
+  }
+
+  // Annuaire : identité d'un responsable (initiales, teinte stable, nom complet).
+  const hueFor = id => (Number(id) * 47) % 360;
+  function initialsFor(id, label) {
+    const row = rowById('Annuaire', id);
+    if (!row) return '?'; // personne supprimée de l'Annuaire depuis le tag
+    const first = text(row.Prenom).trim(), last = text(row.NOM).trim();
+    if (first && last) return (first[0] + last[0]).toUpperCase();
+    const parts = text(label).trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+  const personName = id => (rowById('Annuaire', id) && personLabel(id)) || `Personne n° ${id} (absente de l'Annuaire)`;
+  const taggedIds = project => referencedIds(readField(project, NEXT_STEP_RESP_FIELD));
+  async function setResponsables(project, ids) {
+    const saving = writeProjectColumn(project, NEXT_STEP_RESP_FIELD, ['L', ...ids]).then(() => true, err => {
+      CoreUtils.showToast(`Échec de l'enregistrement des responsables (${err.message})`, true);
+      return false;
+    });
+    refreshTagsCell(project); // valeur locale déjà posée : affichage immédiat
+    if (!(await saving)) refreshTagsCell(project); // écriture refusée : retour à l'état précédent
+  }
+  const MAX_POP_PEOPLE = 40;
+  function peopleChoices(query, selected) {
+    const wanted = normalized(query);
+    const choices = tableRows('Annuaire')
+      .map(row => ({ id: row.id, label: personLabel(row.id), email: text(row.Email) }))
+      .filter(person => person.label && (!wanted || normalized(`${person.label} ${person.email}`).includes(wanted)));
+    choices.sort((a, b) => {
+      const aSel = selected.includes(a.id), bSel = selected.includes(b.id);
+      return aSel === bSel ? a.label.localeCompare(b.label, 'fr') : (aSel ? -1 : 1);
+    });
+    return { shown: choices.slice(0, MAX_POP_PEOPLE), hidden: Math.max(0, choices.length - MAX_POP_PEOPLE) };
+  }
+  function openPeoplePopover(anchor, project) {
+    const html = `<div class="admin-pop-people"><input type="search" class="admin-pop-search" placeholder="Chercher dans l'annuaire…" aria-label="Chercher une personne dans l'annuaire" autocomplete="off">` +
+      `<div class="admin-pop-list" role="listbox" aria-multiselectable="true" aria-label="Responsables du next step"></div></div>`;
+    openPopover(anchor, `people:${project.id}`, 'Responsables du next step', html, el => {
+      const input = el.querySelector('input'), list = el.querySelector('.admin-pop-list');
+      const paint = () => {
+        const selected = taggedIds(project);
+        const { shown, hidden } = peopleChoices(input.value, selected);
+        list.innerHTML = (shown.length
+          ? shown.map(person => {
+            const isSelected = selected.includes(person.id);
+            return `<button type="button" role="option" class="admin-pop-item${isSelected ? ' is-selected' : ''}" aria-selected="${isSelected}" data-toggle-person="${escape(person.id)}">` +
+              `<span class="admin-avatar sm" style="--hue:${hueFor(person.id)}" aria-hidden="true">${escape(initialsFor(person.id, person.label))}</span>` +
+              `<span class="admin-pop-name">${escape(person.label)}${person.email ? `<small>${escape(person.email)}</small>` : ''}</span>` +
+              `<span class="admin-pop-check" aria-hidden="true">✓</span></button>`;
+          }).join('')
+          : '<p class="admin-pop-empty">Personne ne correspond.</p>') +
+          (hidden ? `<p class="admin-pop-empty">${hidden} autres personnes : affine la recherche.</p>` : '');
+      };
+      // Cocher / décocher ne ré-ordonne pas la liste (elle bougerait sous le curseur) :
+      // seul l'état de la ligne change ; l'ordre est recalculé à la prochaine frappe.
+      const syncStates = () => {
+        const selected = taggedIds(project);
+        list.querySelectorAll('[data-toggle-person]').forEach(btn => {
+          const on = selected.some(id => String(id) === btn.dataset.togglePerson);
+          btn.classList.toggle('is-selected', on);
+          btn.setAttribute('aria-selected', String(on));
+        });
+      };
+      list.addEventListener('click', async event => {
+        const btn = closestFrom(event.target, '[data-toggle-person]');
+        if (!btn) return;
+        const id = Number(btn.dataset.togglePerson);
+        const current = taggedIds(project);
+        const next = current.some(x => String(x) === String(id)) ? current.filter(x => String(x) !== String(id)) : [...current, id];
+        const pending = setResponsables(project, next);
+        syncStates();
+        await pending;
+        syncStates();
+      });
+      input.addEventListener('input', paint);
+      CoreUtils.wireRefListKeyNav(input, list);
+      paint();
+      input.focus();
+    });
+  }
+
+  // Un clic sur un statut de signature fait avancer ce statut ET déplace la carte dans
+  // le volet qu'impliquent les statuts (écriture unique, demande du 03/11/2026). Seul
+  // le CHANGEMENT d'étape implicite déplace la carte : avancer vers une étape plus
+  // lointaine ne fait jamais reculer une carte rangée plus loin à la main (glisser-
+  // déposer), et inversement pour un recul — les statuts jamais renseignés ne ramènent
+  // donc pas toute la liste à « rédaction ».
   async function cyclePartner(project, fieldName) {
-    const idx = partnerStatusIndex(project, fieldName);
-    const nextValue = PARTNER_STATUSES[(idx + 1) % PARTNER_STATUSES.length];
+    const partners = partnersFor(project);
+    const current = partners.find(p => p.field === fieldName);
+    if (!current) return;
+    const nextIdx = (current.statusIndex + 1) % PARTNER_STATUSES.length;
+    const before = stageFromStatuses(partners.map(p => p.statusIndex));
+    const after = stageFromStatuses(partners.map(p => p.field === fieldName ? nextIdx : p.statusIndex));
+    const stored = convStageIndex(project);
+    let target = stored;
+    if (stored !== -1 && after > before) target = Math.max(stored, after);
+    else if (stored !== -1 && after < before) target = Math.min(stored, after);
+    const fields = { [fieldName]: PARTNER_STATUSES[nextIdx] };
+    if (target !== stored) fields.Conventions_statut = CONV_STAGES[target];
     try {
-      await writeFields('Projets', project.id, { [fieldName]: nextValue });
-      setProjectField(project.id, fieldName, nextValue);
+      await writeFields('Projets', project.id, fields);
+      Object.entries(fields).forEach(([name, value]) => setProjectField(project.id, name, value));
+      if (target !== stored) CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(CONV_STAGES[target])}`);
       render();
     } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
   }
@@ -595,12 +835,51 @@
       `<button type="button" class="admin-icon-btn${href ? '' : ' is-empty'}" data-edit-link="${id}" title="${editLabel}" aria-label="${editLabel}">${href ? ICON_LINK_EDIT : ICON_LINK_ADD}</button></div>`;
   }
 
-  // Dernière étape uniquement : badge + date d'envoi de la convention signée au porteur.
+  // Responsables du next step : pastilles d'initiales (nom complet en infobulle), une croix
+  // au survol pour retirer, et un bouton pour en ajouter depuis l'Annuaire. Au-delà de 3,
+  // les suivants se replient en « +N » (même popover) pour ne pas allonger la ligne.
+  const MAX_TAG_AVATARS = 3;
+  function tagsCell(project) {
+    const id = escape(project.id);
+    const ids = taggedIds(project);
+    const shown = ids.slice(0, MAX_TAG_AVATARS);
+    const rest = ids.slice(MAX_TAG_AVATARS);
+    const tags = shown.map(pid => {
+      const name = personName(pid);
+      return `<span class="admin-tag" data-person="${escape(pid)}" title="${escape(name)}">` +
+        `<span class="admin-avatar" style="--hue:${hueFor(pid)}" aria-hidden="true">${escape(initialsFor(pid, name))}</span>` +
+        `<span class="visually-hidden">${escape(name)}</span>` +
+        `<button type="button" class="admin-tag-x" data-untag="${id}:${escape(pid)}" aria-label="Retirer ${escape(name)}">×</button></span>`;
+    }).join('');
+    const more = rest.length
+      ? `<button type="button" class="admin-avatar admin-avatar-more" data-pop-anchor="people:${id}" title="${escape(rest.map(personName).join(', '))}" aria-label="${rest.length} autres responsables, modifier la liste">+${rest.length}</button>`
+      : '';
+    const label = ids.length ? 'Modifier les responsables du next step' : 'Désigner qui doit faire le next step';
+    const add = `<button type="button" class="admin-avatar admin-avatar-add" data-pop-anchor="people:${id}" title="${label}" aria-label="${label}" aria-haspopup="dialog">${ICON_USER_PLUS}</button>`;
+    return `<div class="admin-tags" data-tags-cell="${id}">${tags}${more}${add}</div>`;
+  }
+
+  function lastActionBlock(project) {
+    const help = window.HelpTooltip?.markup(homeRowFor(project, LAST_ACTION_FIELD).table, LAST_ACTION_FIELD) || '';
+    return `<label class="admin-lastaction"><span class="admin-field-label">Dernière action${help}</span>` +
+      `<input type="date" data-lastaction-project="${escape(project.id)}" value="${escape(CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)))}"></label>`;
+  }
+
+  // Une icône par canal : grise tant qu'aucune date n'est saisie, bleue + date une fois fait.
+  function transmitButton(project, kind) {
+    const { column, channel, icon } = TRANSMIT_KINDS[kind];
+    const iso = CoreUtils.gristDateToInput(readField(project, column));
+    const state = iso ? `Transmise ${channel} le ${frDate(iso)}` : `Pas encore transmise ${channel}`;
+    return `<button type="button" class="admin-transmit-btn${iso ? ' is-set' : ''}" data-pop-anchor="${kind}:${escape(project.id)}" aria-haspopup="dialog" title="${escape(state)}" aria-label="${escape(`${state} — cliquer pour modifier`)}">` +
+      `${icon}${iso ? `<span class="admin-transmit-date">${escape(frDate(iso))}</span>` : ''}</button>`;
+  }
+
+  // Dernière étape uniquement : badge + « Transmise au porteur le » suivi des icônes e-mail et papier.
   function signedCell(project) {
-    const help = window.HelpTooltip?.markup(homeRowFor(project, TRANSMISE_FIELD).table, TRANSMISE_FIELD) || '';
-    return `<div class="admin-signed-cell"><span class="admin-done-badge">Signée</span>` +
-      `<label class="admin-date"><span class="admin-field-label">Transmise au porteur le${help}</span>` +
-      `<input type="date" data-transmise-project="${escape(project.id)}" value="${escape(CoreUtils.gristDateToInput(readField(project, TRANSMISE_FIELD)))}"></label></div>`;
+    const help = window.HelpTooltip?.markup(homeRowFor(project, TRANSMISE_MAIL_FIELD).table, TRANSMISE_MAIL_FIELD) || '';
+    return `<div class="admin-signed-cell" data-transmit-cell="${escape(project.id)}"><span class="admin-done-badge">Signée</span>` +
+      `<span class="admin-transmit"><span class="admin-field-label">Transmise au porteur le${help}</span>` +
+      `${transmitButton(project, 'mail')}${transmitButton(project, 'paper')}</span></div>`;
   }
 
   function convCard(project) {
@@ -611,7 +890,8 @@
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span>${startDateChip(project, 'conv', isLast)}</button>` +
       `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div>` +
-      `<div class="admin-notes">${commentBlock(project)}${nextStepBlock(project)}</div>` +
+      `<div class="admin-notes"><div class="admin-notes-line">${commentBlock(project)}${lastActionBlock(project)}</div>` +
+      `<div class="admin-notes-line admin-notes-next">${nextStepBlock(project)}${tagsCell(project)}</div></div>` +
       linkCell(project) +
       (isLast ? signedCell(project) : '') +
       `</div>`;
@@ -688,10 +968,6 @@
         const project = projectById(textarea.dataset.nextstepProject);
         if (project) saveNextStep(project, textarea.value);
       }));
-      root.querySelectorAll('[data-transmise-project]').forEach(input => input.addEventListener('change', () => {
-        const project = projectById(input.dataset.transmiseProject);
-        if (project) saveTransmissionDate(project, input.value);
-      }));
       root.querySelectorAll('[data-cycle-partner]').forEach(btn => btn.addEventListener('click', () => {
         const [projectId, fieldName] = btn.dataset.cyclePartner.split(':');
         const project = getProjects().find(p => String(p.id) === String(projectId));
@@ -701,6 +977,7 @@
     });
 
     renderHiddenPanels(activeTab === 'notif' ? notifPanels : convPanels);
+    syncPopover();
   }
 
   function updateTabUI() {
@@ -728,6 +1005,31 @@
       render();
       saveAdministratifUserPreferences();
     }));
+  }
+
+  // Premier lancement après la demande du 03/11/2026 : crée dans Projets les colonnes
+  // neuves (CONV_NEW_COLUMNS) qui n'existent dans aucune des deux tables. À appeler
+  // AVANT le chargement des tables (js/app.js), pour que les données les contiennent.
+  // Si le schéma ne peut pas être modifié (accès en lecture, règle d'accès), le widget
+  // continue et dit lesquelles créer à la main.
+  async function ensureAdministratifColumns() {
+    if (!window.CoreGrist || !CoreGrist.gristInstance) return false;
+    const columnsOf = async name => {
+      try { return new Set(Object.keys(await CoreGrist.gristInstance.docApi.fetchTable(name))); }
+      catch (err) { return new Set(); }
+    };
+    const [projets, notifications] = await Promise.all([columnsOf('Projets'), columnsOf('Notifications')]);
+    if (!projets.size) return false; // schéma illisible : ne rien deviner
+    const missing = CONV_NEW_COLUMNS.filter(col => !projets.has(col.id) && !notifications.has(col.id));
+    if (!missing.length) return false;
+    try {
+      await CoreGrist.ensureColumns('Projets', missing);
+      return true;
+    } catch (err) {
+      console.warn('Création des colonnes Conventions impossible :', err.message);
+      CoreUtils.showToast(`Colonnes à créer dans Projets : ${missing.map(col => `${col.id} (${col.type === 'Date' ? 'Date' : 'Référence multiple vers Annuaire'})`).join(', ')}`, true);
+      return false;
+    }
   }
 
   async function loadAdministratifUserPreferences() {
@@ -874,9 +1176,30 @@
     root.addEventListener('dragend', clearDragFeedback);
 
     root.addEventListener('click', event => {
+      const anchor = closest(event, '[data-pop-anchor]');
+      if (anchor) {
+        const [kind, projectId] = anchor.dataset.popAnchor.split(':');
+        const owner = projectById(projectId);
+        if (!owner) return;
+        if (kind === 'people') openPeoplePopover(anchor, owner);
+        else if (TRANSMIT_KINDS[kind]) openDatePopover(anchor, owner, kind);
+        return;
+      }
+      const untag = closest(event, '[data-untag]');
+      if (untag) {
+        const [projectId, personId] = untag.dataset.untag.split(':');
+        const owner = projectById(projectId);
+        if (owner) setResponsables(owner, taggedIds(owner).filter(id => String(id) !== personId));
+        return;
+      }
       const btn = closest(event, '[data-edit-link]');
       const project = btn && projectById(btn.dataset.editLink);
       if (project) openLinkEditor(project);
+    });
+    root.addEventListener('change', event => {
+      const input = closest(event, '[data-lastaction-project]');
+      const project = input && projectById(input.dataset.lastactionProject);
+      if (project) saveDateColumn(project, LAST_ACTION_FIELD, input.value, 'de la dernière action');
     });
     root.addEventListener('keydown', event => {
       const input = closest(event, '[data-link-input]');
@@ -892,7 +1215,25 @@
     });
   }
 
+  // Écouteurs du popover, posés une seule fois sur document : fermeture au clic
+  // extérieur (le clic sur sa propre ancre est géré par le bouton, qui le referme),
+  // à Échap, et suivi de l'ancre quand la page défile ou se redimensionne.
+  function initPopoverListeners() {
+    document.addEventListener('mousedown', event => {
+      if (!popover.el || popover.el.contains(event.target)) return;
+      const anchor = closestFrom(event.target, '[data-pop-anchor]');
+      if (anchor && anchor.dataset.popAnchor === popover.key) return;
+      closePopover();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && popover.el) { event.preventDefault(); closePopover(true); }
+    });
+    document.addEventListener('scroll', positionPopover, true);
+    window.addEventListener('resize', positionPopover);
+  }
+
   function init() {
+    initPopoverListeners();
     initConvDelegation();
     renderFilters();
     setupMultiCombo('admin-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
@@ -918,6 +1259,7 @@
     });
     document.querySelectorAll('[data-admin-tab]').forEach(btn => btn.addEventListener('click', () => {
       activeTab = btn.dataset.adminTab;
+      closePopover();
       render();
     }));
   }
@@ -930,5 +1272,8 @@
     setClock(fn) { nowFn = typeof fn === 'function' ? fn : () => new Date(); }
   };
   window.loadAdministratifUserPreferences = loadAdministratifUserPreferences;
+  window.ensureAdministratifColumns = ensureAdministratifColumns;
+  // Règles et popover exposés pour les tests.
+  window.AdministratifConv = { stageFromStatuses, closePopover };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

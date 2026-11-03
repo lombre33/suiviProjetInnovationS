@@ -84,6 +84,17 @@
     if (!table) throw new Error(`Mock Grist: table ${tableId} does not exist`);
     if (Object.prototype.hasOwnProperty.call(table, colId)) throw new Error(`Mock Grist: column ${colId} already exists in ${tableId}`);
     ensureColumn(table, colId);
+    // Comme Grist : la colonne apparaît aussi dans les métadonnées, quand le test les a installées.
+    const metaTables = store._grist_Tables, metaCols = store._grist_Tables_column;
+    if (metaTables && metaCols && metaCols.colId && metaTables.tableId.includes(tableId)) {
+      metaCols.id.push((metaCols.id.length ? Math.max(...metaCols.id) : 0) + 1);
+      Object.keys(metaCols).forEach(key => {
+        if (key === 'id') return;
+        if (key === 'parentId') metaCols.parentId.push(metaTables.id[metaTables.tableId.indexOf(tableId)]);
+        else if (key === 'colId') metaCols.colId.push(colId);
+        else metaCols[key].push(key === 'description' ? '' : null);
+      });
+    }
     global.__TEST_CALLS__.push({ type: 'AddColumn', table: tableId, colId, colInfo });
     return { colId };
   }

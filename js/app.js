@@ -8,6 +8,7 @@ async function initializeApp() {
   try {
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
+    if (window.ensureAdministratifColumns) await window.ensureAdministratifColumns().catch(err => console.warn('Colonnes Administratif :', err.message));
     const tables = await CoreGrist.loadAllTables(); Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
     await CoreGrist.loadColumnDescriptions();
     if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();

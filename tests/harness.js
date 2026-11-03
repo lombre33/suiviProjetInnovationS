@@ -106,6 +106,8 @@
           }
           document.querySelectorAll('.cp-modal').forEach(el => el.remove());
           if (global.HelpTooltip && typeof global.HelpTooltip._resetForTests === 'function') global.HelpTooltip._resetForTests();
+          // Le popover de la page Administratif vit sur <body> (hors du squelette de test) : on le ferme entre deux tests.
+          if (global.AdministratifConv && typeof global.AdministratifConv.closePopover === 'function') global.AdministratifConv.closePopover();
           await test.fn();
           results.push({ suite: suite.name, test: test.name, pass: true });
         } catch (err) {
