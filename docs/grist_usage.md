@@ -315,6 +315,11 @@ signature). Un clic qui fait avancer ne recule jamais une carte placée plus loi
 qui fait reculer ne la fait jamais avancer ; le glisser-déposer reste possible.
 `convention_statut_UB/partenaire_1/partenaire_2` et `Conventions_statut` sont donc écrites ensemble.
 
+**Saisie des dates de transmission.** Un choix fait à la souris (calendrier, « Aujourd'hui », « Effacer »)
+est enregistré tout de suite. Une date tapée au clavier l'est à Entrée ou quand on quitte le popover
+(clic à côté, Tab) ; Échap l'abandonne : le champ date de Chrome déclenche « change » à chaque segment
+complet, taper 15 passerait sinon par le 01. Seules les années 1900 à 2100 sont enregistrées.
+
 **Colonnes.** Deux colonnes sont nouvelles et créées par le widget au premier lancement qui suit la
 mise à jour (`ensureAdministratifColumns`, avec une description pour les bulles d'aide) :
 

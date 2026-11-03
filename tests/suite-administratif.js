@@ -385,6 +385,9 @@
 
   // ── Popover (dates de transmission, responsables) : posé sur <body>, hors du squelette de test ──
   const popoverEl = () => document.querySelector('.admin-popover');
+  // Le toast n'est jamais vidé entre deux tests : un message d'un test précédent ferait passer
+  // une assertion sur « message d'erreur affiché » même sans le moindre toast.
+  const clearToast = () => { document.getElementById('toast').textContent = ''; };
   const closePopover = () => window.AdministratifConv.closePopover();
   const lastStageCard = acronym => cardByAcronym(panelIn('admin-col-conv', 'Convention signée de toutes les parties'), acronym);
   const transmitBtn = (card, kind) => card.querySelector(`[data-pop-anchor^="${kind}:"]`);
@@ -518,6 +521,7 @@
       assertTrue(!!popoverEl(), 'toujours ouvert après un rendu');
       const anchor = transmitBtn(lastStageCard('SIGNEX'), 'mail');
       assertTrue(anchor.isConnected);
+      assertTrue(window.AdministratifConv.popoverState().anchor === anchor, 'ancre ré-attachée à la NOUVELLE icône (pas à l\'ancienne, détachée)');
       const search = document.getElementById('admin-filter-search');
       search.value = 'INNOVX';
       fire(search, 'input');
@@ -549,12 +553,109 @@
       await loadFixtureState();
       const original = window.grist.docApi.applyUserActions;
       window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      clearToast();
       try {
         fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
         await pickDate('2026-10-07');
       } finally { window.grist.docApi.applyUserActions = original; }
       assertFalse(transmitBtn(lastStageCard('SIGNEX'), 'paper').classList.contains('is-set'), 'toujours grise');
       assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+
+    // Au clavier, <input type=date> déclenche « change » à chaque segment complet : taper 15
+    // donne d'abord le 01. Le popover ne doit ni enregistrer ni se fermer à ce moment-là.
+    const typeKey = (input, key) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const typeDate = (input, iso, key) => { typeKey(input, key); setValue(input, iso); fire(input, 'change'); };
+    const mailWrites = () => projectWrites('Transmise_signee_au_porteur_le');
+
+    it('au clavier : un segment tapé n\'enregistre rien et ne ferme pas ; Entrée enregistre la date COMPLÈTE', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      const input = popoverEl().querySelector('.admin-pop-date-input');
+      typeDate(input, '2026-11-01', '1'); // le jour est devenu « 01 » en attendant le « 5 »
+      await wait(0);
+      assertEqual(mailWrites().length, 0, 'la date intermédiaire n\'est pas écrite');
+      assertTrue(!!popoverEl(), 'le popover reste ouvert pour finir de taper');
+      typeDate(input, '2026-11-15', '5');
+      await wait(0);
+      assertEqual(mailWrites().length, 0);
+      fireKey(input, 'Enter');
+      await wait(0);
+      assertEqual(mailWrites().length, 1, 'une seule écriture');
+      assertEqual(mailWrites()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-11-15'));
+      assertFalse(!!popoverEl(), 'refermé après validation');
+      assertEqual(transmitBtn(lastStageCard('SIGNEX'), 'mail').querySelector('.admin-transmit-date').textContent, '15/11/2026');
+    });
+
+    it('au clavier : quitter le popover (clic à l\'extérieur) enregistre la date tapée ; Échap l\'abandonne', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      typeDate(popoverEl().querySelector('.admin-pop-date-input'), '2026-12-02', '2');
+      fireMouse(document.body, 'mousedown');
+      await wait(0);
+      assertFalse(!!popoverEl());
+      assertEqual(mailWrites().length, 1, 'la saisie en attente est enregistrée à la fermeture');
+      assertEqual(mailWrites()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-12-02'));
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
+      typeDate(popoverEl().querySelector('.admin-pop-date-input'), '2026-12-09', '9');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait(0);
+      assertFalse(!!popoverEl());
+      assertEqual(projectWrites('Transmise_signee_au_porteur_papier_le').length, 0, 'Échap abandonne la saisie');
+    });
+
+    it('un choix fait à la souris (calendrier) est enregistré tout de suite, même après avoir tapé au clavier', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      const input = popoverEl().querySelector('.admin-pop-date-input');
+      typeKey(input, '3');
+      input.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      setValue(input, '2026-11-20');
+      fire(input, 'change');
+      await wait(0);
+      assertEqual(mailWrites().length, 1);
+      assertFalse(!!popoverEl());
+    });
+
+    it('une réponse tardive de Grist ne ferme pas le popover ouvert entre-temps', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      let release;
+      window.grist.docApi.applyUserActions = actions => new Promise(resolve => { release = () => resolve(original(actions)); });
+      try {
+        fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+        fireMouse(popoverEl().querySelector('[data-pop-today]'), 'click'); // écriture e-mail en vol
+        await wait(0);
+        fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'mousedown');
+        fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
+        assertEqual(popoverEl().querySelector('.admin-field-label').textContent, 'Transmise sur papier le', 'le popover papier est ouvert');
+        release();
+        await wait(10);
+        assertTrue(!!popoverEl(), 'le popover papier est toujours là');
+        assertEqual(popoverEl().querySelector('.admin-field-label').textContent, 'Transmise sur papier le');
+      } finally { window.grist.docApi.applyUserActions = original; }
+    });
+
+    it('quitter le popover au clavier (le focus sort) le ferme ; le focus sur son ancre ou dedans non', async function () {
+      await loadFixtureState();
+      const focusIn = el => el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      focusIn(popoverEl().querySelector('.admin-pop-date-input'));
+      assertTrue(!!popoverEl(), 'focus dans le popover');
+      focusIn(transmitBtn(lastStageCard('SIGNEX'), 'mail'));
+      assertTrue(!!popoverEl(), 'focus sur sa propre ancre');
+      focusIn(document.querySelector('[data-admin-tab="notif"]'));
+      assertFalse(!!popoverEl(), 'focus ailleurs : refermé');
+    });
+
+    it('placement : sous l\'ancre, sinon au-dessus, sinon calé contre le bord bas — jamais rogné en bas', function () {
+      const place = window.AdministratifConv.placePopover;
+      const viewport = { width: 800, height: 500 }, size = { width: 300, height: 300 };
+      assertDeepEqual(place({ left: 100, top: 100, bottom: 130 }, size, viewport), { left: 100, top: 136 }, 'de la place dessous');
+      assertDeepEqual(place({ left: 100, top: 420, bottom: 450 }, size, viewport), { left: 100, top: 114 }, 'plus de place dessous : au-dessus');
+      assertDeepEqual(place({ left: 100, top: 200, bottom: 230 }, size, viewport), { left: 100, top: 192 }, 'ni dessus ni dessous : calé en bas de la fenêtre');
+      assertDeepEqual(place({ left: 700, top: 100, bottom: 130 }, size, viewport), { left: 492, top: 136 }, 'ne déborde pas à droite');
+      assertDeepEqual(place({ left: 100, top: 200, bottom: 230 }, { width: 300, height: 700 }, viewport), { left: 100, top: 8 }, 'plus haut que la fenêtre : en haut avec la marge');
     });
   });
 
@@ -590,12 +691,22 @@
     });
 
     it('ignore les frappes partielles de l\'année et n\'écrit rien si la date n\'a pas changé', async function () {
-      await loadFixtureState();
+      const tables = await loadTables();
+      tables.Projets.find(p => p.Acronyme === 'INNOVX').convention_Date_derniere_modification = epochOf('2026-10-20');
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
       const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-lastaction-project]');
       for (const partial of ['0002-05-10', '0202-05-10']) { setValue(input(), partial); fire(input(), 'change'); }
-      fire(input(), 'change'); // valeur vide inchangée
       await wait(0);
-      assertEqual(projectWrites('convention_Date_derniere_modification').length, 0);
+      assertEqual(projectWrites('convention_Date_derniere_modification').length, 0, 'années implausibles ignorées');
+      setValue(input(), '2026-10-20'); // exactement la date déjà enregistrée
+      fire(input(), 'change');
+      await wait(0);
+      assertEqual(projectWrites('convention_Date_derniere_modification').length, 0, 'date inchangée : aucune écriture');
+      setValue(input(), '2026-10-21');
+      fire(input(), 'change');
+      await wait(0);
+      assertEqual(projectWrites('convention_Date_derniere_modification').length, 1, 'une vraie modification s\'écrit');
     });
 
     it('le champ de commentaire libre garde sa saisie et reste enregistré à la sortie (cellule voisine de la date)', async function () {
@@ -745,6 +856,7 @@
       await loadFixtureState();
       const original = window.grist.docApi.applyUserActions;
       window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      clearToast();
       try {
         openPeople();
         fireMouse(personBtn(1), 'click');
@@ -753,6 +865,75 @@
       assertEqual(tagsOf(innovCard()).length, 0);
       assertFalse(personBtn(1).classList.contains('is-selected'), 'la ligne n\'est plus cochée');
       assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+
+    it('cocher une personne réécrit la cellule des tags : le popover se ré-ancre sur la nouvelle icône au prochain défilement ou redimensionnement', async function () {
+      await loadFixtureState();
+      openPeople();
+      const before = window.AdministratifConv.popoverState().anchor;
+      fireMouse(personBtn(1), 'click');
+      await wait(0);
+      assertFalse(before.isConnected, 'l\'ancienne icône a bien été remplacée');
+      window.dispatchEvent(new Event('resize'));
+      const after = window.AdministratifConv.popoverState().anchor;
+      assertTrue(after.isConnected, 'ancre toujours rattachée au document (sinon le popover filerait en haut à gauche)');
+      assertTrue(after === innovCard().querySelector('[data-pop-anchor^="people:"]'), 'c\'est l\'icône actuelle de la carte');
+      assertTrue(!!popoverEl());
+    });
+
+    it('deux écritures qui échouent d\'affilée : retour à l\'état réellement enregistré (aucune pastille fantôme)', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      const failures = [];
+      window.grist.docApi.applyUserActions = () => new Promise((resolve, reject) => failures.push(() => reject(new Error('boom'))));
+      try {
+        openPeople();
+        fireMouse(personBtn(1), 'click');
+        fireMouse(personBtn(2), 'click'); // avant la réponse de Grist
+        assertDeepEqual(tagsOf(innovCard()), ['1', '2'], 'affichage immédiat');
+        failures.forEach(fail => fail());
+        await wait(10);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual(tagsOf(innovCard()).length, 0, 'rien n\'a été enregistré : aucune pastille ne doit rester');
+      fireMouse(personBtn(2), 'click');
+      await wait(0);
+      assertDeepEqual(projectWrites('next_step_responsable').pop().fields.next_step_responsable, ['L', 2], 'la personne 1 n\'est pas écrite par erreur');
+    });
+
+    it('si la première écriture aboutit et la seconde échoue : retour à la première, pas à l\'état initial', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      const settle = [];
+      window.grist.docApi.applyUserActions = actions => new Promise((resolve, reject) => settle.push({ ok: () => resolve(original(actions)), fail: () => reject(new Error('boom')) }));
+      try {
+        openPeople();
+        fireMouse(personBtn(1), 'click');
+        fireMouse(personBtn(2), 'click');
+        settle[0].ok();
+        await wait(10);
+        settle[1].fail();
+        await wait(10);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertDeepEqual(tagsOf(innovCard()), ['1'], 'la personne 1 est bien enregistrée, la 2 non');
+    });
+
+    it('si la première écriture échoue mais que la seconde (valeur complète) aboutit : la seconde fait foi, rien n\'est annulé', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      const settle = [];
+      window.grist.docApi.applyUserActions = actions => new Promise((resolve, reject) => settle.push({ ok: () => resolve(original(actions)), fail: () => reject(new Error('boom')) }));
+      try {
+        openPeople();
+        fireMouse(personBtn(1), 'click');
+        fireMouse(personBtn(2), 'click');
+        settle[0].fail();
+        await wait(10);
+        assertDeepEqual(tagsOf(innovCard()), ['1', '2'], 'la seconde écriture est encore en vol : son état reste affiché');
+        settle[1].ok();
+        await wait(10);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertDeepEqual(tagsOf(innovCard()), ['1', '2']);
+      assertDeepEqual(projectWrites('next_step_responsable').pop().fields.next_step_responsable, ['L', 1, 2]);
     });
 
     it('n\'apparaît pas sur les cartes Notifications', async function () {
@@ -853,10 +1034,29 @@
       assertEqual(stageWrites()[0].fields.Conventions_statut, '2) Convention en relecture');
     });
 
+    it('deux pastilles cliquées coup sur coup avant la réponse de Grist : le passage à « signée » n\'est pas manqué', async function () {
+      await withStatuses('CONVENTIX', { ub: 'Signé', p1: 'en cours de signature', p2: 'en cours de signature', stage: '3) Convention en signature' });
+      const original = window.grist.docApi.applyUserActions;
+      const releases = [];
+      window.grist.docApi.applyUserActions = actions => new Promise(resolve => releases.push(() => resolve(original(actions))));
+      try {
+        const card = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en signature'), 'CONVENTIX');
+        fireMouse(pill(card(), 1), 'click'); // CNRS → Signé
+        fireMouse(pill(card(), 2), 'click'); // INSERM → Signé, avant que Grist ait répondu au premier clic
+        releases.forEach(release => release());
+        await wait(10);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual(stageWrites().length, 1, 'la transition « tous signés » est écrite une fois');
+      assertEqual(stageWrites()[0].fields.Conventions_statut, '4) Convention signée de toutes les parties');
+      assertTrue(!!lastStageCard('CONVENTIX'), 'la carte est dans le dernier volet');
+      assertTrue(!!transmitBtn(lastStageCard('CONVENTIX'), 'mail'), 'les icônes de transmission apparaissent');
+    });
+
     it('si l\'écriture échoue : ni le statut ni la carte ne bougent', async function () {
       await loadFixtureState();
       const original = window.grist.docApi.applyUserActions;
       window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      clearToast();
       try {
         fireMouse(pill(cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX'), 0), 'click');
         await wait(0);

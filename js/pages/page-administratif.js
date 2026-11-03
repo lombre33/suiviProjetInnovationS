@@ -196,26 +196,37 @@
   function readField(project, column) { return homeRowFor(project, column).row[column]; }
   // Valeur locale mise à jour AVANT l'écriture : un rendu déclenché pendant
   // l'aller-retour Grist (clic ailleurs) ne doit pas réafficher l'ancienne valeur
-  // — un blur ultérieur l'écraserait alors dans Grist. Annulée si l'écriture échoue,
-  // sauf si une écriture plus récente de la même cellule est passée entre-temps :
-  // elle porte la valeur complète et fait foi (ex. deux personnes cochées d'affilée).
-  const latestWrite = new Map();
-  async function writeProjectColumn(project, column, value) {
+  // — un blur ultérieur l'écraserait alors dans Grist — et deux actions d'affilée
+  // (deux personnes cochées, deux pastilles cliquées) partent de l'état à jour.
+  // Si l'écriture échoue, la cellule revient à la dernière valeur qui a RÉELLEMENT
+  // atteint Grist (`base`, jamais la valeur optimiste d'une écriture voisine encore en
+  // vol ou refusée) ; une écriture plus récente de la même cellule fait foi : seule la
+  // dernière peut annuler.
+  const cellWrites = new Map();
+  async function optimisticWrite(table, row, fields) {
+    const entries = Object.keys(fields).map(name => {
+      const key = `${table}:${row.id}:${name}`;
+      let cell = cellWrites.get(key);
+      if (!cell) { cell = { pending: 0, token: 0, existed: false, base: undefined }; cellWrites.set(key, cell); }
+      if (cell.pending === 0) { cell.existed = name in row; cell.base = row[name]; }
+      cell.pending += 1;
+      cell.token += 1;
+      return { name, key, cell, token: cell.token };
+    });
+    Object.entries(fields).forEach(([name, value]) => { row[name] = value; });
+    let failure = null;
+    try { await writeFields(table, row.id, fields); } catch (err) { failure = err; }
+    entries.forEach(({ name, key, cell, token }) => {
+      cell.pending -= 1;
+      if (!failure) { cell.existed = true; cell.base = fields[name]; }
+      else if (cell.token === token) { if (cell.existed) row[name] = cell.base; else delete row[name]; }
+      if (cell.pending === 0) cellWrites.delete(key);
+    });
+    if (failure) throw failure;
+  }
+  function writeProjectColumn(project, column, value) {
     const { table, row } = homeRowFor(project, column);
-    const existed = column in row;
-    const previous = row[column];
-    const cell = `${table}:${row.id}:${column}`;
-    const token = (latestWrite.get(cell) || 0) + 1;
-    latestWrite.set(cell, token);
-    row[column] = value;
-    try {
-      await writeFields(table, row.id, { [column]: value });
-    } catch (err) {
-      if (latestWrite.get(cell) === token) {
-        if (existed) row[column] = previous; else delete row[column];
-      }
-      throw err;
-    }
+    return optimisticWrite(table, row, { [column]: value });
   }
   // Seuls http(s) sont ouvrables : une valeur saisie directement dans Grist
   // (ex. "javascript:...") ne doit jamais devenir un href cliquable.
@@ -582,25 +593,44 @@
   // Un seul à la fois, posé sur <body> en position fixe (les volets ont overflow:hidden
   // et rogneraient tout ce qui dépasse). render() reconstruit le DOM : le popover est
   // ré-ancré par sa clé (syncPopover) et fermé si son ancre a disparu.
-  const popover = { el: null, key: null, anchor: null };
+  // `flush` : saisie au clavier en attente (date tapée mais pas encore validée), enregistrée
+  // quand le popover se ferme autrement que par Échap.
+  const popover = { el: null, key: null, anchor: null, flush: null };
   const closestFrom = (target, selector) => (target && target.closest) ? target.closest(selector) : null;
   const anchorFor = key => Array.from(document.querySelectorAll('[data-pop-anchor]')).find(el => el.dataset.popAnchor === key) || null;
-  function positionPopover() {
-    if (!popover.el || !popover.anchor) return;
-    const margin = 8;
-    const rect = popover.anchor.getBoundingClientRect();
-    const width = popover.el.offsetWidth, height = popover.el.offsetHeight;
-    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
-    let top = rect.bottom + 6;
-    if (top + height > window.innerHeight - margin && rect.top - height - 6 >= margin) top = rect.top - height - 6;
-    popover.el.style.left = `${left}px`;
-    popover.el.style.top = `${Math.max(margin, top)}px`;
+  const POPOVER_MARGIN = 8, POPOVER_GAP = 6;
+  // Placement pur (testable) : sous l'ancre, sinon au-dessus, sinon calé contre le bord bas
+  // de la fenêtre — jamais rogné en bas (l'iframe Grist est basse) ; la liste défile.
+  function placePopover(anchorRect, size, viewport) {
+    const left = Math.max(POPOVER_MARGIN, Math.min(anchorRect.left, viewport.width - size.width - POPOVER_MARGIN));
+    let top = anchorRect.bottom + POPOVER_GAP;
+    if (top + size.height > viewport.height - POPOVER_MARGIN) {
+      const above = anchorRect.top - size.height - POPOVER_GAP;
+      top = above >= POPOVER_MARGIN ? above : viewport.height - size.height - POPOVER_MARGIN;
+    }
+    return { left, top: Math.max(POPOVER_MARGIN, top) };
   }
-  function closePopover(restoreFocus) {
+  function positionPopover() {
     if (!popover.el) return;
-    const key = popover.key;
+    // Une cellule réécrite (cocher une personne, enregistrer une date) remplace l'ancre :
+    // on la retrouve par sa clé, sinon un défilement la lirait détachée (rectangle nul →
+    // popover envoyé en haut à gauche).
+    if (!popover.anchor || !popover.anchor.isConnected) {
+      popover.anchor = anchorFor(popover.key);
+      if (!popover.anchor) { closePopover(); return; }
+    }
+    popover.el.style.maxHeight = `${Math.max(120, window.innerHeight - 2 * POPOVER_MARGIN)}px`;
+    const spot = placePopover(popover.anchor.getBoundingClientRect(), { width: popover.el.offsetWidth, height: popover.el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
+    popover.el.style.left = `${spot.left}px`;
+    popover.el.style.top = `${spot.top}px`;
+  }
+  // `discard` : Échap abandonne la saisie en attente ; toute autre fermeture l'enregistre.
+  function closePopover(restoreFocus, discard) {
+    if (!popover.el) return;
+    const { key, flush } = popover;
     popover.el.remove();
-    popover.el = popover.key = popover.anchor = null;
+    popover.el = popover.key = popover.anchor = popover.flush = null;
+    if (flush && !discard) flush();
     const anchor = restoreFocus ? anchorFor(key) : null;
     if (anchor) anchor.focus();
   }
@@ -622,9 +652,10 @@
     el.setAttribute('aria-label', label);
     el.innerHTML = html;
     document.body.appendChild(el);
-    Object.assign(popover, { el, key, anchor });
-    positionPopover();
+    Object.assign(popover, { el, key, anchor, flush: null });
+    positionPopover(); // d'abord posé près de l'ancre : le focus() de setup ne fait pas défiler la page
     setup(el);
+    positionPopover(); // puis recalé : la liste est remplie, la hauteur réelle est connue
   }
 
   // Les cellules sont réécrites une à une (jamais tout l'arbre) : un rendu complet
@@ -649,18 +680,40 @@
       `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div></div>`;
     openPopover(anchor, `${kind}:${project.id}`, `Date de transmission ${channel}`, html, el => {
       const input = el.querySelector('input');
-      const commit = async value => {
+      let typed = false, pending = null;
+      const save = async value => {
+        pending = null;
+        if (popover.el === el) popover.flush = null;
         const saved = await saveDateColumn(project, column, value, 'de la date de transmission');
-        if (saved === null) return; // saisie partielle : on laisse finir de taper
+        if (saved === null) return false; // saisie partielle : on laisse finir de taper
         refreshTransmitCell(project);
-        closePopover(true);
+        return true;
       };
-      // Vider un segment à la main vide la valeur le temps de la saisie : seul « Effacer » supprime la date.
-      input.addEventListener('change', () => { if (input.value) commit(input.value); });
+      // Ne referme que CE popover : une réponse tardive de Grist ne doit pas fermer celui
+      // qu'on a ouvert entre-temps.
+      const commit = async value => {
+        if (await save(value) && popover.el === el) closePopover(true);
+      };
+      // Au clavier, le champ date déclenche « change » à chaque segment complet (taper 15
+      // donne d'abord le 01) : on attend Entrée ou la fermeture du popover. Un choix fait
+      // à la souris (calendrier, Aujourd'hui, Effacer) est enregistré tout de suite.
+      // Vider un segment à la main vide la valeur le temps de la saisie : seul « Effacer »
+      // supprime la date.
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); if (input.value) commit(input.value); }
+        else if (/^(?:\d|Backspace|Delete)$/.test(event.key)) typed = true;
+      });
+      input.addEventListener('pointerdown', () => { typed = false; });
+      input.addEventListener('change', () => {
+        if (!input.value) return;
+        if (!typed) { commit(input.value); return; }
+        pending = input.value;
+        popover.flush = () => { if (pending) save(pending); };
+      });
       el.querySelector('[data-pop-today]').addEventListener('click', () => commit(todayIso()));
       const clear = el.querySelector('[data-pop-clear]');
       if (clear) clear.addEventListener('click', () => commit(''));
-      input.focus();
+      input.focus({ preventScroll: true });
     });
   }
 
@@ -737,10 +790,10 @@
         await pending;
         syncStates();
       });
-      input.addEventListener('input', paint);
+      input.addEventListener('input', () => { paint(); positionPopover(); });
       CoreUtils.wireRefListKeyNav(input, list);
       paint();
-      input.focus();
+      input.focus({ preventScroll: true });
     });
   }
 
@@ -763,12 +816,18 @@
     else if (stored !== -1 && after < before) target = Math.min(stored, after);
     const fields = { [fieldName]: PARTNER_STATUSES[nextIdx] };
     if (target !== stored) fields.Conventions_statut = CONV_STAGES[target];
+    // Valeurs locales posées tout de suite (écriture optimiste) : un second clic sur une
+    // autre pastille avant la réponse de Grist part des statuts à jour — sinon la
+    // transition « tous signés » passerait inaperçue et la carte resterait mal rangée.
+    const writing = optimisticWrite('Projets', project, fields);
+    render();
     try {
-      await writeFields('Projets', project.id, fields);
-      Object.entries(fields).forEach(([name, value]) => setProjectField(project.id, name, value));
+      await writing;
       if (target !== stored) CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(CONV_STAGES[target])}`);
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true);
       render();
-    } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
+    }
   }
 
   async function saveComment(projectId, value) {
@@ -1225,8 +1284,16 @@
       if (anchor && anchor.dataset.popAnchor === popover.key) return;
       closePopover();
     });
+    // Navigation au clavier : quitter le popover (Maj+Tab, Tab) le referme, sinon il resterait
+    // flottant au-dessus d'une autre vue. Sa propre ancre ne le ferme pas (interrupteur).
+    document.addEventListener('focusin', event => {
+      if (!popover.el || popover.el.contains(event.target)) return;
+      const anchor = closestFrom(event.target, '[data-pop-anchor]');
+      if (anchor && anchor.dataset.popAnchor === popover.key) return;
+      closePopover();
+    });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && popover.el) { event.preventDefault(); closePopover(true); }
+      if (event.key === 'Escape' && popover.el) { event.preventDefault(); closePopover(true, true); }
     });
     document.addEventListener('scroll', positionPopover, true);
     window.addEventListener('resize', positionPopover);
@@ -1274,6 +1341,9 @@
   window.loadAdministratifUserPreferences = loadAdministratifUserPreferences;
   window.ensureAdministratifColumns = ensureAdministratifColumns;
   // Règles et popover exposés pour les tests.
-  window.AdministratifConv = { stageFromStatuses, closePopover };
+  window.AdministratifConv = {
+    stageFromStatuses, closePopover, placePopover,
+    popoverState: () => ({ open: !!popover.el, key: popover.key, anchor: popover.anchor })
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());
