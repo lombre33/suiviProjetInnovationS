@@ -795,6 +795,37 @@
       document.getElementById('admin-clear-filters').click();
       await wait(0);
     });
+
+    it('le filtre Instance est lui aussi multi-sélection (harmonisé avec Programme), et persiste la liste cochée', async function () {
+      const tables = await loadTables();
+      tables.Suivi_Instance.push({ id: 2, Nom: 'Comité innovation#4 - 2026-06-01' });
+      tables.Projets.find(p => p.Acronyme === 'CONVENTIX').Instance_ratachee = 2;
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      await window.loadKanbanUserPreferences();
+      await window.loadAdministratifUserPreferences();
+
+      const input = document.getElementById('admin-filter-instance');
+      fire(input, 'focus');
+      const list = document.getElementById('admin-filter-instance-list');
+      ['Comité innovation#3 - 2026-03-15', 'Comité innovation#4 - 2026-06-01'].forEach(label => {
+        const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
+        assertTrue(!!button, `option "${label}" introuvable dans admin-filter-instance`);
+        fireMouse(button, 'mousedown');
+      });
+      await wait(0);
+
+      assertEqual(document.getElementById('admin-filter-instance').value, '2 instances sélectionnées', 'le résumé doit être accordé au féminin ("instances sélectionnées")');
+      const rows = await window.CoreGrist.getTable('Preferences_Widget');
+      assertDeepEqual(rows[0].Admin_filtre_instance.split(',').sort(),
+        ['Comité innovation#3 - 2026-03-15', 'Comité innovation#4 - 2026-06-01'].sort(),
+        'les deux instances cochées doivent être enregistrées en liste séparée par des virgules');
+
+      // Nettoyage.
+      document.getElementById('admin-clear-filters').click();
+      await wait(0);
+      await loadFixtureState(); // restaure les fixtures d'origine pour les tests suivants
+    });
   });
 
   describe('Administratif — date de début du projet et code d\'urgence (Notifications et Conventions)', function () {

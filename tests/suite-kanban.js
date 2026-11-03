@@ -180,6 +180,50 @@
       assertEqual(document.getElementById('filter-programme').value, 'Programme B', 'un seul programme coché doit afficher son nom plutôt qu\'un résumé');
       document.getElementById('clear-filters').click();
     });
+
+    it('un programme coché est marqué .is-selected et remonte en tête de la liste (demande du 03/11/2026)', async function () {
+      await loadFixtureState();
+      const input = document.getElementById('filter-programme');
+      fire(input, 'focus');
+      let list = document.getElementById('filter-programme-list');
+      let optionB = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === 'Programme B');
+      fireMouse(optionB, 'mousedown');
+
+      list = document.getElementById('filter-programme-list');
+      const options = Array.from(list.querySelectorAll('[data-value]'));
+      optionB = options.find(b => b.dataset.value === 'Programme B');
+      assertTrue(optionB.classList.contains('is-selected'), 'l\'option cochée doit porter la classe .is-selected (fond bleu, pas de case à cocher séparée)');
+      // Le premier bouton est toujours "Tous les programmes" (effacer), donc
+      // l'option cochée doit être juste après lui, avant les non cochées.
+      assertEqual(options[1].dataset.value, 'Programme B', 'l\'option cochée doit remonter juste après "Tous les programmes", avant les options non cochées');
+      document.getElementById('clear-filters').click();
+    });
+
+    it('le filtre Instance accepte lui aussi plusieurs valeurs cochées à la fois (union)', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      tables.Suivi_Instance.push({ id: 2, Nom: 'Comité innovation#4 - 2026-06-01' });
+      tables.Projets.find(p => p.Acronyme === 'CONVENTIX').Instance_ratachee = 2;
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderProjectsKanban();
+
+      const input = document.getElementById('filter-instance');
+      fire(input, 'focus');
+      const list = document.getElementById('filter-instance-list');
+      ['Comité innovation#3 - 2026-03-15', 'Comité innovation#4 - 2026-06-01'].forEach(label => {
+        const button = Array.from(list.querySelectorAll('[data-value]')).find(b => b.dataset.value === label);
+        assertTrue(!!button, `option "${label}" introuvable dans filter-instance`);
+        fireMouse(button, 'mousedown');
+      });
+
+      const visibleAcronyms = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertTrue(visibleAcronyms.includes('INNOVX'), 'INNOVX (1ère instance) doit rester visible');
+      assertTrue(visibleAcronyms.includes('CONVENTIX'), 'CONVENTIX (2e instance) doit redevenir visible une fois les deux instances cochées');
+      assertFalse(visibleAcronyms.includes('NOTIFY'), 'NOTIFY (sans instance) doit rester masqué');
+      assertEqual(document.getElementById('filter-instance').value, '2 instances sélectionnées', 'le champ doit afficher un résumé accordé au féminin ("instances sélectionnées")');
+
+      document.getElementById('clear-filters').click();
+      await loadFixtureState(); // restaure les fixtures d'origine (une seule instance) pour les tests suivants
+    });
   });
 
   describe('Kanban Projets — ouverture de la fiche projet au clic', function () {

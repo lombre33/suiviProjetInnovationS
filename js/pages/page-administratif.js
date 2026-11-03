@@ -333,24 +333,21 @@
     catch (err) { /* navigation privée / stockage bloqué : tant pis, pas de persistance entre sessions */ }
   }
 
-  function comboValue(id) {
-    const input = document.getElementById(id);
-    return input?.dataset.selectedValue || '';
-  }
-  // Filtre Programme : multi-sélection (demande du 02/11/2026), même pattern
-  // que js/pages/page-projets.js — valeurs cochées sur l'input
+  // Filtres Programme ET Instance : multi-sélection (demande du 02/11/2026,
+  // étendue aux instances le 03/11/2026 pour harmoniser les deux champs),
+  // même pattern que js/pages/page-projets.js — valeurs cochées sur l'input
   // (dataset.selectedValues), encodées en liste séparée par des virgules.
   function multiComboValues(id) {
     return decodeColumnList(document.getElementById(id)?.dataset.selectedValues);
   }
-  function multiSummary(values) {
+  function multiSummary(values, label) {
     if (!values.length) return '';
-    return values.length === 1 ? values[0] : `${values.length} programmes sélectionnés`;
+    return values.length === 1 ? values[0] : `${values.length} ${label}`;
   }
   function currentFilters() {
     return {
       programmes: multiComboValues('admin-filter-programme'),
-      instance: comboValue('admin-filter-instance'),
+      instances: multiComboValues('admin-filter-instance'),
       search: normalized(document.getElementById('admin-filter-search')?.value)
     };
   }
@@ -361,7 +358,7 @@
       const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
       const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
       return (!filters.programmes.length || filters.programmes.includes(programme)) &&
-        (!filters.instance || instance === filters.instance) &&
+        (!filters.instances.length || filters.instances.includes(instance)) &&
         (!filters.search || normalized(acronym).includes(filters.search));
     });
   }
@@ -374,69 +371,52 @@
       .filter(value => value && normalized(value) !== '0' && (!wanted || normalized(value).includes(wanted)))
     )].sort((a, b) => a.localeCompare(b, 'fr'));
   }
-  function renderCombo(id, values, placeholder) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
-      values.map(value => `<button type="button" data-value="${escape(value)}">${escape(value)}</button>`).join('');
-    list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
-      event.preventDefault();
-      input.dataset.selectedValue = button.dataset.value;
-      input.value = button.dataset.value;
-      list.hidden = true;
-      render();
-      saveAdministratifUserPreferences();
-    }));
-  }
-  // Liste à cases pour le multi-sélection : reste ouverte après chaque clic
-  // (pas de list.hidden=true) pour permettre de cocher plusieurs programmes
-  // d'affilée ; ne se ferme qu'au blur du champ (setupMultiCombo).
-  function renderMultiCombo(id, values, placeholder) {
+  // Liste à cases : reste ouverte après chaque clic (pas de list.hidden=true)
+  // pour cocher/décocher plusieurs valeurs d'affilée ; ne se ferme qu'au blur
+  // du champ (setupMultiCombo). Les valeurs déjà cochées remontent en tête de
+  // liste (demande du 03/11/2026) pour les décocher rapidement ; le fond bleu
+  // (.is-selected) indique la sélection, remplace une ancienne case à cocher
+  // jugée peu lisible.
+  function renderMultiCombo(id, values, placeholder, summaryLabel) {
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
     if (!input || !list) return;
     const selected = multiComboValues(id);
-    input.value = multiSummary(selected);
-    list.innerHTML = `<button type="button" class="combo-option" data-value="">${escape(placeholder)}</button>` +
-      values.map(value => {
+    input.value = multiSummary(selected, summaryLabel);
+    const ordered = [...values].sort((a, b) => {
+      const aSelected = selected.includes(a), bSelected = selected.includes(b);
+      return aSelected === bSelected ? 0 : (aSelected ? -1 : 1);
+    });
+    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
+      ordered.map(value => {
         const isSelected = selected.includes(value);
-        return `<button type="button" class="combo-option${isSelected ? ' is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}"><span class="combo-check" aria-hidden="true"></span>${escape(value)}</button>`;
+        return `<button type="button" class="${isSelected ? 'is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}">${escape(value)}</button>`;
       }).join('');
     list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
       event.preventDefault();
       const value = button.dataset.value;
       const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
       input.dataset.selectedValues = encodeColumnList(next);
-      renderMultiCombo(id, values, placeholder);
+      renderMultiCombo(id, values, placeholder, summaryLabel);
       render();
       saveAdministratifUserPreferences();
     }));
   }
   function renderFilters() {
-    renderMultiCombo('admin-filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes');
-    renderCombo('admin-filter-instance', options(['Instance_ratachee', 'Instance', 'Instances'],
-      document.getElementById('admin-filter-instance')?.value), 'Toutes les instances');
+    renderMultiCombo('admin-filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes', 'programmes sélectionnés');
+    renderMultiCombo('admin-filter-instance', options(['Instance_ratachee', 'Instance', 'Instances']), 'Toutes les instances', 'instances sélectionnées');
   }
-  function setupCombo(id, fieldNames, placeholder) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    input.addEventListener('focus', () => { list.hidden = false; renderCombo(id, options(fieldNames, input.value), placeholder); });
-    input.addEventListener('input', () => { input.dataset.selectedValue = ''; list.hidden = false; renderCombo(id, options(fieldNames, input.value), placeholder); render(); });
-    input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; if (!input.dataset.selectedValue) input.value = ''; }, 150));
-  }
-  // Pas de saisie libre pour le multi-sélection : le champ n'est qu'un
-  // déclencheur (lecture seule) qui ouvre la liste à cases au focus.
-  function setupMultiCombo(id, fieldNames, placeholder) {
+  // Pas de saisie libre : le champ n'est qu'un déclencheur (lecture seule)
+  // qui ouvre la liste à cases au focus.
+  function setupMultiCombo(id, fieldNames, placeholder, summaryLabel) {
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
     if (!input || !list) return;
     input.readOnly = true;
-    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder); });
+    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder, summaryLabel); });
     input.addEventListener('blur', () => setTimeout(() => {
       list.hidden = true;
-      input.value = multiSummary(multiComboValues(id));
+      input.value = multiSummary(multiComboValues(id), summaryLabel);
     }, 150));
   }
 
@@ -786,14 +766,13 @@
   }
 
   function applyStoredAdminFilters(row) {
+    // Ne pose que dataset.selectedValues : le résumé affiché dans le champ
+    // (input.value) est recalculé par le renderFilters() qui suit cet appel
+    // (window.renderAdministratif), pas besoin de le dupliquer ici.
     const programmeInput = document.getElementById('admin-filter-programme');
-    if (programmeInput && row.Admin_filtre_programme) {
-      const values = decodeColumnList(row.Admin_filtre_programme);
-      programmeInput.dataset.selectedValues = encodeColumnList(values);
-      programmeInput.value = multiSummary(values);
-    }
+    if (programmeInput && row.Admin_filtre_programme) programmeInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Admin_filtre_programme));
     const instanceInput = document.getElementById('admin-filter-instance');
-    if (instanceInput && row.Admin_filtre_instance) { instanceInput.value = row.Admin_filtre_instance; instanceInput.dataset.selectedValue = row.Admin_filtre_instance; }
+    if (instanceInput && row.Admin_filtre_instance) instanceInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Admin_filtre_instance));
     const search = document.getElementById('admin-filter-search');
     if (search && row.Admin_filtre_recherche) search.value = row.Admin_filtre_recherche;
   }
@@ -825,7 +804,7 @@
       Admin_conv_repliees: collect('conv', 'collapsed'),
       Admin_conv_masquees: collect('conv', 'hidden'),
       Admin_filtre_programme: encodeColumnList(multiComboValues('admin-filter-programme')),
-      Admin_filtre_instance: comboValue('admin-filter-instance'),
+      Admin_filtre_instance: encodeColumnList(multiComboValues('admin-filter-instance')),
       Admin_filtre_recherche: document.getElementById('admin-filter-search')?.value || ''
     };
     try {
@@ -916,16 +895,16 @@
   function init() {
     initConvDelegation();
     renderFilters();
-    setupMultiCombo('admin-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
-    setupCombo('admin-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances');
+    setupMultiCombo('admin-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
+    setupMultiCombo('admin-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     updateViewToggle();
     render();
     document.getElementById('admin-filter-search')?.addEventListener('input', () => { render(); saveAdministratifUserPreferences(); });
     document.getElementById('admin-clear-filters')?.addEventListener('click', () => {
-      const programmeInput = document.getElementById('admin-filter-programme');
-      if (programmeInput) { programmeInput.value = ''; programmeInput.dataset.selectedValues = ''; }
-      const instanceInput = document.getElementById('admin-filter-instance');
-      if (instanceInput) { instanceInput.value = ''; instanceInput.dataset.selectedValue = ''; }
+      ['admin-filter-programme', 'admin-filter-instance'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) { input.value = ''; input.dataset.selectedValues = ''; }
+      });
       const search = document.getElementById('admin-filter-search');
       if (search) search.value = '';
       renderFilters();

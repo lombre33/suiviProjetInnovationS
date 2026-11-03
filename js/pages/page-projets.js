@@ -169,26 +169,23 @@
     return null;
   }
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
-  function comboValue(id) {
-    const input = document.getElementById(id);
-    return input?.dataset.selectedValue || '';
-  }
-  // Filtre Programme : multi-sélection (demande du 02/11/2026). Les valeurs
-  // cochées sont stockées sur l'input (dataset.selectedValues), encodées en
-  // liste séparée par des virgules — même pattern que les colonnes
-  // repliées/masquées (encodeColumnList/decodeColumnList) ; rétro-compatible
-  // avec une ancienne valeur à un seul programme déjà enregistrée.
+  // Filtres Programme ET Instance : multi-sélection (demande du 02/11/2026,
+  // étendue aux instances le 03/11/2026 pour harmoniser les deux champs). Les
+  // valeurs cochées sont stockées sur l'input (dataset.selectedValues),
+  // encodées en liste séparée par des virgules — même pattern que les
+  // colonnes repliées/masquées (encodeColumnList/decodeColumnList) ;
+  // rétro-compatible avec une ancienne valeur unique déjà enregistrée.
   function multiComboValues(id) {
     return decodeColumnList(document.getElementById(id)?.dataset.selectedValues);
   }
-  function multiSummary(values) {
+  function multiSummary(values, label) {
     if (!values.length) return '';
-    return values.length === 1 ? values[0] : `${values.length} programmes sélectionnés`;
+    return values.length === 1 ? values[0] : `${values.length} ${label}`;
   }
   function currentFilters() {
     return {
       programmes: multiComboValues('filter-programme'),
-      instance: comboValue('filter-instance'),
+      instances: multiComboValues('filter-instance'),
       search: normalized(document.getElementById('filter-search')?.value)
     };
   }
@@ -199,7 +196,7 @@
       const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
       const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
       return (!filters.programmes.length || filters.programmes.includes(programme)) &&
-        (!filters.instance || instance === filters.instance) &&
+        (!filters.instances.length || filters.instances.includes(instance)) &&
         (!filters.search || normalized(acronym).includes(filters.search));
     });
   }
@@ -215,49 +212,40 @@
         (!wanted || normalized(value).includes(wanted)))
     )].sort((a, b) => a.localeCompare(b, 'fr'));
   }
-  function renderCombo(id, values, placeholder) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
-      values.map(value => `<button type="button" data-value="${escape(value)}">${escape(value)}</button>`).join('');
-    list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
-      event.preventDefault();
-      input.dataset.selectedValue = button.dataset.value;
-      input.value = button.dataset.value;
-      list.hidden = true;
-      render();
-      saveUserPreferences();
-    }));
-  }
-  // Liste à cases pour le multi-sélection : reste ouverte après chaque clic
-  // (pas de list.hidden=true) pour permettre de cocher plusieurs programmes
-  // d'affilée ; ne se ferme qu'au blur du champ (setupMultiCombo).
-  function renderMultiCombo(id, values, placeholder) {
+  // Liste à cases : reste ouverte après chaque clic (pas de list.hidden=true)
+  // pour cocher/décocher plusieurs valeurs d'affilée ; ne se ferme qu'au blur
+  // du champ (setupMultiCombo). Les valeurs déjà cochées remontent en tête de
+  // liste (demande du 03/11/2026) pour les décocher rapidement sans avoir à
+  // les chercher dans la liste complète ; le fond bleu (.is-selected) indique
+  // la sélection, remplace une ancienne case à cocher jugée peu lisible.
+  function renderMultiCombo(id, values, placeholder, summaryLabel) {
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
     if (!input || !list) return;
     const selected = multiComboValues(id);
-    input.value = multiSummary(selected);
-    list.innerHTML = `<button type="button" class="combo-option" data-value="">${escape(placeholder)}</button>` +
-      values.map(value => {
+    input.value = multiSummary(selected, summaryLabel);
+    const ordered = [...values].sort((a, b) => {
+      const aSelected = selected.includes(a), bSelected = selected.includes(b);
+      return aSelected === bSelected ? 0 : (aSelected ? -1 : 1);
+    });
+    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
+      ordered.map(value => {
         const isSelected = selected.includes(value);
-        return `<button type="button" class="combo-option${isSelected ? ' is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}"><span class="combo-check" aria-hidden="true"></span>${escape(value)}</button>`;
+        return `<button type="button" class="${isSelected ? 'is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}">${escape(value)}</button>`;
       }).join('');
     list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
       event.preventDefault();
       const value = button.dataset.value;
       const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
       input.dataset.selectedValues = encodeColumnList(next);
-      renderMultiCombo(id, values, placeholder);
+      renderMultiCombo(id, values, placeholder, summaryLabel);
       render();
       saveUserPreferences();
     }));
   }
   function renderFilters() {
-    renderMultiCombo('filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes');
-    renderCombo('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances'],
-      document.getElementById('filter-instance')?.value), 'Toutes les instances');
+    renderMultiCombo('filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes', 'programmes sélectionnés');
+    renderMultiCombo('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances']), 'Toutes les instances', 'instances sélectionnées');
   }
   function render() {
     const board = document.getElementById('projects-kanban'); if (!board) return;
@@ -304,14 +292,13 @@
     }));
   }
   function applyStoredFilters(row) {
+    // Ne pose que dataset.selectedValues : le résumé affiché dans le champ
+    // (input.value) est recalculé par le renderFilters() qui suit cet appel
+    // (window.renderProjectsKanban), pas besoin de le dupliquer ici.
     const programmeInput = document.getElementById('filter-programme');
-    if (programmeInput && row.Filtre_programme) {
-      const values = decodeColumnList(row.Filtre_programme);
-      programmeInput.dataset.selectedValues = encodeColumnList(values);
-      programmeInput.value = multiSummary(values);
-    }
+    if (programmeInput && row.Filtre_programme) programmeInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Filtre_programme));
     const instanceInput = document.getElementById('filter-instance');
-    if (instanceInput && row.Filtre_instance) { instanceInput.value = row.Filtre_instance; instanceInput.dataset.selectedValue = row.Filtre_instance; }
+    if (instanceInput && row.Filtre_instance) instanceInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Filtre_instance));
     const search = document.getElementById('filter-search');
     if (search && row.Filtre_recherche) search.value = row.Filtre_recherche;
   }
@@ -354,7 +341,7 @@
       Kanban_colonnes_repliees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].collapsed).map(c => c.key)),
       Kanban_colonnes_masquees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].hidden).map(c => c.key)),
       Filtre_programme: encodeColumnList(multiComboValues('filter-programme')),
-      Filtre_instance: comboValue('filter-instance'),
+      Filtre_instance: encodeColumnList(multiComboValues('filter-instance')),
       Filtre_recherche: document.getElementById('filter-search')?.value || ''
     };
     try {
@@ -371,49 +358,30 @@
     const convention = !!project.Convention_de_reversement || !!project.Convention_de_reversement_le_cas_echeant;
     return `<button type="button" class="project-card" data-project-id="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}<span class="project-holder"><strong>Porteur :</strong> ${escape(holder)}</span><span class="project-holder"><strong>Accompagnateur :</strong> ${escape(accompanist)}</span><span class="project-substatus"><strong>Statut macro :</strong> ${escape(substatus)}</span>${convention ? '<span class="convention-badge">Convention</span>' : ''}</button>`;
   }
-  function setupCombo(id, fieldNames, placeholder) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    input.addEventListener('focus', () => {
-      list.hidden = false;
-      renderCombo(id, options(fieldNames, input.value), placeholder);
-    });
-    input.addEventListener('input', () => {
-      input.dataset.selectedValue = '';
-      list.hidden = false;
-      renderCombo(id, options(fieldNames, input.value), placeholder);
-      render();
-    });
-    input.addEventListener('blur', () => setTimeout(() => {
-      list.hidden = true;
-      if (!input.dataset.selectedValue) input.value = '';
-    }, 150));
-  }
-  // Pas de saisie libre pour le multi-sélection : le champ n'est qu'un
-  // déclencheur (lecture seule) qui ouvre la liste à cases au focus.
-  function setupMultiCombo(id, fieldNames, placeholder) {
+  // Pas de saisie libre : le champ n'est qu'un déclencheur (lecture seule)
+  // qui ouvre la liste à cases au focus.
+  function setupMultiCombo(id, fieldNames, placeholder, summaryLabel) {
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
     if (!input || !list) return;
     input.readOnly = true;
-    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder); });
+    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder, summaryLabel); });
     input.addEventListener('blur', () => setTimeout(() => {
       list.hidden = true;
-      input.value = multiSummary(multiComboValues(id));
+      input.value = multiSummary(multiComboValues(id), summaryLabel);
     }, 150));
   }
   function init() {
     renderFilters();
-    setupMultiCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes');
-    setupCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances');
+    setupMultiCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
+    setupMultiCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     render();
     document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferences(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
-      const programmeInput = document.getElementById('filter-programme');
-      if (programmeInput) { programmeInput.value = ''; programmeInput.dataset.selectedValues = ''; }
-      const instanceInput = document.getElementById('filter-instance');
-      if (instanceInput) { instanceInput.value = ''; instanceInput.dataset.selectedValue = ''; }
+      ['filter-programme', 'filter-instance'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) { input.value = ''; input.dataset.selectedValues = ''; }
+      });
       const search = document.getElementById('filter-search');
       if (search) search.value = '';
       renderFilters();
