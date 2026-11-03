@@ -50,11 +50,15 @@
     '4) Convention en signature partenaire': 2,
     '5) Convention signée de toutes les parties': 3
   };
-  // Statuts proposés par le fil "Refondre la page Installation des fonds"
-  // (confirmé le 03/11/2026) : Projets.Statut_installation_fonds (Choice), pas
-  // encore créée tant que cette page n'est pas livrée — lue défensivement, cet
-  // onglet reste simplement vide en attendant plutôt que de planter.
-  const INSTALL_STAGES = ['En attente ouverture', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer'];
+  // Statuts du fil "Refondre la page Installation des fonds" (livré 17da8be,
+  // 03/11/2026) : Projets.Statut_installation_fonds (Choice), mêmes préfixes
+  // ordinaux "N) " que NOTIF_STAGES/CONV_STAGES — lue défensivement malgré
+  // tout (indexOf renvoie -1 sur une valeur imprévue), cet onglet reste vide
+  // plutôt que de planter si la colonne venait à manquer.
+  const INSTALL_STAGES = [
+    '1) En attente ouverture', '2) Ouverture demandée à la DF', '3) Installé',
+    '4) Reliquat à traiter', '5) Clôturer'
+  ];
   const INSTALL_STATUS_FIELD = 'Statut_installation_fonds';
   // Tag "responsable" du next step (demande A.3 d'Antoine, posée sous
   // Conventions) : colonne confirmée le 03/11/2026 par le fil Page

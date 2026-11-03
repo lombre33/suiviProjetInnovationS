@@ -52,7 +52,7 @@
       assertTrue(!!cardByAcronym(panel('Convention en signature'), 'CONVENTIX'), 'CONVENTIX doit apparaître (rôle Conventions via "Grands Programmes")');
 
       setTab('install');
-      project(10).Statut_installation_fonds = 'Installé';
+      project(10).Statut_installation_fonds = '3) Installé';
       window.renderTodo();
       assertFalse(!!cardByAcronym(panel('Installé'), 'INNOVX'), 'Alice n\'a pas le rôle Installation ("Grands Programmes" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
     });
@@ -60,7 +60,7 @@
     it('Alice (structure "DR Sud") a le rôle Installation mais pas Notifications/Conventions', async function () {
       await loadFixtureState();
       setAliceStructureLabel('DR Sud');
-      project(10).Statut_installation_fonds = 'Installé';
+      project(10).Statut_installation_fonds = '3) Installé';
       window.renderTodo();
 
       setView('1');
@@ -121,21 +121,23 @@
     });
   });
 
-  describe('To Do — onglet Installation, dégradation sans la colonne de statut', function () {
-    it('les 5 volets existent et restent vides tant que Statut_installation_fonds n\'existe pas', async function () {
-      await loadFixtureState();
+  describe('To Do — onglet Installation (Statut_installation_fonds, fil "Installation des fonds")', function () {
+    it('les 5 volets existent ; les fixtures par défaut placent INNOVX et NOTIFY dans les bons volets, les autres volets restent vides', async function () {
+      await loadFixtureState(); // INNOVX = "2) Ouverture demandée à la DF", NOTIFY = "3) Installé" (fixtures.js)
       setTab('install');
       setView('all');
       ['En attente ouverture', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer'].forEach(label => {
-        const el = panel(label);
-        assertTrue(!!el, `le volet "${label}" doit exister`);
-        assertTrue(!!el.querySelector('.kanban-empty'), `le volet "${label}" doit être vide tant que la colonne n'existe pas`);
+        assertTrue(!!panel(label), `le volet "${label}" doit exister`);
       });
+      assertTrue(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX doit apparaître dans le volet Ouverture demandée à la DF');
+      assertTrue(!!cardByAcronym(panel('Installé'), 'NOTIFY'), 'NOTIFY doit apparaître dans le volet Installé');
+      assertTrue(!!panel('En attente ouverture').querySelector('.kanban-empty'), 'le volet En attente ouverture doit rester vide');
+      assertTrue(!!panel('Clôturer').querySelector('.kanban-empty'), 'le volet Clôturer doit rester vide');
     });
 
-    it('un projet avec Statut_installation_fonds renseigné apparaît dans le bon volet', async function () {
+    it('un projet avec Statut_installation_fonds renseigné affiche l\'action et "installé chez"', async function () {
       await loadFixtureState();
-      project(10).Statut_installation_fonds = 'Installé'; // INNOVX
+      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
       project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
       project(10).Ligne_OPE_installe_chez = 'DIESE';
       window.renderTodo();
@@ -145,6 +147,17 @@
       assertTrue(!!card, 'INNOVX doit apparaître dans le volet Installé');
       assertIncludes(card.querySelector('.todo-action-text').textContent, 'Vérifier le virement');
       assertIncludes(card.querySelector('.todo-action-text').textContent, 'DIESE');
+    });
+
+    it('une valeur de statut imprévue (colonne absente ou vide) n\'affiche rien et ne plante pas', async function () {
+      await loadFixtureState();
+      project(10).Statut_installation_fonds = ''; // simule une colonne absente/vide
+      project(11).Statut_installation_fonds = undefined;
+      window.renderTodo();
+      setTab('install');
+      setView('all');
+      assertFalse(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX ne doit apparaître dans aucun volet sans statut reconnu');
+      assertFalse(!!cardByAcronym(panel('Installé'), 'NOTIFY'), 'NOTIFY ne doit apparaître dans aucun volet sans statut reconnu');
     });
   });
 
