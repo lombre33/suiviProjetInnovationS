@@ -4,8 +4,10 @@
  * INNOVX (10) a une fiche Notifications "Information projet saisies",
  * NOTIFY (11) "envoyée pour signature VP", SIGNEX (16) "Archivee" + convention
  * signée. CONVENTIX (12) a une convention "en signature". Annuaire : Alice
- * Martin (1), Bob Durand (2), sans Role_ToDo ni next_step_responsable par
- * défaut (colonnes ajoutées par cette page).
+ * Martin (1, Poste2→1→Structures#1 "LAB1"), Bob Durand (2, sans poste), sans
+ * next_step_responsable par défaut. Le rôle To Do se déduit de
+ * Structures.Acronyme (voir STRUCTURE_ROLE_RULES dans page-todo.js) : les
+ * tests qui veulent un rôle renomment Structures#1 en conséquence.
  */
 (function () {
   'use strict';
@@ -15,6 +17,9 @@
     tables.Projets.forEach(project => { project.Convention_de_reversement = true; });
     Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
     window.renderTodo();
+  }
+  function setAliceStructureLabel(acronyme) {
+    window.CoreState.getTable('Structures').find(s => s.id === 1).Acronyme = acronyme;
   }
 
   function panel(label) {
@@ -31,21 +36,52 @@
     select.value = value;
     fire(select, 'change');
   }
-  function annuairePerson(id) { return window.CoreState.getTable('Annuaire').find(p => p.id === id); }
   function project(id) { return window.CoreState.getTable('Projets').find(p => p.id === id); }
 
-  describe('To Do — rôle : un onglet entier est visible sans tag', function () {
-    it('Alice (rôle Notifications) voit INNOVX sur Notifications, mais rien sur Conventions', async function () {
+  describe('To Do — rôle déduit de Structures (via Postes2.Structure2), un onglet entier sans tag', function () {
+    it('Alice (structure "Grands Programmes Innovation") voit INNOVX sur Notifications et CONVENTIX sur Conventions, mais rien sur Installation', async function () {
       await loadFixtureState();
-      annuairePerson(1).Role_ToDo = ['L', 'Notifications'];
+      setAliceStructureLabel('Grands Programmes Innovation');
       window.renderTodo(); // reconstruit le sélecteur "voir les tâches de…" avec Alice
 
       setTab('notif');
       setView('1');
-      assertTrue(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'INNOVX doit apparaître (rôle Notifications)');
+      assertTrue(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'INNOVX doit apparaître (rôle Notifications via "Grands Programmes")');
 
       setTab('conv');
-      assertFalse(!!cardByAcronym(panel('Convention en signature'), 'CONVENTIX'), 'Alice n\'a pas le rôle Conventions et n\'est pas taguée : rien ne doit apparaître');
+      assertTrue(!!cardByAcronym(panel('Convention en signature'), 'CONVENTIX'), 'CONVENTIX doit apparaître (rôle Conventions via "Grands Programmes")');
+
+      setTab('install');
+      project(10).Statut_installation_fonds = 'Installé';
+      window.renderTodo();
+      assertFalse(!!cardByAcronym(panel('Installé'), 'INNOVX'), 'Alice n\'a pas le rôle Installation ("Grands Programmes" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
+    });
+
+    it('Alice (structure "DR Sud") a le rôle Installation mais pas Notifications/Conventions', async function () {
+      await loadFixtureState();
+      setAliceStructureLabel('DR Sud');
+      project(10).Statut_installation_fonds = 'Installé';
+      window.renderTodo();
+
+      setView('1');
+      setTab('install');
+      assertTrue(!!cardByAcronym(panel('Installé'), 'INNOVX'), 'INNOVX doit apparaître (rôle Installation via "DR")');
+
+      setTab('notif');
+      assertFalse(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'Alice n\'a pas le rôle Notifications ("DR" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
+    });
+
+    it('Alice (structure "LAB1", ne matche aucune règle) et Bob (sans poste, Poste2=0) n\'ont aucun rôle', async function () {
+      await loadFixtureState(); // Structures#1.Acronyme = 'LAB1' par défaut (fixtures.js)
+      window.renderTodo();
+
+      setView('1');
+      setTab('notif');
+      assertFalse(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'une structure non reconnue ne doit donner aucun rôle');
+
+      setView('2');
+      setTab('conv');
+      assertFalse(!!cardByAcronym(panel('Convention en signature'), 'CONVENTIX'), 'une personne sans poste ne doit avoir aucun rôle');
     });
   });
 
@@ -66,7 +102,7 @@
       assertFalse(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'Bob n\'a pas de rôle Notifications : rien ne doit apparaître pour lui');
     });
 
-    it('CONVENTIX tagué à Bob apparaît dans le sélecteur même sans Role_ToDo', async function () {
+    it('CONVENTIX tagué à Bob apparaît dans le sélecteur même sans rôle', async function () {
       await loadFixtureState();
       project(12).next_step_responsable = ['L', 2];
       window.renderTodo();
@@ -132,25 +168,23 @@
   });
 
   describe('To Do — préférences utilisateur (Preferences_Widget partagée)', function () {
-    it('ajoute Role_ToDo à Annuaire et ses propres colonnes Todo_* à Preferences_Widget', async function () {
+    it('ajoute ses propres colonnes Todo_* à Preferences_Widget, sans toucher à Annuaire (rôle déduit, pas stocké)', async function () {
       await loadFixtureState();
       const beforeAnnuaire = await window.CoreGrist.getTable('Annuaire');
-      assertFalse('Role_ToDo' in beforeAnnuaire[0], 'Role_ToDo ne doit pas exister avant le chargement');
 
       await window.loadTodoUserPreferences();
 
-      const afterAnnuaire = await window.CoreGrist.getTable('Annuaire');
-      assertTrue('Role_ToDo' in afterAnnuaire[0], 'Role_ToDo doit avoir été ajoutée à Annuaire');
       const afterPrefs = await window.CoreGrist.getTable('Preferences_Widget');
       assertTrue('Todo_onglet_actif' in afterPrefs[0], 'Todo_onglet_actif doit avoir été ajoutée à Preferences_Widget');
       const addColumnOnAnnuaire = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Annuaire');
-      assertEqual(addColumnOnAnnuaire.length, 1, 'une seule colonne doit être ajoutée à Annuaire');
-      assertEqual(addColumnOnAnnuaire[0].colId, 'Role_ToDo');
+      assertEqual(addColumnOnAnnuaire.length, 0, 'le rôle est déduit de Structures : aucune colonne ne doit être ajoutée à Annuaire');
+      const afterAnnuaire = await window.CoreGrist.getTable('Annuaire');
+      assertEqual(Object.keys(afterAnnuaire[0]).length, Object.keys(beforeAnnuaire[0]).length, 'Annuaire ne doit pas gagner de colonne');
     });
 
     it('identifie "vous" via Email_utilisateur mis en correspondance avec Annuaire.Email', async function () {
       await loadFixtureState();
-      annuairePerson(1).Role_ToDo = ['L', 'Notifications'];
+      setAliceStructureLabel('Grands Programmes Innovation');
       window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: ['alice.martin@example.org'] });
       try { localStorage.setItem('suiviProjetInnovationS:prefsRowId', '1'); } catch (err) { /* ignore */ }
 

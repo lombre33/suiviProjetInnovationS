@@ -8,12 +8,22 @@
  * (harmoniser avec les noms déjà utilisés ailleurs dans le widget).
  *
  * Vue par défaut = mes tâches : un onglet entier est visible dès que le rôle
- * de la personne (Annuaire.Role_ToDo, nouvelle colonne ChoiceList créée au
- * premier lancement) couvre cet onglet ; une tâche précise est visible en
- * plus si la personne est taguée sur son next_step_responsable (Projets,
- * RefList → Annuaire, créé par le fil Page Administratif — ne couvre que
- * l'onglet Conventions, aucun tag équivalent prévu pour Notifications/
- * Installation à ce jour).
+ * de la personne couvre cet onglet ; une tâche précise est visible en plus si
+ * la personne est taguée sur son next_step_responsable (Projets, RefList →
+ * Annuaire, créé par le fil Page Administratif — ne couvre que l'onglet
+ * Conventions, aucun tag équivalent prévu pour Notifications/Installation à
+ * ce jour).
+ *
+ * Rôle = déduit de la structure du poste (demande d'Antoine du 03/11/2026 :
+ * pas de colonne à remplir à la main, pas d'ACL/groupe — uniquement pour
+ * cette page, "pour le reste tout le monde voit tout"). Chemin :
+ * Annuaire.Poste2 → Postes2.Structure2 → Structures, étiquette = Acronyme
+ * (repli Nom_Complet), comparée aux préfixes de STRUCTURE_ROLE_RULES
+ * ci-dessous. Règles confirmées le 03/11 : "Service Dev_*" et "Grands
+ * Programmes*" → Notifications + Conventions ; "DR*" → Installation. Liste
+ * donnée comme un premier jet par Antoine ("je vais te faire une liste des
+ * valeurs et de leur rôle") : à compléter dans STRUCTURE_ROLE_RULES sans
+ * toucher au reste du fichier.
  */
 (function () {
   'use strict';
@@ -51,9 +61,14 @@
   // Administratif — RefList → Annuaire, sur Projets uniquement (jamais sur
   // Notifications). Ne couvre donc que l'onglet Conventions.
   const NEXT_STEP_RESP_FIELD = 'next_step_responsable';
-  const ROLE_FIELD = 'Role_ToDo';
-  const ROLE_CHOICES = ['Notifications', 'Conventions', 'Installation'];
-  const ROLE_COLUMN = { id: ROLE_FIELD, type: 'ChoiceList', isFormula: false, widgetOptions: JSON.stringify({ choices: ROLE_CHOICES }) };
+  // Préfixes sur l'étiquette de Structures (Acronyme, repli Nom_Complet) →
+  // rôles To Do couverts. Comparaison exacte (sensible à la casse), comme
+  // donnée par Antoine. Premier jet, à compléter à sa demande.
+  const STRUCTURE_ROLE_RULES = [
+    { startsWith: 'Service Dev_', roles: ['Notifications', 'Conventions'] },
+    { startsWith: 'Grands Programmes', roles: ['Notifications', 'Conventions'] },
+    { startsWith: 'DR', roles: ['Installation'] }
+  ];
 
   const TAB_DEFS = {
     notif: { label: 'Notifications', stages: NOTIF_STAGES, stageColumn: { table: 'Notifications', col: 'notifications_Statut' } },
@@ -64,6 +79,8 @@
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
   function getNotifications() { return (window.CoreState && CoreState.getTable('Notifications')) || []; }
   function getAnnuaire() { return (window.CoreState && CoreState.getTable('Annuaire')) || []; }
+  function getPostes() { return (window.CoreState && CoreState.getTable('Postes2')) || []; }
+  function getStructures() { return (window.CoreState && CoreState.getTable('Structures')) || []; }
   function projectById(id) { return getProjects().find(p => String(p.id) === String(id)); }
   function personById(id) { return getAnnuaire().find(p => String(p.id) === String(id)); }
   function personName(person) {
@@ -71,7 +88,19 @@
     return text(person.nom_et_Prenom || [person.Prenom, person.NOM].filter(Boolean).join(' '));
   }
   function personNames(ids) { return ids.map(id => personName(personById(id))).filter(Boolean).join(', '); }
-  function personRoles(person) { return referencedIds(person && person[ROLE_FIELD]); }
+  function structureLabel(structure) { return text(structure && structure.Acronyme) || text(structure && structure.Nom_Complet); }
+  // Rôle déduit de la structure du poste (voir l'en-tête du fichier) : aucune
+  // saisie manuelle, aucune ACL — seulement un mode d'affichage par défaut.
+  function personRoles(person) {
+    if (!person) return [];
+    const poste = getPostes().find(p => p.id === refId(person.Poste2));
+    const structure = poste && getStructures().find(s => s.id === refId(poste.Structure2));
+    const label = structureLabel(structure);
+    if (!label) return [];
+    const roles = new Set();
+    STRUCTURE_ROLE_RULES.forEach(rule => { if (label.startsWith(rule.startsWith)) rule.roles.forEach(role => roles.add(role)); });
+    return Array.from(roles);
+  }
 
   // Même règle que page-administratif.js : un projet n'entre dans Conventions
   // que si sa case « Convention de reversement » est cochée.
@@ -332,7 +361,6 @@
   async function loadTodoUserPreferences() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
-      await CoreGrist.ensureColumns('Annuaire', [ROLE_COLUMN]);
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...TODO_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, TODO_PREFS_COLUMNS);
       const rows = await CoreGrist.getTable(PREFS_TABLE);
