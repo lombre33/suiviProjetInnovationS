@@ -70,6 +70,12 @@
       N_OPE: ['OPE-2026-001', 'OPE-2026-002'],
       installe_chez: [1, 2]
     },
+    // Table système, jamais chargée par CoreGrist.loadAllTables() : project-modal.js
+    // (pièces jointes Notification/Convention) la lit à la demande via fetchTable().
+    // Vide par défaut ; les tests qui en ont besoin l'étendent via __mockSetTable.
+    _grist_Attachments: {
+      id: []
+    },
     // Etablissement (singular) intentionally absent: the live app never loads this
     // table name (see project_dead_code_inventory memory) and code must fall back
     // to 'Etablissements' when it is missing.

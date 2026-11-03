@@ -351,6 +351,23 @@
     statutSelect.addEventListener('change', renderStatusDot);
     renderStatusDot();
 
+    // Documents (pièces jointes Grist), demande d'Antoine du 03/11/2026 : si elles
+    // existent, un moyen de visualiser/télécharger la notification signée et la
+    // convention de reversement. Lecture seule — ces deux colonnes Attachments ne
+    // sont jamais écrites par cette modale, donc hors collectFields()/MODAL_FIELDS.
+    function attachmentsField(labelText, colId) {
+      const w = document.createElement('div');
+      w.className = 'cp-field cp-full';
+      w.innerHTML = `<label>${esc(labelText)}</label><div class="cp-attachments" data-cp-attachments="${esc(colId)}"></div>`;
+      withHelp(w.querySelector('label'), colId);
+      panels.general.appendChild(w);
+      return w.querySelector('.cp-attachments');
+    }
+    refs._attachmentsEls = {
+      Notifications_Signees: attachmentsField('Notification signée', 'Notifications_Signees'),
+      Convention_de_reversement_le_cas_echeant: attachmentsField('Convention de reversement (pièce jointe)', 'Convention_de_reversement_le_cas_echeant')
+    };
+
     // Porteurs — liste verticale plutôt qu'une grille 2 colonnes : chaque champ
     // Annuaire porte son avatar (initiales) via refField(..., table:'Annuaire').
     // Porteur 1, VP porteur et Accompagnateur sont obligatoires à la création (demande
@@ -640,6 +657,69 @@
     ref.refreshAvatar?.();
   }
 
+  // Pièces jointes Grist (Attachments) : valeur brute ['L', id1, id2, ...] (ReferenceList
+  // vers la table système _grist_Attachments, cf. js/core/grist-bridge.js), 0 ou absente si
+  // aucun fichier. Même déballage que setRef() pour les ReferenceList classiques.
+  function attachmentIds(value) {
+    if (!Array.isArray(value)) return [];
+    return value.filter(v => v !== 'L' && Number.isFinite(Number(v)) && Number(v) > 0).map(Number);
+  }
+
+  // Métadonnées des pièces jointes (nom de fichier), lues à la demande dans la table
+  // système _grist_Attachments — jamais chargée par CoreGrist.loadAllTables(), qui ne
+  // couvre que les tables métier. Pas de mise en cache : la modale n'ouvre ce champ
+  // qu'occasionnellement, et une table toujours à jour évite un cache à invalider
+  // quand des pièces jointes sont ajoutées/retirées côté Grist pendant la session.
+  async function loadAttachmentMeta() {
+    const api = global.CoreGrist?.gristInstance;
+    const meta = new Map();
+    if (api) {
+      try {
+        const table = await api.docApi.fetchTable('_grist_Attachments');
+        (table.id || []).forEach((id, i) => meta.set(id, text(table.fileName?.[i])));
+      } catch (err) {
+        console.warn('Lecture des pièces jointes impossible :', err.message);
+      }
+    }
+    return meta;
+  }
+
+  // Affiche dans `container` un lien de visualisation/téléchargement par pièce jointe
+  // (nom réel si connu, sinon "Pièce jointe #id"), ou "Aucun fichier." si la colonne est
+  // vide — demande d'Antoine du 03/11/2026. Le jeton d'accès (getAccessToken) et le nom de
+  // fichier se chargent de façon asynchrone ; le numéro de génération est porté par
+  // `container` (pas par la modale, réutilisée pour les DEUX champs pièces jointes à la
+  // fois) pour qu'une réponse tardive du champ Notification n'invalide pas, à tort, un
+  // rendu plus récent du champ Convention (et inversement) — et protège aussi contre une
+  // réponse qui arriverait après la réouverture de la modale sur un AUTRE projet (la
+  // modale est réutilisée, jamais recréée, cf. populateModal).
+  function renderAttachments(container, ids) {
+    if (!container) return;
+    const gen = (container._cpAttachmentsGen = (container._cpAttachmentsGen || 0) + 1);
+    if (!ids.length) {
+      container.innerHTML = '<span class="cp-attachments-empty">Aucun fichier.</span>';
+      return;
+    }
+    container.innerHTML = '<span class="cp-attachments-empty">Chargement…</span>';
+    (async () => {
+      const api = global.CoreGrist?.gristInstance;
+      if (!api) return;
+      let token, meta;
+      try {
+        [token, meta] = await Promise.all([api.docApi.getAccessToken({ readOnly: true }), loadAttachmentMeta()]);
+      } catch (err) {
+        if (container._cpAttachmentsGen === gen) container.innerHTML = '<span class="cp-attachments-empty">Pièces jointes indisponibles.</span>';
+        return;
+      }
+      if (container._cpAttachmentsGen !== gen) return;
+      container.innerHTML = ids.map(id => {
+        const name = meta.get(id) || `Pièce jointe #${id}`;
+        const url = `${token.baseUrl}/attachments/${id}/download?auth=${encodeURIComponent(token.token)}`;
+        return `<a href="${esc(url)}" class="cp-attachment-link" target="_blank" rel="noopener">${esc(name)}</a>`;
+      }).join('');
+    })();
+  }
+
   // Appelée aussi bien en édition (record renseigné) qu'à l'ouverture en création : dans
   // ce dernier cas record est null et valueOf()/setRef() (via l'enchaînement record?.[...])
   // renvoient alors systématiquement des valeurs vides, ce qui vide la modale au lieu de
@@ -688,6 +768,10 @@
 
     m.querySelectorAll('[data-fin]').forEach(input => { input.value = normaliseBudgetValue(record?.[input.dataset.fin]); });
     updateFinancialTotals(m.querySelector('.cp-fin'));
+
+    Object.entries(refs._attachmentsEls).forEach(([col, container]) => {
+      renderAttachments(container, attachmentIds(valueOf(record, [col])));
+    });
   }
 
   function collectFields(m, refs) {

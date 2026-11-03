@@ -760,6 +760,70 @@
     });
   });
 
+  // Demande d'Antoine du 03/11/2026 : dans la modale projet, si elles existent, un moyen
+  // de visualiser/télécharger la notification signée et la convention de reversement
+  // (colonnes Attachments de Projets). Lecture seule, jamais écrites par cette modale.
+  describe('Modale Projet — pièces jointes Notification / Convention (03/11/2026)', function () {
+    function flush() { return new Promise(resolve => setTimeout(resolve, 0)); }
+    function attachmentsEl(colId) { return modalEl().querySelector(`[data-cp-attachments="${colId}"]`); }
+
+    it('affiche "Aucun fichier." pour les deux champs quand la colonne est vide ou absente', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      assertEqual(attachmentsEl('Notifications_Signees').textContent, 'Aucun fichier.');
+      assertEqual(attachmentsEl('Convention_de_reversement_le_cas_echeant').textContent, 'Aucun fichier.');
+    });
+
+    it('liste un lien par pièce jointe, avec le vrai nom de fichier connu via _grist_Attachments', async function () {
+      const tables = await loadFixtureState();
+      window.__mockSetTable('_grist_Attachments', { id: [501, 502], fileName: ['Notification_signee.pdf', 'Avenant.pdf'] });
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Notifications_Signees = ['L', 501];
+      record.Convention_de_reversement_le_cas_echeant = ['L', 501, 502];
+      window.ProjectModal.open(record);
+      await flush();
+      const notif = attachmentsEl('Notifications_Signees');
+      assertEqual(notif.querySelectorAll('a').length, 1, 'une seule pièce jointe pour la notification');
+      assertEqual(notif.querySelector('a').textContent, 'Notification_signee.pdf');
+      const convention = attachmentsEl('Convention_de_reversement_le_cas_echeant');
+      assertEqual(convention.querySelectorAll('a').length, 2, 'deux pièces jointes pour la convention');
+      assertEqual(convention.querySelectorAll('a')[1].textContent, 'Avenant.pdf');
+    });
+
+    it('le lien pointe vers l\'URL de téléchargement Grist (baseUrl/attachments/id/download?auth=token)', async function () {
+      const tables = await loadFixtureState();
+      window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Notification_signee.pdf'] });
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Notifications_Signees = ['L', 501];
+      window.ProjectModal.open(record);
+      await flush();
+      const href = attachmentsEl('Notifications_Signees').querySelector('a').getAttribute('href');
+      assertEqual(href, 'http://127.0.0.1/api/docs/test/attachments/501/download?auth=jeton-de-test');
+    });
+
+    it('une pièce jointe sans métadonnée connue affiche un libellé de repli plutôt que rien', async function () {
+      const tables = await loadFixtureState();
+      // _grist_Attachments reste vide (fixture par défaut) : id 999 n'y figure pas.
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Convention_de_reversement_le_cas_echeant = ['L', 999];
+      window.ProjectModal.open(record);
+      await flush();
+      assertEqual(attachmentsEl('Convention_de_reversement_le_cas_echeant').querySelector('a').textContent, 'Pièce jointe #999');
+    });
+
+    it('une réponse tardive du projet précédent n\'écrase pas l\'affichage après réouverture sur un autre projet', async function () {
+      const tables = await loadFixtureState();
+      window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Notification_signee.pdf'] });
+      const withFile = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      withFile.Notifications_Signees = ['L', 501];
+      window.ProjectModal.open(withFile); // déclenche un chargement asynchrone, pas encore résolu
+      const withoutFile = tables.Projets.find(p => p.Acronyme === 'NOTIFY');
+      window.ProjectModal.open(withoutFile); // réutilise la même modale avant la fin du chargement précédent
+      await flush();
+      assertEqual(attachmentsEl('Notifications_Signees').textContent, 'Aucun fichier.', 'NOTIFY n\'a pas de pièce jointe : la réponse tardive de CONVENTIX ne doit pas s\'appliquer après coup');
+    });
+  });
+
   // Demande d'Antoine du 22/10/2026 : « flèche du bas ne permet pas de naviguer dans
   // le dropdown » — CoreUtils.wireRefListKeyNav() (js/core/utils.js), branché sur
   // refField() ET multiRefField(). Ces tests vérifient le vrai déplacement (pas
