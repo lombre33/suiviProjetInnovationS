@@ -687,9 +687,9 @@
     it('choisit la prochaine instance à venir plutôt qu\'une passée ou plus lointaine', async function () {
       await loadFixtureState();
       window.CoreState.setTable('Suivi_Instance', [
-        { id: 1, Nom: 'Comité passé', date: daysFromNow(-30) },
-        { id: 2, Nom: 'Comité prochain', date: daysFromNow(10) },
-        { id: 3, Nom: 'Comité plus tard', date: daysFromNow(60) }
+        { id: 1, Nom: 'CTO Innovation#1 - Comité passé', date: daysFromNow(-30) },
+        { id: 2, Nom: 'CTO FARE#2 - Comité prochain', date: daysFromNow(10) },
+        { id: 3, Nom: 'CTO Innovation#3 - Comité plus tard', date: daysFromNow(60) }
       ]);
       window.ProjectModal.open();
       assertEqual(refInput('Instance_ratachee').dataset.id, '2', 'doit choisir la plus proche instance à venir');
@@ -698,8 +698,8 @@
     it('retombe sur l\'instance passée la plus récente si aucune n\'est à venir', async function () {
       await loadFixtureState();
       window.CoreState.setTable('Suivi_Instance', [
-        { id: 1, Nom: 'Comité ancien', date: daysFromNow(-90) },
-        { id: 2, Nom: 'Comité récent', date: daysFromNow(-5) }
+        { id: 1, Nom: 'CTO Innovation#1 - Comité ancien', date: daysFromNow(-90) },
+        { id: 2, Nom: 'CTO FARE#2 - Comité récent', date: daysFromNow(-5) }
       ]);
       window.ProjectModal.open();
       assertEqual(refInput('Instance_ratachee').dataset.id, '2', 'doit choisir la plus récente passée en l\'absence d\'instance à venir');
@@ -707,7 +707,7 @@
 
     it('laisse le champ vide si aucune instance n\'a de date renseignée', async function () {
       await loadFixtureState();
-      window.CoreState.setTable('Suivi_Instance', [{ id: 1, Nom: 'Comité sans date' }]);
+      window.CoreState.setTable('Suivi_Instance', [{ id: 1, Nom: 'CTO Innovation#1 - Comité sans date' }]);
       window.ProjectModal.open();
       assertEqual(refInput('Instance_ratachee').dataset.id, '', 'aucune date connue : ne doit rien présélectionner');
     });
@@ -715,21 +715,48 @@
     it('la valeur pré-remplie reste modifiable', async function () {
       await loadFixtureState();
       window.CoreState.setTable('Suivi_Instance', [
-        { id: 1, Nom: 'Comité passé', date: daysFromNow(-30) },
-        { id: 2, Nom: 'Comité prochain', date: daysFromNow(10) }
+        { id: 1, Nom: 'CTO Innovation#1 - Comité passé', date: daysFromNow(-30) },
+        { id: 2, Nom: 'CTO FARE#2 - Comité prochain', date: daysFromNow(10) }
       ]);
       window.ProjectModal.open();
       assertEqual(refInput('Instance_ratachee').dataset.id, '2');
-      pickRef('Instance_ratachee', 'Comité passé', 'Comité passé');
+      pickRef('Instance_ratachee', 'Comité passé', 'CTO Innovation#1 - Comité passé');
       assertEqual(refInput('Instance_ratachee').dataset.id, '1', 'doit pouvoir remplacer la valeur pré-remplie par un autre choix');
     });
 
     it('ne s\'applique pas en édition', async function () {
       await loadFixtureState();
-      window.CoreState.setTable('Suivi_Instance', [{ id: 99, Nom: 'Comité prochain', date: daysFromNow(10) }]);
+      window.CoreState.setTable('Suivi_Instance', [{ id: 99, Nom: 'CTO Innovation#1 - Comité prochain', date: daysFromNow(10) }]);
       const record = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'NOTIFY');
       window.ProjectModal.open(record);
       assertEqual(refInput('Instance_ratachee').dataset.id, '', 'NOTIFY n\'a pas d\'instance rattachée dans la fixture : l\'édition ne doit pas en choisir une à sa place');
+    });
+
+    // Demande d'Antoine du 03/11/2026 : ne retenir que les instances CTO Innovation
+    // ou CTO FARE — le type est le préfixe de Nom avant le "#" (Instances n'est pas
+    // chargée, voir docs/grist_usage.md).
+    it('ignore les instances d\'un autre type, même si elles sont plus proches dans le temps', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [
+        { id: 1, Nom: 'Comité scientifique#5 - Comité proche', date: daysFromNow(2) },
+        { id: 2, Nom: 'CTO Innovation#1 - Comité plus loin', date: daysFromNow(20) }
+      ]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '2', 'le Comité scientifique n\'est pas CTO Innovation/FARE : doit être ignoré même s\'il est plus proche');
+    });
+
+    it('retient un comité CTO FARE tout autant qu\'un CTO Innovation (insensible à la casse)', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [{ id: 1, Nom: 'cto fare#9 - Comité FARE', date: daysFromNow(15) }]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '1');
+    });
+
+    it('laisse le champ vide si seules des instances d\'un autre type ont une date', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Suivi_Instance', [{ id: 1, Nom: 'Comité scientifique#5 - Comité proche', date: daysFromNow(5) }]);
+      window.ProjectModal.open();
+      assertEqual(refInput('Instance_ratachee').dataset.id, '', 'aucune instance CTO Innovation/FARE : ne doit rien présélectionner');
     });
   });
 

@@ -813,14 +813,33 @@
     return matches.length === 1 ? matches[0] : null;
   }
 
+  // Le type d'instance (CTO Innovation, CTO FARE, Comité...) n'est pas chargé
+  // directement : Suivi_Instance.Instance référence la table Instances, jamais
+  // chargée par le widget (docs/grist_usage.md). La formule Nom l'embarque en
+  // préfixe ("<type>#<numero> - <date>"), seul moyen côté client de le retrouver.
+  function suiviInstanceType(row) {
+    const nom = text(row?.Nom ?? row?.name);
+    const idx = nom.indexOf('#');
+    return normaliseName(idx === -1 ? nom : nom.slice(0, idx));
+  }
+
+  // Demande du 03/11/2026 : ne retenir que les instances CTO Innovation / CTO FARE
+  // pour le pré-remplissage ci-dessous, jamais les autres types de comité.
+  function isEligibleInstanceType(row) {
+    const type = suiviInstanceType(row);
+    return type === 'cto innovation' || type === 'cto fare';
+  }
+
   // Pré-remplissage Instance rattachée (création uniquement) : l'instance la plus
-  // proche dans le temps — la prochaine à venir, sinon la plus récente passée.
+  // proche dans le temps — la prochaine à venir, sinon la plus récente passée —
+  // parmi les seules instances de type CTO Innovation ou CTO FARE.
   // Suivi_Instance.date est un Grist Date() (timestamp Unix en secondes), même
   // convention que js/core/utils.js (gristDateToInput) ; les instances sans date
   // sont ignorées.
   function findNearestInstance() {
     const now = Math.floor(Date.now() / 1000);
     const dated = rows('Suivi_Instance')
+      .filter(isEligibleInstanceType)
       .map(r => ({ row: r, date: Number(r.date) }))
       .filter(x => Number.isFinite(x.date) && x.date !== 0);
     if (!dated.length) return null;
