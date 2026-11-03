@@ -75,6 +75,21 @@
     <div id="redaction-vars-panel" class="redaction-vars-panel" hidden><div class="redaction-vars-head"><strong>Variables que la modale projet ne modifie pas</strong><span id="redaction-vars-title"></span></div><div id="redaction-vars-list"></div></div>
     <div id="redaction-frame-wrap" class="redaction-frame-wrap"></div>
   </section>
+
+  <section id="view-todo" class="view">
+    <div class="project-filters todo-filters" role="search" aria-label="Filtres To Do">
+      <div class="admin-tabs" role="tablist" aria-label="Notifications, Conventions ou Installation">
+        <button type="button" class="admin-tab is-active" data-todo-tab="notif" role="tab" aria-selected="true">Notifications</button>
+        <button type="button" class="admin-tab" data-todo-tab="conv" role="tab" aria-selected="false">Conventions</button>
+        <button type="button" class="admin-tab" data-todo-tab="install" role="tab" aria-selected="false">Installation</button>
+      </div>
+      <select id="todo-view-select" class="todo-view-select" aria-label="Afficher les tâches de"></select>
+      <button id="todo-reset" type="button" class="btn btn-secondary">Réinitialiser</button>
+      <span id="todo-count" class="todo-count"></span>
+    </div>
+    <p id="todo-identify-notice" class="todo-identify-notice" hidden>Identification automatique indisponible : choisissez une personne dans la liste ci-dessus.</p>
+    <div id="todo-panels" class="admin-panels"></div>
+  </section>
 </div>
 
 <div id="test-results"><p>Exécution des tests…</p></div>
@@ -113,6 +128,7 @@
     await loadScript('../js/components/ope-modal.js');
     await loadScript('../js/pages/page-projets.js');
     await loadScript('../js/pages/page-administratif.js');
+    await loadScript('../js/pages/page-todo.js');
     await loadScript('../js/pages/redaction-variables.js');
     await loadScript('../js/pages/page-redaction.js');
 
@@ -124,6 +140,7 @@
     await loadScript('suite-poste-modal.js');
     await loadScript('suite-ope-modal.js');
     await loadScript('suite-administratif.js');
+    await loadScript('suite-todo.js');
     await loadScript('suite-bridge.js');
     await loadScript('suite-redaction.js');
     await loadScript('suite-redaction-variables.js');
