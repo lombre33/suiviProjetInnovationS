@@ -790,7 +790,7 @@
       assertEqual(convention.querySelectorAll('a')[1].textContent, 'Avenant.pdf');
     });
 
-    it('le lien pointe vers l\'URL de téléchargement Grist (baseUrl/attachments/id/download?auth=token)', async function () {
+    it('le lien pointe vers l\'URL de téléchargement Grist, avec la cellule (tableId/colId/rowId) pour une preuve d\'accès directe', async function () {
       const tables = await loadFixtureState();
       window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Notification_signee.pdf'] });
       const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
@@ -798,7 +798,25 @@
       window.ProjectModal.open(record);
       await flush();
       const href = attachmentsEl('Notifications_Signees').querySelector('a').getAttribute('href');
-      assertEqual(href, 'http://127.0.0.1/api/docs/test/attachments/501/download?auth=jeton-de-test');
+      assertEqual(href, `http://127.0.0.1/api/docs/test/attachments/501/download?auth=jeton-de-test&tableId=Projets&colId=Notifications_Signees&rowId=${record.id}`);
+    });
+
+    it('demande un jeton readOnly:false (pas readOnly:true, qui plafonnerait l\'accès au rôle Lecteur côté Grist)', async function () {
+      const tables = await loadFixtureState();
+      window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Notification_signee.pdf'] });
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Notifications_Signees = ['L', 501];
+      const calls = [];
+      const realGetAccessToken = window.grist.docApi.getAccessToken;
+      window.grist.docApi.getAccessToken = async function (options) { calls.push(options); return realGetAccessToken(options); };
+      try {
+        window.ProjectModal.open(record);
+        await flush();
+      } finally {
+        window.grist.docApi.getAccessToken = realGetAccessToken;
+      }
+      assertTrue(calls.length >= 1, 'getAccessToken doit avoir été appelé');
+      calls.forEach(opts => assertEqual(opts.readOnly, false, 'readOnly:true plafonne le jeton au rôle Lecteur côté serveur Grist, ce qui bloquait le téléchargement de la Convention chez Antoine (03/11/2026)'));
     });
 
     it('une pièce jointe sans métadonnée connue affiche un libellé de repli plutôt que rien', async function () {

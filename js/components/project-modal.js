@@ -693,7 +693,18 @@
   // rendu plus récent du champ Convention (et inversement) — et protège aussi contre une
   // réponse qui arriverait après la réouverture de la modale sur un AUTRE projet (la
   // modale est réutilisée, jamais recréée, cf. populateModal).
-  function renderAttachments(container, ids) {
+  //
+  // readOnly:false est volontaire, pas un oubli : un jeton readOnly:true est plafonné
+  // côté serveur Grist au rôle Lecteur (AccessTokenCredential.docAuth, grist-core),
+  // quel que soit le vrai rôle de l'utilisateur. Sur le document d'Antoine, une règle
+  // d'accès limite la lecture de la pièce jointe Convention à Éditeur/Propriétaire — un
+  // jeton readOnly:true faisait donc échouer son propre téléchargement ("Cannot access
+  // attachment") alors qu'il y a bien droit, Notification n'étant pas concerné par cette
+  // règle. readOnly:false laisse le jeton porter le vrai rôle de l'utilisateur (ticket
+  // valable 15 min, jamais stocké, seulement inséré dans ce lien de téléchargement).
+  // cell (tableId/colId/rowId) est transmis quand connu : Grist peut alors prouver
+  // l'accès directement sur cette cellule plutôt que de chercher dans tout le document.
+  function renderAttachments(container, ids, cell) {
     if (!container) return;
     const gen = (container._cpAttachmentsGen = (container._cpAttachmentsGen || 0) + 1);
     if (!ids.length) {
@@ -706,15 +717,16 @@
       if (!api) return;
       let token, meta;
       try {
-        [token, meta] = await Promise.all([api.docApi.getAccessToken({ readOnly: true }), loadAttachmentMeta()]);
+        [token, meta] = await Promise.all([api.docApi.getAccessToken({ readOnly: false }), loadAttachmentMeta()]);
       } catch (err) {
         if (container._cpAttachmentsGen === gen) container.innerHTML = '<span class="cp-attachments-empty">Pièces jointes indisponibles.</span>';
         return;
       }
       if (container._cpAttachmentsGen !== gen) return;
+      const cellParams = cell ? `&tableId=${encodeURIComponent(cell.tableId)}&colId=${encodeURIComponent(cell.colId)}&rowId=${encodeURIComponent(cell.rowId)}` : '';
       container.innerHTML = ids.map(id => {
         const name = meta.get(id) || `Pièce jointe #${id}`;
-        const url = `${token.baseUrl}/attachments/${id}/download?auth=${encodeURIComponent(token.token)}`;
+        const url = `${token.baseUrl}/attachments/${id}/download?auth=${encodeURIComponent(token.token)}${cellParams}`;
         return `<a href="${esc(url)}" class="cp-attachment-link" target="_blank" rel="noopener">${esc(name)}</a>`;
       }).join('');
     })();
@@ -770,7 +782,8 @@
     updateFinancialTotals(m.querySelector('.cp-fin'));
 
     Object.entries(refs._attachmentsEls).forEach(([col, container]) => {
-      renderAttachments(container, attachmentIds(valueOf(record, [col])));
+      const cell = record?.id ? { tableId: 'Projets', colId: col, rowId: record.id } : null;
+      renderAttachments(container, attachmentIds(valueOf(record, [col])), cell);
     });
   }
 
