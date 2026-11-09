@@ -18,6 +18,8 @@
      these tests assert on data/DOM structure, not visual layout. -->
 <div id="app-dom">
   <div id="toast" class="toast hidden"></div>
+  <div class="in-navdd"><button id="btn-instances" class="nav-btn" data-view="view-instances" aria-haspopup="menu">Instances</button><div id="instances-menu" class="in-navmenu" hidden></div></div>
+  <section id="view-instances" class="view hidden" aria-label="Instances"><div id="instances-root" class="in-root"></div></section>
   <div id="error-container" class="error-container hidden">
     <div class="error-message"><span id="error-text"></span><button id="error-close" class="error-close">&times;</button></div>
   </div>
@@ -170,6 +172,9 @@
     await loadScript('../js/pages/page-todo.js');
     await loadScript('../js/pages/redaction-variables.js');
     await loadScript('../js/pages/page-redaction.js');
+    await loadScript('../js/pages/instances-logic.js');
+    await loadScript('../js/pages/instances-data.js');
+    await loadScript('../js/pages/page-instances.js');
 
     // Outil de signature (signature/, URL dédiée) : mêmes fichiers que la vraie page, hors index.html/boot.js.
     window.SIG_ROOT = location.origin + '/signature/';
@@ -196,6 +201,7 @@
     await loadScript('suite-redaction.js');
     await loadScript('suite-redaction-variables.js');
     await loadScript('suite-signature.js');
+    await loadScript('suite-instances.js');
 
     await window.CoreGrist.ready();
     await window.runAllTests();

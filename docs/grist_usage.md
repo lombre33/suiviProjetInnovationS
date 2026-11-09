@@ -210,6 +210,36 @@ Lecture seule.
 
 Le code essaie aussi une clé `name` en minuscules, absente du schéma.
 
+**Page Instances (9 novembre 2026).** Une ligne de `Suivi_Instance` = une séance de la page
+« par instance » (`js/pages/page-instances.js`). Colonnes lues : `Instance`, `Numero` (Text),
+`date` (Date), `Heure` (DateTime, Europe/Paris), `Salle` (Reference → `Lieux`). Le widget écrit
+`date`, `Heure` et `Salle`, et crée les colonnes suivantes à la première ouverture de la page :
+`Mail_invitation_le` (Date), `CR_V0_le` (Date), `CR_V0_par` (→ `Annuaire`), `CR_lien_type`
+(Choice : Fichier GFS / Lien externe), `CR_lien` (Text : identifiant `GFS_Fichiers` ou adresse),
+`Mail_CR_le` (Date). Voir la section « Page Instances » plus bas.
+
+## Page Instances
+
+Tables et colonnes créées par le widget à la première ouverture de la page (`ensureTable` /
+`ensureColumns`, droit d'édition requis). Les colonnes formule ne sont **jamais** écrites ; les
+références sont écrites en identifiants (`['L', …]` pour les RefList) ; les dates en secondes UTC.
+
+| Table | Colonnes |
+| --- | --- |
+| `Instances` (ajouts) | `Heure_debut` (Text, HH:MM), `Duree_min` (Int), `Etapes_actives` (ChoiceList, vide = toutes), `Relecteurs_CR` / `Invites_permanents` (RefList → `Annuaire`), `Modele_invitation` / `Modele_CR` (Text) — chacune avec une description (bulles d'aide du paramétrage) |
+| `Instance_Points` | `Seance` (→ `Suivi_Instance`), `Ordre`, `Titre`, `Nature` (Validation / Discussion / Information), `Duree_min`, `Projets` (RefList → `Projets`), `Invites` (RefList → `Instance_Invites`), `Lien_type`, `Lien` |
+| `Instance_Invites` | `Seance`, `Personne` (→ `Annuaire`), `Origine` (Liste permanente / Ajouté sur un point), `Ecrit_le`, `Passage_envoye_le`, `Passage_envoye_heure`, `Reponse` (À confirmer / Viendra / Excusé(e)), `Dispo_de`, `Dispo_a`, `Commentaire`, `Appel` (Présent(e) / Absent(e)) |
+| `Instance_Relectures` | `Seance`, `Personne`, `Statut` (Modifs demandées / Validée ; pas de ligne = à relire), `Relu_le` |
+| `Instance_Validations` | `Seance`, `Etape`, `Date`, `Par` (→ `Annuaire`) — une ligne par étape validée (les étapes « Mail d'invitation » et « Envoi du CR » se valident par leur date dans `Suivi_Instance`) |
+| `Export_VP` | table plate lue par Sync+ vers l'outil de signature du VP (`signature/`). Écrites par le widget : `Seance`, `Projet`, `A_envoyer`, `Mis_a_dispo_le`, `Mis_a_dispo_par`. Formules : `Instance`, `Date_instance`, `Acronyme`, `Porteur`, `Labo_porteur`, `Montant`. `PDF_notification` (Attachments) : à alimenter côté Grist. Retour de Sync+ : `Signee`, `Signee_le`, `PDF_signe` |
+
+Le bouton « Mettre à disposition du VP » n'est jamais automatique : il demande confirmation puis
+écrit `Export_VP` ; il **ne modifie pas** `Notifications.notifications_Statut`, et le widget
+n'ouvre jamais `PDF_signe`. Le compte rendu se lit dans la page depuis `GFS_Fichiers` (colonne
+`Contenu`, Attachments) via une iframe sur l'URL de la pièce jointe ; la lecture native par
+l'extension `lecture-pdf` de GFS reste à faire. Préférences par utilisateur dans
+`Preferences_Widget` : `Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`.
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait

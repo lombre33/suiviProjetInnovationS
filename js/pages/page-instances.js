@@ -1,0 +1,936 @@
+/** Page « par instance » (CTO, Comité innovation, COPIL, COT) — maquette V4 validée par Antoine le 09/11/2026,
+ * https://claude.ai/artifact/TNA7aRTFGZcvV1858SGzPe. Une séance = une ligne de Suivi_Instance ; la page résume les
+ * étapes de la séance (ordre du jour, invités, mail d'invitation, compte rendu, envoi du CR, notifications liées)
+ * et leurs validations, en mode « Souple » : chaque étape se valide sur ses propres conditions, un avertissement
+ * signale une étape précédente restée ouverte, aucun verrou.
+ *
+ * Fichiers : instances-logic.js (règles pures), instances-data.js (schéma Grist, lecture/écriture, normalisation),
+ * ce fichier (état, rendu, actions), css/instances.css (classes préfixées « in- » : withPrefix() les ajoute au rendu).
+ *
+ * Tables Grist créées à la première ouverture (voir instances-data.js) : Instance_Invites, Instance_Points,
+ * Instance_Relectures, Instance_Validations, Export_VP (lue par Sync+ vers l'outil de signature du VP) + colonnes
+ * ajoutées à Instances et Suivi_Instance. Préférences par utilisateur (instance, séance, étape, variante de la vue
+ * d'ensemble) dans Preferences_Widget (Inst_*).
+ *
+ * Bouton « Mettre à disposition du VP » : jamais automatique, avec confirmation ; ne modifie PAS
+ * Notifications.notifications_Statut ; le widget n'ouvre jamais Export_VP.PDF_signe (sécurité de la pièce signée
+ * traitée dans le fil « signature »).
+ */
+(function (global) {
+  'use strict';
+  const L = global.InstancesLogic, D = global.InstancesData;
+  const C = L.CHOICES;
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const text = D.text;
+  const PREFS_TABLE = 'Preferences_Widget';
+  const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
+  const VARIANTS = ['A', 'B', 'C'];
+
+  let todayOverride = null;
+  const todayIso = () => todayOverride || (L.parisParts(Date.now() / 1000) || {}).date || new Date().toISOString().slice(0, 10);
+
+  const S = {
+    loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A' }, prefsRowId: null, personId: 0,
+    ui: { menu: null, settings: false }
+  };
+
+  // ---------------------------------------------------------------------------------------------
+  // Icônes et petits utilitaires de rendu
+  // ---------------------------------------------------------------------------------------------
+  const SVG = {
+    chevron: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>', plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12l5 5L20 7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    macro: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+    sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.8a3.5 3.5 0 010 6.4M18 14.3c2.2.6 3.5 2.4 3.5 5.7"/>',
+    peopleAdd: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M19 8v6M16 11h6"/>',
+    project: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M8 7v6M12 7v10M16 7v4"/>',
+    clip: '<path d="M21 11l-9 9a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8"/>',
+    warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>', star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    ask: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1-1.5 2M12 17h.01"/>', no: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    dots: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
+    validation: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>', discussion: '<path d="M4 5h16v11H9l-5 4z"/>', information: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>',
+    file: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/>', fileLines: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>', start: '<path d="M5 4v16M9 12h11M13 8l-4 4 4 4"/>', end: '<path d="M19 4v16M15 12H4M11 8l4 4-4 4"/>',
+    calCheck: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M9 16l2 2 4-4"/>', send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
+    eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', idle: '<circle cx="12" cy="12" r="8"/>',
+    pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14 7l3 3"/>', reopen: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3"/>',
+    hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
+  };
+  const ic = (name, size, extra) => '<svg class="ic' + (size ? ' ' + size : '') + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + SVG[name] + '</svg>';
+  // Les classes de la maquette sont préfixées « in- » ici, au rendu, pour que le CSS reste isolé (voir css/instances.css).
+  const withPrefix = html => html.replace(/class="([^"]*)"/g, (all, list) => 'class="' + list.split(/\s+/).filter(Boolean).map(c => 'in-' + c).join(' ') + '"');
+  const da = (act, o) => 'data-act="' + act + '"' + Object.keys(o || {}).map(k => ' data-' + k + '="' + esc(o[k]) + '"').join('');
+  const plural = (n, one, many) => n + ' ' + (n > 1 ? many : one);
+  const helpToken = (table, colId) => '@@HELP:' + table + ':' + colId + '@@';
+  const fillHelp = html => html.replace(/@@HELP:([A-Za-z_0-9]+):([A-Za-z_0-9]+)@@/g, (all, table, colId) => (global.HelpTooltip ? global.HelpTooltip.markup(table, colId) : ''));
+
+  // ---------------------------------------------------------------------------------------------
+  // Données : chargement, modèle, écritures
+  // ---------------------------------------------------------------------------------------------
+  const tableOf = name => (global.CoreState && global.CoreState.getTable(name)) || [];
+  function rebuild() {
+    S.model = D.buildModel(S.raw, { annuaire: tableOf('Annuaire'), postes: tableOf('Postes2'), projets: tableOf('Projets'), notifications: tableOf('Notifications') });
+  }
+  function setRaw(raw) {
+    Object.keys(S.raw).forEach(k => { delete S.raw[k]; });
+    Object.assign(S.raw, raw);
+  }
+  async function reloadFromGrist() {
+    try { setRaw(await D.fetchAll()); rebuild(); render(); } catch (err) { console.warn('Rechargement Instances :', err.message); }
+  }
+  function ensureStore() {
+    if (S.store) return;
+    S.store = D.createStore(S.raw, {
+      changed: () => { rebuild(); if (S.defer) scheduleRender(); else render(); },
+      failed: err => { if (global.CoreUtils) global.CoreUtils.showToast('Enregistrement impossible : ' + err.message, true); reloadFromGrist(); }
+    });
+  }
+  // Écrit des opérations ; `defer` : repousse le rendu (champs texte, pour ne pas perdre le clic qui a fait perdre le focus).
+  function write(ops, opts) {
+    ensureStore();
+    S.defer = !!(opts && opts.defer);
+    const promise = S.store.commit(ops).catch(() => []);
+    S.defer = false;
+    return promise;
+  }
+  let renderTimer = null;
+  function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(() => { renderTimer = null; render(); }, 150); }
+
+  async function ensureLoaded(force) {
+    if (S.loaded && !force) return;
+    if (S.loading) return S.loading;
+    S.loading = (async () => {
+      try {
+        if (!global.CoreGrist || !global.CoreGrist.gristInstance) throw new Error('Grist non disponible');
+        if (!S.loaded) await D.ensureSchema();
+        setRaw(await D.fetchAll());
+        if (S.raw.Instances__error) throw new Error('table Instances introuvable (' + S.raw.Instances__error + ')');
+        rebuild();
+        S.loaded = true; S.error = '';
+      } catch (err) {
+        S.error = "Page Instances indisponible : " + err.message + '. Il faut un droit d\'édition sur le document pour créer les tables de la page.';
+        console.error('Page Instances :', err);
+      } finally {
+        S.loading = null;
+        render(); renderNavMenu();
+      }
+    })();
+    return S.loading;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Préférences par utilisateur (Preferences_Widget) et identification de « moi » (Annuaire.Email)
+  // ---------------------------------------------------------------------------------------------
+  const getCachedPrefsRowId = () => { try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; } catch (err) { return null; } };
+  const setCachedPrefsRowId = id => { try { localStorage.setItem(PREFS_ROWID_STORAGE_KEY, String(id)); } catch (err) { /* stockage bloqué : tant pis */ } };
+  async function loadInstancesUserPreferences() {
+    if (!global.CoreGrist || !global.CoreGrist.gristInstance) return;
+    try {
+      await global.CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...D.PREFS_COLUMNS]);
+      await global.CoreGrist.ensureColumns(PREFS_TABLE, D.PREFS_COLUMNS);
+      const rows = await global.CoreGrist.getTable(PREFS_TABLE);
+      const cachedId = getCachedPrefsRowId();
+      const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
+      if (!row) {
+        const result = await global.CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        S.prefsRowId = global.CoreUtils.extractAddedRecordId(result);
+        setCachedPrefsRowId(S.prefsRowId);
+        return;
+      }
+      S.prefsRowId = row.id;
+      const email = text(row.Email_utilisateur).trim().toLowerCase();
+      const me = email ? tableOf('Annuaire').find(p => text(p.Email).trim().toLowerCase() === email) : null;
+      S.personId = me ? me.id : 0;
+      S.prefs.instanceId = Number(row.Inst_instance) || null;
+      try { const map = JSON.parse(text(row.Inst_seances) || '{}'); S.prefs.seances = map && typeof map === 'object' ? map : {}; } catch (err) { S.prefs.seances = {}; }
+      if (text(row.Inst_etape)) S.prefs.etape = text(row.Inst_etape);
+      if (VARIANTS.indexOf(text(row.Inst_vue)) >= 0) S.prefs.vue = text(row.Inst_vue);
+    } catch (err) {
+      console.warn('Chargement des préférences Instances a échoué :', err.message);
+    }
+  }
+  async function savePrefs() {
+    if (!S.prefsRowId || !global.CoreGrist || !global.CoreGrist.gristInstance) return;
+    try {
+      await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
+        Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
+        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue
+      }]]);
+    } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Sélection : instance, séance
+  // ---------------------------------------------------------------------------------------------
+  function currentInstance() {
+    const m = S.model; if (!m) return null;
+    return m.instById[S.prefs.instanceId] || m.instances[0] || null;
+  }
+  function defaultSeance(inst) {
+    const today = todayIso();
+    const upcoming = inst.seances.filter(x => x.date && x.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+    return upcoming || inst.seances[0] || null;
+  }
+  function currentSeance(inst) {
+    if (!inst) return null;
+    const id = S.prefs.seances[inst.id];
+    return inst.seances.find(x => x.id === id) || defaultSeance(inst);
+  }
+  const personOf = (m, id) => m.peopleById[id] || { id, name: '?', poste: '' };
+  const projectOf = (m, id) => m.projectsById[id] || { id, acro: '?', titre: '', notif: '' };
+
+  // ---------------------------------------------------------------------------------------------
+  // Modèle de vue : tout ce que le rendu affiche, calculé une fois par rendu
+  // ---------------------------------------------------------------------------------------------
+  function validationCtx(m, s, cfg) {
+    const projectIds = [];
+    s.points.forEach(p => p.projets.forEach(id => { if (projectIds.indexOf(id) < 0) projectIds.push(id); }));
+    const projectVp = {};
+    projectIds.forEach(id => { projectVp[id] = L.vpState(s.exports[id], L.notifNum(projectOf(m, id).notif)); });
+    const sched = L.schedule(s.points, L.toMin(s.heure) || 0);
+    const guestsById = {}; s.guests.forEach(g => { guestsById[g.id] = g; });
+    const nameOf = pid => personOf(m, pid).name;
+    const conflicts = L.computeConflicts(sched, guestsById, nameOf);
+    return { seance: s, cfg, sched, conflicts, guests: s.guests, relectures: s.relectures, validations: s.validations, endMin: (L.toMin(s.heure) || 0) + cfg.duree, personName: nameOf, projectIds, projectVp };
+  }
+  function computeView() {
+    const m = S.model, inst = currentInstance();
+    const V = { m, inst, cfg: inst && inst.cfg, s: null, today: todayIso() };
+    if (!inst) return V;
+    V.s = currentSeance(inst);
+    V.active = L.STEPS.filter(x => inst.cfg.steps.indexOf(x.key) >= 0);
+    if (!V.s) return V;
+    const s = V.s, cfg = inst.cfg;
+    const ctx = V.ctx = validationCtx(m, s, cfg);
+    V.sched = ctx.sched; V.conf = ctx.conflicts; V.endMin = ctx.endMin; V.nameOf = ctx.personName;
+    V.startMin = L.toMin(s.heure) || 0;
+    V.lastEnd = V.sched.length ? V.sched[V.sched.length - 1].end : V.startMin;
+    V.over = V.lastEnd > V.endMin;
+    V.view = (S.prefs.etape !== 'macro' && V.active.some(x => x.key === S.prefs.etape)) ? S.prefs.etape : 'macro';
+    V.isMacro = V.view === 'macro';
+    V.stepKey = V.isMacro ? V.active[0].key : V.view;
+    V.valid = key => L.isValid(key, ctx);
+    V.firstOpen = (V.active.find(x => !V.valid(x.key)) || V.active[V.active.length - 1]).key;
+    V.stepIdx = V.active.findIndex(x => x.key === V.stepKey);
+    V.curStep = V.active[V.stepIdx];
+    V.curDone = V.valid(V.stepKey);
+    V.dateStep = L.DATE_STEPS.indexOf(V.stepKey) >= 0;
+    V.conds = L.stepConditions(V.stepKey, ctx);
+    V.missing = V.conds.filter(x => !x.warn && !x.ok).map(x => x.text);
+    const prevOpen = V.active.slice(0, V.stepIdx).filter(x => !V.valid(x.key)).map(x => x.short);
+    V.alerts = V.conds.filter(x => x.warn && !x.ok).map(x => x.text);
+    if (!V.curDone && prevOpen.length) V.alerts.push('Étapes précédentes à valider : ' + prevOpen.join(', '));
+    V.nDone = V.active.filter(x => V.valid(x.key)).length;
+    V.guestOrder = s.guests.slice().sort((a, b) => (a.origine === b.origine ? 0 : (a.origine === 'point' ? -1 : 1)));
+    V.firstStart = g => L.firstStartOf(V.sched, g.id);
+    return V;
+  }
+  const progressOf = (m, se, active) => active.filter(x => L.isValid(x.key, { seance: se, validations: se.validations })).length + '/' + active.length;
+  const hasLink = (type, link) => !!(type && link);
+
+  // ---------------------------------------------------------------------------------------------
+  // Rendu — bandeau
+  // ---------------------------------------------------------------------------------------------
+  const isOpen = key => S.ui.menu === key;
+  function timeMenu(key, value, scope, id, from, to, canClear, head) {
+    let out = '<div class="menu tgrid">' + (head || '');
+    for (let t = from; t <= to; t += 15) { const l = L.hhmm(t); out += '<button type="button" class="mi ' + (l === value ? 'on' : '') + '" ' + da('time-pick', { s: scope, id: id || '', v: l }) + '>' + l + '</button>'; }
+    if (canClear && value) out += '<button type="button" class="mi wide" ' + da('time-clear', { s: scope, id: id || '' }) + '>Effacer</button>';
+    return out + '</div>';
+  }
+  function bandHtml(V) {
+    const { m, inst, s } = V;
+    let h = '<section class="band" aria-label="Séance et étapes"><span class="inst-badge">' + esc(inst.nom) + '</span>';
+    if (!s) {
+      return h + '<span class="muted">Aucune séance pour cette instance.</span><span class="sp"></span><button type="button" class="pillbtn" ' + da('seance-new') + '>' + ic('plus', 's') + 'Nouvelle séance</button>'
+        + '<button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
+    }
+    const when = s.date && s.date < V.today ? 'passée' : 'à venir';
+    h += '<div class="rel"><button type="button" class="sel" ' + da('menu', { v: 'seance' }) + '><span>n°' + esc(s.num || '?') + ' · ' + esc(L.fmtDate(s.date) || 'sans date') + '</span><span class="tag-soft">' + when + '</span>' + ic('chevron', 's') + '</button>';
+    if (isOpen('seance')) {
+      h += '<div class="menu">' + inst.seances.map(se => '<button type="button" class="mi ' + (se.id === s.id ? 'on' : '') + '" ' + da('seance-pick', { id: se.id }) + '><span>n°' + esc(se.num || '?') + ' · ' + esc(L.fmtDate(se.date) || 'sans date') + '</span><span class="mi-sub">' + progressOf(m, se, V.active) + '</span></button>').join('')
+        + '<div class="mi-sep"></div><button type="button" class="mi" ' + da('seance-new') + '><span>Nouvelle séance</span>' + ic('plus', 's') + '</button></div>';
+    }
+    h += '</div>';
+    // heure de début (+ date de la séance)
+    h += '<div class="rel"><button type="button" class="tp" title="Date et heure de début" aria-label="Heure de début" ' + da('menu', { v: 'heure' }) + '>' + ic('clock', 's') + esc(s.heure) + '<span class="muted">→ ' + L.hhmm(V.endMin) + '</span></button>';
+    if (isOpen('heure')) {
+      h += timeMenu('heure', s.heure, 'heure', '', 6 * 60, 20 * 60, false, '<div class="mform" style="grid-column:1/-1"><input type="date" class="dp" aria-label="Date de la séance" value="' + esc(s.date) + '" data-chg="seance-date"></div>');
+    }
+    h += '</div>';
+    // salle (table Lieux)
+    const salle = m.lieuxById[s.salleId];
+    h += '<div class="rel"><button type="button" class="tp" title="Salle" aria-label="Salle" ' + da('menu', { v: 'salle' }) + '>' + ic('pin', 's') + esc(salle ? salle.nom : 'Salle ?') + ic('chevron', 'xs') + '</button>';
+    if (isOpen('salle')) {
+      h += '<div class="menu">' + (m.lieux.length ? m.lieux.map(l => '<button type="button" class="mi ' + (l.id === s.salleId ? 'on' : '') + '" ' + da('salle-pick', { id: l.id }) + '><span>' + esc(l.nom) + '</span><span class="mi-sub">' + esc(l.sub) + '</span></button>').join('') : '<div class="mh">— Aucun lieu —</div>') + '</div>';
+    }
+    h += '</div>';
+    // étapes
+    h += '<div class="stepper" role="tablist" aria-label="Vues de la séance"><button type="button" role="tab" class="chip macro ' + (V.isMacro ? 'sel-on' : '') + '" title="Vue d\'ensemble" ' + da('step', { v: 'macro' }) + '>' + ic('macro') + V.nDone + '/' + V.active.length + '</button>';
+    V.active.forEach((x, i) => {
+      const done = V.valid(x.key), warn = !done && L.stepConditions(x.key, V.ctx).some(z => z.chip && !z.ok);
+      const cls = (done ? 'done' : (x.key === V.firstOpen ? 'current' : 'todo')) + (x.key === V.view ? ' sel-on' : '');
+      h += '<button type="button" role="tab" class="chip ' + cls + '" title="' + esc(x.label + (done ? ' — ' + L.validatedInfo(x.key, V.ctx, V.nameOf) : '')) + '" ' + da('step', { v: x.key }) + '><span class="chip-n">' + (done ? ic('check', 'xs') : (i + 1)) + '</span>' + esc(x.chip) + (warn ? '<span class="dot"></span>' : '') + '</button>';
+    });
+    h += '</div><button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
+    return h;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Rendu — vue d'ensemble
+  // ---------------------------------------------------------------------------------------------
+  function macroHtml(V) {
+    const { s, cfg, m } = V;
+    const vue = S.prefs.vue;
+    const nWritten = s.guests.filter(g => g.ecritLe).length;
+    const nYes = s.guests.filter(g => g.reponse === 'viendra').length, nNo = s.guests.filter(g => g.reponse === 'excuse').length, nAsk = s.guests.length - nYes - nNo;
+    const nAppel = s.guests.filter(g => g.appel === 'present').length;
+    const horTot = s.guests.filter(g => !!V.firstStart(g)).length;
+    const horOk = s.guests.filter(g => { const f0 = V.firstStart(g); return !!f0 && !!g.passageLe && g.passageHeure === f0; }).length;
+    const nSpecial = s.guests.filter(g => g.origine === 'point').length;
+    const writtenPct = s.guests.length ? Math.round(100 * nWritten / s.guests.length) + '%' : '0%';
+    const nConf = Object.keys(V.conf).length;
+    const projIds = V.ctx.projectIds;
+    const nSigned = projIds.filter(id => V.ctx.projectVp[id].key === 'signed').length, nWait = projIds.filter(id => V.ctx.projectVp[id].key === 'wait').length;
+    const toSend = projIds.filter(id => V.ctx.projectVp[id].key === 'none');
+    const sdot = key => { const done = V.valid(key); return '<span class="sdot ' + (done ? 'done' : (key === V.firstOpen ? 'cur' : 'todo')) + '">' + (done ? ic('check', 'xs') : '') + '</span>'; };
+    const spanTxt = L.durTxt(V.lastEnd - V.startMin);
+    let h = '<div class="vswitch"><span>Proposition de vue</span><div class="seg" role="group" aria-label="Variante de la vue d\'ensemble">'
+      + [['A', 'A · Fil horizontal'], ['B', 'B · Fil vertical'], ['C', 'C · Rail complet']].map(v => '<button type="button" class="' + (vue === v[0] ? 'on' : '') + '" ' + da('vue', { v: v[0] }) + '>' + v[1] + '</button>').join('') + '</div></div>';
+    if (V.active.some(x => x.key === 'invites')) {
+      h += '<div class="kpi4"><button type="button" class="ksq" ' + da('step', { v: 'invites' }) + '><span class="kv">' + s.guests.length + '</span><span class="kl">invités</span></button>'
+        + '<button type="button" class="ksq" ' + da('step', { v: 'invites' }) + '><span class="kv ' + (nWritten < s.guests.length ? 'warn' : '') + '">' + nWritten + '/' + s.guests.length + '</span><span class="kl">invitations écrites</span><span class="kl">horaires de passage ' + horOk + '/' + horTot + '</span></button>'
+        + '<button type="button" class="ksq" ' + da('step', { v: 'invites' }) + '><span class="kv"><span class="kmini">' + ic('check', 's') + nYes + '</span><span class="kmini">' + ic('ask', 's') + nAsk + '</span><span class="kmini">' + ic('x', 's') + nNo + '</span></span><span class="kl">réponses</span></button>'
+        + '<button type="button" class="ksq" ' + da('step', { v: 'invites' }) + '><span class="kv">' + nAppel + '/' + s.guests.length + '</span><span class="kl">appel du jour</span></button></div>';
+    }
+    h += '<div class="dash v' + vue.toLowerCase() + '">';
+    if (V.active.some(x => x.key === 'odj')) {
+      h += '<button type="button" class="tile s2" ' + da('step', { v: 'odj' }) + '><span class="th2">' + ic('list') + 'Ordre du jour<span class="sp"></span>'
+        + (nConf ? '<span class="alert-pill" title="' + esc(nConf + ' point(s) avec un invité indisponible') + '">' + ic('warn', 's') + nConf + '</span>' : '') + sdot('odj') + '</span>'
+        + '<span class="meta ' + (V.over ? 'over' : '') + '">' + plural(s.points.length, 'point', 'points') + ' · ' + spanTxt + ' · ' + L.hhmm(V.startMin) + ' → ' + L.hhmm(V.lastEnd) + (V.over ? ' (dépasse ' + L.hhmm(V.endMin) + ')' : '') + '</span><span class="mlist">'
+        + V.sched.slice(0, 9).map(r => '<span class="mrow ' + (V.conf[r.p.id] ? 'flag' : '') + '" title="' + esc((V.conf[r.p.id] || []).join(' · ')) + '"><span class="mt">' + L.hhmm(r.start) + '</span><span class="ndot ' + r.p.nature + '"></span><span class="mtitle">' + esc(r.p.titre || 'Sans titre') + '</span><span class="mic">'
+          + (r.p.projets.length ? '<span>' + ic('project', 's') + r.p.projets.length + '</span>' : '') + (r.p.invites.length ? '<span>' + ic('people', 's') + r.p.invites.length + '</span>' : '') + (hasLink(r.p.lienType, r.p.lien) ? '<span>' + ic('clip', 's') + '</span>' : '') + '</span></span>').join('')
+        + (V.sched.length > 9 ? '<span class="mrow muted">+ ' + (V.sched.length - 9) + ' autres points</span>' : '') + (V.sched.length ? '' : '<span class="mrow muted">Aucun point</span>') + '</span></button>';
+    }
+    if (V.active.some(x => x.key === 'invites')) {
+      h += '<button type="button" class="tile s2" ' + da('step', { v: 'invites' }) + '><span class="th2">' + ic('people') + 'Invités<span class="tag-soft">' + s.guests.length + '</span><span class="sp"></span>' + sdot('invites') + '</span><span class="glist">'
+        + V.guestOrder.map(g => '<span class="gli">' + (g.origine === 'point' ? ic('star', 's', 'star') : '') + '<span class="gname">' + esc(personOf(m, g.personneId).name) + '</span><span class="gst">'
+          + (g.reponse === 'viendra' ? ic('check', 's', 'ok') : (g.reponse === 'excuse' ? ic('x', 's', 'no') : ic('ask', 's', 'ask'))) + '</span></span>').join('') + '</span></button>';
+    }
+    // fil de jalons
+    const thr = (key, num, title, value, valueCls, sub, extra) => {
+      const done = V.valid(key);
+      return Object.assign({ key, num, title, value, valueCls: valueCls || '', sub: sub || '', cls: done ? 'done' : (key === V.firstOpen ? 'cur' : 'todo'), done, warn: false }, extra || {});
+    };
+    const all = V.active.map((x, i) => {
+      const num = i + 1;
+      if (x.key === 'odj') return thr('odj', num, 'Ordre du jour', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
+      if (x.key === 'invites') return thr('invites', num, 'Invités', plural(s.guests.length, 'invité', 'invités'), '', plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : ''));
+      if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites · ' + horOk + '/' + horTot + ' horaires', { pct: writtenPct });
+      if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crLien ? 'Document lié' : 'Document non lié', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
+      if (x.key === 'crmail') return thr('crmail', num, 'Envoi du CR', s.mailCrLe ? L.fmtDate(s.mailCrLe) : 'À envoyer', s.mailCrLe ? '' : 'dim', plural(s.guests.length, 'destinataire', 'destinataires'));
+      return thr('notifs', num, 'Notifications', projIds.length ? toSend.length + ' à mettre à dispo' : 'Aucun projet', projIds.length ? '' : 'dim', nWait + ' en attente · ' + plural(nSigned, 'signée', 'signées'), projIds.length ? { pct: Math.round(100 * nSigned / projIds.length) + '%' } : {});
+    });
+    const items = vue === 'C' ? all : all.filter(x => x.key !== 'odj' && x.key !== 'invites');
+    if (items.length) {
+      h += '<div class="thread" role="list" aria-label="Progression de la séance">' + items.map(mi => '<button type="button" role="listitem" class="ms ' + mi.cls + '" ' + da('step', { v: mi.key }) + '><span class="msn">' + (mi.done ? ic('check', 'xs') : mi.num) + '</span><span class="msb"><span class="msl">' + esc(mi.title) + (mi.warn ? '<span class="wdot"></span>' : '') + '</span><span class="msv ' + mi.valueCls + '">' + esc(mi.value) + '</span><span class="mss">' + esc(mi.sub) + '</span>'
+        + (mi.pct ? '<span class="bar"><i style="width:' + mi.pct + '"></i></span>' : '') + (mi.tags && mi.tags.length ? '<span class="cols2">' + mi.tags.map(t => '<span class="tag plain ' + t.cls + '">' + esc(t.name) + '</span>').join('') + '</span>' : '') + '</span></button>').join('') + '</div>';
+    }
+    return h + '</div>';
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Rendu — panneau d'une étape
+  // ---------------------------------------------------------------------------------------------
+  const filterInput = (ph) => '<div class="mform"><input type="search" class="inp" placeholder="' + esc(ph) + '" aria-label="' + esc(ph) + '" data-filter data-autofocus></div>';
+  const ftAttr = t => ' data-ft="' + esc(String(t).toLowerCase()) + '"';
+
+  function linkMenu(V, key, target, id, type, link) {
+    const file = type === 'gfs' ? V.m.gfsByIdent[link] : null;
+    const has = type === 'gfs' ? !!file : !!link;
+    const isGfs = type === 'gfs';
+    let h = '<div class="menu" style="min-width:320px"><div class="mform"><div class="seg" role="group" aria-label="Type de lien"><button type="button" class="' + (isGfs ? '' : 'on') + '" ' + da(target + '-link-type', { id, v: 'externe' }) + '>' + ic('ext', 's') + 'Lien externe</button>'
+      + '<button type="button" class="' + (isGfs ? 'on' : '') + '" ' + da(target + '-link-type', { id, v: 'gfs' }) + '>' + ic('file', 's') + 'PDF GFS</button></div>';
+    if (isGfs) h += '<input type="search" class="inp" placeholder="Rechercher un PDF…" aria-label="Rechercher un fichier GFS" data-filter data-autofocus>';
+    else h += '<input type="url" class="inp" placeholder="https://…" aria-label="Adresse du document" value="' + esc(type === 'externe' ? link : '') + '" data-chg="' + target + '-url" data-id="' + esc(id) + '">';
+    h += '</div>';
+    if (isGfs) {
+      h += V.m.gfs.map(f => '<button type="button" class="mi ' + (f.ident === link ? 'on' : '') + '" ' + da(target + '-link-file', { id, v: f.ident }) + ftAttr(f.nom) + '><span>' + esc(f.nom) + '</span></button>').join('');
+      if (!V.m.gfs.length) h += '<div class="mh">— Aucun fichier —</div>';
+    }
+    if (has) h += '<div class="mi-sep"></div><button type="button" class="mi" ' + da(target + '-link-open', { id }) + '><span>' + (isGfs ? 'Lire dans GFS' : 'Ouvrir dans un nouvel onglet') + '</span></button><button type="button" class="mi" ' + da(target + '-link-clear', { id }) + '><span>Retirer le lien</span></button>';
+    return h + '</div>';
+  }
+  const linkLabel = (V, type, link) => type === 'gfs' ? (V.m.gfsByIdent[link] ? V.m.gfsByIdent[link].nom : '') : ((link || '').replace(/^https?:\/\//, '').split('/')[0]);
+
+  function odjHtml(V) {
+    const { s, m } = V;
+    let h = '<div class="toolbar"><span class="total ' + (V.over ? 'over' : '') + '">' + plural(s.points.length, 'point', 'points') + ' · ' + L.durTxt(V.lastEnd - V.startMin) + ' · fin ' + L.hhmm(V.lastEnd)
+      + '</span><span class="sp"></span><button type="button" class="rbtn primary" title="Ajouter un point" aria-label="Ajouter un point" ' + da('pt-add') + '>' + ic('plus') + '</button></div>';
+    if (!s.points.length) h += '<div class="empty">Aucun point</div>';
+    h += '<div class="pts">';
+    V.sched.forEach((row, i) => {
+      const p = row.p, msgs = V.conf[p.id] || [];
+      const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
+      const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), lkOpen = isOpen('lien:' + p.id);
+      const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
+      h += '<div class="pt ' + (msgs.length ? 'flag' : '') + '" data-pt="' + p.id + '"><div class="grip"><span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>'
+        + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le point" ' + (i === 0 ? 'disabled ' : '') + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
+        + '<button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Descendre le point" ' + (i === V.sched.length - 1 ? 'disabled ' : '') + da('pt-down', { id: p.id }) + '>' + ic('chevron', 'xs') + '</button></span></div>'
+        + '<div class="ptime">' + L.hhmm(row.start) + '–' + L.hhmm(row.end) + (msgs.length ? '<span style="color:var(--warn);display:inline-flex" title="' + esc(msgs.join(' · ')) + '">' + ic('warn', 's') + '</span>' : '') + '</div>'
+        + '<input type="text" class="inp ptitle" placeholder="Titre du point" aria-label="Titre du point" value="' + esc(p.titre) + '" data-chg="pt-titre" data-id="' + p.id + '">'
+        + '<div class="seg-i" role="group" aria-label="Nature du point">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
+        + '<label class="pdur"><input type="number" min="5" step="5" class="inp" aria-label="Durée en minutes" value="' + p.duree + '" data-chg="pt-duree" data-id="' + p.id + '">min</label>'
+        // projets
+        + '<div class="group"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
+        + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
+        + '<div class="rel"><button type="button" class="addb ' + (projOpen ? 'on' : '') + '" title="Relier un projet" aria-label="Relier un projet" ' + da('menu', { v: 'proj:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+        + (projOpen ? '<div class="menu">' + filterInput('Rechercher un projet…') + m.projects.map(pr => '<button type="button" class="mi ' + (p.projets.indexOf(pr.id) >= 0 ? 'on' : '') + '" ' + da('pt-proj', { id: p.id, v: pr.id }) + ftAttr(pr.acro + ' ' + pr.titre) + '><span class="mi-main"><span>' + esc(pr.acro) + '</span><span class="mi-sub">' + esc(L.cut(pr.titre, 40)) + '</span></span></button>').join('') + (m.projects.length ? '' : '<div class="mh">— Aucun projet —</div>') + '</div>' : '') + '</div></div>'
+        // invités
+        + '<div class="group"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
+        + guestChips.map(g => '<span class="tag" title="' + esc(personOf(m, g.personneId).name) + '">' + esc(L.shortName(personOf(m, g.personneId).name)) + '<button type="button" aria-label="Retirer l\'invité du point" ' + da('pt-inv', { id: p.id, v: g.personneId }) + '>' + ic('x', 'xs') + '</button></span>').join('')
+        + '<div class="rel"><button type="button" class="addb ' + (invOpen ? 'on' : '') + '" title="Inviter sur ce point" aria-label="Inviter sur ce point" ' + da('menu', { v: 'inv:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+        + (invOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => {
+          const g = s.guests.find(x => x.personneId === pp.id), on = g && p.invites.indexOf(g.id) >= 0;
+          return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
+        }).join('') + '</div>' : '') + '</div></div>'
+        // dossier
+        + '<div class="group"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="Dossier du point" aria-label="Dossier du point" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + (lkHas ? '<span>' + esc(L.cut(linkLabel(V, p.lienType, p.lien), 18)) + '</span>' : '') + '</button>'
+        + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div>'
+        + '<button type="button" class="ibtn" aria-label="Supprimer le point" title="Supprimer le point" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
+    });
+    return h + '</div>';
+  }
+
+  function invitesHtml(V) {
+    const { s, m } = V;
+    const nSpecial = s.guests.filter(g => g.origine === 'point').length, nNo = s.guests.filter(g => g.reponse === 'excuse').length;
+    const addable = m.people.filter(pp => !s.guests.some(g => g.personneId === pp.id));
+    const endTxt = L.hhmm(V.endMin);
+    let h = '<div class="toolbar"><span class="total">' + plural(s.guests.length, 'invité', 'invités') + ' · ' + plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : '') + '</span><span class="sp"></span>'
+      + '<div class="rel"><button type="button" class="rbtn primary" title="Ajouter une personne" aria-label="Ajouter une personne" ' + da('menu', { v: 'addGuest' }) + '>' + ic('peopleAdd') + '</button>'
+      + (isOpen('addGuest') ? '<div class="menu right" style="min-width:320px">' + filterInput('Rechercher une personne…') + addable.map(pp => '<button type="button" class="mi" ' + da('g-add', { v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('') + (addable.length ? '' : '<div class="mh">— Tout l\'annuaire est invité —</div>') + '</div>' : '') + '</div></div>';
+    h += '<div class="gwrap"><div class="grow head"><div>Personne</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>Réponse</div>'
+      + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>Appel du jour</div><div></div></div>';
+    V.guestOrder.forEach(g => {
+      const person = personOf(m, g.personneId);
+      const sujets = V.sched.filter(row => row.p.invites.indexOf(g.id) >= 0).map(row => {
+        const clash = L.guestClash(g, row.start, row.end, person.name);
+        return { time: L.hhmm(row.start), label: L.cut(row.p.titre, 30), title: row.p.titre + (clash ? ' — ' + clash : ''), warn: !!clash };
+      });
+      const fs0 = V.firstStart(g), hs = L.horaireState(g, fs0);
+      const horTip = hs === 'none' ? 'Aucun point : pas d\'horaire de passage' : (hs === 'stale' ? 'Horaire modifié depuis l\'envoi : ' + g.passageHeure + ' devient ' + fs0 + ' (cliquer pour marquer le nouvel horaire envoyé)' : (hs === 'sent' ? 'Horaire ' + g.passageHeure + ' envoyé le ' + L.fmtDate(g.passageLe) + ' (cliquer pour effacer)' : 'Horaire de passage ' + fs0 + ' pas encore envoyé (cliquer pour marquer envoyé)'));
+      const ecritTip = g.ecritLe ? 'Écrit le ' + L.fmtDate(g.ecritLe) + ' (cliquer pour effacer)' : 'Pas encore écrit (cliquer pour marquer écrit aujourd\'hui)';
+      const tp = (field, scope, value) => {
+        const key = 't:' + g.id + ':' + scope;
+        return '<div class="rel"><button type="button" class="tp ' + (value ? '' : 'empty') + '" ' + da('menu', { v: key }) + ' aria-label="' + field + '">' + (value || '--:--') + '</button>' + (isOpen(key) ? timeMenu(key, value, 'g-' + scope, g.id, V.startMin, V.endMin, true) : '') + '</div>';
+      };
+      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag' : '') + '"><div><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + esc(person.name) + '</div><div class="psub">' + esc(L.cut(person.poste, 48)) + '</div></div>'
+        + '<div class="group col">' + sujets.map(sj => '<span class="tag plain sj ' + (sj.warn ? 'warn' : '') + '" title="' + esc(sj.title) + '">' + sj.time + ' · ' + esc(sj.label) + '</span>').join('') + '</div>'
+        + '<div><button type="button" class="ib ' + (g.ecritLe ? 'on' : '') + '" title="' + esc(ecritTip) + '" aria-label="' + esc(ecritTip) + '" ' + da('g-ecrit', { id: g.id }) + '>' + ic('mail') + '</button></div>'
+        + '<div><button type="button" class="ib ' + (hs === 'stale' ? 'warn' : (hs === 'sent' ? 'on' : '')) + '" title="' + esc(horTip) + '" aria-label="' + esc(horTip) + '" ' + (hs === 'none' ? 'disabled ' : '') + da('g-hor', { id: g.id }) + '>' + ic('clock') + '</button></div>'
+        + '<div class="seg-i" role="group" aria-label="Réponse à l\'invitation">' + [['attente', 'ask', 'ask', 'À confirmer'], ['viendra', 'check', 'ok', 'Viendra'], ['excuse', 'no', 'no', 'Excusé(e)']].map(r => '<button type="button" class="' + (g.reponse === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-rep', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
+        + '<div class="dispo"><button type="button" class="ib ' + (g.dispoDe === s.heure ? 'on' : '') + '" title="Dès le début de l\'instance" aria-label="Dès le début de l\'instance" ' + da('g-start', { id: g.id }) + '>' + ic('start', 's') + '</button>'
+        + tp('Arrivée', 'de', g.dispoDe) + '<span class="muted">–</span>' + tp('Départ', 'a', g.dispoA)
+        + '<button type="button" class="ib ' + (g.dispoA === endTxt ? 'on' : '') + '" title="Jusqu\'à la fin de l\'instance" aria-label="Jusqu\'à la fin de l\'instance" ' + da('g-end', { id: g.id }) + '>' + ic('end', 's') + '</button></div>'
+        + '<div><input type="text" class="inp ghost" style="width:100%" placeholder="Commentaire" aria-label="Commentaire" value="' + esc(g.commentaire) + '" data-chg="g-comm" data-id="' + g.id + '"></div>'
+        + '<div class="seg-i" role="group" aria-label="Appel du jour">' + [['present', 'check', 'ok', 'Présent(e)'], ['absent', 'x', 'no', 'Absent(e)']].map(r => '<button type="button" class="' + (g.appel === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-appel', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
+        + '<div>' + (g.origine === 'point' ? '<button type="button" class="ibtn" aria-label="Retirer de la liste" title="Retirer de la liste" ' + da('g-del', { id: g.id }) + '>' + ic('trash', 's') + '</button>' : '') + '</div></div>';
+    });
+    return h + '</div>';
+  }
+
+  function dateCard(V, kind) {
+    const s = V.s, inv = kind === 'invitation';
+    const date = inv ? s.mailInvitationLe : s.mailCrLe, model = inv ? V.cfg.modInvitation : V.cfg.modCr;
+    let h = '<div class="card">' + ic(inv ? 'mail' : 'send') + '<span class="tag proj plain" title="Modèle Publipostage+ (GFS)">' + esc(model || '— Choisir —') + '</span><span class="sp"></span>'
+      + '<input type="date" class="dp" aria-label="' + (inv ? "Date d'envoi du mail d'invitation" : "Date d'envoi du mail du compte rendu") + '" value="' + esc(date) + '" data-chg="' + (inv ? 'inv-date' : 'crm-date') + '">'
+      + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da(inv ? 'inv-today' : 'crm-today') + '>' + ic('calCheck') + '</button></div>';
+    if (inv) {
+      const nWritten = s.guests.filter(g => g.ecritLe).length;
+      const horTot = s.guests.filter(g => !!V.firstStart(g)).length, horOk = s.guests.filter(g => { const f0 = V.firstStart(g); return !!f0 && !!g.passageLe && g.passageHeure === f0; }).length;
+      h += '<div class="rowf"><span class="bar" title="Invités écrits"><i style="width:' + (s.guests.length ? Math.round(100 * nWritten / s.guests.length) : 0) + '%"></i></span><span class="meta">' + nWritten + '/' + s.guests.length + ' invités écrits</span><span class="meta">· ' + horOk + '/' + horTot + ' horaires de passage envoyés</span></div>';
+    }
+    return h;
+  }
+
+  function crHtml(V) {
+    const { s, cfg, m } = V;
+    const file = s.crLienType === 'gfs' ? m.gfsByIdent[s.crLien] : null;
+    const has = s.crLienType === 'gfs' ? !!file : !!s.crLien;
+    let h = '<div class="card"><div class="rel"><button type="button" class="addb pad ' + (has ? 'on' : '') + '" title="Document du compte rendu" aria-label="Document du compte rendu" ' + da('menu', { v: 'crlien' }) + '>' + ic('fileLines', 's') + '<span>' + esc(has ? L.cut(linkLabel(V, s.crLienType || 'gfs', s.crLien), 26) : 'Document') + '</span></button>'
+      + (isOpen('crlien') ? linkMenu(V, 'crlien', 'cr', 'cr', s.crLienType || 'gfs', s.crLien) : '') + '</div>'
+      + '<button type="button" class="tchip ' + (s.v0 ? 'on' : '') + '" role="checkbox" aria-checked="' + (s.v0 ? 'true' : 'false') + '" ' + da('v0-toggle') + '>' + ic('tick') + 'V0 rédigée<small>' + (s.v0 ? esc(L.fmtShort(s.v0.le)) : '') + '</small></button>'
+      + '<span class="gic" title="Relecteurs">' + ic('eye', 's') + '</span>';
+    cfg.relecteurs.forEach(pid => {
+      const r = s.relectures[pid], st = r ? r.statut : 'none', person = personOf(m, pid);
+      h += '<div class="rvw ' + (st === 'none' ? '' : st) + '" title="' + esc(person.name) + '"><span>' + esc(L.shortName(person.name)) + '</span><span class="seg-i" role="group" aria-label="Relecture">'
+        + '<button type="button" class="' + (st === 'none' ? 'on idle' : '') + '" title="À relire" aria-label="À relire" ' + da('rel-set', { id: pid, v: 'none' }) + '>' + ic('idle', 's') + '</button>'
+        + '<button type="button" class="' + (st === 'modifs' ? 'on mod' : '') + '" title="Relu, demandes de modification" aria-label="Relu, demandes de modification" ' + da('rel-set', { id: pid, v: 'modifs' }) + '>' + ic('pencil', 's') + '</button>'
+        + '<button type="button" class="' + (st === 'valide' ? 'on ok' : '') + '" title="Relu et validé" aria-label="Relu et validé" ' + da('rel-set', { id: pid, v: 'valide' }) + '>' + ic('check', 's') + '</button></span><small>' + (r ? esc(L.fmtShort(r.le)) : '') + '</small></div>';
+    });
+    if (!cfg.relecteurs.length) h += '<span class="muted">Aucun relecteur défini</span>';
+    return h + '</div>';
+  }
+
+  function notifsHtml(V) {
+    const { s, m } = V;
+    const projIds = V.ctx.projectIds, vp = V.ctx.projectVp;
+    const toSend = projIds.filter(id => vp[id].key === 'none');
+    const nWait = projIds.filter(id => vp[id].key === 'wait').length, nSigned = projIds.filter(id => vp[id].key === 'signed').length;
+    const incomplete = toSend.filter(id => L.notifNum(projectOf(m, id).notif) < 4).length;
+    let h = '<div class="toolbar"><span class="total">' + plural(projIds.length, 'notification', 'notifications') + ' · ' + toSend.length + ' à mettre à dispo · ' + nWait + ' en attente · ' + plural(nSigned, 'signée', 'signées') + '</span><span class="sp"></span>'
+      + '<div class="rel"><button type="button" class="pillbtn" ' + (toSend.length ? '' : 'disabled ') + da('vp-toggle') + '>' + ic('send', 's') + (toSend.length ? 'Mettre à disposition du VP (' + toSend.length + ')' : 'Tout est à disposition du VP') + '</button>';
+    if (isOpen('vpconfirm')) {
+      h += '<div class="menu right" style="min-width:340px"><div class="mform"><div class="flabel">Mettre à disposition ' + plural(toSend.length, 'notification', 'notifications') + ' du ' + esc(V.inst.nom) + ' n°' + esc(s.num) + ' ?</div><div class="psub">' + esc(toSend.map(id => projectOf(m, id).acro).join(', ')) + '</div>'
+        + (incomplete ? '<div class="alert-pill" style="height:auto;padding:5px 9px;border-radius:10px;font-weight:700">' + incomplete + (incomplete > 1 ? ' ne sont pas encore au statut « complète ».' : ' n\'est pas encore au statut « complète ».') + '</div>' : '')
+        + '<div class="rowf" style="justify-content:flex-end"><button type="button" class="pillbtn ghost" ' + da('vp-cancel') + '>Annuler</button><button type="button" class="pillbtn" ' + da('vp-confirm') + '>' + ic('check', 's') + 'Confirmer</button></div></div></div>';
+    }
+    h += '</div></div><div class="gwrap"><div class="nrow head"><div>Projet</div><div>Point(s)</div><div>Notification</div><div>Mise à disposition du VP</div></div>';
+    projIds.forEach(id => {
+      const pr = projectOf(m, id), n = L.notifNum(pr.notif), v = vp[id];
+      h += '<div class="nrow"><div class="pname">' + esc(pr.acro) + '</div><div class="psub">' + esc(V.sched.filter(r => r.p.projets.indexOf(id) >= 0).map(r => L.hhmm(r.start) + ' ' + r.p.titre).join(' · ')) + '</div>'
+        + '<div><span class="nst ' + (n >= 6 ? 'ok' : (n >= 3 ? 'cur' : 'todo')) + '">' + esc(L.stripOrdinal(pr.notif) || '—') + '</span></div><div><span class="nst ' + v.cls + '" title="' + esc(v.tip) + '">' + esc(v.label) + '</span></div></div>';
+    });
+    if (!projIds.length) h += '<div class="nrow"><div class="psub">Aucun projet relié</div></div>';
+    return h + '</div>';
+  }
+
+  function panelHtml(V) {
+    const stepKey = V.stepKey;
+    const statusText = V.curDone ? (L.validatedInfo(stepKey, V.ctx, V.nameOf) || 'Validé') : (stepKey === V.firstOpen ? 'En cours' : 'À venir');
+    const canValidate = V.missing.length === 0;
+    let h = '<section class="panel" aria-live="polite"><div class="ph"><h2>' + (V.stepIdx + 1) + ' · ' + esc(V.curStep.label) + '</h2><span class="stt ' + (V.curDone ? 'ok' : (stepKey === V.firstOpen ? 'cur' : '')) + '">' + (V.curDone ? ic('check', 's') : '') + esc(statusText) + '</span><span class="sp"></span>'
+      + (V.alerts.length ? '<span class="alert-pill" title="' + esc(V.alerts.join(' · ')) + '">' + ic('warn', 's') + V.alerts.length + '</span>' : '')
+      + (!V.curDone && !V.dateStep ? '<button type="button" class="rbtn primary" title="' + esc(canValidate ? "Valider l'étape" : 'À compléter : ' + V.missing.join(', ')) + '" aria-label="Valider l\'étape" ' + (canValidate ? '' : 'disabled ') + da('validate') + '>' + ic('check') + '</button>' : '')
+      + (V.curDone ? '<button type="button" class="rbtn" title="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" aria-label="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" ' + da('reopen') + '>' + ic('reopen') + '</button>' : '') + '</div>';
+    if (stepKey === 'odj') h += odjHtml(V);
+    else if (stepKey === 'invites') h += invitesHtml(V);
+    else if (stepKey === 'invitation') h += dateCard(V, 'invitation');
+    else if (stepKey === 'cr') h += crHtml(V);
+    else if (stepKey === 'crmail') h += dateCard(V, 'crmail');
+    else h += notifsHtml(V);
+    return h + '</section>';
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Rendu — paramétrage de l'instance (fenêtre)
+  // ---------------------------------------------------------------------------------------------
+  function settingsHtml(V) {
+    const { m, inst, cfg } = V;
+    const modalMenu = MODAL_MENUS.indexOf(S.ui.menu) >= 0;
+    const tag = (name, act, id) => '<span class="tag">' + esc(name) + '<button type="button" aria-label="Retirer" ' + da(act, { v: id }) + '>' + ic('x', 'xs') + '</button></span>';
+    const pick = (list, act) => list.map(pp => '<button type="button" class="mi" ' + da(act, { v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('');
+    const lbl = (text0, ...cols) => '<div class="flabel">' + text0 + cols.map(c => helpToken('Instances', c)).join('') + '</div>';
+    let h = '<div class="modal"><div class="dlg" role="dialog" aria-modal="true" aria-label="Paramétrage de l\'instance"><div class="dlg-h"><h3>Paramétrage · ' + esc(inst.nom) + '</h3><button type="button" class="rbtn ghost" aria-label="Fermer" title="Fermer" ' + da('settings-close') + '>' + ic('x') + '</button></div>'
+      + (modalMenu ? '<div class="bd-in" ' + da('menu-close') + '></div>' : '') + '<div class="dlg-b">';
+    h += '<div class="fgrp">' + lbl('Horaires habituels', 'Heure_debut', 'Duree_min') + '<div class="rowf"><div class="rel"><button type="button" class="tp" title="Heure de début habituelle" aria-label="Heure de début habituelle" ' + da('menu', { v: 'cfgtime' }) + '>' + ic('clock', 's') + esc(cfg.heureDebut) + '</button>'
+      + (isOpen('cfgtime') ? timeMenu('cfgtime', cfg.heureDebut, 'cfg', '', 6 * 60, 20 * 60, false) : '') + '</div>'
+      + '<div class="rel"><button type="button" class="tp" title="Durée de l\'instance" aria-label="Durée de l\'instance" ' + da('menu', { v: 'dur' }) + '>' + ic('hourglass', 's') + L.durTxt(cfg.duree) + '</button>'
+      + (isOpen('dur') ? '<div class="menu">' + [60, 90, 120, 150, 180, 210, 240, 300, 360, 480].map(n => '<button type="button" class="mi ' + (cfg.duree === n ? 'on' : '') + '" ' + da('cfg-dur', { v: n }) + '><span>' + L.durTxt(n) + '</span></button>').join('') + '</div>' : '')
+      + '</div><span class="muted">fin ' + L.hhmm((L.toMin(cfg.heureDebut) || 0) + cfg.duree) + '</span></div></div>';
+    h += '<div class="fgrp">' + lbl('Étapes de cette instance', 'Etapes_actives') + L.STEPS.map(x => { const on = cfg.steps.indexOf(x.key) >= 0, locked = x.key === 'odj'; return '<button type="button" class="togg ' + (on ? 'on' : '') + (locked ? ' locked' : '') + '" ' + da('cfg-step', { v: x.key }) + '><span class="box">' + ic('check', 'xs') + '</span><span class="pname">' + esc(x.label) + '</span></button>'; }).join('') + '</div>';
+    h += '<div class="fgrp">' + lbl('Relecteurs du compte rendu', 'Relecteurs_CR') + '<div class="group">' + cfg.relecteurs.map(id => tag(personOf(m, id).name, 'cfg-rel-del', id)).join('')
+      + '<div class="rel"><button type="button" class="addb" title="Ajouter un relecteur" aria-label="Ajouter un relecteur" ' + da('menu', { v: 'relpick' }) + '>' + ic('plus', 'xs') + '</button>'
+      + (isOpen('relpick') ? '<div class="menu">' + filterInput('Rechercher une personne…') + pick(m.people.filter(pp => cfg.relecteurs.indexOf(pp.id) < 0), 'cfg-rel-add') + '</div>' : '') + '</div></div></div>';
+    h += '<div class="fgrp">' + lbl('Invités permanents', 'Invites_permanents') + '<div class="group">' + cfg.permanents.map(id => tag(personOf(m, id).name, 'cfg-perm-del', id)).join('')
+      + '<div class="rel"><button type="button" class="addb" title="Ajouter un invité permanent" aria-label="Ajouter un invité permanent" ' + da('menu', { v: 'permpick' }) + '>' + ic('plus', 'xs') + '</button>'
+      + (isOpen('permpick') ? '<div class="menu">' + filterInput('Rechercher une personne…') + pick(m.people.filter(pp => cfg.permanents.indexOf(pp.id) < 0), 'cfg-perm-add') + '</div>' : '') + '</div></div></div>';
+    h += '<div class="fgrp">' + lbl('Modèles de mail', 'Modele_invitation', 'Modele_CR') + '<div class="rowf">' + ic('mail')
+      + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'invitation" aria-label="Modèle d\'invitation" value="' + esc(cfg.modInvitation) + '" data-chg="cfg-mod" data-f="Modele_invitation">'
+      + ic('send') + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'envoi du compte rendu" aria-label="Modèle d\'envoi du compte rendu" value="' + esc(cfg.modCr) + '" data-chg="cfg-mod" data-f="Modele_CR">'
+      + '<datalist id="in-modeles">' + m.gfs.map(f => '<option value="' + esc(f.nom) + '"></option>').join('') + '</datalist></div></div>';
+    return h + '</div></div></div>';
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Rendu — page
+  // ---------------------------------------------------------------------------------------------
+  const rootEl = () => document.getElementById('instances-root');
+  function ensureSkeleton(root) {
+    if (root.querySelector('[data-region="main"]')) return;
+    root.className = 'in-root';
+    root.innerHTML = '<div class="in-wrap"><div data-region="main"></div><div data-region="viewer"></div></div>';
+  }
+  function buildMain() {
+    if (!S.loaded) return withPrefix('<div class="loading">' + esc(S.error || 'Chargement…') + '</div>');
+    if (!S.model.instances.length) return withPrefix('<div class="loading">Aucune instance dans la table Instances de Grist.</div>');
+    const V = computeView();
+    S.view = V;
+    let h = '<div class="wrap" style="display:flex;flex-direction:column;gap:12px">' + bandHtml(V);
+    if (V.s) {
+      h += V.isMacro ? macroHtml(V) : panelHtml(V);
+      if (S.ui.menu && MODAL_MENUS.indexOf(S.ui.menu) < 0) h += '<div class="backdrop" ' + da('menu-close') + '></div>';
+      if (S.ui.settings) h += settingsHtml(V);
+    } else if (S.ui.settings) h += settingsHtml(V);
+    return fillHelp(withPrefix(h + '</div>'));
+  }
+  function render() {
+    const root = rootEl(); if (!root) return;
+    clearTimeout(renderTimer); renderTimer = null;
+    ensureSkeleton(root);
+    const main = root.querySelector('[data-region="main"]');
+    const active = document.activeElement;
+    main.innerHTML = buildMain();
+    const focus = main.querySelector('[data-autofocus]');
+    if (focus && active && !main.contains(active)) focus.focus();
+    renderViewer();
+  }
+
+  // --- Visionneuse du compte rendu : hors du rendu principal pour que l'iframe ne se recharge pas à chaque clic ---
+  const viewer = { key: '', token: null, tokenAt: 0 };
+  async function attachmentUrl(file) {
+    const api = global.CoreGrist && global.CoreGrist.gristInstance;
+    if (!api) throw new Error('Grist non disponible');
+    const id = file.attachmentIds[0];
+    if (!id) throw new Error('Ce fichier GFS n\'a pas de contenu');
+    // readOnly:false volontaire, comme dans project-modal.js : un jeton readOnly:true est plafonné au rôle Lecteur côté Grist.
+    if (!viewer.token || Date.now() - viewer.tokenAt > 10 * 60 * 1000) { viewer.token = await api.docApi.getAccessToken({ readOnly: false }); viewer.tokenAt = Date.now(); }
+    const t = viewer.token;
+    return t.baseUrl + '/attachments/' + id + '/download?auth=' + encodeURIComponent(t.token) + '&tableId=GFS_Fichiers&colId=Contenu&rowId=' + file.id;
+  }
+  function openGfs(file) {
+    const win = global.open('', '_blank');
+    attachmentUrl(file).then(url => { if (win) win.location.href = url; else global.open(url, '_blank'); })
+      .catch(err => { if (win) win.close(); if (global.CoreUtils) global.CoreUtils.showToast('Lecture impossible : ' + err.message, true); });
+  }
+  function renderViewer() {
+    const root = rootEl(); if (!root) return;
+    const host = root.querySelector('[data-region="viewer"]'); if (!host) return;
+    const V = S.view;
+    if (!S.loaded || !V || !V.s || V.view !== 'cr') { host.innerHTML = ''; viewer.key = ''; return; }
+    const { s, m } = V;
+    const file = s.crLienType === 'gfs' ? m.gfsByIdent[s.crLien] : null;
+    const ext = s.crLienType === 'externe' && s.crLien ? s.crLien : '';
+    const name = file ? file.nom : (ext ? linkLabel(V, 'externe', ext) : 'Compte rendu');
+    const badge = file ? 'GFS' : (ext ? 'Lien externe' : '—');
+    if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"></div></div>');
+    host.querySelector('.in-vbar').innerHTML = withPrefix(ic('fileLines', 's') + '<span class="vname">' + esc(name) + '</span><span class="tag-soft">' + badge + '</span><span class="sp"></span>'
+      + (file || ext ? '<button type="button" class="ibtn" title="' + (file ? 'Ouvrir dans GFS' : 'Ouvrir dans un nouvel onglet') + '" aria-label="Ouvrir le document" ' + da('cr-link-open', { id: 'cr' }) + '>' + ic('ext') + '</button>' : ''));
+    const key = file ? 'gfs:' + file.id + ':' + file.attachmentIds.join(',') : (ext ? 'ext:' + ext : 'none');
+    if (key === viewer.key) return;
+    viewer.key = key;
+    const body = host.querySelector('.in-vbody');
+    if (!file) {
+      body.innerHTML = withPrefix(ext ? '<div class="vempty"><span>Lien externe : ' + esc(name) + '</span><span class="muted">Un site externe ne peut pas s\'afficher ici : il s\'ouvre dans un nouvel onglet.</span></div>'
+        : '<div class="vempty"><span>Aucun document lié</span><span class="muted">Choisissez le PDF du compte rendu dans GFS : il s\'affiche ici.</span></div>');
+      return;
+    }
+    body.innerHTML = withPrefix('<div class="vempty"><span class="muted">Chargement du document…</span></div>');
+    attachmentUrl(file).then(url => {
+      if (viewer.key !== key) return;
+      body.innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.className = 'in-vframe'; frame.title = name; frame.src = url;
+      body.appendChild(frame);
+    }).catch(err => {
+      if (viewer.key !== key) return;
+      body.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(err.message) + '</span></div>');
+    });
+  }
+
+  // --- Menu « Instances » de la barre de navigation (une entrée par instance) ---
+  function renderNavMenu() {
+    const menu = document.getElementById('instances-menu'); if (!menu) return;
+    if (!S.loaded) { menu.innerHTML = '<span class="in-navmsg">' + esc(S.error ? 'Indisponible' : 'Chargement…') + '</span>'; return; }
+    const cur = currentInstance();
+    menu.innerHTML = S.model.instances.map(i => '<button type="button" class="in-navitem' + (cur && cur.id === i.id ? ' is-on' : '') + '" data-inst="' + i.id + '"><span>' + esc(i.nom) + '</span><span class="in-navsub">' + i.cfg.steps.length + ' étapes</span></button>').join('')
+      || '<span class="in-navmsg">Aucune instance</span>';
+  }
+  function showInstancesView() {
+    if (typeof global.showView === 'function') global.showView('view-instances');
+    else { document.querySelectorAll('.view').forEach(v => v.classList.add('hidden')); document.getElementById('view-instances')?.classList.remove('hidden'); }
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-instances'));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------------------------
+  const toast = (msg, isErr) => { if (global.CoreUtils) global.CoreUtils.showToast(msg, !!isErr); };
+  const gristDay = iso => (iso ? L.isoToGristDate(iso) : null);
+  const setMenu = key => { S.ui.menu = S.ui.menu === key ? null : key; render(); };
+  function setStep(key) { S.prefs.etape = key; S.ui.menu = null; render(); savePrefs(); }
+  const pointOf = (V, id) => V.s.points.find(p => p.id === Number(id));
+  const guestOf = (V, id) => V.s.guests.find(g => g.id === Number(id));
+  const upd = (table, id, fields) => ({ op: 'update', table, id: Number(id), fields });
+  const addOp = (table, fields) => ({ op: 'add', table, fields });
+  const delOp = (table, id) => ({ op: 'remove', table, id: Number(id) });
+
+  function pointsOrderOps(V, ids) {
+    const byId = {}; V.s.points.forEach(p => { byId[p.id] = p; });
+    return ids.map((id, i) => (byId[id].ordre !== i + 1 ? upd('Instance_Points', id, { Ordre: i + 1 }) : null)).filter(Boolean);
+  }
+  function movePoint(V, fromId, toId) {
+    const ids = V.s.points.map(p => p.id);
+    const i = ids.indexOf(Number(fromId)), j = ids.indexOf(Number(toId));
+    if (i < 0 || j < 0 || i === j) return;
+    ids.splice(j, 0, ids.splice(i, 1)[0]);
+    write(pointsOrderOps(V, ids));
+  }
+  function shiftPoint(V, id, d) {
+    const ids = V.s.points.map(p => p.id);
+    const i = ids.indexOf(Number(id)), j = i + d;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    ids.splice(j, 0, ids.splice(i, 1)[0]);
+    write(pointsOrderOps(V, ids));
+  }
+  // Invités « ajoutés sur un point » devenus orphelins (aucun point, jamais écrits) : retirés de la liste.
+  const orphanGuestOps = (V, removedPointIds) => V.s.guests.filter(g => g.origine === 'point' && !g.ecritLe && !g.passageLe
+    && !V.s.points.some(p => removedPointIds.indexOf(p.id) < 0 && p.invites.indexOf(g.id) >= 0)).map(g => delOp('Instance_Invites', g.id));
+  async function toggleGuestOnPoint(V, pointId, personId) {
+    const p = pointOf(V, pointId); if (!p) return;
+    let g = V.s.guests.find(x => x.personneId === Number(personId));
+    let gid = g && g.id;
+    if (!g) {
+      [gid] = await write([addOp('Instance_Invites', { Seance: V.s.id, Personne: Number(personId), Origine: C.origine.point, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' })]);
+      if (!gid) return;
+    }
+    const on = p.invites.indexOf(gid) >= 0;
+    const list = on ? p.invites.filter(x => x !== gid) : p.invites.concat([gid]);
+    const ops = [upd('Instance_Points', p.id, { Invites: D.toList(list) })];
+    if (on && g && g.origine === 'point' && !g.ecritLe && !g.passageLe && !V.s.points.some(q => q.id !== p.id && q.invites.indexOf(gid) >= 0)) ops.push(delOp('Instance_Invites', gid));
+    write(ops);
+  }
+
+  function newSeance(V) {
+    const inst = V.inst, last = inst.seances[0];
+    const date = last && last.date ? L.addDaysIso(last.date, 28) : V.today;
+    const num = last ? String((parseInt(last.num, 10) || inst.seances.length) + 1) : '1';
+    write([addOp('Suivi_Instance', { Instance: inst.id, Numero: num, date: gristDay(date), Heure: L.parisToEpoch(date, inst.cfg.heureDebut), Salle: last ? last.salleId : 0 })]).then(([id]) => {
+      if (!id) return;
+      const ops = inst.cfg.permanents.map(pid => addOp('Instance_Invites', { Seance: id, Personne: pid, Origine: C.origine.permanent, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' }));
+      const done = ops.length ? write(ops) : Promise.resolve();
+      done.then(() => { S.prefs.seances[inst.id] = id; S.prefs.etape = 'odj'; S.ui.menu = null; render(); savePrefs(); toast('Nouvelle séance créée, invités permanents repris.'); });
+    });
+  }
+
+  function openLink(V, type, link) {
+    if (type === 'gfs') { const file = V.m.gfsByIdent[link]; if (file) openGfs(file); }
+    else if (link) global.open(link, '_blank', 'noopener');
+  }
+  function setLinkOps(V, target, id, type, link) {
+    if (target === 'cr') return [upd('Suivi_Instance', V.s.id, { CR_lien_type: type ? C.lien[type] : '', CR_lien: link })];
+    return [upd('Instance_Points', id, { Lien_type: type ? C.lien[type] : '', Lien: link })];
+  }
+  const linkOf = (V, target, id) => target === 'cr' ? { type: V.s.crLienType, link: V.s.crLien } : (() => { const p = pointOf(V, id); return { type: p.lienType, link: p.lien }; })();
+
+  function confirmVp(V) {
+    const projIds = V.ctx.projectIds.filter(id => V.ctx.projectVp[id].key === 'none');
+    if (!projIds.length) return;
+    const ops = projIds.map(id => {
+      const existing = V.s.exports[id];
+      const fields = { A_envoyer: true, Mis_a_dispo_le: gristDay(V.today), Mis_a_dispo_par: S.personId || 0 };
+      return existing ? upd('Export_VP', existing.id, fields) : addOp('Export_VP', Object.assign({ Seance: V.s.id, Projet: id }, fields));
+    });
+    S.ui.menu = null;
+    write(ops).then(() => toast(plural(projIds.length, 'notification mise', 'notifications mises') + ' à disposition du VP. Elles partent à la prochaine synchronisation Sync+.'));
+  }
+
+  function validateStep(V) {
+    if (V.missing.length) { toast('À compléter : ' + V.missing.join(', '), true); return; }
+    const stored = L.STEPS.find(x => x.key === V.stepKey).stored;
+    write([addOp('Instance_Validations', { Seance: V.s.id, Etape: stored, Date: gristDay(V.today), Par: S.personId || 0 })]);
+  }
+  function reopenStep(V) {
+    if (V.stepKey === 'invitation') write([upd('Suivi_Instance', V.s.id, { Mail_invitation_le: null })]);
+    else if (V.stepKey === 'crmail') write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: null })]);
+    else if (V.s.validations[V.stepKey]) write([delOp('Instance_Validations', V.s.validations[V.stepKey].id)]);
+  }
+  function setInvitationDate(V, iso) {
+    const ops = [upd('Suivi_Instance', V.s.id, { Mail_invitation_le: gristDay(iso) })];
+    if (iso) V.s.guests.filter(g => !g.ecritLe).forEach(g => ops.push(upd('Instance_Invites', g.id, { Ecrit_le: gristDay(iso) })));
+    return ops;
+  }
+  function cfgWrite(V, fields) { return write([upd('Instances', V.inst.id, fields)]); }
+
+  const CLICK = {
+    'menu': (el) => setMenu(el.dataset.v),
+    'menu-close': () => { S.ui.menu = null; render(); },
+    'step': (el) => setStep(el.dataset.v),
+    'vue': (el) => { S.prefs.vue = el.dataset.v; render(); savePrefs(); },
+    'seance-pick': (el, V) => { S.prefs.seances[V.inst.id] = Number(el.dataset.id); S.prefs.etape = 'macro'; S.ui.menu = null; render(); savePrefs(); },
+    'seance-new': (el, V) => newSeance(V),
+    'time-pick': (el, V) => {
+      const sc = el.dataset.s, v = el.dataset.v; S.ui.menu = null;
+      if (sc === 'heure') { const e = L.parisToEpoch(V.s.date, v); if (e == null) { toast('Renseignez d\'abord la date de la séance.', true); render(); return; } write([upd('Suivi_Instance', V.s.id, { Heure: e })]); }
+      else if (sc === 'g-de') write([upd('Instance_Invites', el.dataset.id, { Dispo_de: v })]);
+      else if (sc === 'g-a') write([upd('Instance_Invites', el.dataset.id, { Dispo_a: v })]);
+      else if (sc === 'cfg') cfgWrite(V, { Heure_debut: v });
+    },
+    'time-clear': (el, V) => { S.ui.menu = null; write([upd('Instance_Invites', el.dataset.id, el.dataset.s === 'g-de' ? { Dispo_de: '' } : { Dispo_a: '' })]); },
+    'salle-pick': (el, V) => { S.ui.menu = null; write([upd('Suivi_Instance', V.s.id, { Salle: Number(el.dataset.id) })]); },
+    'validate': (el, V) => validateStep(V),
+    'reopen': (el, V) => reopenStep(V),
+    // ordre du jour
+    'pt-add': (el, V) => write([addOp('Instance_Points', { Seance: V.s.id, Ordre: V.s.points.reduce((n, p) => Math.max(n, p.ordre), 0) + 1, Titre: '', Nature: C.nature.discussion, Duree_min: 15, Projets: ['L'], Invites: ['L'], Lien_type: '', Lien: '' })]),
+    'pt-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Points', id)].concat(orphanGuestOps(V, [id]))); },
+    'pt-up': (el, V) => shiftPoint(V, el.dataset.id, -1),
+    'pt-down': (el, V) => shiftPoint(V, el.dataset.id, 1),
+    'pt-nat': (el, V) => write([upd('Instance_Points', el.dataset.id, { Nature: C.nature[el.dataset.v] })]),
+    'pt-proj': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.projets.indexOf(pid) >= 0 ? p.projets.filter(x => x !== pid) : p.projets.concat([pid]); write([upd('Instance_Points', p.id, { Projets: D.toList(list) })]); },
+    'pt-inv': (el, V) => toggleGuestOnPoint(V, el.dataset.id, el.dataset.v),
+    // dossier du point / du compte rendu
+    'pt-link-type': (el, V) => write(setLinkOps(V, 'pt', el.dataset.id, el.dataset.v, '')),
+    'pt-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'pt', el.dataset.id, 'gfs', el.dataset.v)); },
+    'pt-link-clear': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'pt', el.dataset.id, '', '')); },
+    'pt-link-open': (el, V) => { const l = linkOf(V, 'pt', el.dataset.id); openLink(V, l.type, l.link); },
+    'cr-link-type': (el, V) => write(setLinkOps(V, 'cr', 'cr', el.dataset.v, '')),
+    'cr-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'cr', 'cr', 'gfs', el.dataset.v)); },
+    'cr-link-clear': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'cr', 'cr', '', '')); },
+    'cr-link-open': (el, V) => { const l = linkOf(V, 'cr', 'cr'); openLink(V, l.type, l.link); },
+    // invités
+    'g-ecrit': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Ecrit_le: g.ecritLe ? null : gristDay(V.today) })]); },
+    'g-hor': (el, V) => {
+      const g = guestOf(V, el.dataset.id), fs0 = V.firstStart(g), st = L.horaireState(g, fs0);
+      if (st === 'none') return;
+      if (st === 'sent') write([upd('Instance_Invites', g.id, { Passage_envoye_le: null, Passage_envoye_heure: '' })]);
+      else write([upd('Instance_Invites', g.id, { Passage_envoye_le: gristDay(V.today), Passage_envoye_heure: fs0 })]);
+    },
+    'g-rep': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Reponse: C.reponse[el.dataset.v] })]),
+    'g-start': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_de: V.s.heure })]),
+    'g-end': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_a: L.hhmm(V.endMin) })]),
+    'g-appel': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Appel: g.appel === el.dataset.v ? '' : C.appel[el.dataset.v] })]); },
+    'g-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Invites', id)].concat(V.s.points.filter(p => p.invites.indexOf(id) >= 0).map(p => upd('Instance_Points', p.id, { Invites: D.toList(p.invites.filter(x => x !== id)) })))); },
+    'g-add': (el, V) => { S.ui.menu = null; write([addOp('Instance_Invites', { Seance: V.s.id, Personne: Number(el.dataset.v), Origine: C.origine.point, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' })]); },
+    // dates des mails
+    'inv-today': (el, V) => write(setInvitationDate(V, V.today)),
+    'crm-today': (el, V) => write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(V.today) })]),
+    // compte rendu
+    'v0-toggle': (el, V) => write([upd('Suivi_Instance', V.s.id, V.s.v0 ? { CR_V0_le: null, CR_V0_par: 0 } : { CR_V0_le: gristDay(V.today), CR_V0_par: S.personId || 0 })]),
+    'rel-set': (el, V) => {
+      const pid = Number(el.dataset.id), v = el.dataset.v, r = V.s.relectures[pid];
+      if (v === 'none') { if (r) write([delOp('Instance_Relectures', r.id)]); return; }
+      const fields = { Statut: C.relecture[v], Relu_le: gristDay(V.today) };
+      write([r ? upd('Instance_Relectures', r.id, fields) : addOp('Instance_Relectures', Object.assign({ Seance: V.s.id, Personne: pid }, fields))]);
+    },
+    // notifications
+    'vp-toggle': () => setMenu('vpconfirm'),
+    'vp-cancel': () => { S.ui.menu = null; render(); },
+    'vp-confirm': (el, V) => confirmVp(V),
+    // paramétrage
+    'settings-open': () => { S.ui.settings = true; S.ui.menu = null; render(); },
+    'settings-close': () => { S.ui.settings = false; S.ui.menu = null; render(); },
+    'cfg-dur': (el, V) => { S.ui.menu = null; cfgWrite(V, { Duree_min: Number(el.dataset.v) }); },
+    'cfg-step': (el, V) => {
+      if (el.dataset.v === 'odj') return;
+      const next = L.ALL_STEP_KEYS.filter(k => k === 'odj' || (k === el.dataset.v ? V.cfg.steps.indexOf(k) < 0 : V.cfg.steps.indexOf(k) >= 0));
+      cfgWrite(V, { Etapes_actives: D.toList(next.map(k => L.STEPS.find(x => x.key === k).stored)) });
+    },
+    'cfg-rel-add': (el, V) => { S.ui.menu = null; cfgWrite(V, { Relecteurs_CR: D.toList(V.cfg.relecteurs.concat([Number(el.dataset.v)])) }); },
+    'cfg-rel-del': (el, V) => cfgWrite(V, { Relecteurs_CR: D.toList(V.cfg.relecteurs.filter(x => x !== Number(el.dataset.v))) }),
+    'cfg-perm-add': (el, V) => { S.ui.menu = null; cfgWrite(V, { Invites_permanents: D.toList(V.cfg.permanents.concat([Number(el.dataset.v)])) }); },
+    'cfg-perm-del': (el, V) => cfgWrite(V, { Invites_permanents: D.toList(V.cfg.permanents.filter(x => x !== Number(el.dataset.v))) })
+  };
+
+  const CHANGE = {
+    'pt-titre': (el, V) => write([upd('Instance_Points', el.dataset.id, { Titre: el.value })], { defer: true }),
+    'pt-duree': (el, V) => write([upd('Instance_Points', el.dataset.id, { Duree_min: Math.max(0, Math.round(Number(el.value) || 0)) })], { defer: true }),
+    'pt-url': (el, V) => write(setLinkOps(V, 'pt', el.dataset.id, el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
+    'cr-url': (el, V) => write(setLinkOps(V, 'cr', 'cr', el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
+    'g-comm': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Commentaire: el.value })], { defer: true }),
+    'inv-date': (el, V) => write(setInvitationDate(V, el.value), { defer: true }),
+    'crm-date': (el, V) => write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(el.value) })], { defer: true }),
+    'seance-date': (el, V) => {
+      if (!el.value) return;
+      write([upd('Suivi_Instance', V.s.id, { date: gristDay(el.value), Heure: L.parisToEpoch(el.value, V.s.heure) })], { defer: true });
+    },
+    'cfg-mod': (el, V) => cfgWrite(V, { [el.dataset.f]: el.value.trim() })
+  };
+
+  function currentView() { return S.loaded && S.model && S.model.instances.length ? computeView() : null; }
+  function onClick(e) {
+    const el = e.target.closest('[data-act]');
+    if (!el || !rootEl().contains(el)) return;
+    const handler = CLICK[el.dataset.act]; if (!handler) return;
+    const V = currentView(); if (!V || !V.inst) return;
+    if (el.disabled) return;
+    if (V.s || el.dataset.act === 'seance-new' || el.dataset.act.indexOf('settings') === 0 || el.dataset.act.indexOf('cfg-') === 0 || el.dataset.act === 'menu-close') handler(el, V);
+  }
+  function onChange(e) {
+    const el = e.target.closest('[data-chg]');
+    if (!el) return;
+    const handler = CHANGE[el.dataset.chg]; if (!handler) return;
+    const V = currentView(); if (!V || !V.inst) return;
+    if (!V.s && el.dataset.chg !== 'cfg-mod') return;
+    handler(el, V);
+  }
+  // Recherche dans un menu : on masque les lignes sans re-rendre (le champ garde le focus).
+  function onInput(e) {
+    const el = e.target.closest('[data-filter]'); if (!el) return;
+    const menu = el.closest('.in-menu'); if (!menu) return;
+    const q = el.value.trim().toLowerCase();
+    menu.querySelectorAll('.in-mi[data-ft]').forEach(btn => { btn.style.display = !q || btn.dataset.ft.indexOf(q) >= 0 ? '' : 'none'; });
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') {
+      if (S.ui.menu) { S.ui.menu = null; render(); } else if (S.ui.settings) { S.ui.settings = false; render(); }
+    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"])')) e.target.blur();
+  }
+  // Glisser-déposer des points : on ne re-rend qu'au dépôt (re-rendre pendant le glissement l'annule).
+  function onDragStart(e) {
+    const grip = e.target.closest && e.target.closest('[data-drag]'); if (!grip) return;
+    S.drag = Number(grip.dataset.drag);
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(S.drag)); const row = grip.closest('.in-pt'); if (row) e.dataTransfer.setDragImage(row, 20, 20); } catch (err) { /* navigateur sans dataTransfer */ }
+    const row = grip.closest('.in-pt'); if (row) row.classList.add('in-dragging');
+  }
+  function clearDrag() { S.drag = null; rootEl().querySelectorAll('.in-dragging,.in-drop').forEach(el => el.classList.remove('in-dragging', 'in-drop')); }
+  function onDragOver(e) {
+    if (S.drag == null) return;
+    const row = e.target.closest && e.target.closest('.in-pt[data-pt]'); if (!row) return;
+    e.preventDefault();
+    rootEl().querySelectorAll('.in-drop').forEach(el => { if (el !== row) el.classList.remove('in-drop'); });
+    if (Number(row.dataset.pt) !== S.drag) row.classList.add('in-drop');
+  }
+  function onDrop(e) {
+    if (S.drag == null) return;
+    const row = e.target.closest && e.target.closest('.in-pt[data-pt]'); if (!row) return;
+    e.preventDefault();
+    const from = S.drag; clearDrag();
+    const V = currentView(); if (V && V.s && from !== Number(row.dataset.pt)) movePoint(V, from, row.dataset.pt);
+  }
+
+  let wired = false;
+  function init() {
+    if (wired) return; wired = true;
+    const root = rootEl(); if (!root) return;
+    root.addEventListener('click', onClick);
+    root.addEventListener('change', onChange);
+    root.addEventListener('input', onInput);
+    root.addEventListener('keydown', onKey);
+    root.addEventListener('dragstart', onDragStart);
+    root.addEventListener('dragover', onDragOver);
+    root.addEventListener('drop', onDrop);
+    root.addEventListener('dragend', clearDrag);
+    const btn = document.getElementById('btn-instances'), menu = document.getElementById('instances-menu');
+    if (btn && menu) {
+      btn.addEventListener('click', () => { menu.hidden = !menu.hidden; ensureLoaded(); renderNavMenu(); });
+      menu.addEventListener('click', e => {
+        const item = e.target.closest('[data-inst]'); if (!item) return;
+        S.prefs.instanceId = Number(item.dataset.inst); S.ui.menu = null; menu.hidden = true;
+        showInstancesView();
+        ensureLoaded().then(() => { render(); renderNavMenu(); savePrefs(); });
+      });
+      document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.in-navdd')) menu.hidden = true; });
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  global.loadInstancesUserPreferences = loadInstancesUserPreferences;
+  // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
+  global.renderInstances = function () { if (S.loaded) { rebuild(); render(); renderNavMenu(); } };
+  global.InstancesPage = {
+    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _init: init, _reset() {
+      clearTimeout(renderTimer); renderTimer = null;
+      S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
+      setRaw({}); viewer.key = ''; viewer.token = null;
+      const root = rootEl(); if (root) root.innerHTML = '';
+    }
+  };
+})(window);
