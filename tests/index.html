@@ -171,6 +171,17 @@
     await loadScript('../js/pages/redaction-variables.js');
     await loadScript('../js/pages/page-redaction.js');
 
+    // Outil de signature (signature/, URL dédiée) : mêmes fichiers que la vraie page, hors index.html/boot.js.
+    window.SIG_ROOT = location.origin + '/signature/';
+    await loadScript('../signature/vendor/pdf-lib/pdf-lib.min.js');
+    await loadScript('../signature/js/util.js');
+    await loadScript('../signature/js/acl.js');
+    await loadScript('../signature/js/pdf-stamp.js');
+    await loadScript('../signature/js/grist-io.js');
+    await loadScript('../signature/js/signer.js');
+    await loadScript('../signature/js/pdf-view.js');
+    await loadScript('../signature/js/app.js');
+
     // Test suites, one per audited feature.
     await loadScript('suite-kanban.js');
     await loadScript('suite-help-tooltip.js');
@@ -184,6 +195,7 @@
     await loadScript('suite-bridge.js');
     await loadScript('suite-redaction.js');
     await loadScript('suite-redaction-variables.js');
+    await loadScript('suite-signature.js');
 
     await window.CoreGrist.ready();
     await window.runAllTests();
