@@ -8,7 +8,7 @@ on:
 jobs:
   headless-suite:
     name: Suite de non-régression (headless)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # ubuntu-latest est passé en 26.04, que Playwright 1.56 ne gère pas (l'installation de Chromium échouait avant tout test)
     steps:
       - uses: actions/checkout@v4
 
