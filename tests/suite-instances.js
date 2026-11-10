@@ -1077,7 +1077,7 @@
       await waitFor(() => lastFields('UpdateRecord', 'Suivi_Instance', 2).Mail_invitation_le === gd('2026-11-12'), 'date saisie');
     });
 
-    it('compte rendu : V0, relecture à trois états (à relire / modifs demandées en bleu / validé), validation seulement quand tous ont validé', async function () {
+    it('compte rendu : V0, relecture à trois états (à relire / modifs demandées en bleu / validé), validé tout seul quand tous ont validé', async function () {
       await setup();
       step('cr');
       assertTrue(q('[data-act="validate"]').disabled);
@@ -1095,13 +1095,74 @@
       assertEqual(qa('.in-rvw.in-valide').length, 1);
       assertTrue(q('[data-act="validate"]').disabled, 'des modifications sont demandées');
       assertIncludes(q('.in-panel .in-alert-pill').title, 'a demandé des modifications');
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 0, 'pas validé tant que tout le monde n\'a pas validé');
       click('rel-set', { id: 2, v: 'valide' });
       assertEqual(lastFields('UpdateRecord', 'Instance_Relectures', 2).Statut, 'Validée', 'la ligne du relecteur est mise à jour, pas dupliquée');
-      assertFalse(q('[data-act="validate"]').disabled);
-      click('validate');
-      assertEqual((await waitCall('AddRecord', 'Instance_Validations')).Etape, 'Compte rendu');
+      const auto = await waitCall('AddRecord', 'Instance_Validations');
+      assertEqual(auto.Etape, 'Compte rendu', 'l\'étape se valide toute seule avec le dernier relecteur');
+      assertEqual(auto.Seance, 2);
+      assertEqual(auto.Date, gd(TODAY));
+      await waitFor(() => !q('[data-act="validate"]') && !!q('[data-act="reopen"]'), 'étape validée');
       click('rel-set', { id: 1, v: 'none' });
       assertEqual(calls('RemoveRecord', 'Instance_Relectures').length, 1, 'retour à « à relire » supprime la ligne');
+    });
+
+    it('compte rendu : validation automatique dans l\'autre ordre (relecteurs d\'abord, V0 en dernier), en une seule écriture', async function () {
+      await setup();
+      step('cr');
+      click('rel-set', { id: 1, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Relectures');
+      click('rel-set', { id: 2, v: 'valide' });
+      await waitFor(() => calls('AddRecord', 'Instance_Relectures').length === 2, 'deux relecteurs');
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 0, 'sans V0, pas validé');
+      const actionsBefore = window.__TEST_CALLS__.length;
+      click('v0-toggle');
+      const auto = await waitCall('AddRecord', 'Instance_Validations');
+      assertEqual(auto.Etape, 'Compte rendu');
+      assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).CR_V0_le, gd(TODAY));
+      assertEqual(window.__TEST_CALLS__.length - actionsBefore, 2, 'V0 + validation : deux actions, une seule demande à Grist');
+      await waitFor(() => !!q('[data-act="reopen"]'), 'étape validée');
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 1, 'une seule validation');
+    });
+
+    it('compte rendu : jamais validé tout seul sans V0, avec une demande de modifications, ou sans relecteur défini', async function () {
+      await setup();
+      step('cr');
+      click('rel-set', { id: 1, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Relectures');
+      click('rel-set', { id: 2, v: 'valide' });
+      await waitFor(() => calls('AddRecord', 'Instance_Relectures').length === 2, 'deux relecteurs');
+      await new Promise(r => setTimeout(r, 200));
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 0, 'tous les relecteurs ont validé, mais pas de V0');
+      click('rel-set', { id: 2, v: 'modifs' });
+      click('v0-toggle');
+      await waitFor(() => !!lastFields('UpdateRecord', 'Suivi_Instance', 2), 'V0 posée');
+      await new Promise(r => setTimeout(r, 200));
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 0, 'un relecteur demande des modifications');
+      // sans relecteur défini sur l'instance : la V0 seule ne valide pas (le bouton ✓ reste disponible)
+      await setup({ rows: d => { d.Instances[0].Relecteurs_CR = ['L']; } });
+      step('cr');
+      click('v0-toggle');
+      await waitFor(() => lastFields('UpdateRecord', 'Suivi_Instance', 2), 'V0 posée');
+      await new Promise(r => setTimeout(r, 200));
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 0, 'aucun relecteur défini');
+      assertFalse(q('[data-act="validate"]').disabled, 'validation manuelle toujours possible');
+    });
+
+    it('compte rendu : « Rouvrir l\'étape » après une validation automatique n\'est pas défait tout seul', async function () {
+      await setup({ rows: d => { d.Suivi_Instance[1].CR_V0_le = gd('2026-11-10'); } });
+      step('cr');
+      click('rel-set', { id: 1, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Relectures');
+      click('rel-set', { id: 2, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Validations');
+      await waitFor(() => !!q('[data-act="reopen"]'), 'étape validée');
+      click('reopen');
+      await waitFor(() => calls('RemoveRecord', 'Instance_Validations').length === 1, 'validation supprimée');
+      await waitFor(() => !!q('[data-act="validate"]'), 'étape rouverte');
+      await new Promise(r => setTimeout(r, 300));
+      assertEqual(calls('AddRecord', 'Instance_Validations').length, 1, 'pas de nouvelle validation automatique à la réouverture');
+      assertFalse(q('[data-act="validate"]').disabled, 'toujours validable à la main');
     });
 
     // GFS est chargé dans une iframe vide (about:blank) : aucune connexion réseau pendant les tests ; origin '*' = le pont ne

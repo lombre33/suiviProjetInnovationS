@@ -242,6 +242,12 @@ n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widg
 ou `type` : affichage de l'ordre du jour), `Inst_cadre` (JSON : `bandeau`, `cr`, `plein`, `hauteur` — voir
 ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante par `ensureColumns`.
 
+**Compte rendu validé automatiquement (10/11/2026).** Dès que la V0 est rédigée et que tous les relecteurs de
+l'instance ont validé, l'étape Compte rendu se valide d'elle-même (ligne `Instance_Validations`, date du jour,
+« Par » = la personne qui a fait le dernier geste). Seul ce dernier geste (V0 cochée ou dernier relecteur validé)
+déclenche la validation : « Rouvrir l'étape » n'est jamais défait tout seul, et sans relecteur défini la V0 seule ne
+valide pas (le bouton ✓ reste disponible). Une demande de modifications bloque la validation automatique.
+
 **Ordre du jour : clavier et alignement (10/11/2026).** Les menus de recherche (projets, présentateurs, invités,
 relecteurs…) se parcourent aux flèches (↓/↑, en boucle), Entrée choisit la ligne surlignée (à défaut le premier
 résultat d'une recherche), Échap referme. La largeur du titre d'un point est fixe (proportionnelle à la liste) :

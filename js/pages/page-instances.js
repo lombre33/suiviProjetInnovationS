@@ -997,6 +997,16 @@
     const stored = L.STEPS.find(x => x.key === V.stepKey).stored;
     write([addOp('Instance_Validations', { Seance: V.s.id, Etape: stored, Date: gristDay(V.today), Par: S.personId || 0 })]);
   }
+  // Validation AUTOMATIQUE du compte rendu : dès que la V0 est rédigée et que tous les relecteurs ont validé (pas avant, et jamais
+  // sans relecteur défini). Déclenchée seulement par le geste qui complète la condition (V0 cochée, dernier relecteur validé) :
+  // « Rouvrir l'étape » n'est donc jamais défait tout seul. `statutOf(pid)` = statut de relecture APRÈS le geste.
+  function crAutoValidationOps(V, v0, statutOf) {
+    const rel = V.cfg.relecteurs;
+    if (!v0 || !rel.length || V.valid('cr') || !V.active.some(x => x.key === 'cr')) return [];
+    if (!rel.every(pid => statutOf(pid) === 'valide')) return [];
+    return [addOp('Instance_Validations', { Seance: V.s.id, Etape: L.STEPS.find(x => x.key === 'cr').stored, Date: gristDay(V.today), Par: S.personId || 0 })];
+  }
+  const writeCr = (ops, auto) => write(ops.concat(auto)).then(() => { if (auto.length) toast('Compte rendu validé automatiquement : V0 rédigée et relecture validée par tous.'); });
   function reopenStep(V) {
     if (V.stepKey === 'invitation') write([upd('Suivi_Instance', V.s.id, { Mail_invitation_le: null })]);
     else if (V.stepKey === 'crmail') write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: null })]);
@@ -1068,12 +1078,14 @@
     },
     'cr-plein': () => { S.prefs.cadre.plein = !S.prefs.cadre.plein; S.ui.menu = null; render(); savePrefs(); if (global.scrollTo) global.scrollTo(0, 0); },
     'cr-hauteur': () => { const i = HAUTEURS.indexOf(S.prefs.cadre.hauteur); S.prefs.cadre.hauteur = HAUTEURS[(i + 1) % HAUTEURS.length]; renderViewer(); savePrefs(); },
-    'v0-toggle': (el, V) => write([upd('Suivi_Instance', V.s.id, V.s.v0 ? { CR_V0_le: null, CR_V0_par: 0 } : { CR_V0_le: gristDay(V.today), CR_V0_par: S.personId || 0 })]),
+    'v0-toggle': (el, V) => writeCr([upd('Suivi_Instance', V.s.id, V.s.v0 ? { CR_V0_le: null, CR_V0_par: 0 } : { CR_V0_le: gristDay(V.today), CR_V0_par: S.personId || 0 })],
+      V.s.v0 ? [] : crAutoValidationOps(V, true, pid => (V.s.relectures[pid] || {}).statut)),
     'rel-set': (el, V) => {
       const pid = Number(el.dataset.id), v = el.dataset.v, r = V.s.relectures[pid];
       if (v === 'none') { if (r) write([delOp('Instance_Relectures', r.id)]); return; }
       const fields = { Statut: C.relecture[v], Relu_le: gristDay(V.today) };
-      write([r ? upd('Instance_Relectures', r.id, fields) : addOp('Instance_Relectures', Object.assign({ Seance: V.s.id, Personne: pid }, fields))]);
+      writeCr([r ? upd('Instance_Relectures', r.id, fields) : addOp('Instance_Relectures', Object.assign({ Seance: V.s.id, Personne: pid }, fields))],
+        crAutoValidationOps(V, !!V.s.v0, id => (id === pid ? v : (V.s.relectures[id] || {}).statut)));
     },
     // notifications
     'vp-toggle': () => setMenu('vpconfirm'),
