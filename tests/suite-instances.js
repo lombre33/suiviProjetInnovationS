@@ -818,6 +818,42 @@
       });
     });
 
+    it('le titre prend tout l\'espace laissé par les projets et les personnes : la colonne de droite s\'adapte à la ligne la plus chargée, sans bouger tant qu\'on reste dans sa réserve', async function () {
+      await withLayout(async () => {
+        await setup({ rows: d => { d.Instance_Points.forEach(p => { p.Projets = ['L']; p.Invites = ['L']; p.Presentateurs = ['L', 1]; }); } });
+        step('odj');
+        const setW = async w => { q('.in-pts').style.width = w + 'px'; await settleResize(); };
+        await setW(1154); // la liste dans le conteneur de l'appli
+        const rowW = point(1).getBoundingClientRect().width;
+        const title = id => point(id).querySelector('.in-ptitle').getBoundingClientRect();
+        const groups = id => { const r = point(id).querySelector('.in-pgroups').getBoundingClientRect(); return { left: r.left - point(id).getBoundingClientRect().left, width: r.width }; }; // relatif à la ligne : la page peut défiler
+        assertTrue(title(1).width >= 0.38 * rowW, 'le titre occupe l\'espace libre : ' + Math.round(title(1).width) + ' px sur ' + Math.round(rowW) + ' px');
+        assertTrue(groups(1).width < 0.3 * rowW, 'la colonne de droite ne garde pas de place inutile (' + Math.round(groups(1).width) + ' px)');
+        const w0 = Math.round(title(1).width), g0 = Math.round(groups(1).left);
+        // Un invité de plus tient dans la réserve : ni le titre ni la colonne ne bougent.
+        click('menu', { v: 'inv:1' });
+        click('pt-inv', { id: 1, v: 2 });
+        await waitFor(() => point(1).querySelectorAll('.in-g-inv .in-tag').length === 1, 'invité affiché');
+        click('menu-close');
+        await setW(1154);
+        assertEqual(Math.round(title(1).width), w0, 'le titre n\'a pas bougé');
+        assertEqual(Math.round(groups(1).left), g0, 'la colonne de droite n\'a pas bougé (pas de décrochage vers la gauche)');
+        // Beaucoup de monde sur un point : la colonne s'élargit pour TOUTES les lignes (colonnes alignées), le titre cède la place,
+        // et chaque ligne reste sur une seule ligne.
+        click('menu', { v: 'pres:1' });
+        [2, 3, 4].forEach(v => click('pt-pres', { id: 1, v }));
+        await waitFor(() => point(1).querySelectorAll('.in-g-pres .in-tag').length === 4, 'quatre présentateurs affichés');
+        click('menu-close');
+        await setW(1154);
+        assertTrue(title(1).width < w0, 'le titre cède la place à la colonne de droite');
+        [2, 3].forEach(id => {
+          assertEqual(Math.round(title(id).width), Math.round(title(1).width), 'titre de la ligne ' + id + ' aligné sur la ligne 1');
+          assertEqual(Math.round(groups(id).left), Math.round(groups(1).left), 'colonne de droite de la ligne ' + id + ' alignée sur la ligne 1');
+        });
+        qa('.in-pt').forEach(row => assertTrue(row.getBoundingClientRect().height < 70, 'ligne unique malgré la colonne élargie (' + Math.round(row.getBoundingClientRect().height) + ' px)'));
+      });
+    });
+
     it('menus de recherche (projets, présentateurs, invités) : flèches pour surligner, Entrée pour choisir, comme dans les autres listes', async function () {
       await setup();
       step('odj');
@@ -909,6 +945,40 @@
         await settleResize();
         keys.forEach(k => { assertEqual(left(k), before[k], k + ' n\'a pas bougé (pas de décrochage vers la gauche)'); });
         assertTrue(docLeft() >= dossierBefore, 'seul ce qui est à droite peut se décaler, et vers la droite');
+      });
+    });
+
+    it('étape Invités : les états actifs sont pleins et vifs (vert viendra/présent/écrit/envoyé, rouge excusé/absent, orange à confirmer/horaire modifié)', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('invites');
+        const rgb = el => getComputedStyle(el).backgroundColor.match(/\d+/g).slice(0, 3).map(Number);
+        const white = el => getComputedStyle(el).color === 'rgb(255, 255, 255)';
+        const vivid = (el, name, test) => { const c = rgb(el); assertTrue(test(c[0], c[1], c[2]), name + ' : fond ' + c.join(','));  assertTrue(white(el), name + ' : icône blanche'); };
+        const green = (r, g, b) => g > 140 && r < 60 && b < 110, red = (r, g, b) => r > 200 && g < 60 && b < 70, orange = (r, g, b) => r > 200 && g > 100 && g < 150 && b < 40;
+        const row = name => qa('.in-grow').filter(r => r.querySelector('.in-pname') && r.querySelector('.in-pname').textContent.indexOf(name) >= 0)[0];
+        const rep = (name, cls) => row(name).querySelector('.in-seg-i[aria-label^="Réponse"] button.in-on.' + cls);
+        // Alice : « viendra » ; Chloé : « à confirmer » (données du test)
+        vivid(rep('Alice', 'in-ok'), 'viendra', green);
+        vivid(rep('Chloé', 'in-ask'), 'à confirmer', orange);
+        // excusé
+        click('g-rep', { id: 3, v: 'excuse' });
+        await waitFor(() => qa('.in-seg-i button.in-on.in-no').length > 0, 'réponse « excusé » affichée');
+        vivid(q('.in-seg-i[aria-label^="Réponse"] button.in-on.in-no'), 'excusé', red);
+        // appel du jour
+        click('g-appel', { id: 1, v: 'present' });
+        await waitFor(() => !!q('.in-seg-i[aria-label="Appel du jour"] button.in-on.in-ok'), 'appel « présent » affiché');
+        vivid(q('.in-seg-i[aria-label="Appel du jour"] button.in-on.in-ok'), 'présent', green);
+        click('g-appel', { id: 2, v: 'absent' });
+        await waitFor(() => !!q('.in-seg-i[aria-label="Appel du jour"] button.in-on.in-no'), 'appel « absent » affiché');
+        vivid(q('.in-seg-i[aria-label="Appel du jour"] button.in-on.in-no'), 'absent', red);
+        // invitation écrite / horaire envoyé : pastille verte pleine
+        const written = qa('.in-grow .in-ib.in-on').filter(b => b.closest('.in-dispo') === null);
+        assertTrue(written.length > 0, 'au moins une invitation écrite ou un horaire envoyé dans les données du test');
+        written.forEach(b => vivid(b, 'envoyé / écrit', green));
+        // pas encore fait : bouton cerclé, sans fond plein
+        const idle = qa('.in-grow .in-ib:not(.in-on):not(.in-warn):not(:disabled)').filter(b => b.closest('.in-dispo') === null)[0];
+        assertTrue(!!idle && getComputedStyle(idle).boxShadow !== 'none', 'un bouton pas encore fait est cerclé');
       });
     });
 

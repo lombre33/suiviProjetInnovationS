@@ -277,12 +277,20 @@ de GFS n'est jamais recréée.
 (4 teintes qui reviennent). Vue *Par type* : tous les points (jamais un filtre), regroupés pour
 validation, puis discussion, puis information ; l'ordre de passage n'est pas modifiable dans cette vue.
 Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit, dans sa propre colonne :
-c'est lui qui prend des lignes, jamais le reste). **Un point tient toujours sur une seule ligne** :
-la ligne ne se replie jamais (pas de contrôles sous le titre) ; projets, présentateurs, invités et
-dossier occupent une zone de largeur fixe à droite du titre (`--gw` dans `css/instances.css`).
-Les noms de personnes passent en initiales quand la ligne est étroite (< 1560 px) ; le nom complet
-reste dans l'infobulle. Le bouton « Dossier du point » est une icône seule (le nom du dossier lié
-est dans l'infobulle).
+c'est lui qui prend des lignes, jamais le reste) et **prend tout l'espace libre**. **Un point tient
+toujours sur une seule ligne** : la liste est une grille dont les colonnes sont communes à toutes les
+lignes ; la colonne de droite (projets, présentateurs, invités, dossier) fait la largeur de la ligne la
+plus chargée (au moins 300 px, au plus 45 % de la liste), le titre reçoit le reste. Tant qu'on ajoute
+quelqu'un dans la réserve de 300 px, rien ne bouge ; au-delà, seule cette colonne s'élargit (le titre
+cède la place pour toutes les lignes, colonnes alignées). Les noms de personnes passent en initiales
+quand la liste est étroite (< 1560 px) ; le nom complet reste dans l'infobulle. Le bouton « Dossier du
+point » est une icône seule (le nom du dossier lié est dans l'infobulle).
+
+**Étape Invités : états vifs (10/11/2026).** Réponse et appel du jour : pastille pleine, verte
+(viendra / présent), rouge (excusé / absent) ou orange (à confirmer), icône blanche. Invitation écrite
+et horaire de passage envoyés : pastille verte pleine ; horaire modifié depuis l'envoi : orange ; pas
+encore fait : bouton cerclé. Les boutons « dès le début / jusqu'à la fin » du créneau actifs sont bleus
+pleins. Couleurs dans la fin de `css/instances.css` (bloc « Étape Invités »).
 
 **Instances présentées (10/11/2026).** Seules les instances dont le nom (colonne `Instances` de la
 table `Instances`) est « CTO Innovation » ou « Comité innovation » (casse, accents et ponctuation

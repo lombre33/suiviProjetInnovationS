@@ -157,24 +157,23 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .in-total{font-weight:800;font-variant-numeric:tabular-nums}
 .in-total.in-over{color:var(--warn)}
-.in-pts{display:flex;flex-direction:column;gap:5px}
 .in-pts{container-type:inline-size;container-name:pts}
-/* Ligne d'un point : TOUJOURS sur une seule ligne. Le titre est le seul élément élastique (il se replie sur plusieurs lignes dans sa
-   zone, jamais coupé) ; tout le reste a une largeur fixe, y compris la zone des projets / présentateurs / invités / dossier : le
-   titre a donc la même largeur d'une ligne à l'autre (rien ne se décale vers la gauche quand on ajoute quelqu'un) et ce qu'on
-   ajoute à droite ne décale que ce qui le suit. Les noms passent en initiales avant d'en arriver à manquer de place (@container).
-   Quand la zone des groupes manque de place, ce sont ses étiquettes qui passent à la ligne DANS la zone, jamais la ligne du point. */
-.in-pt{--gw:clamp(240px,45cqw,660px);display:flex;flex-wrap:nowrap;align-items:center;gap:6px 8px;box-sizing:border-box;padding:8px 16px 8px 4px;border:1px solid var(--border);border-left:4px solid var(--tone,var(--border));border-radius:12px;background:var(--tone-s,var(--surface));position:relative}
-.in-pt>.in-grip{flex:0 0 auto}
-.in-pt>.in-ptime{flex:0 0 108px}
-.in-pt>.in-ptitle{flex:1 1 0;min-width:140px;width:auto}
-.in-pt>.in-seg-i,.in-pt>.in-pdur{flex:0 0 auto}
-.in-pt>.in-pgroups{flex:0 0 var(--gw);display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+/* Liste des points = UNE grille : les colonnes (poignée, heure, titre, nature, durée, projets/personnes/dossier, corbeille) sont communes à
+   toutes les lignes (sous-grille). Chaque ligne reste sur une seule ligne et le titre prend TOUT l'espace restant (il se replie sur
+   plusieurs lignes dans sa colonne, jamais coupé). La colonne des projets / présentateurs / invités / dossier fait la largeur de la
+   ligne la plus chargée (jamais moins de 300 px, jamais plus de 45 % de la liste) : tant qu'on ajoute quelqu'un dans cette réserve, rien ne
+   bouge ; au-delà, seule cette colonne grandit (c'est le titre qui rend la place). Les noms passent en initiales avant d'en arriver à
+   manquer de place (@container). Si même 45 % ne suffisent pas, ce sont les étiquettes qui passent à la ligne DANS leur colonne. */
+.in-pts{display:grid;grid-template-columns:auto 108px minmax(140px,1fr) auto auto fit-content(45%) auto;column-gap:8px;row-gap:5px;align-items:stretch}
+.in-pts>.in-grph{grid-column:1/-1}
+.in-pt{display:grid;grid-template-columns:subgrid;grid-column:1/-1;align-items:center;box-sizing:border-box;padding:8px 16px 8px 4px;border:1px solid var(--border);border-left:4px solid var(--tone,var(--border));border-radius:12px;background:var(--tone-s,var(--surface));position:relative}
+.in-pt>.in-ptitle{width:100%;min-width:0}
+.in-pt>.in-pgroups{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:300px}
 .in-pgroups>.in-group{flex:0 0 auto;max-width:100%;gap:4px}
 .in-pt .in-tag{gap:3px;padding:0 3px 0 8px}
-.in-pt>.in-ptrash{flex:0 0 auto;align-self:center}
+.in-pt>.in-ptrash{align-self:center}
 .in-pt .in-ini{display:none}
-@container pts (min-width:1561px){.in-pt{--gw:clamp(660px,42cqw,900px)}}
+@container pts (min-width:1561px){.in-pt>.in-pgroups{min-width:440px}}
 @container pts (max-width:1560px){.in-pt .in-nm{display:none}.in-pt .in-ini{display:inline}}
 /* Couleurs : par heure de la séance (vue Timing, 4 teintes qui reviennent) ou par type de décision (vue Par type). */
 .in-pt.in-b1{--tone:#2f6fed;--tone-s:#f6f9ff}
@@ -374,3 +373,21 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 /* Composition de l'instance : rappel dans l'étape Invités. */
 .in-compo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--accent-sb);border-radius:12px;background:var(--accent-s);font-size:12.5px;font-weight:600}
 .in-compo .in-gic{color:var(--accent-h)}
+
+/* Étape Invités : états ACTIFS bien lisibles d'un coup d'œil (10/11/2026, « les contrastes sont ternes »). Réponse et appel du jour :
+   pastille pleine, verte (viendra / présent), rouge (excusé / absent), orange (à confirmer), icône blanche. Invitation écrite et horaire
+   de passage envoyés : pastille pleine verte ; horaire modifié depuis l'envoi : orange ; pas encore fait : bouton cerclé, bien visible. */
+.in-grow .in-seg-i{background:#e3e7ee}
+.in-grow .in-seg-i button{color:#667085}
+.in-grow .in-seg-i button.in-on{box-shadow:0 1px 3px rgba(20,28,46,.28);color:#fff}
+.in-grow .in-seg-i button.in-on.in-ok{background:#12a150}
+.in-grow .in-seg-i button.in-on.in-no{background:#e11d2e}
+.in-grow .in-seg-i button.in-on.in-ask{background:#e07b00}
+.in-grow .in-ib{box-shadow:inset 0 0 0 1.5px var(--border2)}
+.in-grow .in-ib:hover{background:var(--sunken)}
+.in-grow .in-ib.in-on{background:#12a150;color:#fff;box-shadow:none}
+.in-grow .in-ib.in-on:hover{background:#0e8a43}
+.in-grow .in-ib.in-warn{background:#e07b00;color:#fff;box-shadow:none}
+.in-grow .in-ib.in-warn:hover{background:#c46c00}
+.in-grow .in-dispo .in-ib.in-on{background:var(--accent);color:#fff}
+.in-grow .in-dispo .in-ib.in-on:hover{background:var(--accent-h)}
