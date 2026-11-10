@@ -159,21 +159,22 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-total.in-over{color:var(--warn)}
 .in-pts{display:flex;flex-direction:column;gap:5px}
 .in-pts{container-type:inline-size;container-name:pts}
-/* Ligne d'un point : le titre passe en premier et garde de la place (il s'affiche en entier, sur plusieurs lignes au besoin) ;
-   le reste des infos se replie tout seul sous le titre quand la ligne est trop étroite, et les noms passent en initiales
-   avant d'en arriver là (@container plus bas). */
-.in-pt{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 16px 8px 4px;border:1px solid var(--border);border-left:4px solid var(--tone,var(--border));border-radius:12px;background:var(--tone-s,var(--surface));position:relative}
+/* Ligne d'un point : TOUJOURS sur une seule ligne. Le titre est le seul élément élastique (il se replie sur plusieurs lignes dans sa
+   zone, jamais coupé) ; tout le reste a une largeur fixe, y compris la zone des projets / présentateurs / invités / dossier : le
+   titre a donc la même largeur d'une ligne à l'autre (rien ne se décale vers la gauche quand on ajoute quelqu'un) et ce qu'on
+   ajoute à droite ne décale que ce qui le suit. Les noms passent en initiales avant d'en arriver à manquer de place (@container).
+   Quand la zone des groupes manque de place, ce sont ses étiquettes qui passent à la ligne DANS la zone, jamais la ligne du point. */
+.in-pt{--gw:clamp(240px,45cqw,660px);display:flex;flex-wrap:nowrap;align-items:center;gap:6px 8px;box-sizing:border-box;padding:8px 16px 8px 4px;border:1px solid var(--border);border-left:4px solid var(--tone,var(--border));border-radius:12px;background:var(--tone-s,var(--surface));position:relative}
 .in-pt>.in-grip{flex:0 0 auto}
 .in-pt>.in-ptime{flex:0 0 108px}
-/* Largeur du titre FIXE (proportionnelle à la liste, jamais élastique) : tout ce qui est à sa gauche et ses voisins (nature, durée)
-   restent alignés d'une ligne à l'autre ; ajouter un projet, un présentateur ou un invité ne décale que ce qui est à sa DROITE. */
-.in-pt>.in-ptitle{flex:0 1 clamp(240px,30cqw,720px);min-width:200px;width:auto;max-width:100%}
+.in-pt>.in-ptitle{flex:1 1 0;min-width:140px;width:auto}
 .in-pt>.in-seg-i,.in-pt>.in-pdur{flex:0 0 auto}
-.in-pt>.in-group{flex:0 0 auto;max-width:100%}
-.in-pt>.in-g-proj{min-width:150px}
-.in-pt>.in-g-pres,.in-pt>.in-g-inv{min-width:104px}
-.in-pt>.in-ptrash{flex:0 0 auto;margin-left:auto;align-self:center}
+.in-pt>.in-pgroups{flex:0 0 var(--gw);display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+.in-pgroups>.in-group{flex:0 0 auto;max-width:100%;gap:4px}
+.in-pt .in-tag{gap:3px;padding:0 3px 0 8px}
+.in-pt>.in-ptrash{flex:0 0 auto;align-self:center}
 .in-pt .in-ini{display:none}
+@container pts (min-width:1561px){.in-pt{--gw:clamp(660px,42cqw,900px)}}
 @container pts (max-width:1560px){.in-pt .in-nm{display:none}.in-pt .in-ini{display:inline}}
 /* Couleurs : par heure de la séance (vue Timing, 4 teintes qui reviennent) ou par type de décision (vue Par type). */
 .in-pt.in-b1{--tone:#2f6fed;--tone-s:#f6f9ff}
@@ -214,7 +215,7 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-seg-i button.in-on.in-no{color:#b3261e}
 .in-seg-i button.in-on.in-ask{color:var(--warn)}
 .in-pdur{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:11.5px;font-weight:700}
-.in-pdur input{width:56px;text-align:center;padding:0 4px}
+.in-pdur input{width:50px;text-align:center;padding:0 4px}
 .in-group{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;min-height:30px}
 .in-gic{color:var(--muted);display:inline-flex}
 .in-addb{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:24px;min-width:24px;padding:0 6px;border:1px dashed var(--border2);border-radius:999px;background:transparent;color:var(--muted);font-size:11.5px;font-weight:700;cursor:pointer}

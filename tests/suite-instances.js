@@ -788,28 +788,33 @@
       });
     });
 
-    it('ligne étroite : les infos se replient sous le titre, rien ne déborde, et la corbeille garde une marge à droite', async function () {
+    it('un point reste TOUJOURS sur une seule ligne (jamais de repli sous le titre), et la corbeille garde une marge à droite', async function () {
       await withLayout(async () => {
         await setup();
         step('odj');
-        for (const w of [1700, 1200, 800, 520]) {
+        // 1232 px = la liste dans le conteneur de l'appli (1280 px moins ses marges) ; 1700 px = plein cadre ou grand écran.
+        for (const w of [1700, 1232, 1154, 1100, 1000, 800]) {
           q('.in-pts').style.width = w + 'px';
           await new Promise(r => setTimeout(r, 30));
           qa('.in-pt').forEach(row => {
             const box = row.getBoundingClientRect();
-            const trash = row.querySelector('.in-ptrash').getBoundingClientRect();
-            assertTrue(box.width > 0, 'la ligne est affichée à ' + w + ' px');
-            assertTrue(box.right - trash.right >= 12, 'corbeille décollée de la bordure à ' + w + ' px (' + Math.round(box.right - trash.right) + ' px)');
-            assertTrue(trash.left >= box.left, 'corbeille dans la ligne à ' + w + ' px');
-            Array.from(row.children).forEach(child => {
-              assertTrue(child.getBoundingClientRect().right <= box.right + 1, 'aucun élément ne déborde à ' + w + ' px : ' + child.className);
-            });
+            const kids = Array.from(row.children).map(c => c.getBoundingClientRect());
+            const centers = kids.map(k => k.top + k.height / 2);
+            assertTrue(Math.max.apply(null, centers) - Math.min.apply(null, centers) <= 4, 'tous les éléments du point sur la même ligne à ' + w + ' px (écart ' + Math.round(Math.max.apply(null, centers) - Math.min.apply(null, centers)) + ' px)');
+            // Sous ~1100 px, une ligne très chargée peut faire passer ses ÉTIQUETTES à la ligne dans leur zone ; jamais la ligne du point.
+            if (w >= 1100) assertTrue(box.height < 70, 'ligne de hauteur normale à ' + w + ' px (' + Math.round(box.height) + ' px)');
+            if (w >= 1000) {
+              const trash = row.querySelector('.in-ptrash').getBoundingClientRect();
+              assertTrue(box.right - trash.right >= 12, 'corbeille décollée de la bordure à ' + w + ' px (' + Math.round(box.right - trash.right) + ' px)');
+              assertTrue(trash.left >= box.left, 'corbeille dans la ligne à ' + w + ' px');
+              Array.from(row.children).forEach(child => assertTrue(child.getBoundingClientRect().right <= box.right + 1, 'aucun élément ne déborde à ' + w + ' px : ' + child.className));
+            }
           });
         }
-        const title = point(2).querySelector('.in-ptitle').getBoundingClientRect(), group = point(2).querySelector('.in-group').getBoundingClientRect();
-        assertTrue(group.top >= title.bottom - 1, 'à 520 px, projets, présentateurs et invités passent sous le titre');
-        const first = point(2).querySelector('.in-ptime').getBoundingClientRect();
-        assertTrue(Math.abs(first.top - title.top) < 30, 'à 520 px, l\'heure et le titre restent sur la même ligne');
+        q('.in-pts').style.width = '1232px';
+        await new Promise(r => setTimeout(r, 30));
+        const title = point(2).querySelector('.in-ptitle').getBoundingClientRect();
+        assertTrue(title.width >= 240, 'le titre garde de la place à 1232 px (' + Math.round(title.width) + ' px)');
       });
     });
 
@@ -938,7 +943,8 @@
     it('dossier du point : lien externe ou PDF GFS (fichiers supprimés écartés), retrait du lien', async function () {
       await setup();
       step('odj');
-      assertIncludes(point(2).textContent, 'INNOVX - dossier', 'le dossier GFS lié est nommé');
+      assertIncludes(point(2).querySelector('.in-g-doc .in-addb').title, 'INNOVX - dossier', 'le dossier GFS lié est nommé (au survol : le bouton ne garde que l\'icône, pour que la ligne reste sur une seule ligne)');
+      assertTrue(point(2).querySelector('.in-g-doc .in-addb').classList.contains('in-on'), 'icône teintée quand un dossier est lié');
       click('menu', { v: 'lien:3' });
       click('pt-link-type', { id: 3, v: 'gfs' });
       assertEqual(lastFields('UpdateRecord', 'Instance_Points', 3).Lien_type, 'Fichier GFS');

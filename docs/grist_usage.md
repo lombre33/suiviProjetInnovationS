@@ -276,9 +276,13 @@ de GFS n'est jamais recréée.
 **Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage, une teinte par heure de la séance
 (4 teintes qui reviennent). Vue *Par type* : tous les points (jamais un filtre), regroupés pour
 validation, puis discussion, puis information ; l'ordre de passage n'est pas modifiable dans cette vue.
-Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit). Les noms de
-personnes (présentateurs, invités) passent en initiales quand la ligne est étroite (< 1560 px), puis
-les infos se replient sous le titre ; le nom complet reste dans l'infobulle.
+Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit, dans sa propre colonne :
+c'est lui qui prend des lignes, jamais le reste). **Un point tient toujours sur une seule ligne** :
+la ligne ne se replie jamais (pas de contrôles sous le titre) ; projets, présentateurs, invités et
+dossier occupent une zone de largeur fixe à droite du titre (`--gw` dans `css/instances.css`).
+Les noms de personnes passent en initiales quand la ligne est étroite (< 1560 px) ; le nom complet
+reste dans l'infobulle. Le bouton « Dossier du point » est une icône seule (le nom du dossier lié
+est dans l'infobulle).
 
 **Instances présentées (10/11/2026).** Seules les instances dont le nom (colonne `Instances` de la
 table `Instances`) est « CTO Innovation » ou « Comité innovation » (casse, accents et ponctuation

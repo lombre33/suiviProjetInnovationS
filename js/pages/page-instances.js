@@ -449,7 +449,7 @@
       + '<div class="seg-i" role="group" aria-label="Nature du point">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
       + '<label class="pdur"><input type="number" min="5" step="5" class="inp" aria-label="Durée en minutes" value="' + p.duree + '" data-chg="pt-duree" data-id="' + p.id + '">min</label>'
       // projets
-      + '<div class="group g-proj"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
+      + '<div class="pgroups"><div class="group g-proj"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
       + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
       + '<div class="rel"><button type="button" class="addb ' + (projOpen ? 'on' : '') + '" title="Relier un projet" aria-label="Relier un projet" ' + da('menu', { v: 'proj:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
       + (projOpen ? '<div class="menu">' + filterInput('Rechercher un projet…') + m.projects.map(pr => '<button type="button" class="mi ' + (p.projets.indexOf(pr.id) >= 0 ? 'on' : '') + '" ' + da('pt-proj', { id: p.id, v: pr.id }) + ftAttr(pr.acro + ' ' + pr.titre) + '><span class="mi-main"><span>' + esc(pr.acro) + '</span><span class="mi-sub">' + esc(L.cut(pr.titre, 40)) + '</span></span></button>').join('') + (m.projects.length ? '' : '<div class="mh">— Aucun projet —</div>') + '</div>' : '') + '</div></div>'
@@ -467,8 +467,8 @@
         return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
       }).join('') + '</div>' : '') + '</div></div>'
       // dossier
-      + '<div class="group g-doc"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="Dossier du point" aria-label="Dossier du point" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + (lkHas ? '<span>' + esc(L.cut(linkLabel(V, p.lienType, p.lien), 18)) + '</span>' : '') + '</button>'
-      + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div>'
+      + '<div class="group g-doc"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" aria-label="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + '</button>'
+      + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div></div>'
       + '<button type="button" class="ibtn ptrash" aria-label="Supprimer le point" title="Supprimer le point" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
   }
 
