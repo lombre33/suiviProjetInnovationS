@@ -33,6 +33,22 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
   const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
   const VARIANTS = ['A', 'B', 'C'];
+  // Gagner de la place pour GFS (étape Compte rendu) : bandeau replié, relecture repliée, « plein cadre » (en-tête de l'appli et
+  // panneaux masqués, GFS sur toute la hauteur) et hauteur de GFS. Retenu par utilisateur (Preferences_Widget.Inst_cadre, JSON).
+  const HAUTEURS = ['ajustee', 'haute', 'tres-haute'];
+  const HAUTEUR_LABEL = { 'ajustee': 'à la hauteur de l\'écran', 'haute': 'une fois et demie l\'écran', 'tres-haute': 'deux fois et demie l\'écran' };
+  function defaultCadre() { return { bandeau: false, cr: false, plein: false, hauteur: 'ajustee' }; }
+  function parseCadre(raw) {
+    const cadre = defaultCadre();
+    try {
+      const o = JSON.parse(raw || '{}');
+      if (o && typeof o === 'object') {
+        cadre.bandeau = o.bandeau === true; cadre.cr = o.cr === true; cadre.plein = o.plein === true;
+        if (HAUTEURS.indexOf(o.hauteur) >= 0) cadre.hauteur = o.hauteur;
+      }
+    } catch (err) { /* valeur illisible : réglages par défaut */ }
+    return cadre;
+  }
   const ODJ_VUES = ['timing', 'type']; // vue de l'ordre du jour : ordre de passage (défaut) ou groupée par type de décision
   const CR_PDF_COLUMN = 'CR_PDF';
 
@@ -41,7 +57,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing' }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre() }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false }
   };
 
@@ -49,6 +65,7 @@
   // Icônes et petits utilitaires de rendu
   // ---------------------------------------------------------------------------------------------
   const SVG = {
+    expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>', shrink: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>', vexpand: '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>', plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12l5 5L20 7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     macro: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
@@ -162,6 +179,7 @@
       if (text(row.Inst_etape)) S.prefs.etape = text(row.Inst_etape);
       if (VARIANTS.indexOf(text(row.Inst_vue)) >= 0) S.prefs.vue = text(row.Inst_vue);
       if (ODJ_VUES.indexOf(text(row.Inst_odj_vue)) >= 0) S.prefs.odjVue = text(row.Inst_odj_vue);
+      S.prefs.cadre = parseCadre(text(row.Inst_cadre));
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -171,7 +189,7 @@
     try {
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
-        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue
+        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre)
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -271,7 +289,8 @@
   }
   function bandHtml(V) {
     const { m, inst, s } = V;
-    let h = '<section class="band" aria-label="Séance et étapes"><span class="inst-badge">' + esc(inst.nom) + '</span>';
+    const fold = !!(s && S.prefs.cadre.bandeau);
+    let h = '<section class="band' + (fold ? ' fold' : '') + '" aria-label="Séance et étapes"><span class="inst-badge">' + esc(inst.nom) + '</span>';
     if (!s) {
       return h + '<span class="muted">Aucune séance pour cette instance.</span><span class="sp"></span><button type="button" class="pillbtn" ' + da('seance-new') + '>' + ic('plus', 's') + 'Nouvelle séance</button>'
         + '<button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
@@ -280,15 +299,15 @@
     h += '<div class="rel"><button type="button" class="sel" ' + da('menu', { v: 'seance' }) + '><span>n°' + esc(s.num || '?') + ' · ' + esc(L.fmtDate(s.date) || 'sans date') + '</span><span class="tag-soft">' + when + '</span>' + ic('chevron', 's') + '</button>';
     if (isOpen('seance')) h += seanceMenu(V);
     h += '</div>';
-    // heure de début (+ date de la séance)
-    h += '<div class="rel"><button type="button" class="tp" title="Date et heure de début" aria-label="Heure de début" ' + da('menu', { v: 'heure' }) + '>' + ic('clock', 's') + esc(s.heure) + '<span class="muted">→ ' + L.hhmm(V.endMin) + '</span></button>';
+    // heure de début (+ date de la séance) ; heure et salle disparaissent quand le bandeau est replié
+    h += '<div class="rel bhide"><button type="button" class="tp" title="Date et heure de début" aria-label="Heure de début" ' + da('menu', { v: 'heure' }) + '>' + ic('clock', 's') + esc(s.heure) + '<span class="muted">→ ' + L.hhmm(V.endMin) + '</span></button>';
     if (isOpen('heure')) {
       h += timeMenu('heure', s.heure, 'heure', '', 6 * 60, 20 * 60, false, '<div class="mform" style="grid-column:1/-1"><input type="date" class="dp" aria-label="Date de la séance" value="' + esc(s.date) + '" data-chg="seance-date"></div>');
     }
     h += '</div>';
     // salle (table Lieux)
     const salle = m.lieuxById[s.salleId];
-    h += '<div class="rel"><button type="button" class="tp" title="Salle" aria-label="Salle" ' + da('menu', { v: 'salle' }) + '>' + ic('pin', 's') + esc(salle ? salle.nom : 'Salle ?') + ic('chevron', 'xs') + '</button>';
+    h += '<div class="rel bhide"><button type="button" class="tp" title="Salle" aria-label="Salle" ' + da('menu', { v: 'salle' }) + '>' + ic('pin', 's') + esc(salle ? salle.nom : 'Salle ?') + ic('chevron', 'xs') + '</button>';
     if (isOpen('salle')) {
       h += '<div class="menu">' + (m.lieux.length ? m.lieux.map(l => '<button type="button" class="mi ' + (l.id === s.salleId ? 'on' : '') + '" ' + da('salle-pick', { id: l.id }) + '><span>' + esc(l.nom) + '</span><span class="mi-sub">' + esc(l.sub) + '</span></button>').join('') : '<div class="mh">— Aucun lieu —</div>') + '</div>';
     }
@@ -306,7 +325,9 @@
       const cls = (done ? 'done' : (x.key === V.firstOpen ? 'current' : 'todo')) + (x.key === V.view ? ' sel-on' : '');
       h += '<button type="button" role="tab" class="chip ' + cls + '" title="' + esc(x.label + (done ? ' — ' + L.validatedInfo(x.key, V.ctx, V.nameOf) : '')) + '" ' + da('step', { v: x.key }) + '><span class="chip-n">' + (done ? ic('check', 'xs') : (i + 1)) + '</span>' + esc(x.chip) + (warn ? '<span class="dot"></span>' : '') + '</button>';
     });
-    h += '</div><button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
+    const foldTip = fold ? 'Déplier le bandeau (heure, salle)' : 'Replier le bandeau (heure, salle)';
+    h += '</div><button type="button" class="rbtn ghost" title="' + foldTip + '" aria-label="' + foldTip + '" aria-expanded="' + (fold ? 'false' : 'true') + '" ' + da('fold', { v: 'bandeau' }) + '>' + ic(fold ? 'chevron' : 'up') + '</button>'
+      + '<button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
     return h;
   }
 
@@ -526,9 +547,27 @@
     return h;
   }
 
+  // Relecture repliée : « V0 rédigée · 1/2 validé » et le téléchargement restent dans l'en-tête de l'étape.
+  const crSummary = V => {
+    const { s, cfg } = V;
+    const valid = cfg.relecteurs.filter(pid => s.relectures[pid] && s.relectures[pid].statut === 'valide').length;
+    return { v0: !!s.v0, valid, total: cfg.relecteurs.length };
+  };
+  function crFoldHtml(V) {
+    const fold = S.prefs.cadre.cr, hasPdf = V.s.crPdf.length > 0;
+    const tip = fold ? 'Déplier la relecture' : 'Replier la relecture';
+    let h = '<button type="button" class="ibtn" title="' + tip + '" aria-label="' + tip + '" aria-expanded="' + (fold ? 'false' : 'true') + '" ' + da('fold', { v: 'cr' }) + '>' + ic(fold ? 'chevron' : 'up', 's') + '</button>';
+    if (fold) {
+      const c = crSummary(V);
+      h += '<span class="tag-soft ' + (c.v0 ? 'ok' : '') + '" data-cr-summary>' + (c.v0 ? 'V0 rédigée' : 'V0 à rédiger') + (c.total ? ' · ' + c.valid + '/' + c.total + ' validé' : '') + '</span>'
+        + '<button type="button" class="ibtn" ' + (hasPdf ? '' : 'disabled ') + 'title="' + (hasPdf ? 'Télécharger le PDF du compte rendu' : 'Pas encore de PDF exporté') + '" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>';
+    }
+    return h;
+  }
   function crHtml(V) {
     const { s, cfg, m } = V;
     const hasPdf = s.crPdf.length > 0;
+    if (S.prefs.cadre.cr) return '';
     let h = '<div class="card">'
       + '<button type="button" class="tchip ' + (s.v0 ? 'on' : '') + '" role="checkbox" aria-checked="' + (s.v0 ? 'true' : 'false') + '" ' + da('v0-toggle') + '>' + ic('tick') + 'V0 rédigée<small>' + (s.v0 ? esc(L.fmtShort(s.v0.le)) : '') + '</small></button>'
       + '<span class="gic" title="Relecteurs">' + ic('eye', 's') + '</span>';
@@ -571,7 +610,8 @@
     const stepKey = V.stepKey;
     const statusText = V.curDone ? (L.validatedInfo(stepKey, V.ctx, V.nameOf) || 'Validé') : (stepKey === V.firstOpen ? 'En cours' : 'À venir');
     const canValidate = V.missing.length === 0;
-    let h = '<section class="panel" aria-live="polite"><div class="ph"><h2>' + (V.stepIdx + 1) + ' · ' + esc(V.curStep.label) + '</h2><span class="stt ' + (V.curDone ? 'ok' : (stepKey === V.firstOpen ? 'cur' : '')) + '">' + (V.curDone ? ic('check', 's') : '') + esc(statusText) + '</span><span class="sp"></span>'
+    let h = '<section class="panel" aria-live="polite"><div class="ph"><h2>' + (V.stepIdx + 1) + ' · ' + esc(V.curStep.label) + '</h2><span class="stt ' + (V.curDone ? 'ok' : (stepKey === V.firstOpen ? 'cur' : '')) + '">' + (V.curDone ? ic('check', 's') : '') + esc(statusText) + '</span>'
+      + (stepKey === 'cr' ? crFoldHtml(V) : '') + '<span class="sp"></span>'
       + (V.alerts.length ? '<span class="alert-pill" title="' + esc(V.alerts.join(' · ')) + '">' + ic('warn', 's') + V.alerts.length + '</span>' : '')
       + (!V.curDone && !V.dateStep ? '<button type="button" class="rbtn primary" title="' + esc(canValidate ? "Valider l'étape" : 'À compléter : ' + V.missing.join(', ')) + '" aria-label="Valider l\'étape" ' + (canValidate ? '' : 'disabled ') + da('validate') + '>' + ic('check') + '</button>' : '')
       + (V.curDone ? '<button type="button" class="rbtn" title="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" aria-label="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" ' + da('reopen') + '>' + ic('reopen') + '</button>' : '') + '</div>';
@@ -647,6 +687,20 @@
     if (focus && active && !main.contains(active)) focus.focus();
     autosizeTitles();
     renderViewer();
+    syncCadre();
+  }
+
+  // « Plein cadre » : seulement sur l'étape Compte rendu et tant que la page Instances est affichée. La classe de la page masque le
+  // bandeau et les panneaux ; celle de <body> masque l'en-tête de l'appli (marque + onglets) et ses marges (voir css/instances.css).
+  function pleinActive() {
+    const V = S.view, view = document.getElementById('view-instances');
+    return !!(S.prefs.cadre.plein && S.loaded && V && V.s && V.view === 'cr' && view && !view.classList.contains('hidden'));
+  }
+  function syncCadre() {
+    const root = rootEl(); if (!root) return;
+    const plein = pleinActive();
+    root.classList.toggle('in-plein', plein);
+    document.body.classList.toggle('in-plein-body', plein);
   }
 
   // Les titres des points ne sont jamais coupés : chaque zone de texte prend la hauteur de son contenu (et se recalcule quand
@@ -820,14 +874,23 @@
       return;
     }
     if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"><div data-pane="gfs"></div><div data-pane="pdf" hidden></div></div></div>');
-    const edit = viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0;
-    host.querySelector('.in-vbar').innerHTML = withPrefix('<div class="seg" role="group" aria-label="Affichage du compte rendu">'
+    const edit = viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
+    host.firstChild.dataset.h = cadre.hauteur;
+    const hLabel = { 'ajustee': '1×', 'haute': '1,5×', 'tres-haute': '2,5×' }[cadre.hauteur];
+    const c = crSummary(V);
+    host.querySelector('.in-vbar').innerHTML = withPrefix(
+      (plein ? '<span class="vname vsub"><strong>' + esc(V.inst.nom) + '</strong> · n°' + esc(V.s.num || '?') + ' · ' + esc(L.fmtDate(V.s.date) || 'sans date') + '</span>' : '')
+      + '<div class="seg" role="group" aria-label="Affichage du compte rendu">'
       + '<button type="button" class="' + (edit ? 'on' : '') + '" ' + da('cr-mode', { v: 'edit' }) + '>' + ic('pencil', 's') + 'Rédiger dans GFS</button>'
       + '<button type="button" class="' + (edit ? '' : 'on') + '" ' + da('cr-mode', { v: 'pdf' }) + '>' + ic('fileLines', 's') + 'PDF exporté</button></div>'
       + (edit ? '<span class="tag-soft ' + (viewer.gfs.phase === 'ready' ? 'ok' : '') + '" data-gfs-status>' + esc(gfsStatusLabel()) + '</span>'
         : '<span class="vname">' + esc(hasPdf ? 'Compte rendu n°' + V.s.num + ' (PDF)' : 'Aucun PDF exporté') + '</span>')
+      + (plein ? '<span class="tag-soft ' + (c.v0 ? 'ok' : '') + '">' + (c.v0 ? 'V0 rédigée' : 'V0 à rédiger') + (c.total ? ' · ' + c.valid + '/' + c.total + ' validé' : '') + '</span>' : '')
       + '<span class="sp"></span>'
-      + (!edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : ''));
+      + (!edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
+      + (plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
+      + (!plein && edit ? '<button type="button" class="pillbtn ghost" title="Hauteur de GFS : ' + HAUTEUR_LABEL[cadre.hauteur] + '. Cliquer pour l\'agrandir : le défilement de la page déplie alors GFS" aria-label="Hauteur de GFS" ' + da('cr-hauteur') + '>' + ic('vexpand', 's') + 'Hauteur ' + hLabel + '</button>' : '')
+      + '<button type="button" class="pillbtn ghost" title="' + (plein ? 'Revenir à la page complète (touche Échap)' : 'Plein cadre : masque l\'en-tête et les panneaux, GFS prend toute la hauteur') + '" aria-label="' + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '" aria-pressed="' + (plein ? 'true' : 'false') + '" ' + da('cr-plein') + '>' + ic(plein ? 'shrink' : 'expand', 's') + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '</button>');
     host.querySelector('[data-pane="gfs"]').hidden = !edit;
     const pdfPane = host.querySelector('[data-pane="pdf"]');
     pdfPane.hidden = edit;
@@ -998,6 +1061,12 @@
     // compte rendu
     'cr-mode': el => { viewer.mode = el.dataset.v === 'pdf' ? 'pdf' : 'edit'; renderViewer(); },
     'cr-download': (el, V) => downloadCr(V),
+    'fold': el => {
+      if (el.dataset.v !== 'bandeau' && el.dataset.v !== 'cr') return;
+      S.prefs.cadre[el.dataset.v] = !S.prefs.cadre[el.dataset.v]; S.ui.menu = null; render(); savePrefs();
+    },
+    'cr-plein': () => { S.prefs.cadre.plein = !S.prefs.cadre.plein; S.ui.menu = null; render(); savePrefs(); if (global.scrollTo) global.scrollTo(0, 0); },
+    'cr-hauteur': () => { const i = HAUTEURS.indexOf(S.prefs.cadre.hauteur); S.prefs.cadre.hauteur = HAUTEURS[(i + 1) % HAUTEURS.length]; renderViewer(); savePrefs(); },
     'v0-toggle': (el, V) => write([upd('Suivi_Instance', V.s.id, V.s.v0 ? { CR_V0_le: null, CR_V0_par: 0 } : { CR_V0_le: gristDay(V.today), CR_V0_par: S.personId || 0 })]),
     'rel-set': (el, V) => {
       const pid = Number(el.dataset.id), v = el.dataset.v, r = V.s.relectures[pid];
@@ -1066,6 +1135,7 @@
   function onKey(e) {
     if (e.key === 'Escape') {
       if (S.ui.menu) { S.ui.menu = null; render(); } else if (S.ui.settings) { S.ui.settings = false; render(); }
+      else if (pleinActive()) { S.prefs.cadre.plein = false; render(); savePrefs(); }
     } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) { e.preventDefault(); e.target.blur(); }
   }
   // Glisser-déposer des points : on ne re-rend qu'au dépôt (re-rendre pendant le glissement l'annule).
@@ -1095,6 +1165,9 @@
   function init() {
     if (wired) return; wired = true;
     const root = rootEl(); if (!root) return;
+    // « Plein cadre » ne doit jamais survivre à un changement d'onglet de l'appli : on resynchronise quand la page est affichée/masquée.
+    const view = document.getElementById('view-instances');
+    if (view && global.MutationObserver) new global.MutationObserver(syncCadre).observe(view, { attributes: true, attributeFilter: ['class'] });
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     root.addEventListener('input', onInput);
@@ -1126,9 +1199,10 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre() }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
-      const root = rootEl(); if (root) root.innerHTML = '';
+      document.body.classList.remove('in-plein-body');
+      const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }
     }
   };
 })(window);

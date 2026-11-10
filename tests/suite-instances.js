@@ -121,7 +121,13 @@
     document.head.appendChild(style);
     const host = document.getElementById('app-dom'), before = host.getAttribute('style');
     host.style.cssText = 'display:block;position:absolute;left:0;top:0;width:2000px';
-    try { await fn(); } finally { if (before == null) host.removeAttribute('style'); else host.setAttribute('style', before); style.remove(); }
+    const view = document.getElementById('view-instances'), wasHidden = view.classList.contains('hidden');
+    view.classList.remove('hidden'); // la page Instances est celle qu'on regarde (sinon « plein cadre » ne s'applique pas)
+    try { await fn(); } finally {
+      view.classList.toggle('hidden', wasHidden);
+      if (before == null) host.removeAttribute('style'); else host.setAttribute('style', before);
+      style.remove();
+    }
   }
   const settleResize = () => { window.dispatchEvent(new Event('resize')); return new Promise(r => setTimeout(r, 220)); };
 
@@ -1100,6 +1106,165 @@
       assertIncludes(url, 'tableId=Suivi_Instance');
       assertIncludes(url, 'colId=CR_PDF');
       assertIncludes(url, 'rowId=2');
+    });
+
+    it('place pour GFS : le bandeau se replie (heure et salle masquées), la préférence est retenue par utilisateur', async function () {
+      await withLayout(async () => {
+        await setup();
+        window.InstancesPage._setGfsTarget(gfsTarget);
+        step('cr');
+        const shown = sel => qa(sel).every(el => getComputedStyle(el).display !== 'none');
+        assertEqual(qa('.in-band .in-bhide').length, 2, 'heure et salle sont les deux éléments repliables');
+        assertTrue(shown('.in-band .in-bhide'), 'bandeau déplié par défaut');
+        assertEqual(q('[data-act="fold"][data-v="bandeau"]').getAttribute('aria-expanded'), 'true');
+        click('fold', { v: 'bandeau' });
+        assertTrue(q('.in-band').classList.contains('in-fold'));
+        assertFalse(qa('.in-band .in-bhide').some(el => getComputedStyle(el).display !== 'none'), 'heure et salle masquées');
+        assertTrue(!!q('.in-band .in-sel') && !!q('.in-band .in-stepper'), 'la séance et les étapes restent');
+        assertEqual(q('[data-act="fold"][data-v="bandeau"]').getAttribute('aria-expanded'), 'false');
+        await waitFor(() => JSON.parse((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_cadre || '{}').bandeau === true, 'bandeau replié retenu');
+        click('fold', { v: 'bandeau' });
+        assertFalse(q('.in-band').classList.contains('in-fold'));
+        assertTrue(shown('.in-band .in-bhide'), 'rouvert');
+      });
+    });
+
+    it('place pour GFS : la carte de relecture se replie en « V0 · 1/2 validé » avec le téléchargement dans l\'en-tête', async function () {
+      await setup({ rows: d => { d.Suivi_Instance[1].CR_PDF = ['L', 90]; d.Suivi_Instance[1].CR_V0_le = gd('2026-11-10'); } });
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      assertTrue(!!q('.in-card .in-rvw'), 'carte dépliée par défaut');
+      assertEqual(qa('[data-cr-summary]').length, 0);
+      click('rel-set', { id: 1, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Relectures');
+      await waitFor(() => qa('.in-rvw.in-valide, .in-rvw.in-ok').length >= 0 && q('.in-card'), 'rendu');
+      click('fold', { v: 'cr' });
+      assertEqual(qa('.in-card').length, 0, 'carte masquée');
+      assertEqual(text('[data-cr-summary]'), 'V0 rédigée · 1/2 validé');
+      assertTrue(!!q('.in-ph [data-act="cr-download"]') && !q('.in-ph [data-act="cr-download"]').disabled, 'le téléchargement reste à portée (PDF présent)');
+      assertEqual(q('[data-act="fold"][data-v="cr"]').getAttribute('aria-expanded'), 'false');
+      assertTrue(!!q('iframe.in-gframe'), 'GFS n\'est pas touché');
+      await waitFor(() => JSON.parse((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_cadre || '{}').cr === true, 'relecture repliée retenue');
+      click('fold', { v: 'cr' });
+      assertTrue(!!q('.in-card .in-rvw'), 'carte de nouveau dépliée');
+      assertEqual(qa('[data-cr-summary]').length, 0);
+    });
+
+    it('place pour GFS : relecture repliée sans PDF, le téléchargement de l\'en-tête est désactivé', async function () {
+      await setup();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      click('fold', { v: 'cr' });
+      assertEqual(text('[data-cr-summary]'), 'V0 à rédiger · 0/2 validé');
+      assertTrue(q('.in-ph [data-act="cr-download"]').disabled);
+    });
+
+    it('plein cadre : l\'en-tête de l\'appli et les panneaux disparaissent, GFS prend toute la hauteur, sans être recréé ; Échap revient', async function () {
+      await withLayout(async () => {
+        await setup();
+        window.InstancesPage._setGfsTarget(gfsTarget);
+        // tests/index.html n'a pas l'en-tête de l'appli : on en pose un le temps du test.
+        const header = document.createElement('header');
+        header.id = 'header';
+        document.getElementById('app-dom').appendChild(header);
+        try {
+        step('cr');
+        const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+        assertFalse(root().classList.contains('in-plein'));
+        assertTrue(!!q('[data-act="cr-hauteur"]'), 'bouton de hauteur hors plein cadre');
+        assertEqual(q('[data-act="cr-plein"]').getAttribute('aria-pressed'), 'false');
+        click('cr-plein');
+        assertTrue(root().classList.contains('in-plein'));
+        assertTrue(document.body.classList.contains('in-plein-body'));
+        assertEqual(getComputedStyle(header).display, 'none', 'en-tête de l\'appli masqué');
+        assertEqual(getComputedStyle(q('[data-region="main"]')).display, 'none', 'bandeau et panneaux masqués');
+        assertTrue(q('iframe.in-gframe') === frame && frame.isConnected, 'GFS n\'est pas recréé');
+        assertEqual(Math.round(frame.getBoundingClientRect().height), window.innerHeight - 46, 'GFS occupe la hauteur de l\'écran moins la fine barre');
+        assertEqual(Math.round(q('.in-vbar').getBoundingClientRect().height), 46);
+        assertIncludes(text('.in-vbar .in-vsub'), 'CTO Innovation · n°14 · 23/11/2026', 'la barre rappelle l\'instance et la séance');
+        assertIncludes(text('.in-vbar'), 'V0 à rédiger · 0/2 validé');
+        assertEqual(qa('[data-act="cr-hauteur"]').length, 0, 'pas de réglage de hauteur en plein cadre');
+        assertEqual(q('[data-act="cr-plein"]').getAttribute('aria-pressed'), 'true');
+        assertIncludes(text('[data-act="cr-plein"]'), 'Quitter le plein cadre');
+        await waitFor(() => JSON.parse((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_cadre || '{}').plein === true, 'plein cadre retenu');
+        // Hors de l'étape Compte rendu, la page reprend son aspect habituel (la préférence est gardée pour le retour).
+        window.InstancesPage.state.prefs.etape = 'odj'; window.InstancesPage.render();
+        assertFalse(root().classList.contains('in-plein'), 'pas de plein cadre sur une autre étape');
+        assertFalse(document.body.classList.contains('in-plein-body'));
+        assertTrue(getComputedStyle(header).display !== 'none');
+        window.InstancesPage.state.prefs.etape = 'cr'; window.InstancesPage.render();
+        assertTrue(root().classList.contains('in-plein'), 'de retour sur le compte rendu : plein cadre');
+        // Échap quitte le plein cadre.
+        const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+        q('[data-act="cr-plein"]').dispatchEvent(esc);
+        assertFalse(root().classList.contains('in-plein'), 'Échap quitte le plein cadre');
+        assertFalse(document.body.classList.contains('in-plein-body'));
+        assertTrue(getComputedStyle(header).display !== 'none');
+        assertTrue(q('iframe.in-gframe') === frame, 'toujours la même iframe');
+        await waitFor(() => JSON.parse((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_cadre || '{}').plein === false, 'sortie retenue');
+        } finally { header.remove(); }
+      });
+    });
+
+    it('plein cadre : quitter par le bouton, et la page Instances masquée ne laisse jamais l\'en-tête caché', async function () {
+      await setup();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      const view = document.getElementById('view-instances'), wasHidden = view.classList.contains('hidden');
+      view.classList.remove('hidden');
+      try {
+        step('cr');
+        click('cr-plein');
+        assertTrue(document.body.classList.contains('in-plein-body'));
+        view.classList.add('hidden'); // l'utilisateur est parti sur un autre onglet
+        await waitFor(() => !document.body.classList.contains('in-plein-body'), 'en-tête de l\'appli rendu');
+        view.classList.remove('hidden');
+        await waitFor(() => document.body.classList.contains('in-plein-body'), 'plein cadre de retour avec la page');
+        click('cr-plein');
+        assertFalse(root().classList.contains('in-plein'));
+        assertFalse(document.body.classList.contains('in-plein-body'));
+      } finally { view.classList.toggle('hidden', wasHidden); document.body.classList.remove('in-plein-body'); }
+    });
+
+    it('hauteur de GFS : trois tailles (écran, 1,5 fois, 2,5 fois), le défilement de la page déplie GFS ; retenu par utilisateur', async function () {
+      await withLayout(async () => {
+        await setup();
+        window.InstancesPage._setGfsTarget(gfsTarget);
+        step('cr');
+        const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+        const heights = [];
+        for (const expected of ['ajustee', 'haute', 'tres-haute', 'ajustee']) {
+          assertEqual(q('.in-viewer').dataset.h, expected);
+          heights.push(Math.round(frame.getBoundingClientRect().height));
+          if (expected !== 'ajustee' || heights.length === 1) click('cr-hauteur');
+        }
+        assertTrue(heights[0] < heights[1] && heights[1] < heights[2], 'de plus en plus haut : ' + heights.join(', '));
+        assertEqual(heights[3], heights[0]);
+        assertTrue(heights[1] >= 760 && heights[2] >= 1100, 'la page dépasse l\'écran : le défilement déplie GFS');
+        assertTrue(q('iframe.in-gframe') === frame, 'GFS n\'est pas recréé');
+        await waitFor(() => JSON.parse((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_cadre || '{}').hauteur === 'ajustee', 'hauteur retenue');
+      });
+    });
+
+    it('les réglages de place sont lus dans Preferences_Widget.Inst_cadre ; une valeur illisible retombe sur les réglages par défaut', async function () {
+      await setup({ noPrefs: true });
+      await window.loadInstancesUserPreferences();
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_etape: 'cr', Inst_cadre: '{"bandeau":true,"cr":true,"plein":false,"hauteur":"haute"}' }]]);
+      window.InstancesPage._reset();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      assertTrue(q('.in-band').classList.contains('in-fold'), 'bandeau replié restauré');
+      assertEqual(qa('.in-card').length, 0, 'relecture repliée restaurée');
+      assertEqual(q('.in-viewer').dataset.h, 'haute');
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_cadre: '{pas du json' }]]);
+      window.InstancesPage._reset();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      assertFalse(q('.in-band').classList.contains('in-fold'));
+      assertTrue(!!q('.in-card'));
+      assertEqual(q('.in-viewer').dataset.h, 'ajustee');
+      assertFalse(root().classList.contains('in-plein'));
     });
 
     it('PDF exporté : affiché dans la page (iframe sur la pièce jointe), message clair sans PDF ; basculer ne recrée pas GFS', async function () {

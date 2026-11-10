@@ -349,3 +349,18 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-tag.in-pres{background:var(--viol-s);color:var(--viol)}
 .in-mic .in-mpres{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--viol)}
 .in-mic .in-mpres .in-ic{vertical-align:-2px;margin-right:3px}
+
+/* Gagner de la place pour GFS (étape Compte rendu) : bandeau replié, hauteur de GFS réglable, « plein cadre ». */
+.in-band.in-fold .in-bhide{display:none}
+.in-vbar .in-vsub{flex:0 1 auto;font-weight:600;color:var(--muted);margin-right:4px}
+.in-vbar .in-vsub strong{color:var(--text);font-weight:800}
+.in-viewer[data-h="ajustee"] .in-gframe{height:max(560px,calc(100vh - 220px))}
+.in-viewer[data-h="haute"] .in-gframe{height:max(760px,calc(150vh - 220px))}
+.in-viewer[data-h="tres-haute"] .in-gframe{height:max(1100px,calc(250vh - 220px))}
+.in-root.in-plein{min-height:0;background:var(--surface)}
+.in-root.in-plein [data-region="main"]{display:none}
+.in-root.in-plein .in-viewer{border:0;border-radius:0}
+.in-root.in-plein .in-vbar{position:sticky;top:0;z-index:5;box-sizing:border-box;height:46px;padding:0 12px;background:var(--surface)}
+.in-root.in-plein .in-gframe{height:calc(100vh - 46px)}
+body.in-plein-body #header,body.in-plein-body #error-container{display:none}
+body.in-plein-body .container{max-width:none;padding:0;min-height:0}

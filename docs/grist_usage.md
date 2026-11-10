@@ -239,7 +239,16 @@ Le bouton « Mettre à disposition du VP » n'est jamais automatique : il demand
 écrit `Export_VP` ; il **ne modifie pas** `Notifications.notifications_Statut`, et le widget
 n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widget` :
 `Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`, `Inst_odj_vue` (`timing` par défaut
-ou `type` : affichage de l'ordre du jour, colonne ajoutée à la table existante par `ensureColumns`).
+ou `type` : affichage de l'ordre du jour), `Inst_cadre` (JSON : `bandeau`, `cr`, `plein`, `hauteur` — voir
+ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante par `ensureColumns`.
+
+**Place pour GFS (10/11/2026).** Étape Compte rendu : le bandeau du haut se replie (heure et salle
+masquées), la carte relecteurs/téléchargement se replie en « V0 rédigée · 1/2 validé » + icône de
+téléchargement dans l'en-tête de l'étape, la hauteur de GFS a trois tailles (écran, 1,5 fois, 2,5 fois :
+le défilement de la page déplie alors GFS) et « Plein cadre » masque l'en-tête de l'appli et tous les
+panneaux (GFS = hauteur de l'écran moins une barre de 46 px ; Échap ou le bouton pour revenir). Le plein
+cadre ne s'applique que sur l'étape Compte rendu et tant que la page Instances est affichée ; l'iframe
+de GFS n'est jamais recréée.
 
 **Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage, une teinte par heure de la séance
 (4 teintes qui reviennent). Vue *Par type* : tous les points (jamais un filtre), regroupés pour
