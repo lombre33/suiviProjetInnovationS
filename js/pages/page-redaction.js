@@ -617,8 +617,14 @@
     try {
       const tables = await CoreGrist.loadAllTables();
       Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data));
-      window.renderProjectsKanban?.(CoreState.getTable('Projets') || []);
-      window.renderAdministratif?.();
+      // Toutes les pages relisent ces tables : celle affichée est refaite, les autres sont marquées « à refaire »
+      // (To Do, Installation et Instances restaient sinon sur les anciennes données jusqu'au prochain enregistrement
+      // d'un projet). Même chemin que js/app.js après l'enregistrement d'un projet.
+      if (window.SuiviApp?.renderAllViews) window.SuiviApp.renderAllViews({ idle: false });
+      else {
+        window.renderProjectsKanban?.(CoreState.getTable('Projets') || []);
+        window.renderAdministratif?.();
+      }
     } catch (err) { console.warn('Rechargement après la rédaction échoué :', err.message); }
   }
 

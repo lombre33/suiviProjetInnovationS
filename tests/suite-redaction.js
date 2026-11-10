@@ -229,6 +229,39 @@
       });
     });
 
+    // Revue de bugs du 10/11/2026 : le rechargement ne refaisait que le Kanban et Administratif ; To Do, Installation
+    // et Instances restaient sur les anciennes données jusqu'au prochain enregistrement d'un projet.
+    it('au retour, les autres pages relisent aussi les données : refaites à leur prochaine ouverture (To Do à jour)', async function () {
+      await withPage(fakeWidget(), async () => {
+        const app = window.SuiviApp;
+        app.staleViews.clear();
+        try {
+          window.renderTodo();
+          fireMouse(document.querySelector('[data-todo-tab="notif"]'), 'click');
+          const select = byId('todo-view-select');
+          select.value = 'all';
+          fire(select, 'change');
+          const todoPanel = label => Array.from(document.querySelectorAll('#todo-panels .admin-panel'))
+            .find(section => section.querySelector('.admin-panel-header h4')?.textContent === label);
+          const todoAcronyms = label => Array.from(todoPanel(label).querySelectorAll('.project-acronym')).map(el => el.textContent);
+          assertTrue(todoAcronyms('Information projet saisies').includes('INNOVX'), 'départ : INNOVX est à sa première étape');
+
+          await clickRedact('INNOVX');
+          await window.PageRedaction.bridge.whenReady(8000);
+          await waitFor(() => nested() && nested().normal.length >= 1, 'widget prêt');
+          await window.PageRedaction.frame.contentWindow.grist.docApi.applyUserActions(
+            [['UpdateRecord', 'Notifications', 1, { notifications_Statut: '2) Notification_relecture' }]]);
+          await window.PageRedaction.close();
+
+          ['view-installation-fonds', 'view-todo', 'view-instances'].forEach(id => assertTrue(app.staleViews.has(id), `${id} doit être marquée à refaire`));
+          assertFalse(app.staleViews.has('view-administratif'), 'la page affichée est refaite tout de suite');
+          app.ensureViewRendered('view-todo');
+          assertTrue(todoAcronyms('Notification_relecture').includes('INNOVX'), 'To Do montre le nouveau statut de INNOVX');
+          assertFalse(todoAcronyms('Information projet saisies').includes('INNOVX'), 'et plus l\'ancien');
+        } finally { app.staleViews.clear(); app.cancelIdleRenders(); }
+      });
+    });
+
     it('quitter la page par le menu du haut (sans "Retour") recharge aussi ce que publipostage+ a écrit', async function () {
       await withPage(fakeWidget(), async () => {
         await clickRedact('INNOVX');

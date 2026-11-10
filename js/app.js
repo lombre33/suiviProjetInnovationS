@@ -23,12 +23,13 @@ let idleRenderHandle = null;
 function renderView(viewId) { staleViews.delete(viewId); VIEW_RENDERERS[viewId]?.(); }
 function ensureViewRendered(viewId) { if (staleViews.has(viewId)) renderView(viewId); }
 function visibleViewId() { const el = document.querySelector('.view:not(.hidden)'); return el ? el.id : null; }
-function renderAllViews() {
+// `idle: false` : pas de pré-rendu pendant les temps morts, les pages « à refaire » le sont à leur ouverture.
+function renderAllViews({ idle = true } = {}) {
   const current = visibleViewId();
   Object.keys(VIEW_RENDERERS).forEach(viewId => {
     if (viewId === current || (!current && viewId === 'view-projects')) renderView(viewId); else staleViews.add(viewId);
   });
-  scheduleIdleRenders();
+  if (idle) scheduleIdleRenders();
 }
 // Pré-rend les pages restées « à refaire » pendant les temps morts, une par une, pour que le
 // premier changement de page soit instantané sans bloquer le démarrage ni la saisie.
