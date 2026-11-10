@@ -104,13 +104,31 @@
   }
   // Table « Composition instances » (invités par défaut des instances) : retrouvée par son nom, lue sans jamais bloquer la page.
   async function fetchComposition(raw) {
-    raw.Composition = []; raw.Composition__id = '';
+    raw.Composition = []; raw.Composition__id = ''; raw.Composition__types = {}; raw.Composition__refNames = {};
     try {
       // Schéma déjà connu d'abord (aucun appel) ; une absence ne prouve rien (voir CoreGrist) : on interroge alors Grist.
       let id = L.findCompositionTable(global.CoreGrist.knownTableIds ? global.CoreGrist.knownTableIds() : []);
       if (!id && global.CoreGrist.gristInstance) id = L.findCompositionTable(await global.CoreGrist.gristInstance.docApi.listTables());
-      if (id) { raw.Composition__id = id; raw.Composition = await global.CoreGrist.getTable(id); }
+      if (!id) return;
+      raw.Composition__id = id; raw.Composition = await global.CoreGrist.getTable(id);
+      // Types de colonnes (cache des métadonnées) : une référence ne désigne une instance que si elle pointe vers la table Instances.
+      raw.Composition__types = (global.CoreGrist.columnTypes && global.CoreGrist.columnTypes(id)) || {};
+      // Référence vers une AUTRE table (ni Instances ni Annuaire) : on lit son libellé, jamais son numéro (numéros sans rapport avec Instances).
+      const targets = [];
+      Object.keys(raw.Composition__types).forEach(col => { const m = /^Ref(?:List)?:(.+)$/.exec(raw.Composition__types[col]); if (m && ['Instances', 'Annuaire'].indexOf(m[1]) < 0 && targets.indexOf(m[1]) < 0) targets.push(m[1]); });
+      await Promise.all(targets.slice(0, 3).map(async table => {
+        try {
+          const names = {}; (await global.CoreGrist.getTable(table)).forEach(row => { const label = refRowLabel(row); if (label) names[row.id] = label; });
+          raw.Composition__refNames[table] = names;
+        } catch (err) { /* table illisible : sa colonne sera ignorée */ }
+      }));
     } catch (err) { raw.Composition__error = err.message; }
+  }
+  const REF_LABEL_KEYS = ['Instances', 'Instance', 'Nom', 'Nom_Complet', 'Libelle', 'Intitule', 'Name', 'Acronyme'];
+  function refRowLabel(row) {
+    for (const key of REF_LABEL_KEYS) if (text(row[key]).trim()) return text(row[key]).trim();
+    const other = Object.keys(row).find(k => k !== 'id' && typeof row[k] === 'string' && row[k].trim() && !k.startsWith('gristHelper'));
+    return other ? row[other].trim() : '';
   }
 
   // --- Écritures : commit([{ op:'add'|'update'|'remove', table, id?, fields? }]) ---
@@ -179,7 +197,7 @@
   // env = { annuaire, postes, projets, notifications } : tables déjà chargées par le widget (CoreState).
   function buildModel(raw, env) {
     const postesById = new Map((env.postes || []).map(p => [p.id, text(p.Nom_du_poste).replace(/\s+/g, ' ').trim()]));
-    const people = (env.annuaire || []).map(a => ({ id: a.id, name: personName(a), poste: postesById.get(refId(a.Poste2)) || '', email: text(a.Email) }))
+    const people = (env.annuaire || []).map(a => { const name = personName(a), poste = postesById.get(refId(a.Poste2)) || '', email = text(a.Email); return { id: a.id, name, poste, email, search: [name, [a.Prenom, a.NOM].map(text).join(' '), poste, email].join(' ') }; })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     const peopleById = {}; people.forEach(p => { peopleById[p.id] = p; });
     const notifByProject = {};
@@ -199,7 +217,7 @@
       valBy = bySeance('Instance_Validations'), expBy = bySeance('Export_VP');
 
     // Composition des instances : colonnes retrouvées par leurs valeurs (voir L.detectComposition).
-    const composition = L.detectComposition(raw.Composition || [], { instances: (raw.Instances || []).map(row => ({ id: row.id, nom: instanceName(row) })), people });
+    const composition = L.detectComposition(raw.Composition || [], { instances: (raw.Instances || []).map(row => ({ id: row.id, nom: instanceName(row) })), people, types: raw.Composition__types || {}, refNames: raw.Composition__refNames || {} });
     composition.tableId = raw.Composition__id || '';
     const everyInstance = (raw.Instances || []).map(row => {
       const steps = choiceList(row.Etapes_actives).map(label => keyOfStep[label]).filter(Boolean);

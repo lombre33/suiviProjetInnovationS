@@ -400,7 +400,8 @@
   // Rendu — panneau d'une étape
   // ---------------------------------------------------------------------------------------------
   const filterInput = (ph) => '<div class="mform"><input type="search" class="inp" placeholder="' + esc(ph) + '" aria-label="' + esc(ph) + '" data-filter data-autofocus></div>';
-  const ftAttr = t => ' data-ft="' + esc(String(t).toLowerCase()) + '"';
+  // Texte cherché : sans accents ni ponctuation, en minuscules (voir onInput : tous les mots tapés doivent s'y trouver, dans n'importe quel ordre).
+  const ftAttr = t => ' data-ft="' + esc(L.normName(t)) + '"';
 
   function linkMenu(V, key, target, id, type, link) {
     const file = type === 'gfs' ? V.m.gfsByIdent[link] : null;
@@ -457,14 +458,14 @@
       + '<div class="group g-pres"><span class="gic" title="Présenté par">' + ic('mic', 's') + '</span>'
       + p.presentateurs.map(pid => personTag(m, pid, 'pres', 'Présenté par ', 'Retirer le présentateur', 'pt-pres', { id: p.id, v: pid })).join('')
       + '<div class="rel"><button type="button" class="addb ' + (presOpen ? 'on' : '') + '" title="Indiquer qui présente ce point" aria-label="Indiquer qui présente ce point" ' + da('menu', { v: 'pres:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
-      + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
+      + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
       // invités
       + '<div class="group g-inv"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
       + guestChips.map(g => personTag(m, g.personneId, '', '', 'Retirer l\'invité du point', 'pt-inv', { id: p.id, v: g.personneId })).join('')
       + '<div class="rel"><button type="button" class="addb ' + (invOpen ? 'on' : '') + '" title="Inviter sur ce point" aria-label="Inviter sur ce point" ' + da('menu', { v: 'inv:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
       + (invOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => {
         const g = s.guests.find(x => x.personneId === pp.id), on = g && p.invites.indexOf(g.id) >= 0;
-        return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
+        return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
       }).join('') + '</div>' : '') + '</div></div>'
       // dossier
       + '<div class="group g-doc"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" aria-label="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + '</button>'
@@ -503,7 +504,7 @@
     const endTxt = L.hhmm(V.endMin);
     let h = '<div class="toolbar"><span class="total">' + plural(s.guests.length, 'invité', 'invités') + ' · ' + plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : '') + '</span><span class="sp"></span>'
       + '<div class="rel"><button type="button" class="rbtn primary" title="Ajouter une personne" aria-label="Ajouter une personne" ' + da('menu', { v: 'addGuest' }) + '>' + ic('peopleAdd') + '</button>'
-      + (isOpen('addGuest') ? '<div class="menu right" style="min-width:320px">' + filterInput('Rechercher une personne…') + addable.map(pp => '<button type="button" class="mi" ' + da('g-add', { v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('') + (addable.length ? '' : '<div class="mh">— Tout l\'annuaire est invité —</div>') + '</div>' : '') + '</div></div>';
+      + (isOpen('addGuest') ? '<div class="menu right" style="min-width:320px">' + filterInput('Rechercher une personne…') + addable.map(pp => '<button type="button" class="mi" ' + da('g-add', { v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('') + (addable.length ? '' : '<div class="mh">— Tout l\'annuaire est invité —</div>') + '</div>' : '') + '</div></div>';
     // Membres de la composition de l'instance qui ne sont pas (encore) invités à cette séance : un bouton les ajoute.
     const compoMissing = V.cfg.composition.filter(pid => m.peopleById[pid] && !s.guests.some(g => g.personneId === pid));
     if (compoMissing.length) {
@@ -536,7 +537,9 @@
         + '<button type="button" class="ib ' + (g.dispoA === endTxt ? 'on' : '') + '" title="Jusqu\'à la fin de l\'instance" aria-label="Jusqu\'à la fin de l\'instance" ' + da('g-end', { id: g.id }) + '>' + ic('end', 's') + '</button></div>'
         + '<div><input type="text" class="inp ghost" style="width:100%" placeholder="Commentaire" aria-label="Commentaire" value="' + esc(g.commentaire) + '" data-chg="g-comm" data-id="' + g.id + '"></div>'
         + '<div class="seg-i" role="group" aria-label="Appel du jour">' + [['present', 'check', 'ok', 'Présent(e)'], ['absent', 'x', 'no', 'Absent(e)']].map(r => '<button type="button" class="' + (g.appel === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-appel', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
-        + '<div>' + (g.origine === 'point' ? '<button type="button" class="ibtn" aria-label="Retirer de la liste" title="Retirer de la liste" ' + da('g-del', { id: g.id }) + '>' + ic('trash', 's') + '</button>' : '') + '</div></div>';
+        // Corbeille pour TOUS les invités (un invité repris par erreur de la liste permanente ou de la composition doit pouvoir être retiré de la
+        // séance) ; la liste permanente de l'instance (paramétrage) n'est pas touchée.
+        + '<div><button type="button" class="ibtn" aria-label="' + (g.origine === 'point' ? 'Retirer de la liste' : 'Retirer de cette séance') + '" title="' + (g.origine === 'point' ? 'Retirer de la liste' : 'Retirer de cette séance (la liste permanente de l\'instance n\'est pas modifiée)') + '" ' + da('g-del', { id: g.id }) + '>' + ic('trash', 's') + '</button></div></div>';
     });
     return h + '</div>';
   }
@@ -643,8 +646,9 @@
     else if (!c.ok) h += '<div class="psub">Table « ' + esc(c.tableId) + ' » lue, mais ' + esc((c.reason || 'colonnes non reconnues.').replace(/\.$/, '')) + ' (colonnes : ' + esc(c.columns.join(', ') || '—') + ').</div>';
     else {
       h += '<div class="group">' + (cfg.composition.length ? cfg.composition.map(id => '<span class="tag plain" title="' + esc(personOf(m, id).name) + '">' + esc(L.shortName(personOf(m, id).name)) + '</span>').join('') : '<span class="muted">Aucune personne pour cette instance.</span>') + '</div>'
-        + '<div class="psub">Table « ' + esc(c.tableId) + ' » : colonne instance « ' + esc(c.instanceCol) + ' », colonne personne « ' + esc(c.personCol) + ' » · ' + plural(c.resolved, 'ligne reconnue', 'lignes reconnues') + (c.unresolved ? ', ' + plural(c.unresolved, 'ligne ignorée', 'lignes ignorées') : '')
-        + '. Ces personnes sont invitées d\'office à chaque nouvelle séance.</div>';
+        + '<div class="psub">Table « ' + esc(c.tableId) + ' » : colonne instance « ' + esc(c.instanceCol) + ' »' + (c.instanceType ? ' (' + esc(c.instanceType) + ')' : '') + ', colonne personne « ' + esc(c.personCol) + ' »' + (c.personType ? ' (' + esc(c.personType) + ')' : '') + ' · ' + plural(c.resolved, 'ligne reconnue', 'lignes reconnues') + (c.unresolved ? ', ' + plural(c.unresolved, 'ligne ignorée', 'lignes ignorées') : '')
+        + '. Ces personnes sont invitées d\'office à chaque nouvelle séance.</div>'
+        + '<div class="psub">Personnes par instance : ' + esc(c.perInstance.map(x => x.nom + ' ' + x.n).join(' · ') || 'aucune') + '.</div>';
     }
     return h + '</div>';
   }
@@ -652,7 +656,7 @@
     const { m, inst, cfg } = V;
     const modalMenu = MODAL_MENUS.indexOf(S.ui.menu) >= 0;
     const tag = (name, act, id) => '<span class="tag">' + esc(name) + '<button type="button" aria-label="Retirer" ' + da(act, { v: id }) + '>' + ic('x', 'xs') + '</button></span>';
-    const pick = (list, act) => list.map(pp => '<button type="button" class="mi" ' + da(act, { v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('');
+    const pick = (list, act) => list.map(pp => '<button type="button" class="mi" ' + da(act, { v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('');
     const lbl = (text0, ...cols) => '<div class="flabel">' + text0 + cols.map(c => helpToken('Instances', c)).join('') + '</div>';
     let h = '<div class="modal"><div class="dlg" role="dialog" aria-modal="true" aria-label="Paramétrage de l\'instance"><div class="dlg-h"><h3>Paramétrage · ' + esc(inst.nom) + '</h3><button type="button" class="rbtn ghost" aria-label="Fermer" title="Fermer" ' + da('settings-close') + '>' + ic('x') + '</button></div>'
       + (modalMenu ? '<div class="bd-in" ' + da('menu-close') + '></div>' : '') + '<div class="dlg-b">';
@@ -1171,8 +1175,9 @@
     if (e.target.matches && e.target.matches('textarea.in-ptitle')) { autosizeTitles(); return; }
     const el = e.target.closest('[data-filter]'); if (!el) return;
     const menu = el.closest('.in-menu'); if (!menu) return;
-    const q = el.value.trim().toLowerCase();
-    menu.querySelectorAll('.in-mi[data-ft]').forEach(btn => { btn.style.display = !q || btn.dataset.ft.indexOf(q) >= 0 ? '' : 'none'; });
+    // Recherche tolérante : sans casse ni accents ni ponctuation, et chaque mot tapé doit se trouver quelque part (« jean dupont » trouve « Dupont Jean »).
+    const q = L.normName(el.value);
+    menu.querySelectorAll('.in-mi[data-ft]').forEach(btn => { btn.style.display = L.matchesSearch(btn.dataset.ft, q) ? '' : 'none'; });
     // Au clavier : dès qu'on tape, le premier résultat est surligné (Entrée le choisit) ; sans recherche, rien n'est surligné.
     setMenuActive(menu, q ? 0 : -1);
   }

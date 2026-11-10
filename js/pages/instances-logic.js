@@ -284,10 +284,17 @@
     return hit ? hit.id : null;
   }
   const isListCell = v => Array.isArray(v) && v[0] === 'L';
+  // ctx = { instances: [{id, nom}], people: [{id, name, email}], types?: {colId: 'Ref:Instances'…}, instancesTable?, peopleTable?, refNames?: {table: {id: libellé}} }.
+  // `types` (métadonnées Grist) rend la lecture AUTORITAIRE : un identifiant numérique n'est lu comme une instance que si la colonne est
+  // une référence vers la table des instances (jamais un nombre ordinaire, jamais une référence vers une autre table dont les numéros
+  // coïncideraient par hasard : c'était la cause d'invités d'une instance donnés à une autre). Une référence vers une AUTRE table
+  // (`refNames`) est lue par le libellé de la ligne. Sans `types` (document illisible), les valeurs seules servent, les numéros
+  // n'étant admis que dans une colonne dont le nom évoque l'instance.
   function detectComposition(rows, ctx) {
-    const result = { ok: false, instanceCol: '', personCol: '', byInstance: {}, total: 0, resolved: 0, unresolved: 0, reason: '' };
+    const result = { ok: false, instanceCol: '', personCol: '', instanceType: '', personType: '', byInstance: {}, perInstance: [], total: 0, resolved: 0, unresolved: 0, reason: '' };
     rows = rows || [];
     const instances = (ctx && ctx.instances) || [], people = (ctx && ctx.people) || [];
+    const types = (ctx && ctx.types) || {}, instTable = (ctx && ctx.instancesTable) || 'Instances', peopleTable = (ctx && ctx.peopleTable) || 'Annuaire', refNames = (ctx && ctx.refNames) || {};
     result.total = rows.length; result.columns = [];
     if (!rows.length) { result.reason = 'La table est vide.'; return result; }
     const cols = Object.keys(rows.reduce((set, r) => Object.assign(set, r), {})).filter(k => k !== 'id' && k !== 'manualSort' && !/^gristHelper/.test(k));
@@ -296,42 +303,66 @@
     instances.forEach(i => { instById[i.id] = i; instByName[normName(i.nom)] = i; });
     people.forEach(p => { personById[p.id] = p; personByName[normName(p.name)] = p; if (p.email) personByEmail[String(p.email).trim().toLowerCase()] = p; });
     const cells = v => (isListCell(v) ? v.slice(1) : [v]).filter(x => x !== null && x !== undefined && x !== '' && x !== 0);
-    const instOf = v => {
-      if (typeof v === 'number') return instById[v] || null;
+    // Une instance désignée par un texte : nom exact ; sinon l'UNIQUE instance dont le nom figure en mots entiers dans le texte
+    // (« CTO Innovation 2026 ») ; deux instances nommées dans le texte (« COPIL du comité innovation ») = ambigu, donc aucune.
+    const instByLabel = v => {
       const n = normName(v); if (!n) return null;
       if (instByName[n]) return instByName[n];
+      const inside = instances.filter(i => { const m = normName(i.nom); return m && (' ' + n + ' ').indexOf(' ' + m + ' ') >= 0; });
+      if (inside.length === 1) return inside[0];
+      if (inside.length > 1) return null;
       const rule = instanceRule(v);
-      return rule ? (instances.find(i => instanceRule(i.nom) === rule) || null) : null;
+      return rule && (n === rule.match || n.indexOf(rule.match + ' ') === 0) ? (instances.find(i => instanceRule(i.nom) === rule) || null) : null;
     };
-    const personOf = v => {
-      if (typeof v === 'number') return personById[v] || null;
-      const raw = String(v).trim().toLowerCase();
-      return personByEmail[raw] || personByName[normName(v)] || null;
+    const personByText = v => personByEmail[String(v).trim().toLowerCase()] || personByName[normName(v)] || null;
+    const typeOf = col => (types[col] && types[col] !== 'Any' ? String(types[col]) : ''); // « Any » (colonne formule) = type inconnu
+    const refTarget = col => { const m = /^Ref(?:List)?:(.+)$/.exec(typeOf(col)); return m ? m[1] : ''; };
+    const isTextType = col => /^(Text|Choice|ChoiceList)$/.test(typeOf(col));
+    const instHint = /instance/i, personHint = /personne|membre|invit|particip|annuaire|agent|contact|nom|prenom|mail/i;
+    // Lecteur d'une colonne : null = la colonne ne peut pas désigner (par ses métadonnées) ce qu'on cherche.
+    const instReader = col => {
+      const t = refTarget(col);
+      if (t === instTable) return v => (typeof v === 'number' ? instById[v] || null : null);
+      if (t) { const names = refNames[t]; return names ? (v => (typeof v === 'number' && names[v] ? instByLabel(names[v]) : null)) : null; }
+      if (typeOf(col)) return isTextType(col) ? (v => (typeof v === 'number' ? null : instByLabel(v))) : null;
+      return v => (typeof v === 'number' ? (instHint.test(col) ? instById[v] || null : null) : instByLabel(v));
+    };
+    const personReader = col => {
+      const t = refTarget(col);
+      if (t === peopleTable) return v => (typeof v === 'number' ? personById[v] || null : null);
+      if (t) return null;
+      if (typeOf(col)) return isTextType(col) ? (v => (typeof v === 'number' ? null : personByText(v))) : null;
+      return v => (typeof v === 'number' ? personById[v] || null : personByText(v));
     };
     const score = (col, of) => {
       let total = 0, hit = 0;
       rows.forEach(r => cells(r[col]).forEach(v => { total++; if (of(v)) hit++; }));
       return total ? hit / total : 0;
     };
-    const instHint = /instance/i, personHint = /personne|membre|invit|particip|annuaire|agent|contact|nom|prenom|mail/i;
-    const pick = (of, hint, bonus, exclude) => cols.filter(c => c !== exclude).map(c => ({ c, v: score(c, of) + (hint.test(c) ? bonus : 0), raw: score(c, of) }))
+    const pick = (readerOf, hint, bonus, exclude, table) => cols.filter(c => c !== exclude).map(c => ({ c, of: readerOf(c) })).filter(x => x.of)
+      .map(x => { const raw = score(x.c, x.of); return { c: x.c, of: x.of, raw, v: raw + (hint.test(x.c) ? bonus : 0) + (refTarget(x.c) === table ? 1 : 0) }; })
       .filter(x => x.raw >= 0.5).sort((a, b) => b.v - a.v)[0];
-    const inst = pick(instOf, instHint, 0.5, null);
+    const inst = pick(instReader, instHint, 0.5, null, instTable);
     if (!inst) { result.reason = 'Aucune colonne ne désigne une instance du document.'; return result; }
-    const pers = pick(personOf, personHint, 0.3, inst.c);
+    const pers = pick(personReader, personHint, 0.3, inst.c, peopleTable);
     if (!pers) { result.reason = 'Aucune colonne ne désigne une personne de l\'Annuaire.'; return result; }
-    result.ok = true; result.instanceCol = inst.c; result.personCol = pers.c;
+    result.ok = true; result.instanceCol = inst.c; result.personCol = pers.c; result.instanceType = typeOf(inst.c); result.personType = typeOf(pers.c);
     rows.forEach(r => {
-      const is = cells(r[inst.c]).map(instOf).filter(Boolean), ps = cells(r[pers.c]).map(personOf).filter(Boolean);
+      const is = cells(r[inst.c]).map(inst.of).filter(Boolean), ps = cells(r[pers.c]).map(pers.of).filter(Boolean);
       if (!is.length || !ps.length) { result.unresolved++; return; }
       result.resolved++;
       is.forEach(i => { const list = result.byInstance[i.id] = result.byInstance[i.id] || []; ps.forEach(p => { if (list.indexOf(p.id) < 0) list.push(p.id); }); });
     });
+    // Combien de personnes par instance : permet de repérer d'un coup d'œil un mauvais rapprochement.
+    result.perInstance = instances.map(i => ({ id: i.id, nom: i.nom, n: (result.byInstance[i.id] || []).length })).filter(x => x.n > 0);
     return result;
   }
 
+  // Recherche dans un menu : `hay` et `query` déjà passés par normName ; chaque mot de la recherche doit figurer dans le texte.
+  const matchesSearch = (hay, query) => String(query || '').split(' ').every(word => !word || String(hay).indexOf(word) >= 0);
+
   const api = {
-    findCompositionTable, detectComposition,
+    findCompositionTable, detectComposition, matchesSearch,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,

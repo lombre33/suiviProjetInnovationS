@@ -245,13 +245,18 @@ ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante p
 **Composition des instances (10/11/2026).** Les invités par défaut d'une instance viennent de la table
 « Composition instances » du document (en lecture seule, jamais modifiée par le widget). La table est retrouvée par son
 nom (casse et ponctuation ignorées : `Composition_instances`, `COMPOSITION_INSTANCES`…) ; ses colonnes sont
-retrouvées par leurs **valeurs** : une colonne qui désigne une instance (référence vers `Instances` ou nom de
-l'instance) et une colonne qui désigne une personne (référence vers `Annuaire`, liste de références, nom ou e-mail),
-le nom de la colonne départageant les cas ambigus. Une ligne par membre ; une liste de personnes ou d'instances sur
-une même ligne est acceptée. Usage : (1) une **nouvelle séance** reprend la liste permanente + la composition (sans
+retrouvées par leurs **types** (métadonnées Grist) puis leurs valeurs : une colonne qui désigne une instance (référence
+vers `Instances`, ou texte portant le nom de l'instance) et une colonne qui désigne une personne (référence vers
+`Annuaire`, liste de références, nom ou e-mail), le nom de la colonne départageant les cas ambigus. **Un numéro n'est
+jamais lu comme une instance sans que la colonne soit une référence vers `Instances`** (une référence vers une autre table
+est lue par le libellé de sa ligne ; un nombre ordinaire est ignoré) : sinon les numéros d'une autre table donnaient
+les invités d'une instance à une autre (bug du 10/11, COPIL / Comité innovation). Un texte qui nomme deux instances
+(« COPIL du comité innovation ») est ambigu, donc ignoré. Une ligne par membre ; une liste de personnes ou d'instances
+sur une même ligne est acceptée. À l'étape Invités, **la corbeille retire n'importe quel invité de la séance** (liste
+permanente comprise ; la liste permanente de l'instance n'est pas modifiée). Usage : (1) une **nouvelle séance** reprend la liste permanente + la composition (sans
 doublon, origine « Liste permanente ») ; (2) à l'étape **Invités**, un bandeau propose d'ajouter les membres de la
 composition qui ne sont pas invités à la séance ; (3) le **paramétrage** de l'instance affiche la table lue, les
-colonnes reconnues et les membres (ou la raison pour laquelle rien n'est reconnu). Aucun filtre (membre actif,
+colonnes reconnues avec leur type, le nombre de personnes retenues par instance et les membres (ou la raison pour laquelle rien n'est reconnu). Aucun filtre (membre actif,
 suppléant, dates de mandat…) : toutes les lignes de l'instance comptent.
 
 **Compte rendu validé automatiquement (10/11/2026).** Dès que la V0 est rédigée et que tous les relecteurs de
@@ -474,3 +479,7 @@ d'un repli valide et n'ont pas d'impact visible :
 
 Enfin, le nom de table `Etablissement` au singulier dans `CoreGrist.TABLE_NAMES` ne
 correspond à rien : son chargement échoue et est ignoré.
+
+**Recherche de personnes dans les menus de la page Instances (10/11/2026).** La recherche (invités, présentateurs,
+relecteurs, projets…) ignore casse, accents et ponctuation, et chaque mot tapé doit se trouver quelque part (nom,
+prénom, e-mail, poste), dans n'importe quel ordre : « jean dupont » trouve « DUPONT-MARTIN Jean-Pierre ».

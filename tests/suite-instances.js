@@ -80,6 +80,7 @@
     const tables = await window.CoreGrist.loadAllTables();
     tables.Annuaire.push({ id: 3, NOM: 'Petit', Prenom: 'Chloé', nom_et_Prenom: 'Chloé Petit', Email: 'chloe@example.org', Poste2: 0 });
     tables.Annuaire.push({ id: 4, NOM: 'Roy', Prenom: 'Dana', nom_et_Prenom: 'Dana Roy', Email: '', Poste2: 0 });
+    (opts.people || []).forEach(person => tables.Annuaire.push(person));
     Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
     const data = dataset();
     if (opts.rows) opts.rows(data);
@@ -202,6 +203,41 @@
       r = L.detectComposition([{ id: 1, Instance: 1, Libelle: 'abc' }], ctx);
       assertEqual(r.ok, false);
       assertIncludes(r.reason, 'personne');
+    });
+
+    it('composition des instances : une colonne n\'est lue comme « instance » que selon son TYPE (jamais un numéro de ligne d\'une autre table), sinon le COPIL se retrouvait avec les invités du Comité', function () {
+      const ctx = {
+        instances: [{ id: 1, nom: 'CTO Innovation' }, { id: 2, nom: 'Comité innovation' }, { id: 3, nom: 'COPIL' }],
+        people: [{ id: 1, name: 'Alice Martin', email: '' }, { id: 2, name: 'Bob Durand', email: '' }, { id: 4, name: 'Dana Roy', email: '' }]
+      };
+      const types = { Instance: 'Ref:Types_instance', Membre: 'Ref:Annuaire' };
+      // Les numéros de Types_instance (1 = COPIL, 2 = CTO, 3 = Comité) n'ont aucun rapport avec ceux de Instances (1 = CTO, 2 = Comité, 3 = COPIL).
+      const rows = [{ id: 1, Instance: 1, Membre: 2 }, { id: 2, Instance: 2, Membre: 1 }, { id: 3, Instance: 2, Membre: 4 }, { id: 4, Instance: 3, Membre: 4 }];
+      let r = L.detectComposition(rows, Object.assign({ types, refNames: { Types_instance: { 1: 'COPIL', 2: 'CTO Innovation', 3: 'Comité innovation' } } }, ctx));
+      assertTrue(r.ok);
+      assertDeepEqual(r.byInstance, { 3: [2], 1: [1, 4], 2: [4] }, 'chaque ligne rejoint l\'instance NOMMÉE dans l\'autre table (COPIL : Bob ; CTO : Alice, Dana ; Comité : Dana)');
+      assertEqual(r.instanceType, 'Ref:Types_instance');
+      assertDeepEqual(r.perInstance.map(x => x.nom + ' ' + x.n), ['CTO Innovation 2', 'Comité innovation 1', 'COPIL 1'], 'le décompte par instance sert au contrôle visuel');
+      // table visée illisible : la colonne est écartée, AUCUN invité n'est deviné à partir de numéros sans rapport
+      r = L.detectComposition(rows, Object.assign({ types }, ctx));
+      assertFalse(r.ok);
+      assertDeepEqual(r.byInstance, {});
+      assertIncludes(r.reason, 'instance');
+      // référence vers la table Instances elle-même : les numéros sont ceux de Instances
+      r = L.detectComposition(rows, Object.assign({ types: { Instance: 'Ref:Instances', Membre: 'Ref:Annuaire' } }, ctx));
+      assertDeepEqual(r.byInstance, { 1: [2], 2: [1, 4], 3: [4] });
+      // un nombre ordinaire (rang, ordre…) n'est jamais une instance, même s'il vaut 1, 2 ou 3 ; l'instance est lue par son nom
+      r = L.detectComposition([{ id: 1, Rang: 2, Nom_instance: 'COPIL', Membre: 2 }, { id: 2, Rang: 1, Nom_instance: 'Comité innovation', Membre: 4 }],
+        Object.assign({ types: { Rang: 'Int', Nom_instance: 'Text', Membre: 'Ref:Annuaire' } }, ctx));
+      assertEqual(r.instanceCol, 'Nom_instance');
+      assertDeepEqual(r.byInstance, { 3: [2], 2: [4] });
+      // sans métadonnées : un numéro n'est admis que dans une colonne dont le nom évoque l'instance
+      r = L.detectComposition([{ id: 1, Rang: 2, Membre: 1 }, { id: 2, Rang: 1, Membre: 2 }], ctx);
+      assertFalse(r.ok, 'une colonne « Rang » n\'est pas une instance');
+      // texte : nom exact, ou l\'UNIQUE instance nommée dans le texte ; deux instances nommées = ambigu, donc ignoré
+      r = L.detectComposition([{ id: 1, Instance: 'COPIL', Membre: 2 }, { id: 2, Instance: 'Comité innovation', Membre: 4 }, { id: 3, Instance: 'COPIL du comité innovation', Membre: 1 }, { id: 4, Instance: 'CTO Innovation 2026', Membre: 1 }], ctx);
+      assertDeepEqual(r.byInstance, { 3: [2], 2: [4], 1: [1] }, '« COPIL du comité innovation » nomme deux instances : ni l\'une ni l\'autre');
+      assertEqual(r.unresolved, 1);
     });
 
     it('créneaux de l\'ordre du jour et conflits de disponibilité', function () {
@@ -514,6 +550,37 @@
       await waitFor(() => calls('AddRecord', 'Instance_Invites').length === 3, 'invités par défaut');
       assertDeepEqual(calls('AddRecord', 'Instance_Invites').map(c => c.fields.Personne), [1, 2, 4], 'Alice et Bob (permanents), Dana (composition) ; Alice une seule fois');
       assertTrue(calls('AddRecord', 'Instance_Invites').every(c => c.fields.Origine === 'Liste permanente'));
+    });
+
+    it('nouvelle séance : la composition lue par une référence vers une AUTRE table donne ses invités à la bonne instance (pas à celle dont les numéros coïncident)', async function () {
+      const meta = (tables, cols) => {
+        window.__mockSetTable('_grist_Tables', { id: tables.map((_, i) => i + 1), tableId: tables });
+        window.__mockSetTable('_grist_Tables_column', { id: cols.map((_, i) => i + 1), parentId: cols.map(c => tables.indexOf(c.table) + 1), colId: cols.map(c => c.col), type: cols.map(c => c.type), description: cols.map(() => '') });
+        return window.CoreGrist.loadColumnDescriptions();
+      };
+      await meta(['COMPOSITION_INSTANCES', 'Types_instance'], [
+        { table: 'COMPOSITION_INSTANCES', col: 'Instance', type: 'Ref:Types_instance' }, { table: 'COMPOSITION_INSTANCES', col: 'Personne', type: 'Ref:Annuaire' }, { table: 'Types_instance', col: 'Nom', type: 'Text' }
+      ]);
+      try {
+        // Types_instance : 1 = COPIL, 2 = CTO Innovation, 3 = Comité innovation (autres numéros que la table Instances)
+        await setup({ rows: d => {
+          d.Types_instance = [{ id: 1, Nom: 'COPIL' }, { id: 2, Nom: 'CTO Innovation' }, { id: 3, Nom: 'Comité innovation' }];
+          d.COMPOSITION_INSTANCES = [{ id: 1, Instance: 1, Personne: 2 }, { id: 2, Instance: 2, Personne: 1 }, { id: 3, Instance: 2, Personne: 4 }, { id: 4, Instance: 3, Personne: 3 }];
+        } });
+        click('menu', { v: 'seance' });
+        click('seance-new');
+        await waitCall('AddRecord', 'Suivi_Instance');
+        await waitFor(() => calls('AddRecord', 'Instance_Invites').length === 3, 'invités par défaut du CTO');
+        assertDeepEqual(calls('AddRecord', 'Instance_Invites').map(c => c.fields.Personne), [1, 2, 4], 'CTO : Alice et Bob (permanents) + Dana (composition du CTO, pas celle du COPIL)');
+        // et le paramétrage montre le contrôle : colonnes, types, nombre de personnes par instance
+        click('settings-open');
+        await waitFor(() => !!q('.in-dlg'), 'paramétrage');
+        const block = qa('.in-dlg .in-fgrp').find(g => g.textContent.includes('Composition de l\'instance'));
+        assertIncludes(block.textContent, 'Ref:Types_instance');
+        assertIncludes(block.textContent, 'Personnes par instance : CTO Innovation 2 · Comité innovation 1 · COPIL 1');
+      } finally {
+        await meta([], []); // ne pas laisser ces métadonnées aux autres suites
+      }
     });
 
     it('menu « Instances » de la barre de navigation : CTO Innovation et Comité innovation seulement, la page s\'ouvre sur l\'instance choisie', async function () {
@@ -852,6 +919,38 @@
         });
         qa('.in-pt').forEach(row => assertTrue(row.getBoundingClientRect().height < 70, 'ligne unique malgré la colonne élargie (' + Math.round(row.getBoundingClientRect().height) + ' px)'));
       });
+    });
+
+    it('recherche d\'une personne : sans casse ni accents ni ponctuation, mots dans n\'importe quel ordre, aussi par prénom, nom, e-mail ou poste (des gens de l\'Annuaire n\'étaient pas trouvés)', async function () {
+      assertEqual(L.normName('André LÉGER'), 'andre leger');
+      assertTrue(L.matchesSearch('andre leger', 'leger andre'), 'ordre libre');
+      assertTrue(L.matchesSearch('andre leger', ''), 'recherche vide : tout');
+      assertFalse(L.matchesSearch('andre leger', 'andre dupont'), 'chaque mot doit être trouvé');
+      await setup({ people: [
+        { id: 5, NOM: 'LÉGER', Prenom: 'André', nom_et_Prenom: 'LÉGER André', Email: '', Poste2: 0 },
+        { id: 6, NOM: 'DUPONT-MARTIN', Prenom: 'Jean-Pierre', nom_et_Prenom: 'DUPONT-MARTIN Jean-Pierre', Email: 'jp.dm@example.org', Poste2: 0 }
+      ] });
+      step('invites');
+      click('menu', { v: 'addGuest' });
+      const input = q('.in-menu input[data-filter]');
+      const shown = () => qa('.in-menu .in-mi[data-ft]').filter(b => b.style.display !== 'none').map(b => b.querySelector('.in-mi-main span').textContent);
+      const search = value => { input.value = value; fire(input, 'input'); return shown(); };
+      assertDeepEqual(shown().sort(), ['DUPONT-MARTIN Jean-Pierre', 'Dana Roy', 'LÉGER André'].sort(), 'les trois personnes non invitées sont proposées');
+      assertDeepEqual(search('andre'), ['LÉGER André'], 'sans accent');
+      assertDeepEqual(search('ANDRÉ'), ['LÉGER André'], 'avec accent et majuscules');
+      assertDeepEqual(search('andre leger'), ['LÉGER André'], 'prénom puis nom, alors que la fiche s\'écrit nom puis prénom');
+      assertDeepEqual(search('leger'), ['LÉGER André']);
+      assertDeepEqual(search('jean dupont'), ['DUPONT-MARTIN Jean-Pierre'], 'tiret, ordre inversé, nom partiel');
+      assertDeepEqual(search('jean-pierre'), ['DUPONT-MARTIN Jean-Pierre'], 'avec le tiret');
+      assertDeepEqual(search('jp.dm@example'), ['DUPONT-MARTIN Jean-Pierre'], 'par e-mail');
+      assertDeepEqual(search('  roy   dana '), ['Dana Roy'], 'espaces en trop');
+      assertDeepEqual(search('zzz'), [], 'aucun résultat');
+      assertEqual(search('').length, 3, 'recherche vidée : tout le monde revient');
+      // Entrée choisit le premier résultat de la recherche tolérante
+      search('andre');
+      fireKey(input, 'Enter');
+      const added = await waitCall('AddRecord', 'Instance_Invites');
+      assertEqual(added.Personne, 5);
     });
 
     it('menus de recherche (projets, présentateurs, invités) : flèches pour surligner, Entrée pour choisir, comme dans les autres listes', async function () {
@@ -1211,10 +1310,11 @@
       assertEqual(lastFields('UpdateRecord', 'Instance_Invites', 2).Commentaire, 'En déplacement');
     });
 
-    it('ajouter une personne (invitée « sur un point ») et la retirer ; les permanents ne se retirent pas ici', async function () {
+    it('ajouter une personne (invitée « sur un point ») et la retirer ; un invité repris de la liste permanente se retire aussi, de cette séance seulement', async function () {
       await setup();
       step('invites');
-      assertFalse(!!row('Alice').querySelector('[data-act="g-del"]'));
+      assertTrue(!!row('Alice').querySelector('[data-act="g-del"]'), 'corbeille aussi pour un invité de la liste permanente (repris par erreur de la composition, par exemple)');
+      assertIncludes(row('Alice').querySelector('[data-act="g-del"]').title, 'cette séance');
       click('menu', { v: 'addGuest' });
       assertEqual(qa('.in-menu .in-mi[data-ft]').length, 1, 'seule Dana n\'est pas encore invitée');
       click('g-add', { v: 4 });
@@ -1224,6 +1324,12 @@
       click('g-del', { id: 3 });
       assertEqual(calls('RemoveRecord', 'Instance_Invites')[0].id, 3);
       assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 2).Invites, ['L', 1], 'Chloé est retirée du point');
+      // un invité de la liste permanente : retiré de la séance, la liste permanente de l'instance n'est pas modifiée
+      const before = calls('RemoveRecord', 'Instance_Invites').length;
+      click('g-del', { id: 1 });
+      assertEqual(calls('RemoveRecord', 'Instance_Invites').length, before + 1);
+      assertEqual(calls('RemoveRecord', 'Instance_Invites')[before].id, 1);
+      assertEqual(calls('UpdateRecord', 'Instances').length, 0, 'la liste permanente de l\'instance (Invites_permanents) n\'est pas touchée');
     });
   });
 

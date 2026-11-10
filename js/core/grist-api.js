@@ -67,6 +67,8 @@
   // d'accès insuffisants, document hors Grist) : getColumnDescription() renvoie alors
   // '' partout, donc aucune icône d'aide nulle part plutôt qu'une erreur bloquante.
   let columnDescriptions = null;
+  // Types de colonnes ({tableId: {colId: 'Ref:Instances'…}}), lus avec les descriptions (mêmes métadonnées, aucun appel de plus).
+  let columnTypeMap = null;
   // Schéma connu du document : {tableId: Set(colId)}, rempli par loadColumnDescriptions()
   // (mêmes métadonnées, une seule lecture) puis tenu à jour par ensureTable/ensureColumns.
   // Connaissance POSITIVE seulement : une table/colonne présente ici existe, l'absence ne
@@ -170,28 +172,36 @@
         const tableIdByRef = new Map();
         tables.id.forEach((ref, i) => tableIdByRef.set(ref, tables.tableId[i]));
         const byTable = {};
+        const typeMap = {};
         const schema = new Map();
         tableIdByRef.forEach(tableId => schema.set(tableId, new Set(['id'])));
         cols.id.forEach((ref, i) => {
           const tableId = tableIdByRef.get(cols.parentId[i]);
-          if (tableId) schema.get(tableId).add(cols.colId[i]);
+          if (tableId) {
+            schema.get(tableId).add(cols.colId[i]);
+            if (cols.type && cols.type[i]) (typeMap[tableId] = typeMap[tableId] || {})[cols.colId[i]] = String(cols.type[i]);
+          }
           const description = cols.description ? cols.description[i] : '';
           if (!tableId || !description) return;
           if (!byTable[tableId]) byTable[tableId] = {};
           byTable[tableId][cols.colId[i]] = description;
         });
         columnDescriptions = byTable;
+        columnTypeMap = typeMap;
         knownSchema.clear();
         schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
         console.warn('Chargement des descriptions de colonnes a échoué :', err.message);
         columnDescriptions = {};
+        columnTypeMap = null;
         knownSchema.clear();
       }
     },
     // '' quand le schéma n'a pas (encore) été chargé, que la table/colonne est
     // inconnue, ou que la colonne n'a aucune description dans Grist — jamais
     // d'exception : c'est ce qui décide d'afficher ou non l'icône d'aide.
+    // Types des colonnes d'une table ({colId: 'Ref:Instances'…}) ou null quand les métadonnées n'ont pas pu être lues.
+    columnTypes(tableId) { return (columnTypeMap && columnTypeMap[tableId]) || null; },
     getColumnDescription(tableId, colId) {
       return (columnDescriptions && columnDescriptions[tableId] && columnDescriptions[tableId][colId]) || '';
     },
