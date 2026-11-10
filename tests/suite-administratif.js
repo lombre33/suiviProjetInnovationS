@@ -145,6 +145,28 @@
       assertTrue(!!call, 'doit écrire comentaire_general_Suivi_projet sur Projets');
       assertEqual(call.fields.comentaire_general_Suivi_projet, 'Relance porteur le 20/09.');
     });
+
+    // Revue de bugs du 10/11/2026 : le commentaire était réécrit à chaque sortie du champ, même inchangé.
+    it('ne réécrit pas le commentaire sur un simple passage dans le champ', async function () {
+      await loadFixtureState();
+      const textarea = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX').querySelector('[data-comment-project]');
+      fire(textarea, 'blur');
+      await wait(0);
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'comentaire_general_Suivi_projet' in c.fields).length, 0, 'inchangé → aucune écriture');
+    });
+
+    it('revenir à la valeur d\'origine après un premier enregistrement est bien enregistré (A → B → A)', async function () {
+      await loadFixtureState();
+      const textarea = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX').querySelector('[data-comment-project]');
+      setValue(textarea, 'Relance porteur');
+      fire(textarea, 'blur');
+      await wait(0);
+      setValue(textarea, '');
+      fire(textarea, 'blur');
+      await wait(0);
+      const writes = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'comentaire_general_Suivi_projet' in c.fields);
+      assertDeepEqual(writes.map(c => c.fields.comentaire_general_Suivi_projet), ['Relance porteur', ''], 'le retour à vide doit s\'écrire aussi');
+    });
   });
 
   function dragEvent(type, dataTransfer) {
@@ -322,6 +344,38 @@
       const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && 'next_step' in c.fields);
       assertTrue(!!call && call.table === 'Projets', 'doit écrire next_step sur Projets');
       assertEqual(call.fields.next_step, 'Signature prévue le 12/10');
+    });
+
+    // Revue de bugs du 10/11/2026 : la garde « inchangé » comparait à la valeur du dernier RENDU. Le champ n'est pas
+    // reconstruit après l'écriture : A → B (enregistré) puis B → A passait pour « inchangé » et B restait dans Grist.
+    it('revenir à la valeur d\'origine après un premier enregistrement est bien enregistré (A → B → A)', async function () {
+      await loadFixtureState();
+      const field = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]');
+      assertEqual(field.value, '', 'départ : next step vide');
+      setValue(field, 'Relancer le juridique');
+      fire(field, 'blur');
+      await wait(0);
+      setValue(field, '');
+      fire(field, 'blur');
+      await wait(0);
+      const writes = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'next_step' in c.fields);
+      assertDeepEqual(writes.map(c => c.fields.next_step), ['Relancer le juridique', ''], 'les deux écritures doivent partir, dont le retour à vide');
+      assertEqual(window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX').next_step, '', 'valeur locale à jour');
+    });
+
+    it('un enregistrement qui échoue laisse le champ « modifié » : la sortie suivante réessaie', async function () {
+      await loadFixtureState();
+      const field = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-nextstep-project]');
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      setValue(field, 'Relancer le juridique');
+      try {
+        fire(field, 'blur');
+        await wait(0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      fire(field, 'blur');
+      await wait(0);
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'next_step' in c.fields).length, 1, 'le second blur réécrit la valeur');
     });
 
     it('n\'ajoute pas ce champ aux cartes Notifications', async function () {

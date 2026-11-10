@@ -235,11 +235,17 @@
     await api.docApi.applyUserActions([['UpdateRecord', table, Number(id), fields]]);
   }
 
+  // Renvoie true quand le commentaire est enregistré (le champ repart alors de cette valeur, voir
+  // le gestionnaire de sortie de champ dans wireRootEvents).
   async function saveComment(project, value) {
     try {
       await writeFields('Projets', project.id, { Commentaire_ligne_OPE: value });
       project.Commentaire_ligne_OPE = value;
-    } catch (err) { CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true); }
+      return true;
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true);
+      return false;
+    }
   }
 
   // Glisser-déposer entre volets d'une MÊME colonne (jamais entre DIESE/Ailleurs/Sans
@@ -318,10 +324,15 @@
       render();
       saveInstallationUserPreferences();
     }));
-    root.querySelectorAll('[data-install-comment]').forEach(textarea => textarea.addEventListener('blur', () => {
+    root.querySelectorAll('[data-install-comment]').forEach(textarea => textarea.addEventListener('blur', async () => {
+      // Non modifié depuis le dernier état enregistré : rien à écrire. `defaultValue` suit la valeur
+      // enregistrée (pas de nouveau rendu après l'écriture) : sinon, revenir à la valeur affichée au
+      // rendu (A → B enregistré, puis B → A) passerait pour « inchangé » et le B resterait dans Grist.
       if (textarea.value === textarea.defaultValue) return;
       const project = projectById(textarea.dataset.installComment);
-      if (project) saveComment(project, textarea.value);
+      if (!project) return;
+      const value = textarea.value;
+      if (await saveComment(project, value)) textarea.defaultValue = value;
     }));
   }
 

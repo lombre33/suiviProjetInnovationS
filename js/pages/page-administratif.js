@@ -871,11 +871,31 @@
     }
   }
 
+  // Renvoie true quand la valeur est enregistrée : l'appelant s'en sert pour repartir de la valeur
+  // enregistrée (voir wireTextareaSave).
   async function saveComment(projectId, value) {
     try {
       await writeFields('Projets', projectId, { comentaire_general_Suivi_projet: value });
       setProjectField(projectId, 'comentaire_general_Suivi_projet', value);
-    } catch (err) { CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true); }
+      return true;
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true);
+      return false;
+    }
+  }
+
+  // Enregistre un champ texte libre à la sortie du champ, seulement s'il a changé depuis son dernier
+  // état enregistré. Le rendu n'est pas refait après l'écriture (une reconstruction ferait perdre
+  // la saisie en cours) : `defaultValue` doit donc suivre la valeur enregistrée. Sinon, revenir à la
+  // valeur affichée au rendu (A → B enregistré, puis B → A) passerait pour « inchangé » et le B
+  // resterait dans Grist. Non modifié : rien à écrire non plus (évite de réécrire une valeur que le
+  // navigateur normalise à l'affichage, ex. CRLF ou saut de ligne initial).
+  function wireTextareaSave(textarea, save) {
+    textarea.addEventListener('blur', async () => {
+      if (textarea.value === textarea.defaultValue) return;
+      const value = textarea.value;
+      if (await save(value)) textarea.defaultValue = value;
+    });
   }
 
   function partnerPill(project, partner) {
@@ -1084,19 +1104,16 @@
         saveAdministratifUserPreferences();
       }));
       root.querySelectorAll('[data-advance-notif]').forEach(btn => btn.addEventListener('click', () => advanceNotif(btn.dataset.advanceNotif, btn.dataset.acronym)));
-      root.querySelectorAll('[data-nextstep-project]').forEach(textarea => textarea.addEventListener('blur', () => {
-        // Non modifié depuis le rendu : rien à écrire (évite de réécrire une valeur
-        // que le navigateur normalise à l'affichage, ex. CRLF ou saut de ligne initial).
-        if (textarea.value === textarea.defaultValue) return;
+      root.querySelectorAll('[data-nextstep-project]').forEach(textarea => wireTextareaSave(textarea, value => {
         const project = projectById(textarea.dataset.nextstepProject);
-        if (project) saveNextStep(project, textarea.value);
+        return project ? saveNextStep(project, value) : false;
       }));
       root.querySelectorAll('[data-cycle-partner]').forEach(btn => btn.addEventListener('click', () => {
         const [projectId, fieldName] = btn.dataset.cyclePartner.split(':');
         const project = projectById(projectId);
         if (project) cyclePartner(project, fieldName);
       }));
-      root.querySelectorAll('[data-comment-project]').forEach(textarea => textarea.addEventListener('blur', () => saveComment(textarea.dataset.commentProject, textarea.value)));
+      root.querySelectorAll('[data-comment-project]').forEach(textarea => wireTextareaSave(textarea, value => saveComment(textarea.dataset.commentProject, value)));
     });
 
     lastPanels = { notif: notifPanels, conv: convPanels };

@@ -119,6 +119,30 @@
       assertTrue(!!call, 'doit écrire Commentaire_ligne_OPE sur Projets');
       assertEqual(call.fields.Commentaire_ligne_OPE, 'Relance DF le 10/11.');
     });
+
+    // Revue de bugs du 10/11/2026 : la garde « inchangé » comparait à la valeur du dernier RENDU, que l'écriture ne
+    // refait pas : A → B (enregistré) puis B → A passait pour « inchangé » et B restait dans Grist.
+    it('revenir à la valeur d\'origine après un premier enregistrement est bien enregistré (A → B → A)', async function () {
+      await loadFixtureState();
+      const textarea = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX').querySelector('[data-install-comment]');
+      assertEqual(textarea.value, '', 'départ : commentaire vide');
+      setValue(textarea, 'Relance DF');
+      fire(textarea, 'blur');
+      await wait(0);
+      setValue(textarea, '');
+      fire(textarea, 'blur');
+      await wait(0);
+      const writes = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === 'Projets' && 'Commentaire_ligne_OPE' in c.fields);
+      assertDeepEqual(writes.map(c => c.fields.Commentaire_ligne_OPE), ['Relance DF', ''], 'le retour à vide doit s\'écrire aussi');
+    });
+
+    it('un simple passage dans le champ sans modification n\'écrit rien', async function () {
+      await loadFixtureState();
+      const textarea = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX').querySelector('[data-install-comment]');
+      fire(textarea, 'blur');
+      await wait(0);
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && 'Commentaire_ligne_OPE' in c.fields).length, 0);
+    });
   });
 
   describe('Installation des fonds — sélecteur de vue (Toutes / DIESE / Ailleurs / Sans OPE)', function () {
