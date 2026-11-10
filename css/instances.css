@@ -317,3 +317,8 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 /* Menu des séances : la prochaine et la dernière épinglées. */
 .in-mi .in-ic{vertical-align:-2px;color:var(--accent-h)}
 .in-mi.in-on .in-ic{color:#fff}
+
+/* Présenté par : personnes qui présentent un point (ordre du jour et vue d'ensemble). */
+.in-tag.in-pres{background:var(--viol-s);color:var(--viol)}
+.in-mic .in-mpres{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--viol)}
+.in-mic .in-mpres .in-ic{vertical-align:-2px;margin-right:3px}

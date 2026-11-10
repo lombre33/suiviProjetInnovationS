@@ -68,6 +68,7 @@
     eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', idle: '<circle cx="12" cy="12" r="8"/>',
     pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14 7l3 3"/>', reopen: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3"/>',
     hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21"/>',
     download: '<path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/>', pushpin: '<path d="M9 3.5h6l-1 6 3 3.5v2H7v-2l3-3.5zM12 15v5.5"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
   };
   const ic = (name, size, extra) => '<svg class="ic' + (size ? ' ' + size : '') + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + SVG[name] + '</svg>';
@@ -340,6 +341,7 @@
         + (nConf ? '<span class="alert-pill" title="' + esc(nConf + ' point(s) avec un invité indisponible') + '">' + ic('warn', 's') + nConf + '</span>' : '') + sdot('odj') + '</span>'
         + '<span class="meta ' + (V.over ? 'over' : '') + '">' + plural(s.points.length, 'point', 'points') + ' · ' + spanTxt + ' · ' + L.hhmm(V.startMin) + ' → ' + L.hhmm(V.lastEnd) + (V.over ? ' (dépasse ' + L.hhmm(V.endMin) + ')' : '') + '</span><span class="mlist">'
         + V.sched.slice(0, 9).map(r => '<span class="mrow ' + (V.conf[r.p.id] ? 'flag' : '') + '" title="' + esc((V.conf[r.p.id] || []).join(' · ')) + '"><span class="mt">' + L.hhmm(r.start) + '</span><span class="ndot ' + r.p.nature + '"></span><span class="mtitle">' + esc(r.p.titre || 'Sans titre') + '</span><span class="mic">'
+          + (r.p.presentateurs.length ? '<span class="mpres" title="' + esc('Présenté par ' + r.p.presentateurs.map(pid => personOf(m, pid).name).join(', ')) + '">' + ic('mic', 's') + esc(L.cut(r.p.presentateurs.map(pid => L.shortName(personOf(m, pid).name)).join(', '), 24)) + '</span>' : '')
           + (r.p.projets.length ? '<span>' + ic('project', 's') + r.p.projets.length + '</span>' : '') + (r.p.invites.length ? '<span>' + ic('people', 's') + r.p.invites.length + '</span>' : '') + (hasLink(r.p.lienType, r.p.lien) ? '<span>' + ic('clip', 's') + '</span>' : '') + '</span></span>').join('')
         + (V.sched.length > 9 ? '<span class="mrow muted">+ ' + (V.sched.length - 9) + ' autres points</span>' : '') + (V.sched.length ? '' : '<span class="mrow muted">Aucun point</span>') + '</span></button>';
     }
@@ -403,7 +405,7 @@
     V.sched.forEach((row, i) => {
       const p = row.p, msgs = V.conf[p.id] || [];
       const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
-      const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), lkOpen = isOpen('lien:' + p.id);
+      const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
       const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
       h += '<div class="pt ' + (msgs.length ? 'flag' : '') + '" data-pt="' + p.id + '"><div class="grip"><span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>'
         + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le point" ' + (i === 0 ? 'disabled ' : '') + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
@@ -417,6 +419,11 @@
         + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
         + '<div class="rel"><button type="button" class="addb ' + (projOpen ? 'on' : '') + '" title="Relier un projet" aria-label="Relier un projet" ' + da('menu', { v: 'proj:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
         + (projOpen ? '<div class="menu">' + filterInput('Rechercher un projet…') + m.projects.map(pr => '<button type="button" class="mi ' + (p.projets.indexOf(pr.id) >= 0 ? 'on' : '') + '" ' + da('pt-proj', { id: p.id, v: pr.id }) + ftAttr(pr.acro + ' ' + pr.titre) + '><span class="mi-main"><span>' + esc(pr.acro) + '</span><span class="mi-sub">' + esc(L.cut(pr.titre, 40)) + '</span></span></button>').join('') + (m.projects.length ? '' : '<div class="mh">— Aucun projet —</div>') + '</div>' : '') + '</div></div>'
+        // présenté par (une ou plusieurs personnes)
+        + '<div class="group"><span class="gic" title="Présenté par">' + ic('mic', 's') + '</span>'
+        + p.presentateurs.map(pid => '<span class="tag pres" title="' + esc('Présenté par ' + personOf(m, pid).name) + '">' + esc(L.shortName(personOf(m, pid).name)) + '<button type="button" aria-label="Retirer le présentateur" ' + da('pt-pres', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
+        + '<div class="rel"><button type="button" class="addb ' + (presOpen ? 'on' : '') + '" title="Indiquer qui présente ce point" aria-label="Indiquer qui présente ce point" ' + da('menu', { v: 'pres:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+        + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
         // invités
         + '<div class="group"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
         + guestChips.map(g => '<span class="tag" title="' + esc(personOf(m, g.personneId).name) + '">' + esc(L.shortName(personOf(m, g.personneId).name)) + '<button type="button" aria-label="Retirer l\'invité du point" ' + da('pt-inv', { id: p.id, v: g.personneId }) + '>' + ic('x', 'xs') + '</button></span>').join('')
@@ -912,13 +919,14 @@
     'validate': (el, V) => validateStep(V),
     'reopen': (el, V) => reopenStep(V),
     // ordre du jour
-    'pt-add': (el, V) => write([addOp('Instance_Points', { Seance: V.s.id, Ordre: V.s.points.reduce((n, p) => Math.max(n, p.ordre), 0) + 1, Titre: '', Nature: C.nature.discussion, Duree_min: 15, Projets: ['L'], Invites: ['L'], Lien_type: '', Lien: '' })]),
+    'pt-add': (el, V) => write([addOp('Instance_Points', { Seance: V.s.id, Ordre: V.s.points.reduce((n, p) => Math.max(n, p.ordre), 0) + 1, Titre: '', Nature: C.nature.discussion, Duree_min: 15, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' })]),
     'pt-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Points', id)].concat(orphanGuestOps(V, [id]))); },
     'pt-up': (el, V) => shiftPoint(V, el.dataset.id, -1),
     'pt-down': (el, V) => shiftPoint(V, el.dataset.id, 1),
     'pt-nat': (el, V) => write([upd('Instance_Points', el.dataset.id, { Nature: C.nature[el.dataset.v] })]),
     'pt-proj': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.projets.indexOf(pid) >= 0 ? p.projets.filter(x => x !== pid) : p.projets.concat([pid]); write([upd('Instance_Points', p.id, { Projets: D.toList(list) })]); },
     'pt-inv': (el, V) => toggleGuestOnPoint(V, el.dataset.id, el.dataset.v),
+    'pt-pres': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.presentateurs.indexOf(pid) >= 0 ? p.presentateurs.filter(x => x !== pid) : p.presentateurs.concat([pid]); write([upd('Instance_Points', p.id, { Presentateurs: D.toList(list) })]); },
     // dossier du point
     'pt-link-type': (el, V) => write(setLinkOps(V, el.dataset.id, el.dataset.v, '')),
     'pt-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, el.dataset.id, 'gfs', el.dataset.v)); },

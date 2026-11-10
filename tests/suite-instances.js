@@ -42,8 +42,8 @@
       Lieux: [{ id: 1, Nom: 'Salle Condorcet', Capacite: 40 }, { id: 2, Nom: 'Salle Pasteur', Capacite: 25 }],
       Instance_Points: [
         { id: 1, Seance: 2, Ordre: 1, Titre: 'Approbation du compte rendu', Nature: 'Validation', Duree_min: 10, Projets: ['L'], Invites: ['L'], Lien_type: '', Lien: '' },
-        { id: 2, Seance: 2, Ordre: 2, Titre: 'INNOVX — jalon', Nature: 'Discussion', Duree_min: 30, Projets: ['L', 10], Invites: ['L', 1, 3], Lien_type: 'Fichier GFS', Lien: 'GFS-001' },
-        { id: 3, Seance: 2, Ordre: 3, Titre: 'Notifications prêtes', Nature: 'Validation', Duree_min: 25, Projets: ['L', 11, 12], Invites: ['L'], Lien_type: '', Lien: '' },
+        { id: 2, Seance: 2, Ordre: 2, Titre: 'INNOVX — jalon', Nature: 'Discussion', Duree_min: 30, Projets: ['L', 10], Invites: ['L', 1, 3], Presentateurs: ['L', 1], Lien_type: 'Fichier GFS', Lien: 'GFS-001' },
+        { id: 3, Seance: 2, Ordre: 3, Titre: 'Notifications prêtes', Nature: 'Validation', Duree_min: 25, Projets: ['L', 11, 12], Invites: ['L'], Presentateurs: ['L', 1, 2], Lien_type: '', Lien: '' },
         { id: 4, Seance: 1, Ordre: 1, Titre: 'Ancien point (séance 13)', Nature: 'Information', Duree_min: 15, Projets: ['L'], Invites: ['L'], Lien_type: '', Lien: '' }
       ],
       Instance_Invites: [
@@ -233,6 +233,21 @@
       assertDeepEqual(addedSeance, ['Mail_invitation_le', 'CR_V0_le', 'CR_V0_par', 'CR_PDF', 'Mail_CR_le']);
       assertEqual(window.__TEST_CALLS__.find(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance' && c.colId === 'CR_PDF').colInfo.type, 'Attachments', 'la version PDF du compte rendu est une colonne de pièces jointes');
       assertIncludes(text('.in-band'), 'Aucune séance pour cette instance');
+    });
+
+    it('Instance_Points déjà créée avant « Présenté par » : la colonne Presentateurs est ajoutée (RefList vers Annuaire, avec sa description)', async function () {
+      window.InstancesPage._reset();
+      const data = dataset();
+      Object.keys(data).forEach(name => window.__mockSetTable(name, mk(data[name], data[name].length ? undefined : EMPTY_COLUMNS[name])));
+      window.__mockSetTable('Instance_Points', mk([{ id: 1, Seance: 2, Ordre: 1, Titre: 'Ancien', Nature: 'Discussion', Duree_min: 10, Projets: ['L'], Invites: ['L'], Lien_type: '', Lien: '' }]));
+      await window.CoreGrist.loadAllTables();
+      await window.InstancesPage.open();
+      const added = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Instance_Points');
+      assertDeepEqual(added.map(c => c.colId), ['Presentateurs']);
+      assertEqual(added[0].colInfo.type, 'RefList:Annuaire');
+      assertDeepEqual(window.InstancesPage.state.model.seanceById[2].points[0].presentateurs, [], 'ancien point : aucun présentateur');
+      const col = window.InstancesData.NEW_TABLES.find(t => t.id === 'Instance_Points').cols.find(c => c.id === 'Presentateurs');
+      assertTrue(!!col.description, 'la colonne porte une description (bulle d\'aide)');
     });
 
     it('modèle : séances triées par date décroissante, points par Ordre, valeurs par défaut quand les colonnes sont vides', async function () {
@@ -469,6 +484,7 @@
       assertEqual(added.Ordre, 4);
       assertEqual(added.Duree_min, 15);
       assertDeepEqual(added.Projets, ['L']);
+      assertDeepEqual(added.Presentateurs, ['L'], 'aucun présentateur au départ');
       await waitFor(() => qa('.in-pt').length === 4, 'quatrième point affiché');
 
       const row = point(1);
@@ -531,6 +547,41 @@
       assertTrue(!!point(1).querySelector('.in-tag.in-proj'), 'le projet relié apparaît en étiquette');
       click('pt-proj', { id: 1, v: 13 });
       assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Projets, ['L']);
+    });
+
+    it('présenté par : une ou plusieurs personnes par point, RefList vers Annuaire, sans inviter la personne', async function () {
+      await setup();
+      step('odj');
+      const names = id => qa('.in-pt[data-pt="' + id + '"] .in-tag.in-pres').map(t => t.firstChild.textContent);
+      assertDeepEqual(names(1), [], 'point sans présentateur');
+      assertDeepEqual(names(2), ['A. Martin']);
+      assertDeepEqual(names(3), ['A. Martin', 'B. Durand'], 'plusieurs présentateurs sur un même point');
+      assertIncludes(q('.in-pt[data-pt="2"] .in-tag.in-pres').title, 'Présenté par Alice Martin');
+      click('menu', { v: 'pres:1' });
+      assertTrue(!!q('.in-menu input[data-filter]'), 'recherche dans la liste des personnes');
+      click('pt-pres', { id: 1, v: 2 });
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2]);
+      click('pt-pres', { id: 1, v: 3 }); // le menu reste ouvert : plusieurs personnes à la suite
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3]);
+      await waitFor(() => names(1).length === 2, 'deux présentateurs affichés');
+      assertDeepEqual(names(1), ['B. Durand', 'C. Petit']);
+      assertEqual(qa('.in-menu .in-mi.in-on').length, 2, 'les présentateurs sont repérés dans la liste');
+      click('pt-pres', { id: 1, v: 2 }); // recliquer retire
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 3]);
+      click('menu', { v: 'pres:1' });
+      click('pt-pres', { id: 1, v: 3 });
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L'], 'dernier présentateur retiré par sa croix');
+      assertEqual(calls('AddRecord', 'Instance_Invites').length, 0, 'choisir un présentateur n\'invite personne');
+      assertTrue(calls('UpdateRecord', 'Instance_Points').every(c => !('Invites' in c.fields)), 'la liste des invités du point n\'est pas touchée');
+    });
+
+    it('présenté par : la vue d\'ensemble nomme les présentateurs de chaque point', async function () {
+      await setup();
+      const rows = qa('.in-tile .in-mrow').map(r => ({ title: r.querySelector('.in-mtitle').textContent, pres: r.querySelector('.in-mpres') ? r.querySelector('.in-mpres').textContent.trim() : '' }));
+      assertEqual(rows.find(r => r.title.startsWith('Approbation')).pres, '');
+      assertEqual(rows.find(r => r.title.startsWith('INNOVX')).pres, 'A. Martin');
+      assertEqual(rows.find(r => r.title.startsWith('Notifications')).pres, 'A. Martin, B. Durand');
+      assertIncludes(qa('.in-mpres').pop().title, 'Présenté par Alice Martin, Bob Durand');
     });
 
     it('inviter sur un point : une personne déjà dans la liste est simplement reliée, une nouvelle est d\'abord ajoutée « sur un point »', async function () {
