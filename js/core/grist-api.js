@@ -119,6 +119,8 @@
     invalidateTable(name) { sharedFetches.delete(name); },
     // Colonnes connues d'une table (Set) ou null si le schéma n'a pas pu être lu.
     knownColumns(tableId) { return knownSchema.get(tableId) || null; },
+    // Identifiants des tables connues (vide si le schéma n'a pas pu être lu : l'appelant retombe sur docApi.listTables()).
+    knownTableIds() { return Array.from(knownSchema.keys()); },
     async ensureTable(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
       if (knownSchema.has(tableId)) return false;

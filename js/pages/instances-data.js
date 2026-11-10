@@ -99,7 +99,18 @@
     await Promise.all(READ_TABLES.map(async name => {
       try { raw[name] = await global.CoreGrist.getTable(name); } catch (err) { raw[name] = []; if (name === 'Instances' || name === 'Suivi_Instance') raw[name + '__error'] = err.message; }
     }));
+    await fetchComposition(raw);
     return raw;
+  }
+  // Table « Composition instances » (invités par défaut des instances) : retrouvée par son nom, lue sans jamais bloquer la page.
+  async function fetchComposition(raw) {
+    raw.Composition = []; raw.Composition__id = '';
+    try {
+      // Schéma déjà connu d'abord (aucun appel) ; une absence ne prouve rien (voir CoreGrist) : on interroge alors Grist.
+      let id = L.findCompositionTable(global.CoreGrist.knownTableIds ? global.CoreGrist.knownTableIds() : []);
+      if (!id && global.CoreGrist.gristInstance) id = L.findCompositionTable(await global.CoreGrist.gristInstance.docApi.listTables());
+      if (id) { raw.Composition__id = id; raw.Composition = await global.CoreGrist.getTable(id); }
+    } catch (err) { raw.Composition__error = err.message; }
   }
 
   // --- Écritures : commit([{ op:'add'|'update'|'remove', table, id?, fields? }]) ---
@@ -187,6 +198,9 @@
     const pointsBy = bySeance('Instance_Points'), guestsBy = bySeance('Instance_Invites'), relBy = bySeance('Instance_Relectures'),
       valBy = bySeance('Instance_Validations'), expBy = bySeance('Export_VP');
 
+    // Composition des instances : colonnes retrouvées par leurs valeurs (voir L.detectComposition).
+    const composition = L.detectComposition(raw.Composition || [], { instances: (raw.Instances || []).map(row => ({ id: row.id, nom: instanceName(row) })), people });
+    composition.tableId = raw.Composition__id || '';
     const everyInstance = (raw.Instances || []).map(row => {
       const steps = choiceList(row.Etapes_actives).map(label => keyOfStep[label]).filter(Boolean);
       const nom = instanceName(row), rule = L.instanceRule(nom);
@@ -196,6 +210,7 @@
         // Paramétrage enregistré d'abord ; sinon les étapes propres au type d'instance (Comité innovation : sans envoi du CR ni notifications).
         steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),
+        composition: (composition.byInstance[row.id] || []).slice(),
         modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR)
       };
       return { id: row.id, nom, cfg, seances: [], known: !!rule };
@@ -248,7 +263,7 @@
       seanceById[seance.id] = seance;
     });
     instances.forEach(inst => inst.seances.sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id))));
-    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById, instancesFiltered: filtered };
+    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById, instancesFiltered: filtered, composition };
   }
 
   global.InstancesData = {

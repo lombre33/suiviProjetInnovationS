@@ -242,6 +242,18 @@ n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widg
 ou `type` : affichage de l'ordre du jour), `Inst_cadre` (JSON : `bandeau`, `cr`, `plein`, `hauteur` — voir
 ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante par `ensureColumns`.
 
+**Composition des instances (10/11/2026).** Les invités par défaut d'une instance viennent de la table
+« Composition instances » du document (en lecture seule, jamais modifiée par le widget). La table est retrouvée par son
+nom (casse et ponctuation ignorées : `Composition_instances`, `COMPOSITION_INSTANCES`…) ; ses colonnes sont
+retrouvées par leurs **valeurs** : une colonne qui désigne une instance (référence vers `Instances` ou nom de
+l'instance) et une colonne qui désigne une personne (référence vers `Annuaire`, liste de références, nom ou e-mail),
+le nom de la colonne départageant les cas ambigus. Une ligne par membre ; une liste de personnes ou d'instances sur
+une même ligne est acceptée. Usage : (1) une **nouvelle séance** reprend la liste permanente + la composition (sans
+doublon, origine « Liste permanente ») ; (2) à l'étape **Invités**, un bandeau propose d'ajouter les membres de la
+composition qui ne sont pas invités à la séance ; (3) le **paramétrage** de l'instance affiche la table lue, les
+colonnes reconnues et les membres (ou la raison pour laquelle rien n'est reconnu). Aucun filtre (membre actif,
+suppléant, dates de mandat…) : toutes les lignes de l'instance comptent.
+
 **Compte rendu validé automatiquement (10/11/2026).** Dès que la V0 est rédigée et que tous les relecteurs de
 l'instance ont validé, l'étape Compte rendu se valide d'elle-même (ligne `Instance_Validations`, date du jour,
 « Par » = la personne qui a fait le dernier geste). Seul ce dernier geste (V0 cochée ou dernier relecteur validé)

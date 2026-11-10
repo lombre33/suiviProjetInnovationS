@@ -62,6 +62,10 @@
       ]
     };
   }
+  // Table « Composition instances » : une ligne par membre (Instance = Instances, Personne = Annuaire). Les personnes 1 et 4 siègent au CTO.
+  const COMPOSITION = () => [
+    { id: 1, Instance: 1, Personne: 1 }, { id: 2, Instance: 1, Personne: 4 }, { id: 3, Instance: 2, Personne: 3 }, { id: 4, Instance: 3, Personne: 2 }
+  ];
   const EMPTY_COLUMNS = {
     Instance_Relectures: ['id', 'Seance', 'Personne', 'Statut', 'Relu_le'],
     Instance_Validations: ['id', 'Seance', 'Etape', 'Date', 'Par'],
@@ -144,6 +148,60 @@
       });
       assertEqual(L.parisToEpoch('', '09:30'), null);
       assertEqual(L.parisParts(0), null);
+    });
+
+    it('composition des instances : la table est retrouvée par son nom, quelle que soit la casse ou la ponctuation', function () {
+      assertEqual(L.findCompositionTable(['Projets', 'COMPOSITION_INSTANCES', 'Instances']), 'COMPOSITION_INSTANCES');
+      assertEqual(L.findCompositionTable(['Composition_instances']), 'Composition_instances');
+      assertEqual(L.findCompositionTable(['CompositionInstances', 'Instances']), 'CompositionInstances');
+      assertEqual(L.findCompositionTable(['Composition_des_instances', 'Instances']), 'Composition_des_instances');
+      assertEqual(L.findCompositionTable(['Composition']), 'Composition');
+      assertEqual(L.findCompositionTable(['Instances', 'Projets', 'Annuaire']), null, 'aucune table de composition');
+      assertEqual(L.findCompositionTable([]), null);
+    });
+
+    it('composition des instances : colonnes « instance » et « personne » retrouvées par leurs valeurs (références, textes, e-mails, listes)', function () {
+      const ctx = {
+        instances: [{ id: 1, nom: 'CTO Innovation' }, { id: 2, nom: 'Comité innovation' }],
+        people: [{ id: 1, name: 'Alice Martin', email: 'alice@x.org' }, { id: 2, name: 'Bob Durand', email: 'bob@x.org' }, { id: 30, name: 'Chloé Petit', email: '' }]
+      };
+      // références de ligne
+      let r = L.detectComposition([{ id: 1, Instance: 1, Membre: 30 }, { id: 2, Instance: 1, Membre: 2 }, { id: 3, Instance: 2, Membre: 1 }], ctx);
+      assertTrue(r.ok);
+      assertEqual(r.instanceCol, 'Instance');
+      assertEqual(r.personCol, 'Membre');
+      assertDeepEqual(r.byInstance, { 1: [30, 2], 2: [1] });
+      assertEqual(r.resolved, 3);
+      // textes : nom de l'instance (casse/accents ignorés, avec un suffixe) et nom ou e-mail de la personne
+      r = L.detectComposition([{ id: 1, Instance: 'cto innovation', Personne: 'ALICE MARTIN' }, { id: 2, Instance: 'Comite Innovation', Personne: 'bob@x.org' }, { id: 3, Instance: 'CTO Innovation 2026', Personne: 'Chloé Petit' }, { id: 4, Instance: 'COPIL', Personne: 'Alice Martin' }], ctx);
+      assertTrue(r.ok);
+      assertDeepEqual(r.byInstance, { 1: [1, 30], 2: [2] });
+      assertEqual(r.unresolved, 1, 'COPIL n\'est pas une instance connue : ligne ignorée');
+      // liste de personnes sur une ligne
+      r = L.detectComposition([{ id: 1, Instance: 1, Personnes: ['L', 1, 2] }, { id: 2, Instance: 2, Personnes: ['L', 30] }], ctx);
+      assertTrue(r.ok);
+      assertDeepEqual(r.byInstance, { 1: [1, 2], 2: [30] });
+      // colonne d'instance qui est une liste d'instances (une personne siège dans plusieurs)
+      r = L.detectComposition([{ id: 1, Instances: ['L', 1, 2], Membre: 1 }], ctx);
+      assertDeepEqual(r.byInstance, { 1: [1], 2: [1] });
+      // le nom de la colonne départage deux colonnes numériques ambiguës (ids communs aux deux tables)
+      r = L.detectComposition([{ id: 1, Truc: 1, Instance: 2 }, { id: 2, Truc: 2, Instance: 1 }], ctx);
+      assertEqual(r.instanceCol, 'Instance');
+      assertEqual(r.personCol, 'Truc');
+      assertDeepEqual(r.byInstance, { 2: [1], 1: [2] });
+      // sans doublon
+      r = L.detectComposition([{ id: 1, Instance: 1, Membre: 1 }, { id: 2, Instance: 1, Membre: 1 }], ctx);
+      assertDeepEqual(r.byInstance, { 1: [1] });
+      // diagnostics
+      assertEqual(L.detectComposition([], ctx).ok, false);
+      assertIncludes(L.detectComposition([], ctx).reason, 'vide');
+      r = L.detectComposition([{ id: 1, Libelle: 'abc', Autre: 'def' }], ctx);
+      assertEqual(r.ok, false);
+      assertIncludes(r.reason, 'instance');
+      assertDeepEqual(r.columns, ['Libelle', 'Autre']);
+      r = L.detectComposition([{ id: 1, Instance: 1, Libelle: 'abc' }], ctx);
+      assertEqual(r.ok, false);
+      assertIncludes(r.reason, 'personne');
     });
 
     it('créneaux de l\'ordre du jour et conflits de disponibilité', function () {
@@ -446,6 +504,16 @@
       assertTrue(newGuests.every(c => c.fields.Seance === 5 && c.fields.Origine === 'Liste permanente'));
       await waitFor(() => text('.in-band .in-sel').includes('n°15'), 'nouvelle séance affichée');
       assertIncludes(text('.in-panel h2'), 'Ordre du jour');
+    });
+
+    it('nouvelle séance : les invités par défaut = liste permanente + composition de l\'instance (table Composition instances), sans doublon', async function () {
+      await setup({ rows: d => { d.COMPOSITION_INSTANCES = COMPOSITION(); } });
+      click('menu', { v: 'seance' });
+      click('seance-new');
+      await waitCall('AddRecord', 'Suivi_Instance');
+      await waitFor(() => calls('AddRecord', 'Instance_Invites').length === 3, 'invités par défaut');
+      assertDeepEqual(calls('AddRecord', 'Instance_Invites').map(c => c.fields.Personne), [1, 2, 4], 'Alice et Bob (permanents), Dana (composition) ; Alice une seule fois');
+      assertTrue(calls('AddRecord', 'Instance_Invites').every(c => c.fields.Origine === 'Liste permanente'));
     });
 
     it('menu « Instances » de la barre de navigation : CTO Innovation et Comité innovation seulement, la page s\'ouvre sur l\'instance choisie', async function () {
@@ -963,6 +1031,31 @@
       assertTrue(row('Chloé').classList.contains('in-flag'));
       assertTrue(row('Chloé').querySelector('.in-sj').classList.contains('in-warn'));
       assertFalse(row('Alice').classList.contains('in-flag'));
+    });
+
+    it('composition : les membres de l\'instance absents de la séance sont proposés, un bouton les ajoute comme invités de la liste permanente', async function () {
+      await setup({ rows: d => { d.COMPOSITION_INSTANCES = COMPOSITION(); } });
+      step('invites');
+      const banner = q('.in-compo');
+      assertTrue(!!banner, 'bandeau de rappel');
+      assertIncludes(banner.textContent, '1 membre de la composition n\'est pas invité');
+      assertIncludes(banner.textContent, 'D. Roy', 'Dana est la seule absente (Alice est déjà invitée)');
+      click('g-compo-add');
+      const added = await waitCall('AddRecord', 'Instance_Invites');
+      assertEqual(added.Seance, 2);
+      assertEqual(added.Personne, 4);
+      assertEqual(added.Origine, 'Liste permanente');
+      await waitFor(() => !q('.in-compo'), 'bandeau disparu une fois tout le monde invité');
+      assertEqual(calls('AddRecord', 'Instance_Invites').length, 1, 'une seule personne ajoutée');
+    });
+
+    it('composition : pas de bandeau sans table de composition, ni quand tous les membres sont déjà invités', async function () {
+      await setup();
+      step('invites');
+      assertFalse(!!q('.in-compo'), 'document sans table Composition instances');
+      await setup({ rows: d => { d.COMPOSITION_INSTANCES = [{ id: 1, Instance: 1, Personne: 1 }, { id: 2, Instance: 1, Personne: 3 }]; } });
+      step('invites');
+      assertFalse(!!q('.in-compo'), 'Alice et Chloé sont déjà invitées à la séance');
     });
 
     it('invitation écrite : cliquer pose la date du jour, recliquer l\'efface', async function () {
@@ -1537,6 +1630,35 @@
 
   // -------------------------------------------------------------------------------------------------
   describe('Instances — paramétrage de l\'instance', function () {
+    it('composition : le paramétrage montre la table lue, les colonnes reconnues et les membres de l\'instance', async function () {
+      await setup({ rows: d => { d.COMPOSITION_INSTANCES = COMPOSITION(); } });
+      click('settings-open');
+      const block = qa('.in-dlg .in-fgrp').find(g => g.textContent.includes('Composition de l\'instance'));
+      assertTrue(!!block, 'section Composition');
+      assertDeepEqual(Array.from(block.querySelectorAll('.in-tag')).map(t => t.textContent.trim()), ['A. Martin', 'D. Roy'], 'les membres du CTO (pas ceux des autres instances)');
+      assertIncludes(block.textContent, 'COMPOSITION_INSTANCES');
+      assertIncludes(block.textContent, 'colonne instance « Instance »');
+      assertIncludes(block.textContent, 'colonne personne « Personne »');
+      assertIncludes(block.textContent, '4 lignes reconnues');
+      assertIncludes(block.textContent, 'invitées d\'office à chaque nouvelle séance');
+    });
+
+    it('composition : table absente ou illisible, le paramétrage le dit clairement et rien ne casse', async function () {
+      await setup();
+      click('settings-open');
+      let block = qa('.in-dlg .in-fgrp').find(g => g.textContent.includes('Composition de l\'instance'));
+      assertIncludes(block.textContent, 'Table « Composition instances » introuvable');
+      assertEqual(block.querySelectorAll('.in-tag').length, 0);
+      await setup({ rows: d => { d.Composition_instances = [{ id: 1, Libelle: 'abc', Autre: 'def' }]; } });
+      click('settings-open');
+      block = qa('.in-dlg .in-fgrp').find(g => g.textContent.includes('Composition de l\'instance'));
+      assertIncludes(block.textContent, 'Table « Composition_instances » lue');
+      assertIncludes(block.textContent, 'Libelle, Autre', 'les colonnes vues sont listées pour corriger');
+      click('settings-close');
+      step('invites');
+      assertFalse(!!q('.in-compo'));
+    });
+
     it('durée, heure habituelle : écrites sur Instances ; l\'heure de fin de la séance suit', async function () {
       await setup();
       click('settings-open');

@@ -274,7 +274,64 @@
     return [{ warn: true, ok: unsigned === 0, text: plural(unsigned, 'notification pas encore signée', 'notifications pas encore signées') }];
   }
 
+  // --- Composition des instances : table « Composition instances » du document (demande d'Antoine du 10/11/2026) ---
+  // Les invités par défaut d'une instance (CTO Innovation, Comité innovation) viennent de cette table. Sa structure exacte n'est pas
+  // connue d'ici : on retrouve la table par son nom, puis ses colonnes « instance » et « personne » par leurs VALEURS (références
+  // de ligne ou textes qui désignent une instance / une personne de l'Annuaire), le nom de la colonne départageant les cas ambigus.
+  function findCompositionTable(ids) {
+    const named = (ids || []).map(id => ({ id, n: normName(id) }));
+    const hit = named.find(x => x.n === 'composition instances') || named.find(x => /composition/.test(x.n) && /instance/.test(x.n)) || named.find(x => /composition/.test(x.n));
+    return hit ? hit.id : null;
+  }
+  const isListCell = v => Array.isArray(v) && v[0] === 'L';
+  function detectComposition(rows, ctx) {
+    const result = { ok: false, instanceCol: '', personCol: '', byInstance: {}, total: 0, resolved: 0, unresolved: 0, reason: '' };
+    rows = rows || [];
+    const instances = (ctx && ctx.instances) || [], people = (ctx && ctx.people) || [];
+    result.total = rows.length; result.columns = [];
+    if (!rows.length) { result.reason = 'La table est vide.'; return result; }
+    const cols = Object.keys(rows.reduce((set, r) => Object.assign(set, r), {})).filter(k => k !== 'id' && k !== 'manualSort' && !/^gristHelper/.test(k));
+    result.columns = cols;
+    const instById = {}, instByName = {}, personById = {}, personByName = {}, personByEmail = {};
+    instances.forEach(i => { instById[i.id] = i; instByName[normName(i.nom)] = i; });
+    people.forEach(p => { personById[p.id] = p; personByName[normName(p.name)] = p; if (p.email) personByEmail[String(p.email).trim().toLowerCase()] = p; });
+    const cells = v => (isListCell(v) ? v.slice(1) : [v]).filter(x => x !== null && x !== undefined && x !== '' && x !== 0);
+    const instOf = v => {
+      if (typeof v === 'number') return instById[v] || null;
+      const n = normName(v); if (!n) return null;
+      if (instByName[n]) return instByName[n];
+      const rule = instanceRule(v);
+      return rule ? (instances.find(i => instanceRule(i.nom) === rule) || null) : null;
+    };
+    const personOf = v => {
+      if (typeof v === 'number') return personById[v] || null;
+      const raw = String(v).trim().toLowerCase();
+      return personByEmail[raw] || personByName[normName(v)] || null;
+    };
+    const score = (col, of) => {
+      let total = 0, hit = 0;
+      rows.forEach(r => cells(r[col]).forEach(v => { total++; if (of(v)) hit++; }));
+      return total ? hit / total : 0;
+    };
+    const instHint = /instance/i, personHint = /personne|membre|invit|particip|annuaire|agent|contact|nom|prenom|mail/i;
+    const pick = (of, hint, bonus, exclude) => cols.filter(c => c !== exclude).map(c => ({ c, v: score(c, of) + (hint.test(c) ? bonus : 0), raw: score(c, of) }))
+      .filter(x => x.raw >= 0.5).sort((a, b) => b.v - a.v)[0];
+    const inst = pick(instOf, instHint, 0.5, null);
+    if (!inst) { result.reason = 'Aucune colonne ne désigne une instance du document.'; return result; }
+    const pers = pick(personOf, personHint, 0.3, inst.c);
+    if (!pers) { result.reason = 'Aucune colonne ne désigne une personne de l\'Annuaire.'; return result; }
+    result.ok = true; result.instanceCol = inst.c; result.personCol = pers.c;
+    rows.forEach(r => {
+      const is = cells(r[inst.c]).map(instOf).filter(Boolean), ps = cells(r[pers.c]).map(personOf).filter(Boolean);
+      if (!is.length || !ps.length) { result.unresolved++; return; }
+      result.resolved++;
+      is.forEach(i => { const list = result.byInstance[i.id] = result.byInstance[i.id] || []; ps.forEach(p => { if (list.indexOf(p.id) < 0) list.push(p.id); }); });
+    });
+    return result;
+  }
+
   const api = {
+    findCompositionTable, detectComposition,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,

@@ -504,6 +504,13 @@
     let h = '<div class="toolbar"><span class="total">' + plural(s.guests.length, 'invité', 'invités') + ' · ' + plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : '') + '</span><span class="sp"></span>'
       + '<div class="rel"><button type="button" class="rbtn primary" title="Ajouter une personne" aria-label="Ajouter une personne" ' + da('menu', { v: 'addGuest' }) + '>' + ic('peopleAdd') + '</button>'
       + (isOpen('addGuest') ? '<div class="menu right" style="min-width:320px">' + filterInput('Rechercher une personne…') + addable.map(pp => '<button type="button" class="mi" ' + da('g-add', { v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('') + (addable.length ? '' : '<div class="mh">— Tout l\'annuaire est invité —</div>') + '</div>' : '') + '</div></div>';
+    // Membres de la composition de l'instance qui ne sont pas (encore) invités à cette séance : un bouton les ajoute.
+    const compoMissing = V.cfg.composition.filter(pid => m.peopleById[pid] && !s.guests.some(g => g.personneId === pid));
+    if (compoMissing.length) {
+      h += '<div class="compo" role="status"><span class="gic">' + ic('people', 's') + '</span><span>' + plural(compoMissing.length, 'membre de la composition', 'membres de la composition') + ' ' + (compoMissing.length > 1 ? 'ne sont pas invités' : 'n\'est pas invité') + ' à cette séance : '
+        + esc(compoMissing.slice(0, 6).map(pid => L.shortName(personOf(m, pid).name)).join(', ') + (compoMissing.length > 6 ? '…' : '')) + '</span><span class="sp"></span>'
+        + '<button type="button" class="pillbtn" title="Ajouter ces personnes comme invités de la liste permanente" ' + da('g-compo-add') + '>' + ic('peopleAdd', 's') + 'Ajouter (' + compoMissing.length + ')</button></div>';
+    }
     h += '<div class="gwrap"><div class="grow head"><div>Personne</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>Réponse</div>'
       + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>Appel du jour</div><div></div></div>';
     V.guestOrder.forEach(g => {
@@ -628,6 +635,19 @@
   // ---------------------------------------------------------------------------------------------
   // Rendu — paramétrage de l'instance (fenêtre)
   // ---------------------------------------------------------------------------------------------
+  // Composition de l'instance (table « Composition instances ») : lecture seule, avec ce que la page a reconnu — pour vérifier d'un coup d'œil.
+  function compositionSettingsHtml(V) {
+    const { m, cfg } = V, c = m.composition;
+    let h = '<div class="fgrp"><div class="flabel">Composition de l\'instance</div>';
+    if (!c.tableId) h += '<div class="psub">Table « Composition instances » introuvable dans le document : les invités par défaut ne viennent que de la liste permanente ci-dessus.</div>';
+    else if (!c.ok) h += '<div class="psub">Table « ' + esc(c.tableId) + ' » lue, mais ' + esc((c.reason || 'colonnes non reconnues.').replace(/\.$/, '')) + ' (colonnes : ' + esc(c.columns.join(', ') || '—') + ').</div>';
+    else {
+      h += '<div class="group">' + (cfg.composition.length ? cfg.composition.map(id => '<span class="tag plain" title="' + esc(personOf(m, id).name) + '">' + esc(L.shortName(personOf(m, id).name)) + '</span>').join('') : '<span class="muted">Aucune personne pour cette instance.</span>') + '</div>'
+        + '<div class="psub">Table « ' + esc(c.tableId) + ' » : colonne instance « ' + esc(c.instanceCol) + ' », colonne personne « ' + esc(c.personCol) + ' » · ' + plural(c.resolved, 'ligne reconnue', 'lignes reconnues') + (c.unresolved ? ', ' + plural(c.unresolved, 'ligne ignorée', 'lignes ignorées') : '')
+        + '. Ces personnes sont invitées d\'office à chaque nouvelle séance.</div>';
+    }
+    return h + '</div>';
+  }
   function settingsHtml(V) {
     const { m, inst, cfg } = V;
     const modalMenu = MODAL_MENUS.indexOf(S.ui.menu) >= 0;
@@ -648,6 +668,7 @@
     h += '<div class="fgrp">' + lbl('Invités permanents', 'Invites_permanents') + '<div class="group">' + cfg.permanents.map(id => tag(personOf(m, id).name, 'cfg-perm-del', id)).join('')
       + '<div class="rel"><button type="button" class="addb" title="Ajouter un invité permanent" aria-label="Ajouter un invité permanent" ' + da('menu', { v: 'permpick' }) + '>' + ic('plus', 'xs') + '</button>'
       + (isOpen('permpick') ? '<div class="menu">' + filterInput('Rechercher une personne…') + pick(m.people.filter(pp => cfg.permanents.indexOf(pp.id) < 0), 'cfg-perm-add') + '</div>' : '') + '</div></div></div>';
+    h += compositionSettingsHtml(V);
     h += '<div class="fgrp">' + lbl('Modèles de mail', 'Modele_invitation', 'Modele_CR') + '<div class="rowf">' + ic('mail')
       + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'invitation" aria-label="Modèle d\'invitation" value="' + esc(cfg.modInvitation) + '" data-chg="cfg-mod" data-f="Modele_invitation">'
       + ic('send') + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'envoi du compte rendu" aria-label="Modèle d\'envoi du compte rendu" value="' + esc(cfg.modCr) + '" data-chg="cfg-mod" data-f="Modele_CR">'
@@ -961,15 +982,18 @@
     write(ops);
   }
 
+  const guestAdd = (seanceId, pid, origine) => addOp('Instance_Invites', { Seance: seanceId, Personne: pid, Origine: origine, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' });
+  const defaultGuestIds = inst => inst.cfg.permanents.concat(inst.cfg.composition.filter(pid => inst.cfg.permanents.indexOf(pid) < 0));
   function newSeance(V) {
     const inst = V.inst, last = inst.seances[0];
     const date = last && last.date ? L.addDaysIso(last.date, 28) : V.today;
     const num = last ? String((parseInt(last.num, 10) || inst.seances.length) + 1) : '1';
     write([addOp('Suivi_Instance', { Instance: inst.id, Numero: num, date: gristDay(date), Heure: L.parisToEpoch(date, inst.cfg.heureDebut), Salle: last ? last.salleId : 0 })]).then(([id]) => {
       if (!id) return;
-      const ops = inst.cfg.permanents.map(pid => addOp('Instance_Invites', { Seance: id, Personne: pid, Origine: C.origine.permanent, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' }));
+      // Invités par défaut : la liste permanente de l'instance + sa composition (table « Composition instances »), sans doublon.
+      const ops = defaultGuestIds(inst).map(pid => guestAdd(id, pid, C.origine.permanent));
       const done = ops.length ? write(ops) : Promise.resolve();
-      done.then(() => { S.prefs.seances[inst.id] = id; S.prefs.etape = 'odj'; S.ui.menu = null; render(); savePrefs(); toast('Nouvelle séance créée, invités permanents repris.'); });
+      done.then(() => { S.prefs.seances[inst.id] = id; S.prefs.etape = 'odj'; S.ui.menu = null; render(); savePrefs(); toast('Nouvelle séance créée, invités par défaut repris.'); });
     });
   }
 
@@ -1065,6 +1089,11 @@
     'g-end': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_a: L.hhmm(V.endMin) })]),
     'g-appel': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Appel: g.appel === el.dataset.v ? '' : C.appel[el.dataset.v] })]); },
     'g-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Invites', id)].concat(V.s.points.filter(p => p.invites.indexOf(id) >= 0).map(p => upd('Instance_Points', p.id, { Invites: D.toList(p.invites.filter(x => x !== id)) })))); },
+    'g-compo-add': (el, V) => {
+      const missing = V.cfg.composition.filter(pid => V.m.peopleById[pid] && !V.s.guests.some(g => g.personneId === pid));
+      if (!missing.length) return;
+      write(missing.map(pid => guestAdd(V.s.id, pid, C.origine.permanent))).then(() => toast(plural(missing.length, 'invité ajouté', 'invités ajoutés') + ' depuis la composition de l\'instance.'));
+    },
     'g-add': (el, V) => { S.ui.menu = null; write([addOp('Instance_Invites', { Seance: V.s.id, Personne: Number(el.dataset.v), Origine: C.origine.point, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' })]); },
     // dates des mails
     'inv-today': (el, V) => write(setInvitationDate(V, V.today)),

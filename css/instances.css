@@ -369,3 +369,7 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-root.in-plein .in-gframe{height:calc(100vh - 46px)}
 body.in-plein-body #header,body.in-plein-body #error-container{display:none}
 body.in-plein-body .container{max-width:none;padding:0;min-height:0}
+
+/* Composition de l'instance : rappel dans l'étape Invités. */
+.in-compo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--accent-sb);border-radius:12px;background:var(--accent-s);font-size:12.5px;font-weight:600}
+.in-compo .in-gic{color:var(--accent-h)}
