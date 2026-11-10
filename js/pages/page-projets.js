@@ -44,8 +44,8 @@
   ];
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
   let prefsRowId = null;
-  const encodeColumnList = keys => keys.join(',');
-  const decodeColumnList = value => text(value).split(',').map(s => s.trim()).filter(Boolean);
+  const encodeColumnList = CoreUtils.encodeList; // colonnes repliées / masquées, et libellés des filtres (qui peuvent contenir une virgule)
+  const decodeColumnList = CoreUtils.decodeList;
   function getCachedPrefsRowId() {
     try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
     catch (err) { return null; }

@@ -405,8 +405,8 @@
   let prefsRowId = null;
   const encodeIdxList = indices => indices.join(',');
   const decodeIdxList = value => text(value).split(',').map(s => s.trim()).filter(Boolean).map(Number);
-  const encodeColumnList = values => values.join(',');
-  const decodeColumnList = value => text(value).split(',').map(s => s.trim()).filter(Boolean);
+  const encodeColumnList = CoreUtils.encodeList; // libellés des filtres : une virgule dans un nom ne les coupe pas en deux
+  const decodeColumnList = CoreUtils.decodeList;
   function getCachedPrefsRowId() {
     try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
     catch (err) { return null; }

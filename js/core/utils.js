@@ -176,6 +176,26 @@
   const idKey = row => row.id;
   function findById(rows, id) { return indexBy(rows, 'id', idKey).get(String(id)); }
 
+  // Liste de libellés rangée dans une cellule de texte (filtres Programme / Instance retenus par utilisateur, DOM compris) :
+  // « A,B » — lisible dans Grist et compatible avec les préférences déjà enregistrées — tant qu'aucun libellé ne contient de
+  // virgule, sinon un tableau JSON ["Programme B, volet 2","A"]. Avec une simple virgule comme séparateur, « Programme B, volet 2 »
+  // se lisait comme deux choix (« Programme B » et « volet 2 ») : le filtre ne trouvait plus aucun projet. La lecture accepte les deux
+  // formes ; un texte qui n'est pas un tableau JSON valide reste lu comme une liste séparée par des virgules.
+  function encodeList(values) {
+    const list = (values || []).map(value => String(value));
+    return list.some(value => value.includes(',')) ? JSON.stringify(list) : list.join(',');
+  }
+  function decodeList(value) {
+    const raw = value == null ? '' : String(value).trim();
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(item => String(item).trim()).filter(Boolean);
+      } catch (err) { /* pas du JSON : liste séparée par des virgules */ }
+    }
+    return raw.split(',').map(item => item.trim()).filter(Boolean);
+  }
+
   // Appelle `fn` une fois que les appels se sont arrêtés pendant `delay` ms (derniers arguments).
   // cancel() abandonne l'appel en attente, flush() l'exécute tout de suite. Sert aux champs de
   // recherche : chaque frappe écrivait la préférence dans Grist (une action enregistrée et
@@ -189,5 +209,5 @@
     return debounced;
   }
 
-  global.CoreUtils = { indexBy, findById, debounce, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
+  global.CoreUtils = { indexBy, findById, debounce, encodeList, decodeList, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);

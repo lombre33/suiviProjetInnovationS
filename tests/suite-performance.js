@@ -247,6 +247,11 @@
         assertEqual((await window.grist.docApi.fetchTable('Preferences_Widget')).id.length, 1, 'une seule ligne de préférences, jamais une par page');
       } finally {
         window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Kanban_colonnes_repliees: '', Kanban_colonnes_masquees: '' }]]).catch(() => {});
+        // L'état des colonnes vit aussi en mémoire dans la page Kanban : sans ce rétablissement, « Notifications » restait masquée
+        // et « Instruction » repliée pour toutes les suites suivantes qui affichent le Kanban.
+        document.querySelectorAll('#kanban-hidden-columns [data-restore-column]').forEach(btn => btn.click());
+        const collapsed = document.querySelector('#projects-kanban .kanban-column.is-collapsed [data-toggle-collapse="Instruction"]');
+        if (collapsed) collapsed.click();
         idle.restore(); restore();
       }
     });

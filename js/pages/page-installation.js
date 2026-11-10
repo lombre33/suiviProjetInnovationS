@@ -145,8 +145,8 @@
     { id: 'Install_vue', type: 'Text' }
   ];
   let prefsRowId = null;
-  const encodeList = values => values.join(',');
-  const decodeList = value => text(value).split(',').map(s => s.trim()).filter(Boolean);
+  const encodeList = CoreUtils.encodeList; // volets repliés / masqués, et libellés des filtres (qui peuvent contenir une virgule)
+  const decodeList = CoreUtils.decodeList;
   function getCachedPrefsRowId() {
     try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
     catch (err) { return null; }
