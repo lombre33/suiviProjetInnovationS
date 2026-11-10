@@ -39,8 +39,7 @@
     col('Mail_invitation_le', 'Date', { description: "Date d'envoi du mail d'invitation à la séance. Une date renseignée vaut validation de l'étape « Mail d'invitation »." }),
     col('CR_V0_le', 'Date', { description: "Date à laquelle la première version (V0) du compte rendu a été rédigée." }),
     col('CR_V0_par', 'Ref:Annuaire', { description: "Personne qui a coché « V0 rédigée »." }),
-    choiceCol('CR_lien_type', values(C.lien)),
-    col('CR_lien', 'Text', { description: "Document du compte rendu : identifiant du fichier GFS ou adresse d'un lien externe (selon CR_lien_type)." }),
+    col('CR_PDF', 'Attachments', { description: "Version PDF du compte rendu, exportée à la main depuis GFS une fois le texte bien relu. Alimente le bouton « Télécharger le CR » de la page Instances (c'est le dernier fichier de la cellule qui est proposé)." }),
     col('Mail_CR_le', 'Date', { description: "Date d'envoi du mail du compte rendu. Une date renseignée vaut validation de l'étape « Envoi du compte rendu »." })
   ];
   const PREFS_COLUMNS = [
@@ -187,18 +186,25 @@
     const pointsBy = bySeance('Instance_Points'), guestsBy = bySeance('Instance_Invites'), relBy = bySeance('Instance_Relectures'),
       valBy = bySeance('Instance_Validations'), expBy = bySeance('Export_VP');
 
-    const instances = (raw.Instances || []).map(row => {
+    const everyInstance = (raw.Instances || []).map(row => {
       const steps = choiceList(row.Etapes_actives).map(label => keyOfStep[label]).filter(Boolean);
+      const nom = instanceName(row), rule = L.instanceRule(nom);
       const cfg = {
         heureDebut: /^\d{1,2}:\d{2}$/.test(text(row.Heure_debut).trim()) ? text(row.Heure_debut).trim() : '09:30',
         duree: Number(row.Duree_min) > 0 ? Number(row.Duree_min) : 180,
-        steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : L.ALL_STEP_KEYS.slice(),
+        // Paramétrage enregistré d'abord ; sinon les étapes propres au type d'instance (Comité innovation : sans envoi du CR ni notifications).
+        steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),
         modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR)
       };
-      return { id: row.id, nom: instanceName(row), cfg, seances: [] };
+      return { id: row.id, nom, cfg, seances: [], known: !!rule };
+    });
+    // Seules les instances CTO Innovation et Comité innovation sont présentées (10/11/2026). Si aucune ne porte l'un de ces
+    // noms (nom différent dans Grist), on garde tout plutôt que d'afficher une page vide : `filtered` le dit.
+    const known = everyInstance.filter(i => i.known);
+    const filtered = known.length > 0;
     // Les plus complètes d'abord (le CTO a toutes les étapes), puis par nom : même ordre que dans la maquette.
-    }).sort((a, b) => (b.cfg.steps.length - a.cfg.steps.length) || a.nom.localeCompare(b.nom, 'fr'));
+    const instances = (filtered ? known : everyInstance).slice().sort((a, b) => (b.cfg.steps.length - a.cfg.steps.length) || a.nom.localeCompare(b.nom, 'fr'));
     const instById = {}; instances.forEach(i => { instById[i.id] = i; });
 
     const seanceById = {};
@@ -234,14 +240,14 @@
         id: row.id, instId: inst.id, num: text(row.Numero).trim(), date, heure: hp ? hp.time : inst.cfg.heureDebut, heureSet: !!hp,
         salleId: refId(row.Salle), mailInvitationLe: L.gristDateToIso(row.Mail_invitation_le), mailCrLe: L.gristDateToIso(row.Mail_CR_le),
         v0: row.CR_V0_le ? { le: L.gristDateToIso(row.CR_V0_le), par: refId(row.CR_V0_par) } : null,
-        crLienType: L.choiceKey(C.lien, row.CR_lien_type, ''), crLien: text(row.CR_lien).trim(),
+        crPdf: refList(row.CR_PDF),
         points, guests, relectures, validations, exports
       };
       inst.seances.push(seance);
       seanceById[seance.id] = seance;
     });
     instances.forEach(inst => inst.seances.sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id))));
-    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById };
+    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById, instancesFiltered: filtered };
   }
 
   global.InstancesData = {

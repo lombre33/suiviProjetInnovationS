@@ -214,9 +214,11 @@ Le code essaie aussi une clé `name` en minuscules, absente du schéma.
 « par instance » (`js/pages/page-instances.js`). Colonnes lues : `Instance`, `Numero` (Text),
 `date` (Date), `Heure` (DateTime, Europe/Paris), `Salle` (Reference → `Lieux`). Le widget écrit
 `date`, `Heure` et `Salle`, et crée les colonnes suivantes à la première ouverture de la page :
-`Mail_invitation_le` (Date), `CR_V0_le` (Date), `CR_V0_par` (→ `Annuaire`), `CR_lien_type`
-(Choice : Fichier GFS / Lien externe), `CR_lien` (Text : identifiant `GFS_Fichiers` ou adresse),
-`Mail_CR_le` (Date). Voir la section « Page Instances » plus bas.
+`Mail_invitation_le` (Date), `CR_V0_le` (Date), `CR_V0_par` (→ `Annuaire`), `CR_PDF`
+(Attachments : version PDF du compte rendu, exportée à la main depuis GFS une fois le texte relu),
+`Mail_CR_le` (Date). Depuis le 10/11/2026, `CR_lien_type` et `CR_lien` ne sont plus lues ni créées
+(le compte rendu se rédige dans GFS, intégré à la page) ; si elles existent déjà dans le document,
+elles sont simplement ignorées. Voir la section « Page Instances » plus bas.
 
 ## Page Instances
 
@@ -235,10 +237,27 @@ références sont écrites en identifiants (`['L', …]` pour les RefList) ; les
 
 Le bouton « Mettre à disposition du VP » n'est jamais automatique : il demande confirmation puis
 écrit `Export_VP` ; il **ne modifie pas** `Notifications.notifications_Statut`, et le widget
-n'ouvre jamais `PDF_signe`. Le compte rendu se lit dans la page depuis `GFS_Fichiers` (colonne
-`Contenu`, Attachments) via une iframe sur l'URL de la pièce jointe ; la lecture native par
-l'extension `lecture-pdf` de GFS reste à faire. Préférences par utilisateur dans
-`Preferences_Widget` : `Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`.
+n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widget` :
+`Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`.
+
+**Instances présentées (10/11/2026).** Seules les instances dont le nom (colonne `Instances` de la
+table `Instances`) est « CTO Innovation » ou « Comité innovation » (casse, accents et ponctuation
+ignorés, mots entiers) apparaissent dans le menu et dans la page ; leurs séances seules sont
+chargées. Si aucune instance ne porte l'un de ces noms, tout est affiché plutôt qu'une page vide.
+Les règles sont dans `INSTANCE_RULES` (`js/pages/instances-logic.js`). Tant que
+`Instances.Etapes_actives` est vide, « Comité innovation » suit 4 étapes (ordre du jour, invités,
+mail d'invitation, compte rendu : ni envoi du CR ni notifications) ; les deux étapes écartées
+restent visibles, grisées, dans la barre du haut, et absentes de la frise. Un paramétrage enregistré
+l'emporte.
+
+**Compte rendu (10/11/2026).** L'étape Compte rendu intègre GFS dans la page, par le même pont Grist
+que publipostage+ dans la page Rédaction (`js/core/grist-bridge.js`) : GFS reçoit la ligne de la
+séance (`Suivi_Instance`) comme enregistrement sélectionné ; ses réglages sont rangés sous la clé
+`gfs` des options de ce widget. Adresse : celle d'une vue GFS déjà présente dans le document
+(`_grist_Views_section`), sinon `https://lombre33.github.io/grist-widget-GFS/prototype/`, ou
+`?gfs=<url>` sur l'URL du widget. Le bouton « Télécharger le CR » ouvre le **dernier** fichier de la
+cellule `Suivi_Instance.CR_PDF` ; quand GFS écrit dans `Suivi_Instance`, la page relit ses tables.
+L'onglet « PDF exporté » affiche ce même PDF dans la page.
 
 ## Lignes_OPE
 

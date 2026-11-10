@@ -12,6 +12,12 @@
  * ajoutées à Instances et Suivi_Instance. Préférences par utilisateur (instance, séance, étape, variante de la vue
  * d'ensemble) dans Preferences_Widget (Inst_*).
  *
+ * Instances présentées (10/11/2026) : seulement « CTO Innovation » et « Comité innovation » (INSTANCE_RULES dans
+ * instances-logic.js) ; le Comité n'a ni envoi du CR ni notifications (étapes grisées dans la barre du haut, absentes
+ * de la frise). Menu des séances : la prochaine et la dernière épinglées, puis « à venir » et « passées ».
+ * Compte rendu : GFS intégré (pont Grist, comme publipostage+ dans la page Rédaction) pour le rédiger sur place ;
+ * bouton « Télécharger le CR » sur Suivi_Instance.CR_PDF, le PDF exporté à la main depuis GFS une fois le texte relu.
+ *
  * Bouton « Mettre à disposition du VP » : jamais automatique, avec confirmation ; ne modifie PAS
  * Notifications.notifications_Statut ; le widget n'ouvre jamais Export_VP.PDF_signe (sécurité de la pièce signée
  * traitée dans le fil « signature »).
@@ -27,6 +33,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
   const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
   const VARIANTS = ['A', 'B', 'C'];
+  const CR_PDF_COLUMN = 'CR_PDF';
 
   let todayOverride = null;
   const todayIso = () => todayOverride || (L.parisParts(Date.now() / 1000) || {}).date || new Date().toISOString().slice(0, 10);
@@ -60,7 +67,8 @@
     calCheck: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M9 16l2 2 4-4"/>', send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
     eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', idle: '<circle cx="12" cy="12" r="8"/>',
     pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14 7l3 3"/>', reopen: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3"/>',
-    hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
+    hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>',
+    download: '<path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/>', pushpin: '<path d="M9 3.5h6l-1 6 3 3.5v2H7v-2l3-3.5zM12 15v5.5"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
   };
   const ic = (name, size, extra) => '<svg class="ic' + (size ? ' ' + size : '') + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + SVG[name] + '</svg>';
   // Les classes de la maquette sont préfixées « in- » ici, au rendu, pour que le CSS reste isolé (voir css/instances.css).
@@ -173,9 +181,8 @@
     return m.instById[S.prefs.instanceId] || m.instances[0] || null;
   }
   function defaultSeance(inst) {
-    const today = todayIso();
-    const upcoming = inst.seances.filter(x => x.date && x.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
-    return upcoming || inst.seances[0] || null;
+    const g = L.groupSeances(inst.seances, todayIso());
+    return g.next || g.last || inst.seances[0] || null;
   }
   function currentSeance(inst) {
     if (!inst) return null;
@@ -244,6 +251,21 @@
     if (canClear && value) out += '<button type="button" class="mi wide" ' + da('time-clear', { s: scope, id: id || '' }) + '>Effacer</button>';
     return out + '</div>';
   }
+  // Menu des séances : la prochaine et la dernière épinglées en haut, puis « à venir » (la plus proche d'abord) et « passées »
+  // (la plus récente d'abord) — demande d'Antoine du 10/11/2026.
+  function seanceMenu(V) {
+    const { m, inst, s } = V;
+    const g = L.groupSeances(inst.seances, V.today);
+    const item = (se, pin) => '<button type="button" class="mi ' + (se.id === s.id ? 'on' : '') + '" ' + da('seance-pick', { id: se.id }) + '><span class="mi-main"><span>' + (pin ? ic('pushpin', 's') + ' ' : '') + 'n°' + esc(se.num || '?') + ' · ' + esc(L.fmtDate(se.date) || 'sans date') + '</span>'
+      + (pin ? '<span class="mi-sub">' + pin + '</span>' : '') + '</span><span class="mi-sub">' + progressOf(m, se, V.active) + '</span></button>';
+    let h = '<div class="menu" data-seance-menu>';
+    if (g.next) h += item(g.next, 'Prochaine');
+    if (g.last) h += item(g.last, 'Dernière');
+    if (g.next || g.last) h += '<div class="mi-sep"></div>';
+    if (g.upcoming.length) h += '<div class="mh">À venir</div>' + g.upcoming.map(se => item(se)).join('');
+    if (g.past.length) h += '<div class="mh">Passées</div>' + g.past.map(se => item(se)).join('');
+    return h + '<div class="mi-sep"></div><button type="button" class="mi" ' + da('seance-new') + '><span>Nouvelle séance</span>' + ic('plus', 's') + '</button></div>';
+  }
   function bandHtml(V) {
     const { m, inst, s } = V;
     let h = '<section class="band" aria-label="Séance et étapes"><span class="inst-badge">' + esc(inst.nom) + '</span>';
@@ -253,10 +275,7 @@
     }
     const when = s.date && s.date < V.today ? 'passée' : 'à venir';
     h += '<div class="rel"><button type="button" class="sel" ' + da('menu', { v: 'seance' }) + '><span>n°' + esc(s.num || '?') + ' · ' + esc(L.fmtDate(s.date) || 'sans date') + '</span><span class="tag-soft">' + when + '</span>' + ic('chevron', 's') + '</button>';
-    if (isOpen('seance')) {
-      h += '<div class="menu">' + inst.seances.map(se => '<button type="button" class="mi ' + (se.id === s.id ? 'on' : '') + '" ' + da('seance-pick', { id: se.id }) + '><span>n°' + esc(se.num || '?') + ' · ' + esc(L.fmtDate(se.date) || 'sans date') + '</span><span class="mi-sub">' + progressOf(m, se, V.active) + '</span></button>').join('')
-        + '<div class="mi-sep"></div><button type="button" class="mi" ' + da('seance-new') + '><span>Nouvelle séance</span>' + ic('plus', 's') + '</button></div>';
-    }
+    if (isOpen('seance')) h += seanceMenu(V);
     h += '</div>';
     // heure de début (+ date de la séance)
     h += '<div class="rel"><button type="button" class="tp" title="Date et heure de début" aria-label="Heure de début" ' + da('menu', { v: 'heure' }) + '>' + ic('clock', 's') + esc(s.heure) + '<span class="muted">→ ' + L.hhmm(V.endMin) + '</span></button>';
@@ -273,7 +292,13 @@
     h += '</div>';
     // étapes
     h += '<div class="stepper" role="tablist" aria-label="Vues de la séance"><button type="button" role="tab" class="chip macro ' + (V.isMacro ? 'sel-on' : '') + '" title="Vue d\'ensemble" ' + da('step', { v: 'macro' }) + '>' + ic('macro') + V.nDone + '/' + V.active.length + '</button>';
-    V.active.forEach((x, i) => {
+    // Toutes les étapes restent visibles : celles que l'instance ne suit pas sont grisées, sans action (ex. Comité innovation).
+    L.STEPS.forEach(x => {
+      const i = V.active.findIndex(a => a.key === x.key);
+      if (i < 0) {
+        h += '<span role="tab" aria-disabled="true" class="chip off" title="' + esc(x.label + ' — non suivie par cette instance') + '"><span class="chip-n">–</span>' + esc(x.chip) + '</span>';
+        return;
+      }
       const done = V.valid(x.key), warn = !done && L.stepConditions(x.key, V.ctx).some(z => z.chip && !z.ok);
       const cls = (done ? 'done' : (x.key === V.firstOpen ? 'current' : 'todo')) + (x.key === V.view ? ' sel-on' : '');
       h += '<button type="button" role="tab" class="chip ' + cls + '" title="' + esc(x.label + (done ? ' — ' + L.validatedInfo(x.key, V.ctx, V.nameOf) : '')) + '" ' + da('step', { v: x.key }) + '><span class="chip-n">' + (done ? ic('check', 'xs') : (i + 1)) + '</span>' + esc(x.chip) + (warn ? '<span class="dot"></span>' : '') + '</button>';
@@ -333,7 +358,7 @@
       if (x.key === 'odj') return thr('odj', num, 'Ordre du jour', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
       if (x.key === 'invites') return thr('invites', num, 'Invités', plural(s.guests.length, 'invité', 'invités'), '', plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : ''));
       if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites · ' + horOk + '/' + horTot + ' horaires', { pct: writtenPct });
-      if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crLien ? 'Document lié' : 'Document non lié', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
+      if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crPdf.length ? 'PDF exporté' : 'PDF à exporter', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
       if (x.key === 'crmail') return thr('crmail', num, 'Envoi du CR', s.mailCrLe ? L.fmtDate(s.mailCrLe) : 'À envoyer', s.mailCrLe ? '' : 'dim', plural(s.guests.length, 'destinataire', 'destinataires'));
       return thr('notifs', num, 'Notifications', projIds.length ? toSend.length + ' à mettre à dispo' : 'Aucun projet', projIds.length ? '' : 'dim', nWait + ' en attente · ' + plural(nSigned, 'signée', 'signées'), projIds.length ? { pct: Math.round(100 * nSigned / projIds.length) + '%' } : {});
     });
@@ -462,10 +487,8 @@
 
   function crHtml(V) {
     const { s, cfg, m } = V;
-    const file = s.crLienType === 'gfs' ? m.gfsByIdent[s.crLien] : null;
-    const has = s.crLienType === 'gfs' ? !!file : !!s.crLien;
-    let h = '<div class="card"><div class="rel"><button type="button" class="addb pad ' + (has ? 'on' : '') + '" title="Document du compte rendu" aria-label="Document du compte rendu" ' + da('menu', { v: 'crlien' }) + '>' + ic('fileLines', 's') + '<span>' + esc(has ? L.cut(linkLabel(V, s.crLienType || 'gfs', s.crLien), 26) : 'Document') + '</span></button>'
-      + (isOpen('crlien') ? linkMenu(V, 'crlien', 'cr', 'cr', s.crLienType || 'gfs', s.crLien) : '') + '</div>'
+    const hasPdf = s.crPdf.length > 0;
+    let h = '<div class="card">'
       + '<button type="button" class="tchip ' + (s.v0 ? 'on' : '') + '" role="checkbox" aria-checked="' + (s.v0 ? 'true' : 'false') + '" ' + da('v0-toggle') + '>' + ic('tick') + 'V0 rédigée<small>' + (s.v0 ? esc(L.fmtShort(s.v0.le)) : '') + '</small></button>'
       + '<span class="gic" title="Relecteurs">' + ic('eye', 's') + '</span>';
     cfg.relecteurs.forEach(pid => {
@@ -476,7 +499,8 @@
         + '<button type="button" class="' + (st === 'valide' ? 'on ok' : '') + '" title="Relu et validé" aria-label="Relu et validé" ' + da('rel-set', { id: pid, v: 'valide' }) + '>' + ic('check', 's') + '</button></span><small>' + (r ? esc(L.fmtShort(r.le)) : '') + '</small></div>';
     });
     if (!cfg.relecteurs.length) h += '<span class="muted">Aucun relecteur défini</span>';
-    return h + '</div>';
+    // Le PDF est exporté à la main depuis GFS (une fois le compte rendu bien relu) dans Suivi_Instance.CR_PDF.
+    return h + '<span class="sp"></span><button type="button" class="pillbtn" ' + (hasPdf ? '' : 'disabled ') + 'title="' + esc(hasPdf ? 'Télécharger le PDF du compte rendu' : 'Pas encore de PDF : exportez le compte rendu depuis GFS dans la colonne ' + CR_PDF_COLUMN + ' de Suivi_Instance') + '" ' + da('cr-download') + '>' + ic('download', 's') + 'Télécharger le CR</button></div>';
   }
 
   function notifsHtml(V) {
@@ -583,56 +607,179 @@
     renderViewer();
   }
 
-  // --- Visionneuse du compte rendu : hors du rendu principal pour que l'iframe ne se recharge pas à chaque clic ---
-  const viewer = { key: '', token: null, tokenAt: 0 };
-  async function attachmentUrl(file) {
+  // --- Compte rendu : GFS intégré (le texte se rédige ici) et PDF exporté ---
+  // Région hors du rendu principal : ni l'iframe de GFS (qui garde son état d'un clic à l'autre) ni celle du PDF ne doivent
+  // être rechargées à chaque rendu. GFS est relié à Grist par le même pont que publipostage+ dans la page Rédaction
+  // (js/core/grist-bridge.js) : il reçoit la ligne de la séance (Suivi_Instance) comme enregistrement sélectionné.
+  const GFS_URL = 'https://lombre33.github.io/grist-widget-GFS/prototype/';
+  const GFS_OPTIONS_KEY = 'gfs'; // clé, dans les options de CE widget, où Grist garde les réglages de GFS
+  const GFS_READY_TIMEOUT_MS = 10000;
+  const GFS_STATUS = { waiting: 'Connexion à GFS…', ready: 'GFS connecté', rejected: 'Origine de GFS refusée', timeout: 'GFS ne répond pas' };
+  const viewer = {
+    token: null, tokenAt: 0, mode: 'edit', pdfKey: '', targetOverride: null,
+    gfs: { frame: null, bridge: null, timer: null, reloadTimer: null, phase: 'waiting', timedOut: false, opening: 0, rowId: 0, url: '' }
+  };
+
+  // http(s) uniquement (jamais javascript:, data:… dans une iframe qui reçoit l'accès complet au document), comme page-redaction.js.
+  function safeUrl(value) {
+    try {
+      const url = new URL(value);
+      const local = ['localhost', '127.0.0.1'].includes(url.hostname);
+      return url.protocol === 'https:' || (url.protocol === 'http:' && local) ? url : null;
+    } catch (err) { return null; }
+  }
+  // Adresse du widget d'une section « personnalisée » du document (_grist_Views_section.options.customView.url).
+  function customUrlOf(optionsText) {
+    try {
+      const options = JSON.parse(optionsText || '{}');
+      const custom = typeof options.customView === 'string' ? JSON.parse(options.customView) : options.customView;
+      return custom && typeof custom.url === 'string' ? custom.url : '';
+    } catch (err) { return ''; }
+  }
+  // Si le document a déjà une vue GFS, on reprend SON adresse (même version, mêmes paramètres) ; sinon l'adresse publique.
+  async function findGfsSectionUrl() {
+    try {
+      const api = global.grist && global.grist.docApi;
+      const sections = api ? await api.fetchTable('_grist_Views_section') : null;
+      if (!sections || !Array.isArray(sections.id)) return null;
+      for (let i = 0; i < sections.id.length; i++) {
+        const raw = customUrlOf(sections.options && sections.options[i]);
+        const url = raw && /gfs/i.test(raw) && !/suiviprojet/i.test(raw) ? safeUrl(raw) : null;
+        if (url) return url;
+      }
+    } catch (err) { /* métadonnées illisibles (droits) : on retombe sur l'adresse publique */ }
+    return null;
+  }
+  // ?gfs=<url> sur l'URL de CE widget : essai d'une autre version de GFS sans republier. ?bridgeOrigin=* seulement si Grist
+  // exécute les widgets dans une iframe sandboxée (origine "null") : voir js/core/grist-bridge.js.
+  async function resolveGfsTarget() {
+    if (viewer.targetOverride) return viewer.targetOverride;
+    const params = new URLSearchParams(global.location.search);
+    const asked = params.get('gfs') ? safeUrl(params.get('gfs')) : null;
+    const url = asked || await findGfsSectionUrl() || safeUrl(GFS_URL);
+    return { url: url.href, origin: params.get('bridgeOrigin') === '*' ? '*' : url.origin };
+  }
+
+  async function attachmentUrl(attachmentId, cell) {
     const api = global.CoreGrist && global.CoreGrist.gristInstance;
     if (!api) throw new Error('Grist non disponible');
-    const id = file.attachmentIds[0];
-    if (!id) throw new Error('Ce fichier GFS n\'a pas de contenu');
+    if (!attachmentId) throw new Error('Ce fichier n\'a pas de contenu');
     // readOnly:false volontaire, comme dans project-modal.js : un jeton readOnly:true est plafonné au rôle Lecteur côté Grist.
     if (!viewer.token || Date.now() - viewer.tokenAt > 10 * 60 * 1000) { viewer.token = await api.docApi.getAccessToken({ readOnly: false }); viewer.tokenAt = Date.now(); }
     const t = viewer.token;
-    return t.baseUrl + '/attachments/' + id + '/download?auth=' + encodeURIComponent(t.token) + '&tableId=GFS_Fichiers&colId=Contenu&rowId=' + file.id;
+    return t.baseUrl + '/attachments/' + attachmentId + '/download?auth=' + encodeURIComponent(t.token)
+      + '&tableId=' + encodeURIComponent(cell.tableId) + '&colId=' + encodeURIComponent(cell.colId) + '&rowId=' + encodeURIComponent(cell.rowId);
   }
-  function openGfs(file) {
+  const gfsCell = file => ({ tableId: 'GFS_Fichiers', colId: 'Contenu', rowId: file.id });
+  const crPdfOf = s => ({ id: s.crPdf[s.crPdf.length - 1] || 0, cell: { tableId: 'Suivi_Instance', colId: CR_PDF_COLUMN, rowId: s.id } });
+  // Ouvre un fichier dans un nouvel onglet ; la fenêtre est ouverte tout de suite (geste de la personne) pour que le navigateur ne la bloque pas.
+  function openAttachment(attachmentId, cell) {
     const win = global.open('', '_blank');
-    attachmentUrl(file).then(url => { if (win) win.location.href = url; else global.open(url, '_blank'); })
+    attachmentUrl(attachmentId, cell).then(url => { if (win) win.location.href = url; else global.open(url, '_blank'); })
       .catch(err => { if (win) win.close(); if (global.CoreUtils) global.CoreUtils.showToast('Lecture impossible : ' + err.message, true); });
+  }
+  const openGfs = file => openAttachment(file.attachmentIds[0], gfsCell(file));
+  function downloadCr(V) {
+    const pdf = crPdfOf(V.s);
+    if (pdf.id) openAttachment(pdf.id, pdf.cell);
+  }
+
+  const gfsStatusLabel = () => (viewer.gfs.timedOut && viewer.gfs.phase !== 'ready' ? GFS_STATUS.timeout : (GFS_STATUS[viewer.gfs.phase] || GFS_STATUS.waiting));
+  function paintGfsStatus() {
+    const root = rootEl(); const el = root && root.querySelector('[data-gfs-status]');
+    if (!el) return;
+    el.textContent = gfsStatusLabel();
+    el.classList.toggle('in-ok', viewer.gfs.phase === 'ready');
+  }
+  // GFS (ou publipostage+ dedans) a écrit dans le document : s'il a touché Suivi_Instance (le PDF exporté dans CR_PDF, par
+  // exemple), la page relit ses tables — avec un délai, pour regrouper les écritures rapprochées.
+  function onGfsWrite(actions) {
+    if (!Array.isArray(actions) || !actions.some(a => Array.isArray(a) && a[1] === 'Suivi_Instance')) return;
+    clearTimeout(viewer.gfs.reloadTimer);
+    viewer.gfs.reloadTimer = setTimeout(() => { viewer.gfs.reloadTimer = null; reloadFromGrist(); }, 1200);
+  }
+  function dropGfs() {
+    const g = viewer.gfs;
+    clearTimeout(g.timer); clearTimeout(g.reloadTimer);
+    if (g.bridge) g.bridge.detach();
+    if (g.frame) g.frame.remove();
+    g.frame = null; g.bridge = null; g.timer = null; g.reloadTimer = null; g.phase = 'waiting'; g.timedOut = false; g.opening = 0; g.rowId = 0; g.url = '';
+  }
+  function ensureGfs(V) {
+    const g = viewer.gfs;
+    if (g.frame) {
+      // Le « select by » : GFS reçoit la ligne de la séance affichée (seulement quand elle change, pas à chaque rendu).
+      if (g.bridge && g.rowId !== V.s.id) { g.rowId = V.s.id; g.bridge.select(V.s.id, 'Suivi_Instance'); }
+      return;
+    }
+    if (g.opening || !global.GristBridge) return;
+    const ticket = g.opening = Date.now() + Math.random();
+    resolveGfsTarget().then(target => {
+      if (g.opening !== ticket || g.frame) return;
+      g.opening = 0;
+      const root = rootEl(); const pane = root && root.querySelector('[data-pane="gfs"]');
+      if (!pane) return;
+      const cur = S.view && S.view.s ? S.view.s.id : V.s.id;
+      const frame = document.createElement('iframe');
+      frame.className = 'in-gframe'; frame.title = 'GFS'; frame.setAttribute('allow', 'clipboard-write; clipboard-read');
+      pane.appendChild(frame); // l'iframe doit être dans le document pour avoir une fenêtre
+      g.frame = frame; g.rowId = cur; g.url = target.url; g.phase = 'waiting'; g.timedOut = false;
+      // Le pont écoute AVANT le chargement de l'iframe : son « prêt » arrive dès l'exécution de son grist.ready().
+      g.bridge = global.GristBridge.attach(frame, {
+        origin: target.origin, tableId: 'Suivi_Instance', rowId: cur, optionsKey: GFS_OPTIONS_KEY,
+        onStatus: status => { g.phase = status.phase; paintGfsStatus(); }, onWrite: onGfsWrite
+      });
+      frame.src = target.url;
+      g.timer = setTimeout(() => {
+        if (g.bridge && !g.bridge.getState().ready && g.bridge.getState().phase !== 'rejected') { g.timedOut = true; paintGfsStatus(); }
+      }, GFS_READY_TIMEOUT_MS);
+    });
+  }
+
+  function renderPdfPane(V, pane) {
+    const pdf = crPdfOf(V.s);
+    const key = pdf.id ? 'pdf:' + V.s.id + ':' + pdf.id : 'none:' + V.s.id;
+    if (key === viewer.pdfKey) return;
+    viewer.pdfKey = key;
+    if (!pdf.id) {
+      pane.innerHTML = withPrefix('<div class="vempty"><span>Pas encore de PDF</span><span class="muted">Une fois le compte rendu relu, exportez-le en PDF depuis GFS dans la colonne ' + CR_PDF_COLUMN + ' de Suivi_Instance : il s\'affiche ici et le bouton « Télécharger le CR » s\'active.</span></div>');
+      return;
+    }
+    pane.innerHTML = withPrefix('<div class="vempty"><span class="muted">Chargement du document…</span></div>');
+    attachmentUrl(pdf.id, pdf.cell).then(url => {
+      if (viewer.pdfKey !== key) return;
+      pane.innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.className = 'in-vframe'; frame.title = 'Compte rendu (PDF)'; frame.src = url;
+      pane.appendChild(frame);
+    }).catch(err => {
+      if (viewer.pdfKey !== key) return;
+      pane.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(err.message) + '</span></div>');
+    });
   }
   function renderViewer() {
     const root = rootEl(); if (!root) return;
     const host = root.querySelector('[data-region="viewer"]'); if (!host) return;
     const V = S.view;
-    if (!S.loaded || !V || !V.s || V.view !== 'cr') { host.innerHTML = ''; viewer.key = ''; return; }
-    const { s, m } = V;
-    const file = s.crLienType === 'gfs' ? m.gfsByIdent[s.crLien] : null;
-    const ext = s.crLienType === 'externe' && s.crLien ? s.crLien : '';
-    const name = file ? file.nom : (ext ? linkLabel(V, 'externe', ext) : 'Compte rendu');
-    const badge = file ? 'GFS' : (ext ? 'Lien externe' : '—');
-    if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"></div></div>');
-    host.querySelector('.in-vbar').innerHTML = withPrefix(ic('fileLines', 's') + '<span class="vname">' + esc(name) + '</span><span class="tag-soft">' + badge + '</span><span class="sp"></span>'
-      + (file || ext ? '<button type="button" class="ibtn" title="' + (file ? 'Ouvrir dans GFS' : 'Ouvrir dans un nouvel onglet') + '" aria-label="Ouvrir le document" ' + da('cr-link-open', { id: 'cr' }) + '>' + ic('ext') + '</button>' : ''));
-    const key = file ? 'gfs:' + file.id + ':' + file.attachmentIds.join(',') : (ext ? 'ext:' + ext : 'none');
-    if (key === viewer.key) return;
-    viewer.key = key;
-    const body = host.querySelector('.in-vbody');
-    if (!file) {
-      body.innerHTML = withPrefix(ext ? '<div class="vempty"><span>Lien externe : ' + esc(name) + '</span><span class="muted">Un site externe ne peut pas s\'afficher ici : il s\'ouvre dans un nouvel onglet.</span></div>'
-        : '<div class="vempty"><span>Aucun document lié</span><span class="muted">Choisissez le PDF du compte rendu dans GFS : il s\'affiche ici.</span></div>');
+    const show = !!(S.loaded && V && V.s && V.view === 'cr');
+    host.hidden = !show; // masquée (pas détruite) hors de l'étape : GFS garde son état
+    if (!show) {
+      if (viewer.pdfKey) { viewer.pdfKey = ''; const pane = host.querySelector('[data-pane="pdf"]'); if (pane) pane.innerHTML = ''; }
       return;
     }
-    body.innerHTML = withPrefix('<div class="vempty"><span class="muted">Chargement du document…</span></div>');
-    attachmentUrl(file).then(url => {
-      if (viewer.key !== key) return;
-      body.innerHTML = '';
-      const frame = document.createElement('iframe');
-      frame.className = 'in-vframe'; frame.title = name; frame.src = url;
-      body.appendChild(frame);
-    }).catch(err => {
-      if (viewer.key !== key) return;
-      body.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(err.message) + '</span></div>');
-    });
+    if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"><div data-pane="gfs"></div><div data-pane="pdf" hidden></div></div></div>');
+    const edit = viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0;
+    host.querySelector('.in-vbar').innerHTML = withPrefix('<div class="seg" role="group" aria-label="Affichage du compte rendu">'
+      + '<button type="button" class="' + (edit ? 'on' : '') + '" ' + da('cr-mode', { v: 'edit' }) + '>' + ic('pencil', 's') + 'Rédiger dans GFS</button>'
+      + '<button type="button" class="' + (edit ? '' : 'on') + '" ' + da('cr-mode', { v: 'pdf' }) + '>' + ic('fileLines', 's') + 'PDF exporté</button></div>'
+      + (edit ? '<span class="tag-soft ' + (viewer.gfs.phase === 'ready' ? 'ok' : '') + '" data-gfs-status>' + esc(gfsStatusLabel()) + '</span>'
+        : '<span class="vname">' + esc(hasPdf ? 'Compte rendu n°' + V.s.num + ' (PDF)' : 'Aucun PDF exporté') + '</span>')
+      + '<span class="sp"></span>'
+      + (!edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : ''));
+    host.querySelector('[data-pane="gfs"]').hidden = !edit;
+    const pdfPane = host.querySelector('[data-pane="pdf"]');
+    pdfPane.hidden = edit;
+    if (edit) ensureGfs(V); else renderPdfPane(V, pdfPane);
   }
 
   // --- Menu « Instances » de la barre de navigation (une entrée par instance) ---
@@ -714,11 +861,8 @@
     if (type === 'gfs') { const file = V.m.gfsByIdent[link]; if (file) openGfs(file); }
     else if (link) global.open(link, '_blank', 'noopener');
   }
-  function setLinkOps(V, target, id, type, link) {
-    if (target === 'cr') return [upd('Suivi_Instance', V.s.id, { CR_lien_type: type ? C.lien[type] : '', CR_lien: link })];
-    return [upd('Instance_Points', id, { Lien_type: type ? C.lien[type] : '', Lien: link })];
-  }
-  const linkOf = (V, target, id) => target === 'cr' ? { type: V.s.crLienType, link: V.s.crLien } : (() => { const p = pointOf(V, id); return { type: p.lienType, link: p.lien }; })();
+  const setLinkOps = (V, id, type, link) => [upd('Instance_Points', id, { Lien_type: type ? C.lien[type] : '', Lien: link })];
+  const linkOf = (V, id) => { const p = pointOf(V, id); return { type: p.lienType, link: p.lien }; };
 
   function confirmVp(V) {
     const projIds = V.ctx.projectIds.filter(id => V.ctx.projectVp[id].key === 'none');
@@ -775,15 +919,11 @@
     'pt-nat': (el, V) => write([upd('Instance_Points', el.dataset.id, { Nature: C.nature[el.dataset.v] })]),
     'pt-proj': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.projets.indexOf(pid) >= 0 ? p.projets.filter(x => x !== pid) : p.projets.concat([pid]); write([upd('Instance_Points', p.id, { Projets: D.toList(list) })]); },
     'pt-inv': (el, V) => toggleGuestOnPoint(V, el.dataset.id, el.dataset.v),
-    // dossier du point / du compte rendu
-    'pt-link-type': (el, V) => write(setLinkOps(V, 'pt', el.dataset.id, el.dataset.v, '')),
-    'pt-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'pt', el.dataset.id, 'gfs', el.dataset.v)); },
-    'pt-link-clear': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'pt', el.dataset.id, '', '')); },
-    'pt-link-open': (el, V) => { const l = linkOf(V, 'pt', el.dataset.id); openLink(V, l.type, l.link); },
-    'cr-link-type': (el, V) => write(setLinkOps(V, 'cr', 'cr', el.dataset.v, '')),
-    'cr-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'cr', 'cr', 'gfs', el.dataset.v)); },
-    'cr-link-clear': (el, V) => { S.ui.menu = null; write(setLinkOps(V, 'cr', 'cr', '', '')); },
-    'cr-link-open': (el, V) => { const l = linkOf(V, 'cr', 'cr'); openLink(V, l.type, l.link); },
+    // dossier du point
+    'pt-link-type': (el, V) => write(setLinkOps(V, el.dataset.id, el.dataset.v, '')),
+    'pt-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, el.dataset.id, 'gfs', el.dataset.v)); },
+    'pt-link-clear': (el, V) => { S.ui.menu = null; write(setLinkOps(V, el.dataset.id, '', '')); },
+    'pt-link-open': (el, V) => { const l = linkOf(V, el.dataset.id); openLink(V, l.type, l.link); },
     // invités
     'g-ecrit': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Ecrit_le: g.ecritLe ? null : gristDay(V.today) })]); },
     'g-hor': (el, V) => {
@@ -802,6 +942,8 @@
     'inv-today': (el, V) => write(setInvitationDate(V, V.today)),
     'crm-today': (el, V) => write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(V.today) })]),
     // compte rendu
+    'cr-mode': el => { viewer.mode = el.dataset.v === 'pdf' ? 'pdf' : 'edit'; renderViewer(); },
+    'cr-download': (el, V) => downloadCr(V),
     'v0-toggle': (el, V) => write([upd('Suivi_Instance', V.s.id, V.s.v0 ? { CR_V0_le: null, CR_V0_par: 0 } : { CR_V0_le: gristDay(V.today), CR_V0_par: S.personId || 0 })]),
     'rel-set': (el, V) => {
       const pid = Number(el.dataset.id), v = el.dataset.v, r = V.s.relectures[pid];
@@ -831,8 +973,7 @@
   const CHANGE = {
     'pt-titre': (el, V) => write([upd('Instance_Points', el.dataset.id, { Titre: el.value })], { defer: true }),
     'pt-duree': (el, V) => write([upd('Instance_Points', el.dataset.id, { Duree_min: Math.max(0, Math.round(Number(el.value) || 0)) })], { defer: true }),
-    'pt-url': (el, V) => write(setLinkOps(V, 'pt', el.dataset.id, el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
-    'cr-url': (el, V) => write(setLinkOps(V, 'cr', 'cr', el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
+    'pt-url': (el, V) => write(setLinkOps(V, el.dataset.id, el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
     'g-comm': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Commentaire: el.value })], { defer: true }),
     'inv-date': (el, V) => write(setInvitationDate(V, el.value), { defer: true }),
     'crm-date': (el, V) => write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(el.value) })], { defer: true }),
@@ -925,11 +1066,11 @@
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
   global.renderInstances = function () { if (S.loaded) { rebuild(); render(); renderNavMenu(); } };
   global.InstancesPage = {
-    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _init: init, _reset() {
+    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
-      setRaw({}); viewer.key = ''; viewer.token = null;
+      setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       const root = rootEl(); if (root) root.innerHTML = '';
     }
   };

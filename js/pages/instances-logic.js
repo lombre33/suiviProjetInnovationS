@@ -23,6 +23,31 @@
   // Étapes qui se valident par une action propre (sans ligne Instance_Validations) : leur date vaut validation.
   const DATE_STEPS = ['invitation', 'crmail'];
 
+  // --- Instances présentées par la page (demande d'Antoine du 10/11/2026 : seulement CTO Innovation et Comité innovation) ---
+  // `match` : nom de l'instance, sans casse ni accents, comme mot entier(s) ; `steps` : étapes suivies tant que
+  // Instances.Etapes_actives est vide (le Comité innovation n'a ni envoi du CR ni notifications). Le paramétrage de
+  // l'instance reste prioritaire dès qu'il a été enregistré.
+  const normName = value => String(value == null ? '' : value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const INSTANCE_RULES = [
+    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice() },
+    { match: 'comite innovation', steps: ['odj', 'invites', 'invitation', 'cr'] }
+  ];
+  function instanceRule(name) {
+    const padded = ' ' + normName(name) + ' ';
+    return INSTANCE_RULES.find(rule => padded.indexOf(' ' + rule.match + ' ') >= 0) || null;
+  }
+
+  // --- Séances d'une instance : la prochaine et la dernière épinglées, puis « à venir » et « passées » ---
+  // `today` : 'AAAA-MM-JJ'. next = la plus proche à partir d'aujourd'hui (aujourd'hui compris), last = la plus récente
+  // avant aujourd'hui ; upcoming (sans next, date croissante, puis sans date) et past (sans last, la plus récente d'abord).
+  function groupSeances(seances, today) {
+    const dated = seances.filter(x => x.date);
+    const upcomingAll = dated.filter(x => x.date >= today).sort((a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : a.id - b.id)));
+    const pastAll = dated.filter(x => x.date < today).sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id)));
+    const undated = seances.filter(x => !x.date).sort((a, b) => b.id - a.id);
+    return { next: upcomingAll[0] || null, last: pastAll[0] || null, upcoming: upcomingAll.slice(1).concat(undated), past: pastAll.slice(1) };
+  }
+
   // --- Valeurs de colonnes Choice (libellés Grist <-> clés internes) ---
   const CHOICES = {
     nature: { validation: 'Validation', discussion: 'Discussion', information: 'Information' },
@@ -223,7 +248,7 @@
         { ok: !!seance.v0, text: 'V0 rédigée' },
         { ok: rel.every(id => relectures[id] && relectures[id].statut === 'valide'), text: 'Relecture validée par ' + (rel.map(id => shortName(ctx.personName(id))).join(' et ') || 'les relecteurs') },
         { warn: true, ok: nModifs === 0, text: nModifs + (nModifs > 1 ? ' relecteurs ont demandé des modifications' : ' relecteur a demandé des modifications') },
-        { warn: true, ok: !!seance.crLien, text: 'Document du compte rendu non lié' }
+        { warn: true, ok: !!(seance.crPdf && seance.crPdf.length), text: 'PDF du compte rendu pas encore exporté depuis GFS' }
       ];
     }
     if (key === 'crmail') return [{ ok: !!seance.mailCrLe, text: "Date d'envoi du mail" }];
@@ -232,7 +257,7 @@
   }
 
   const api = {
-    STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey,
+    STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, cut,
     schedule, guestClash, computeConflicts, firstStartOf, horaireState, vpState,

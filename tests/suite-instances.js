@@ -1,9 +1,10 @@
 /**
  * Non-regression suite: page « par instance » (js/pages/instances-logic.js, instances-data.js, page-instances.js).
  *
- * Jeu de données (reconstruit à chaque test par setup()) : instance CTO (id 1, 3 h, toutes les étapes, relecteurs
- * Alice et Bob) avec 2 séances — n°13 (id 1, passée) et n°14 (id 2, 23/11/2026 09:30, salle Condorcet) — et
- * instance COT (id 2, 3 étapes) avec la séance n°22 (id 3). « Aujourd'hui » vaut 09/11/2026 (_setToday), donc la
+ * Jeu de données (reconstruit à chaque test par setup()) : instance « CTO Innovation » (id 1, 3 h, toutes les étapes,
+ * relecteurs Alice et Bob) avec 2 séances — n°13 (id 1, passée) et n°14 (id 2, 23/11/2026 09:30, salle Condorcet) —,
+ * instance « Comité innovation » (id 2, Etapes_actives vide : 4 étapes par défaut) avec la séance n°22 (id 3) et une
+ * instance « COPIL » (id 3, séance id 4) que la page ne présente pas (seules CTO Innovation et Comité innovation le sont). « Aujourd'hui » vaut 09/11/2026 (_setToday), donc la
  * séance affichée par défaut est la prochaine, n°14. Séance n°14 : 3 points (09:30 Approbation 10 min, 09:40 INNOVX
  * 30 min avec Alice et Chloé, 10:10 Notifications 25 min avec les projets NOTIFY et CONVENTIX) ; invités Alice
  * (viendra, écrite), Bob (à confirmer), Chloé (ajoutée sur un point, dispo 09:30–09:50 donc en conflit sur le point
@@ -28,13 +29,15 @@
     const heure = (iso, t) => L.parisToEpoch(iso, t);
     return {
       Instances: [
-        { id: 1, Instances: 'CTO', Heure_debut: '09:30', Duree_min: 180, Etapes_actives: null, Relecteurs_CR: ['L', 1, 2], Invites_permanents: ['L', 1, 2], Modele_invitation: 'Invitation CTO', Modele_CR: '' },
-        { id: 2, Instances: 'COT', Heure_debut: '09:00', Duree_min: 120, Etapes_actives: ['L', 'Ordre du jour', 'Invités', 'Compte rendu'], Relecteurs_CR: ['L', 2], Invites_permanents: ['L', 2], Modele_invitation: '', Modele_CR: '' }
+        { id: 1, Instances: 'CTO Innovation', Heure_debut: '09:30', Duree_min: 180, Etapes_actives: null, Relecteurs_CR: ['L', 1, 2], Invites_permanents: ['L', 1, 2], Modele_invitation: 'Invitation CTO', Modele_CR: '' },
+        { id: 2, Instances: 'Comité innovation', Heure_debut: '09:00', Duree_min: 120, Etapes_actives: null, Relecteurs_CR: ['L', 2], Invites_permanents: ['L', 2], Modele_invitation: '', Modele_CR: '' },
+        { id: 3, Instances: 'COPIL', Heure_debut: '14:00', Duree_min: 90, Etapes_actives: null, Relecteurs_CR: ['L'], Invites_permanents: ['L'], Modele_invitation: '', Modele_CR: '' }
       ],
       Suivi_Instance: [
-        { id: 1, Nom: 'CTO#13', Instance: 1, Numero: '13', date: gd('2026-10-19'), Heure: heure('2026-10-19', '09:30'), Salle: 1, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_lien_type: '', CR_lien: '' },
-        { id: 2, Nom: 'CTO#14', Instance: 1, Numero: '14', date: gd('2026-11-23'), Heure: heure('2026-11-23', '09:30'), Salle: 1, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_lien_type: '', CR_lien: '' },
-        { id: 3, Nom: 'COT#22', Instance: 2, Numero: '22', date: gd('2026-11-30'), Heure: heure('2026-11-30', '09:00'), Salle: 0, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_lien_type: '', CR_lien: '' }
+        { id: 1, Nom: 'CTO Innovation#13', Instance: 1, Numero: '13', date: gd('2026-10-19'), Heure: heure('2026-10-19', '09:30'), Salle: 1, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_PDF: null },
+        { id: 2, Nom: 'CTO Innovation#14', Instance: 1, Numero: '14', date: gd('2026-11-23'), Heure: heure('2026-11-23', '09:30'), Salle: 1, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_PDF: null },
+        { id: 3, Nom: 'Comité innovation#22', Instance: 2, Numero: '22', date: gd('2026-11-30'), Heure: heure('2026-11-30', '09:00'), Salle: 0, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_PDF: null },
+        { id: 4, Nom: 'COPIL#5', Instance: 3, Numero: '5', date: gd('2026-12-07'), Heure: heure('2026-12-07', '14:00'), Salle: 0, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_PDF: null }
       ],
       Lieux: [{ id: 1, Nom: 'Salle Condorcet', Capacite: 40 }, { id: 2, Nom: 'Salle Pasteur', Capacite: 25 }],
       Instance_Points: [
@@ -158,7 +161,7 @@
     });
 
     it('conditions d\'une étape : bloquantes ou simples alertes', function () {
-      const seance = { heure: '09:30', points: [], v0: null, crLien: '', mailInvitationLe: '', mailCrLe: '' };
+      const seance = { heure: '09:30', points: [], v0: null, crPdf: [], mailInvitationLe: '', mailCrLe: '' };
       const ctx = { seance, cfg: { duree: 180, relecteurs: [1, 2] }, sched: [], conflicts: {}, guests: [], relectures: { 1: { statut: 'valide' }, 2: { statut: 'modifs' } }, validations: {}, endMin: 12 * 60 + 30, personName: id => 'Prénom N' + id, projectIds: [], projectVp: {} };
       const odj = L.stepConditions('odj', ctx);
       assertFalse(odj[0].ok, 'au moins un point');
@@ -167,10 +170,43 @@
       assertFalse(cr[0].ok, 'V0 à rédiger');
       assertFalse(cr[1].ok, 'un relecteur n\'a pas validé');
       assertTrue(cr[2].warn && !cr[2].ok, 'une demande de modification est une alerte');
+      assertTrue(cr[3].warn && !cr[3].ok, 'le PDF pas encore exporté est une simple alerte');
+      assertIncludes(cr[3].text, 'PDF du compte rendu pas encore exporté');
+      ctx.seance.crPdf = [90];
+      assertTrue(L.stepConditions('cr', ctx)[3].ok, 'PDF exporté dans CR_PDF');
       assertEqual(L.isValid('invitation', ctx), false);
       ctx.seance.mailInvitationLe = '2026-11-12';
       assertTrue(L.isValid('invitation', ctx), 'une date d\'envoi renseignée vaut validation');
       assertEqual(L.validatedInfo('invitation', ctx), 'Envoyé le 12/11/2026');
+    });
+  });
+
+  describe('Instances — instances présentées et séances (règles pures)', function () {
+    it('seules CTO Innovation et Comité innovation sont reconnues (casse, accents et ponctuation ignorés)', function () {
+      assertTrue(!!L.instanceRule('CTO Innovation'));
+      assertTrue(!!L.instanceRule('cto  INNOVATION'));
+      assertTrue(!!L.instanceRule('Comité innovation'));
+      assertTrue(!!L.instanceRule('COMITE INNOVATION'));
+      assertTrue(!!L.instanceRule('Comité Innovation 2026'));
+      ['CTO FARE', 'COPIL', 'COT', 'CTO', 'Comité de pilotage', '', null].forEach(name => assertEqual(L.instanceRule(name), null, String(name)));
+      assertDeepEqual(L.instanceRule('Comité innovation').steps, ['odj', 'invites', 'invitation', 'cr'], 'ni envoi du CR ni notifications');
+      assertEqual(L.instanceRule('CTO Innovation').steps.length, 6);
+    });
+
+    it('séances : la prochaine et la dernière épinglées, puis « à venir » (la plus proche d\'abord) et « passées » (la plus récente d\'abord)', function () {
+      const se = (id, date) => ({ id, date });
+      const list = [se(1, '2026-08-31'), se(2, '2026-09-21'), se(3, '2026-10-19'), se(4, '2026-11-23'), se(5, '2026-12-21'), se(6, '2027-01-18'), se(7, '')];
+      const g = L.groupSeances(list, '2026-11-09');
+      assertEqual(g.next.id, 4, 'la plus proche à partir d\'aujourd\'hui');
+      assertEqual(g.last.id, 3, 'la plus récente avant aujourd\'hui');
+      assertDeepEqual(g.upcoming.map(x => x.id), [5, 6, 7], 'à venir : dates croissantes, sans date à la fin, sans la prochaine');
+      assertDeepEqual(g.past.map(x => x.id), [2, 1], 'passées : la plus récente d\'abord, sans la dernière');
+      assertEqual(L.groupSeances(list, '2026-11-23').next.id, 4, 'une séance aujourd\'hui est la prochaine');
+      assertEqual(L.groupSeances(list, '2026-11-24').next.id, 5);
+      const none = L.groupSeances([se(1, '2026-01-01')], '2026-11-09');
+      assertEqual(none.next, null);
+      assertEqual(none.last.id, 1);
+      assertDeepEqual(L.groupSeances([], '2026-11-09'), { next: null, last: null, upcoming: [], past: [] });
     });
   });
 
@@ -194,25 +230,41 @@
       const addedInstances = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Instances').map(c => c.colId);
       assertDeepEqual(addedInstances, ['Heure_debut', 'Duree_min', 'Etapes_actives', 'Relecteurs_CR', 'Invites_permanents', 'Modele_invitation', 'Modele_CR']);
       const addedSeance = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance').map(c => c.colId);
-      assertDeepEqual(addedSeance, ['Mail_invitation_le', 'CR_V0_le', 'CR_V0_par', 'CR_lien_type', 'CR_lien', 'Mail_CR_le']);
+      assertDeepEqual(addedSeance, ['Mail_invitation_le', 'CR_V0_le', 'CR_V0_par', 'CR_PDF', 'Mail_CR_le']);
+      assertEqual(window.__TEST_CALLS__.find(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance' && c.colId === 'CR_PDF').colInfo.type, 'Attachments', 'la version PDF du compte rendu est une colonne de pièces jointes');
       assertIncludes(text('.in-band'), 'Aucune séance pour cette instance');
     });
 
     it('modèle : séances triées par date décroissante, points par Ordre, valeurs par défaut quand les colonnes sont vides', async function () {
       await setup();
       const model = window.InstancesPage.state.model;
-      assertDeepEqual(model.instances.map(i => i.nom), ['CTO', 'COT'], 'les plus complètes d\'abord, comme dans la maquette');
+      assertDeepEqual(model.instances.map(i => i.nom), ['CTO Innovation', 'Comité innovation'], 'seules ces deux instances, les plus complètes d\'abord (COPIL est écartée)');
+      assertEqual(model.instancesFiltered, true);
+      assertEqual(model.seanceById[4], undefined, 'les séances d\'une instance écartée ne sont pas chargées');
       const cto = model.instById[1];
       assertDeepEqual(cto.seances.map(s => s.num), ['14', '13']);
       assertDeepEqual(cto.seances[0].points.map(p => p.id), [1, 2, 3]);
       assertEqual(cto.seances[0].heure, '09:30');
       assertEqual(cto.cfg.steps.length, 6, 'Etapes_actives vide : toutes les étapes');
-      assertDeepEqual(model.instById[2].cfg.steps, ['odj', 'invites', 'cr']);
+      assertDeepEqual(model.instById[2].cfg.steps, ['odj', 'invites', 'invitation', 'cr'], 'Comité innovation : ni envoi du CR ni notifications par défaut');
       assertDeepEqual(cto.cfg.relecteurs, [1, 2]);
       assertEqual(model.seanceById[2].guests.find(g => g.id === 3).origine, 'point');
       assertEqual(model.seanceById[2].guests.find(g => g.id === 1).reponse, 'viendra');
       assertEqual(model.gfs.length, 2, 'le fichier GFS supprimé est écarté');
       assertEqual(model.lieux[0].sub, '40 places');
+    });
+
+    it('un paramétrage enregistré l\'emporte sur les étapes par défaut du Comité innovation', async function () {
+      await setup({ rows: d => { d.Instances[1].Etapes_actives = ['L', 'Ordre du jour', 'Invités', 'Compte rendu', 'Notifications liées']; } });
+      assertDeepEqual(window.InstancesPage.state.model.instById[2].cfg.steps, ['odj', 'invites', 'cr', 'notifs']);
+    });
+
+    it('aucune instance ne porte l\'un des deux noms : tout est gardé plutôt qu\'une page vide', async function () {
+      await setup({ rows: d => { d.Instances[0].Instances = 'CTO'; d.Instances[1].Instances = 'COT'; } });
+      const model = window.InstancesPage.state.model;
+      assertEqual(model.instancesFiltered, false);
+      assertDeepEqual(model.instances.map(i => i.nom), ['COPIL', 'COT', 'CTO']);
+      assertTrue(text('.in-inst-badge').length > 0);
     });
 
     it('une écriture qui échoue recharge l\'écran et le signale (aucune erreur silencieuse)', async function () {
@@ -235,14 +287,35 @@
   describe('Instances — bandeau, séances et vue d\'ensemble', function () {
     it('affiche la prochaine séance par défaut, l\'heure de fin et la salle (table Lieux)', async function () {
       await setup();
-      assertEqual(text('.in-inst-badge'), 'CTO');
+      assertEqual(text('.in-inst-badge'), 'CTO Innovation');
       assertIncludes(text('.in-band .in-sel'), 'n°14 · 23/11/2026');
       assertIncludes(text('.in-band .in-sel'), 'à venir');
       assertIncludes(text('.in-band .in-tp'), '09:30');
       assertIncludes(text('.in-band .in-tp'), '→ 12:30');
       assertIncludes(root().textContent, 'Salle Condorcet');
       assertEqual(qa('.in-chip').length, 7, 'puce « vue d\'ensemble » + 6 étapes');
+      assertEqual(qa('.in-chip.in-off').length, 0, 'le CTO Innovation suit les 6 étapes');
       assertEqual(text('.in-chip.in-macro'), '0/6');
+    });
+
+    it('Comité innovation : « Envoi du CR » et « Notifications » grisées en haut, absentes de la frise, compteur sur 4 étapes', async function () {
+      await setup({ noPrefs: true });
+      await window.loadInstancesUserPreferences();
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'macro', Inst_vue: 'C', Inst_seances: '{}' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      assertEqual(text('.in-inst-badge'), 'Comité innovation');
+      assertEqual(qa('.in-chip').length, 7, 'les 6 étapes restent visibles + la vue d\'ensemble');
+      const off = qa('.in-chip.in-off');
+      assertDeepEqual(off.map(c => c.textContent.replace(/[–\s]+/g, ' ').trim()), ['Envoi CR', 'Notifs']);
+      assertTrue(off.every(c => c.tagName !== 'BUTTON' && !c.hasAttribute('data-act') && c.getAttribute('aria-disabled') === 'true'), 'grisées et sans action');
+      assertIncludes(off[0].title, 'non suivie par cette instance');
+      assertDeepEqual(qa('.in-chip:not(.in-off):not(.in-macro)').map(c => c.textContent.replace(/\s+/g, ' ').trim().replace(/^[\d]+\s*/, '')), ['ODJ', 'Invités', 'Invitation', 'CR'], 'les puces actives sont numérotées de 1 à 4');
+      assertEqual(text('.in-chip.in-macro'), '0/4');
+      assertEqual(qa('.in-thread .in-ms').length, 4, 'variante C : la frise ne compte que les 4 étapes suivies');
+      assertDeepEqual(qa('.in-thread .in-msl').map(e => e.textContent.trim()), ['Ordre du jour', 'Invités', "Mail d'invitation", 'Compte rendu']);
+      assertFalse(root().textContent.includes('Notifications liées'));
     });
 
     it('vue d\'ensemble : 4 carrés, tuiles ODJ et invités, fil de 4 jalons (variante A) ou 6 (variante C), choix retenu', async function () {
@@ -266,21 +339,43 @@
       await setup();
       click('menu', { v: 'seance' });
       assertEqual(qa('.in-menu .in-mi').length, 3, 'deux séances + « Nouvelle séance »');
+      assertDeepEqual(qa('.in-menu .in-mi').slice(0, 2).map(b => b.textContent.replace(/\s+/g, ' ').trim().replace(/\s*\d\/\d$/, '')), ['n°14 · 23/11/2026Prochaine', 'n°13 · 19/10/2026Dernière'], 'la prochaine puis la dernière, épinglées');
       click('seance-pick', { id: 1 });
       assertIncludes(text('.in-band .in-sel'), 'n°13 · 19/10/2026');
       assertIncludes(text('.in-band .in-sel'), 'passée');
       await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_seances === '{"1":1}', 'séance retenue');
     });
 
-    it('les préférences enregistrées sont rejouées : instance COT, étape et vue', async function () {
+    it('menu des séances : prochaine et dernière épinglées en haut, puis « À venir » et « Passées » séparées', async function () {
+      const extra = (id, num, iso) => ({ id, Nom: 'CTO Innovation#' + num, Instance: 1, Numero: String(num), date: gd(iso), Heure: L.parisToEpoch(iso, '09:30'), Salle: 1, Mail_invitation_le: null, Mail_CR_le: null, CR_V0_le: null, CR_V0_par: 0, CR_PDF: null });
+      await setup({ rows: d => { d.Suivi_Instance.push(extra(5, 12, '2026-09-21'), extra(6, 11, '2026-08-31'), extra(7, 15, '2026-12-21'), extra(8, 16, '2027-01-18')); } });
+      click('menu', { v: 'seance' });
+      const menu = q('.in-menu');
+      const labels = Array.from(menu.children).map(el => el.classList.contains('in-mi-sep') ? '---' : (el.classList.contains('in-mh') ? '[' + el.textContent.trim() + ']' : el.textContent.replace(/\s+/g, ' ').trim().replace(/\s*\d\/\d$/, '')));
+      assertDeepEqual(labels, [
+        'n°14 · 23/11/2026Prochaine', 'n°13 · 19/10/2026Dernière', '---',
+        '[À venir]', 'n°15 · 21/12/2026', 'n°16 · 18/01/2027',
+        '[Passées]', 'n°12 · 21/09/2026', 'n°11 · 31/08/2026',
+        '---', 'Nouvelle séance'
+      ]);
+      assertEqual(qa('.in-menu .in-mi .in-ic').length, 3, 'une punaise pour chaque séance épinglée (2) + le « + » de « Nouvelle séance »');
+      assertTrue(qa('.in-menu .in-mi')[0].classList.contains('in-on'), 'la séance affichée est repérée');
+      click('seance-pick', { id: 6 });
+      assertIncludes(text('.in-band .in-sel'), 'n°11 · 31/08/2026');
+      assertIncludes(text('.in-band .in-sel'), 'passée');
+      click('menu', { v: 'seance' });
+      assertEqual(qa('.in-menu .in-mi')[0].textContent.includes('n°14'), true, 'la prochaine reste en haut quelle que soit la séance affichée');
+    });
+
+    it('les préférences enregistrées sont rejouées : instance Comité innovation, étape et vue', async function () {
       await setup({ noPrefs: true });
       await window.loadInstancesUserPreferences();
       await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'invites', Inst_vue: 'B', Inst_seances: '{}' }]]);
       window.InstancesPage._reset();
       await window.loadInstancesUserPreferences();
       await window.InstancesPage.open();
-      assertEqual(text('.in-inst-badge'), 'COT');
-      assertEqual(qa('.in-chip').length, 4, 'COT : 3 étapes + vue d\'ensemble');
+      assertEqual(text('.in-inst-badge'), 'Comité innovation');
+      assertEqual(qa('.in-chip:not(.in-off)').length, 5, 'Comité innovation : 4 étapes suivies + vue d\'ensemble');
       assertIncludes(text('.in-panel h2'), 'Invités');
     });
 
@@ -314,12 +409,12 @@
       await waitFor(() => calls('AddRecord', 'Instance_Invites').length === 2, 'invités permanents');
       const newGuests = calls('AddRecord', 'Instance_Invites');
       assertDeepEqual(newGuests.map(c => c.fields.Personne), [1, 2]);
-      assertTrue(newGuests.every(c => c.fields.Seance === 4 && c.fields.Origine === 'Liste permanente'));
+      assertTrue(newGuests.every(c => c.fields.Seance === 5 && c.fields.Origine === 'Liste permanente'));
       await waitFor(() => text('.in-band .in-sel').includes('n°15'), 'nouvelle séance affichée');
       assertIncludes(text('.in-panel h2'), 'Ordre du jour');
     });
 
-    it('menu « Instances » de la barre de navigation : une entrée par instance, la page s\'ouvre sur l\'instance choisie', async function () {
+    it('menu « Instances » de la barre de navigation : CTO Innovation et Comité innovation seulement, la page s\'ouvre sur l\'instance choisie', async function () {
       window.InstancesPage._reset();
       window.InstancesPage._setToday(TODAY);
       const tables = await window.CoreGrist.loadAllTables();
@@ -332,9 +427,9 @@
         const menu = document.getElementById('instances-menu');
         fireMouse(document.getElementById('btn-instances'), 'click');
         await waitFor(() => !menu.hidden && menu.querySelectorAll('[data-inst]').length === 2, 'menu des instances');
-        assertDeepEqual(Array.from(menu.querySelectorAll('[data-inst]')).map(b => b.firstChild.textContent), ['CTO', 'COT']);
+        assertDeepEqual(Array.from(menu.querySelectorAll('[data-inst]')).map(b => b.firstChild.textContent), ['CTO Innovation', 'Comité innovation'], 'COPIL n\'est pas proposée');
         fireMouse(menu.querySelector('[data-inst="2"]'), 'click');
-        await waitFor(() => text('.in-inst-badge') === 'COT', 'instance COT affichée');
+        await waitFor(() => text('.in-inst-badge') === 'Comité innovation', 'instance Comité innovation affichée');
         assertTrue(menu.hidden, 'le menu se referme');
         assertFalse(document.getElementById('view-instances').classList.contains('hidden'), 'la vue Instances est affichée');
       } finally {
@@ -703,48 +798,158 @@
       assertEqual(calls('RemoveRecord', 'Instance_Relectures').length, 1, 'retour à « à relire » supprime la ligne');
     });
 
-    it('document du compte rendu : PDF GFS lu dans la page (iframe sur la pièce jointe), sans recharger à chaque clic', async function () {
+    // GFS est chargé dans une iframe vide (about:blank) : aucune connexion réseau pendant les tests ; origin '*' = le pont ne
+    // vérifie que la fenêtre de l'iframe (comme ?bridgeOrigin=* en réel).
+    const gfsTarget = { url: 'about:blank#gfs-test', origin: '*' };
+    function fromGfs(frame, message) { window.dispatchEvent(new MessageEvent('message', { data: message, source: frame.contentWindow, origin: 'null' })); }
+
+    it('compte rendu : GFS est intégré sous la carte, relié à la ligne de la séance, et son iframe n\'est jamais recréée par un clic voisin', async function () {
       await setup();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      assertEqual(qa('iframe.in-gframe').length, 0, 'GFS ne se charge qu\'à l\'ouverture de l\'étape Compte rendu');
       step('cr');
-      assertIncludes(text('.in-vbody'), 'Aucun document lié');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      assertEqual(frame.getAttribute('src'), 'about:blank#gfs-test');
+      const bridge = window.InstancesPage._gfs.bridge;
+      assertTrue(!!bridge, 'le pont Grist est branché');
+      assertEqual(bridge.getState().tableId, 'Suivi_Instance');
+      assertEqual(bridge.getState().rowId, 2, 'la ligne de la séance n°14 est l\'enregistrement sélectionné de GFS');
+      assertIncludes(text('.in-vbar'), 'Rédiger dans GFS');
+      assertTrue(q('.in-vbar .in-seg button.in-on').textContent.includes('Rédiger dans GFS'));
+      assertIncludes(text('.in-vbar [data-gfs-status]'), 'Connexion à GFS');
+      click('v0-toggle');
+      click('rel-set', { id: 1, v: 'valide' });
+      await waitCall('AddRecord', 'Instance_Relectures');
+      assertTrue(frame.isConnected && q('iframe.in-gframe') === frame, 'l\'iframe n\'est pas recréée par un clic voisin (ni par le rendu qui suit une écriture)');
+      assertEqual(qa('iframe.in-gframe').length, 1);
+      // GFS annonce qu'il est prêt : le pont le dit dans la barre.
+      fromGfs(frame, { mtype: 5 });
+      await waitFor(() => text('.in-vbar [data-gfs-status]').includes('GFS connecté'), 'GFS connecté');
+      // Hors de l'étape, la région est masquée mais l'iframe reste en vie (GFS garde son état) ; au retour c'est la même.
+      step('macro');
+      assertTrue(q('[data-region="viewer"]').hidden, 'région masquée hors de l\'étape');
+      assertTrue(frame.isConnected && window.InstancesPage._gfs.frame === frame);
+      step('cr');
+      assertFalse(q('[data-region="viewer"]').hidden);
+      assertTrue(q('iframe.in-gframe') === frame, 'même iframe au retour');
+      // Changer de séance : GFS reçoit l'autre ligne sans être rechargé.
+      click('menu', { v: 'seance' });
+      click('seance-pick', { id: 1 });
+      step('cr');
+      assertEqual(window.InstancesPage._gfs.bridge.getState().rowId, 1, 'le « select by » suit la séance affichée');
+      assertTrue(q('iframe.in-gframe') === frame);
+    });
+
+    it('compte rendu : ce que GFS écrit dans Suivi_Instance (le PDF exporté) est relu, et le bouton « Télécharger le CR » s\'active', async function () {
+      await setup();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      const dl = () => q('[data-act="cr-download"]');
+      assertTrue(dl().disabled, 'pas de PDF : bouton inactif');
+      assertIncludes(dl().title, 'CR_PDF');
+      fromGfs(frame, { mtype: 5 });
+      await waitFor(() => window.InstancesPage._gfs.bridge.getState().ready, 'pont prêt');
+      // GFS (ou publipostage+ dedans) range le PDF exporté dans la cellule CR_PDF de la séance, via le pont.
+      fromGfs(frame, { mtype: 1, iface: 'GristDocAPI', meth: 'applyUserActions', args: [[['UpdateRecord', 'Suivi_Instance', 2, { CR_PDF: ['L', 90] }]]], reqId: 1 });
+      await waitCall('UpdateRecord', 'Suivi_Instance', 2);
+      await waitFor(() => !dl().disabled, 'bouton « Télécharger le CR » actif après la relecture des tables');
+      assertDeepEqual(window.InstancesPage.state.model.seanceById[2].crPdf, [90]);
+      assertTrue(q('iframe.in-gframe') === frame, 'la relecture ne recrée pas l\'iframe de GFS');
+      assertIncludes(text('.in-vbar [data-gfs-status]'), 'GFS connecté');
+      assertTrue(dl().title.indexOf('Pas encore') < 0);
+    });
+
+    it('compte rendu : une écriture de GFS dans une autre table ne relit rien', async function () {
+      await setup();
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      fromGfs(frame, { mtype: 5 });
+      await waitFor(() => window.InstancesPage._gfs.bridge.getState().ready, 'pont prêt');
+      const model = window.InstancesPage.state.model;
+      fromGfs(frame, { mtype: 1, iface: 'GristDocAPI', meth: 'applyUserActions', args: [[['AddRecord', 'GFS_Rangement', null, { Nom: 'x' }]]], reqId: 2 });
+      await new Promise(resolve => setTimeout(resolve, 1600));
+      assertTrue(window.InstancesPage.state.model === model, 'le modèle n\'a pas été reconstruit');
+    });
+
+    it('télécharger le CR : ouvre le dernier PDF de la cellule CR_PDF de la séance dans un nouvel onglet', async function () {
+      await setup({ rows: d => { d.Suivi_Instance[1].CR_PDF = ['L', 90, 91]; } });
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      const btn = q('[data-act="cr-download"]');
+      assertFalse(btn.disabled);
+      const original = window.grist.docApi.getAccessToken;
+      window.grist.docApi.getAccessToken = async () => ({ token: 'jeton-de-test', baseUrl: 'https://grist.exemple/api/docs/doc1', ttlMsecs: 60000 });
+      const opened = [], fakeWin = { location: {}, close() {} };
+      const originalOpen = window.open;
+      window.open = (...args) => { opened.push(args); return fakeWin; };
+      try {
+        click('cr-download');
+        await waitFor(() => fakeWin.location.href, 'adresse du PDF');
+      } finally { window.open = originalOpen; window.grist.docApi.getAccessToken = original; }
+      const url = fakeWin.location.href;
+      assertIncludes(url, '/attachments/91/download', 'le dernier fichier de la cellule');
+      assertIncludes(url, 'auth=jeton-de-test');
+      assertIncludes(url, 'tableId=Suivi_Instance');
+      assertIncludes(url, 'colId=CR_PDF');
+      assertIncludes(url, 'rowId=2');
+    });
+
+    it('PDF exporté : affiché dans la page (iframe sur la pièce jointe), message clair sans PDF ; basculer ne recrée pas GFS', async function () {
+      await setup({ rows: d => { d.Suivi_Instance[1].CR_PDF = ['L', 90]; } });
+      window.InstancesPage._setGfsTarget(gfsTarget);
+      step('cr');
+      const gfsFrame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
       const original = window.grist.docApi.getAccessToken;
       // about:blank#… : l'iframe n'ouvre aucune connexion réseau pendant le test, l'adresse construite reste vérifiable.
       window.grist.docApi.getAccessToken = async () => ({ token: 'jeton-de-test', baseUrl: 'about:blank#', ttlMsecs: 60000 });
       try {
-        click('menu', { v: 'crlien' });
-        click('cr-link-file', { id: 'cr', v: 'GFS-CR' });
-        assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).CR_lien_type, 'Fichier GFS');
-        assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).CR_lien, 'GFS-CR');
-        const frame = await waitFor(() => q('iframe.in-vframe'), 'visionneuse');
-        assertIncludes(frame.src, '/attachments/78/download');
-        assertIncludes(frame.src, 'auth=jeton-de-test');
-        assertIncludes(frame.src, 'tableId=GFS_Fichiers');
-        assertIncludes(frame.src, 'colId=Contenu');
-        assertIncludes(frame.src, 'rowId=2');
-        assertIncludes(text('.in-vbar'), 'CR CTO n°13.pdf');
+        click('cr-mode', { v: 'pdf' });
+        const pdf = await waitFor(() => q('iframe.in-vframe'), 'visionneuse du PDF');
+        assertIncludes(pdf.src, '/attachments/90/download');
+        assertIncludes(pdf.src, 'tableId=Suivi_Instance');
+        assertIncludes(pdf.src, 'colId=CR_PDF');
+        assertIncludes(pdf.src, 'rowId=2');
+        assertTrue(q('[data-pane="gfs"]').hidden && !q('[data-pane="pdf"]').hidden);
+        assertTrue(gfsFrame.isConnected && q('iframe.in-gframe') === gfsFrame, 'GFS reste en vie derrière');
         click('v0-toggle');
-        assertTrue(frame.isConnected && q('iframe.in-vframe') === frame, 'l\'iframe n\'est pas recréée par un clic voisin');
+        assertTrue(q('iframe.in-vframe') === pdf, 'l\'iframe du PDF n\'est pas recréée par un clic voisin');
+        click('cr-mode', { v: 'edit' });
+        assertFalse(q('[data-pane="gfs"]').hidden);
+        assertTrue(q('iframe.in-gframe') === gfsFrame);
         step('macro');
-        assertEqual(qa('iframe.in-vframe').length, 0, 'la visionneuse ne sert que sur l\'étape Compte rendu');
+        assertEqual(qa('iframe.in-vframe').length, 0, 'le PDF ne reste pas chargé hors de l\'étape');
+        // Séance sans PDF : message qui dit où l'exporter.
+        click('menu', { v: 'seance' });
+        click('seance-pick', { id: 1 });
+        step('cr');
+        click('cr-mode', { v: 'pdf' });
+        assertIncludes(text('[data-pane="pdf"]'), 'Pas encore de PDF');
+        assertIncludes(text('[data-pane="pdf"]'), 'CR_PDF');
+        assertTrue(q('[data-act="cr-download"]').disabled);
       } finally {
         window.grist.docApi.getAccessToken = original;
       }
     });
 
-    it('lien externe du compte rendu : pas d\'iframe, un bouton qui ouvre un nouvel onglet', async function () {
+    it('GFS : si le document a déjà une vue GFS, la page reprend son adresse ; sinon l\'adresse publique ; ?gfs= non http(s) refusé', async function () {
       await setup();
+      window.__mockSetTable('_grist_Views_section', {
+        id: [1, 2], options: [JSON.stringify({ customView: JSON.stringify({ url: 'https://exemple.github.io/mon-gfs/' }) }), JSON.stringify({ customView: JSON.stringify({ url: 'https://lombre33.github.io/suiviProjetInnovationS/' }) })]
+      });
       step('cr');
-      click('menu', { v: 'crlien' });
-      click('cr-link-type', { id: 'cr', v: 'externe' });
-      change('cr-url', { id: 'cr' }, 'https://exemple.fr/cr14');
-      assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).CR_lien, 'https://exemple.fr/cr14');
-      await waitFor(() => text('.in-vbody').includes('Lien externe'), 'message lien externe');
-      assertEqual(qa('iframe.in-vframe').length, 0);
-      const opened = [];
-      const original = window.open;
-      window.open = (...args) => { opened.push(args); return null; };
-      try { click('cr-link-open', { id: 'cr' }); } finally { window.open = original; }
-      assertEqual(opened[0][0], 'https://exemple.fr/cr14');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      assertEqual(frame.getAttribute('src'), 'https://exemple.github.io/mon-gfs/', 'vue GFS du document (pas celle de ce widget)');
+      assertEqual(window.InstancesPage._gfs.url, 'https://exemple.github.io/mon-gfs/');
+    });
+
+    it('GFS : sans vue GFS dans le document, l\'adresse publique de GFS est utilisée', async function () {
+      await setup();
+      window.__mockSetTable('_grist_Views_section', { id: [1], options: [JSON.stringify({ customView: JSON.stringify({ url: 'https://lombre33.github.io/publipostageGrist/' }) })] });
+      step('cr');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      assertEqual(frame.getAttribute('src'), 'https://lombre33.github.io/grist-widget-GFS/prototype/');
     });
 
     it('mail du compte rendu : une date d\'envoi renseignée vaut validation', async function () {
@@ -828,7 +1033,9 @@
       click('cfg-step', { v: 'crmail' });
       assertDeepEqual(lastFields('UpdateRecord', 'Instances', 1).Etapes_actives, ['L', 'Ordre du jour', 'Invités', "Mail d'invitation", 'Compte rendu', 'Notifications liées']);
       click('settings-close');
-      assertEqual(qa('.in-chip').length, 6);
+      assertEqual(qa('.in-chip').length, 7, 'les 6 étapes restent visibles + la vue d\'ensemble');
+      assertEqual(qa('.in-chip.in-off').length, 1, 'l\'étape retirée est grisée, plus cliquable');
+      assertEqual(text('.in-chip.in-macro'), '0/5');
     });
 
     it('relecteurs et invités permanents : RefList vers Annuaire', async function () {
