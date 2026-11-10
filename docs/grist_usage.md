@@ -483,3 +483,15 @@ correspond à rien : son chargement échoue et est ignoré.
 **Recherche de personnes dans les menus de la page Instances (10/11/2026).** La recherche (invités, présentateurs,
 relecteurs, projets…) ignore casse, accents et ponctuation, et chaque mot tapé doit se trouver quelque part (nom,
 prénom, e-mail, poste), dans n'importe quel ordre : « jean dupont » trouve « DUPONT-MARTIN Jean-Pierre ».
+
+**Protection contre la perte de saisie dans GFS / publipostage+ (10/11/2026).** Le widget ne recharge jamais la page
+Grist (aucun `location.reload`) et ne vérifie plus à chaque ouverture que le schéma est modifiable : la formule de
+`Preferences_Widget.Email_utilisateur` n'est réécrite (`ModifyColumn`) que si elle n'est pas déjà `user.Email`.
+Quand GFS écrit dans `Suivi_Instance`, la page ne relit (cette seule table) que si la colonne `CR_PDF` est touchée ;
+auparavant toute écriture de GFS (enregistrement pendant la frappe) relisait les dix tables de la page. Enfin, le pont
+(`js/core/grist-bridge.js`) demande **confirmation avant de recharger ou fermer la page** (`beforeunload`) tant que
+l'utilisateur travaille dans une iframe reliée : focus dans l'iframe, ou geste (focus, écriture dans le document par
+l'iframe) depuis moins de 10 minutes. Limites : un rechargement décidé par Grist (reconnexion, mise à jour du serveur)
+peut ne pas laisser le temps de la confirmation, certains navigateurs ne l'affichent pas, et le widget ne voit pas ce
+que contient une iframe d'un autre site (il ne peut pas savoir si du texte n'est pas enregistré) : la vraie sécurité
+reste une sauvegarde de brouillon côté GFS.

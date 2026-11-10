@@ -953,6 +953,51 @@
       assertEqual(added.Personne, 5);
     });
 
+    it('protection contre la perte de saisie : tant qu\'on travaille dans GFS (focus dans l\'iframe, ou geste récent), recharger la page demande confirmation', async function () {
+      await withLayout(async () => { // le conteneur doit être affiché pour que l'iframe puisse prendre le focus
+      await setup();
+      window.InstancesPage._setGfsTarget({ url: 'about:blank#gfs', origin: '*' });
+      step('cr');
+      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
+      const unload = () => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; };
+      assertFalse(window.GristBridge.isEditing(), 'GFS ouvert mais pas touché : rien à perdre');
+      assertFalse(unload(), 'aucune confirmation tant qu\'on n\'a rien tapé dans GFS');
+      frame.focus();
+      assertTrue(document.activeElement === frame, 'le focus est dans GFS');
+      assertTrue(unload(), 'on tape dans GFS : le rechargement demande confirmation');
+      // sorti de l\'iframe : la confirmation reste demandée 10 minutes après le dernier geste, puis cesse
+      frame.blur();
+      await new Promise(r => setTimeout(r, 30));
+      window.GristBridge._touch(frame);
+      assertTrue(unload(), 'geste récent dans GFS (enregistrement, focus) : confirmation demandée');
+      const realNow = Date.now;
+      Date.now = () => realNow() + 11 * 60 * 1000;
+      try { assertFalse(unload(), 'plus de geste depuis 11 minutes : plus de confirmation'); } finally { Date.now = realNow; }
+      // une iframe retirée de la page ne retient plus personne
+      window.GristBridge._touch(frame);
+      assertTrue(unload());
+      window.InstancesPage._reset();
+      assertFalse(unload(), 'GFS fermé : plus de confirmation');
+      });
+    });
+
+    it('GFS qui écrit dans le document : seule une écriture de CR_PDF fait relire (la table Suivi_Instance seulement) ; une sauvegarde pendant la frappe ne relit rien', async function () {
+      await setup();
+      const api = window.grist.docApi, original = api.fetchTable, reads = [];
+      api.fetchTable = function (name) { reads.push(name); return original.apply(api, arguments); };
+      try {
+        window.InstancesPage._onGfsWrite([['UpdateRecord', 'Suivi_Instance', 3, { Nom: 'CR en cours de saisie' }]]);
+        window.InstancesPage._onGfsWrite([['UpdateRecord', 'GFS_Fichiers', 1, { Nom: 'autre table' }]]);
+        window.InstancesPage._onGfsWrite([['BulkUpdateRecord', 'Suivi_Instance', [3], { Nom: ['texte'] }]]);
+        await new Promise(r => setTimeout(r, 1600));
+        assertDeepEqual(reads, [], 'aucune relecture : ni CR_PDF ni la table Suivi_Instance n\'ont changé pour la page');
+        window.InstancesPage._onGfsWrite([['UpdateRecord', 'Suivi_Instance', 3, { CR_PDF: ['L', 78] }]]);
+        await waitFor(() => reads.length > 0, 'relecture du PDF exporté');
+        await new Promise(r => setTimeout(r, 300));
+        assertDeepEqual(reads, ['Suivi_Instance'], 'une seule table relue, pas les dix de la page');
+      } finally { api.fetchTable = original; }
+    });
+
     it('menus de recherche (projets, présentateurs, invités) : flèches pour surligner, Entrée pour choisir, comme dans les autres listes', async function () {
       await setup();
       step('odj');

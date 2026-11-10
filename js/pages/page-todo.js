@@ -391,12 +391,26 @@
   // Email_utilisateur, en profitent aussi. Une adresse valide contient « @ » ; tout le reste est ignoré.
   const validEmail = value => { const s = typeof value === 'string' ? value.trim() : ''; return s.includes('@') ? s : ''; };
   const unavailableMarker = () => `(indisponible) ${new Date().toISOString().slice(0, 10)}`; // réessayé le lendemain
+  async function emailFormulaAlreadyFixed(docApi) {
+    try {
+      const [tables, cols] = await Promise.all([docApi.fetchTable('_grist_Tables'), docApi.fetchTable('_grist_Tables_column')]);
+      const tableRef = tables.id[tables.tableId.indexOf(PREFS_TABLE)];
+      for (let i = 0; i < cols.id.length; i++) {
+        if (cols.parentId[i] === tableRef && cols.colId[i] === 'Email_utilisateur') return !cols.isFormula[i] && String(cols.formula[i] || '').trim() === EMAIL_TRIGGER_COLUMN.formula;
+      }
+    } catch (err) { /* métadonnées illisibles : la formule est corrigée comme avant */ }
+    return false;
+  }
   async function probeUserEmail() {
     const docApi = CoreGrist.gristInstance.docApi;
     try {
-      try {
-        await docApi.applyUserActions([['ModifyColumn', PREFS_TABLE, 'Email_utilisateur', { isFormula: false, formula: EMAIL_TRIGGER_COLUMN.formula, recalcWhen: 0 }]]);
-      } catch (err) { console.warn('Correction de la formule Email_utilisateur impossible (droits ?) :', err.message); }
+      // Modifier le SCHÉMA du document pendant qu'on l'utilise (formule d'une colonne partagée par tous les utilisateurs) n'est pas
+      // anodin : on ne le fait que si la formule n'est pas déjà la bonne (métadonnées illisibles : on corrige, comme avant).
+      if (!(await emailFormulaAlreadyFixed(docApi))) {
+        try {
+          await docApi.applyUserActions([['ModifyColumn', PREFS_TABLE, 'Email_utilisateur', { isFormula: false, formula: EMAIL_TRIGGER_COLUMN.formula, recalcWhen: 0 }]]);
+        } catch (err) { console.warn('Correction de la formule Email_utilisateur impossible (droits ?) :', err.message); }
+      }
       const result = await docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
       const probeId = CoreUtils.extractAddedRecordId(result);
       let email = '';

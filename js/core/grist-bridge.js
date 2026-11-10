@@ -69,6 +69,36 @@
 
   // Iframes reliées à un pont (même après detach : elles peuvent encore parler jusqu'à leur retrait du document).
   const bridgedFrames = new Set();
+
+  // --- Protection contre la perte de saisie dans le widget imbriqué (GFS, publipostage+) ---
+  // Quand Grist (reconnexion, mise à jour) ou le navigateur recharge la page, ce qui a été tapé dans l'iframe et pas encore
+  // enregistré est perdu. Le navigateur demande confirmation (beforeunload) tant que l'utilisateur est « en train d'écrire » :
+  // le focus est dans l'iframe, ou l'iframe a pris le focus / écrit dans le document il y a moins de EDIT_GRACE_MS.
+  // Limites : un navigateur peut ne pas afficher la confirmation (page jamais touchée, bac à sable de Grist sans `allow-modals`) ;
+  // et une iframe d'un autre site ne se laisse pas inspecter (impossible de savoir si elle a du texte non enregistré).
+  const EDIT_GRACE_MS = 10 * 60 * 1000;
+  const lastTouch = new WeakMap();
+  const touchFrame = frame => { if (frame) lastTouch.set(frame, Date.now()); };
+  function isEditing() {
+    const now = Date.now();
+    for (const frame of bridgedFrames) {
+      if (!frame.isConnected || !frame.__gristBridge) continue;
+      if (global.document && global.document.activeElement === frame) return true;
+      const at = lastTouch.get(frame);
+      if (at && now - at < EDIT_GRACE_MS) return true;
+    }
+    return false;
+  }
+  // Cliquer dans l'iframe fait perdre le focus à cette fenêtre : on note alors que l'utilisateur travaille dans l'iframe.
+  global.addEventListener('blur', () => {
+    setTimeout(() => { const active = global.document && global.document.activeElement; if (active && bridgedFrames.has(active)) touchFrame(active); }, 0);
+  });
+  global.addEventListener('beforeunload', event => {
+    if (!isEditing()) return undefined;
+    event.preventDefault();
+    event.returnValue = ''; // exigé par certains navigateurs pour afficher la confirmation
+    return '';
+  });
   function isBridgedSource(source) {
     for (const frame of bridgedFrames) {
       const win = frame.contentWindow;
@@ -297,6 +327,7 @@
     async function applyUserActions(actions, opts) {
       if (!Array.isArray(actions) || !actions.every(Array.isArray)) throw codedError('RPC_INVALID_ARGS', 'Invalid args: actions doit être un tableau d\'actions');
       const result = await callDocApi('applyUserActions', ...(opts === undefined ? [actions] : [actions, opts]));
+      touchFrame(iframe); // le widget imbriqué écrit dans le document : l'utilisateur est en plein travail
       if (actions.some(action => !ROW_ACTIONS.has(action[0]) || String(action[1]).startsWith('_grist_'))) schemaCache = null;
       if (actions.some(action => action[1] === state.tableId)) scheduleRefresh(); // Grist notifie le widget quand SA table change
       if (typeof config.onWrite === 'function') {
@@ -515,5 +546,5 @@
     return bridge;
   }
 
-  global.GristBridge = { attach, ALLOWED_METHODS, encoding: { isHiddenCol, typeInfoFromColType, reencodeAsAny, reencodeAsTyped } };
+  global.GristBridge = { attach, isEditing, _touch: touchFrame, ALLOWED_METHODS, encoding: { isHiddenCol, typeInfoFromColType, reencodeAsAny, reencodeAsTyped } };
 })(window);

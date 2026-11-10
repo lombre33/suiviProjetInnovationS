@@ -823,12 +823,21 @@
     el.textContent = gfsStatusLabel();
     el.classList.toggle('in-ok', viewer.gfs.phase === 'ready');
   }
-  // GFS (ou publipostage+ dedans) a écrit dans le document : s'il a touché Suivi_Instance (le PDF exporté dans CR_PDF, par
-  // exemple), la page relit ses tables — avec un délai, pour regrouper les écritures rapprochées.
+  // GFS (ou publipostage+ dedans) a écrit dans le document : la page ne relit QUE la colonne qui l'intéresse (CR_PDF : le PDF exporté),
+  // et seulement la table Suivi_Instance, avec un délai pour regrouper les écritures rapprochées. Avant, la moindre écriture de GFS
+  // dans Suivi_Instance (enregistrement automatique pendant la frappe, par exemple) relisait toutes les tables de la page.
+  const touchesCrPdf = actions => actions.some(a => {
+    if (!Array.isArray(a) || a[1] !== 'Suivi_Instance') return false;
+    const fields = a[0] === 'AddRecord' ? a[3] : (a[0] === 'UpdateRecord' || a[0] === 'BulkUpdateRecord' || a[0] === 'BulkAddRecord' ? a[3] : null);
+    return !fields || typeof fields !== 'object' || Object.prototype.hasOwnProperty.call(fields, CR_PDF_COLUMN); // forme inconnue : on relit par prudence
+  });
+  async function reloadSeancesFromGrist() {
+    try { S.raw.Suivi_Instance = await global.CoreGrist.getTable('Suivi_Instance'); rebuild(); render(); } catch (err) { console.warn('Rechargement des séances :', err.message); }
+  }
   function onGfsWrite(actions) {
-    if (!Array.isArray(actions) || !actions.some(a => Array.isArray(a) && a[1] === 'Suivi_Instance')) return;
+    if (!Array.isArray(actions) || !touchesCrPdf(actions)) return;
     clearTimeout(viewer.gfs.reloadTimer);
-    viewer.gfs.reloadTimer = setTimeout(() => { viewer.gfs.reloadTimer = null; reloadFromGrist(); }, 1200);
+    viewer.gfs.reloadTimer = setTimeout(() => { viewer.gfs.reloadTimer = null; reloadSeancesFromGrist(); }, 1200);
   }
   function dropGfs() {
     const g = viewer.gfs;
@@ -1270,7 +1279,7 @@
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
   global.renderInstances = function () { if (S.loaded) { rebuild(); render(); renderNavMenu(); } };
   global.InstancesPage = {
-    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _init: init, _reset() {
+    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre() }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };

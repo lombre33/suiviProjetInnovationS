@@ -340,6 +340,26 @@
       assertEqual(rows[0].Todo_email, 'alice.martin@example.org');
     });
 
+    it('formule d\'Email_utilisateur déjà correcte : le document n\'est PAS modifié à l\'ouverture (pas de ModifyColumn), la sonde lit quand même l\'adresse', async function () {
+      await loadFixtureState();
+      setAliceStructureLabel('Grands Programmes Innovation');
+      window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: [null], Todo_email: [''] });
+      window.__mockSetTable('_grist_Tables', { id: [1], tableId: ['Preferences_Widget'] });
+      window.__mockSetTable('_grist_Tables_column', { id: [1], parentId: [1], colId: ['Email_utilisateur'], type: ['Text'], isFormula: [false], formula: ['user.Email'], description: [''] });
+      cacheRowId(1);
+      window.__TEST_CALLS__.length = 0;
+      const restore = emulateTriggerEmail('alice.martin@example.org');
+      try {
+        await window.loadTodoUserPreferences();
+      } finally {
+        restore();
+        window.__mockSetTable('_grist_Tables', { id: [], tableId: [] });
+        window.__mockSetTable('_grist_Tables_column', { id: [], parentId: [], colId: [], type: [], isFormula: [], formula: [], description: [] });
+      }
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'ModifyColumn').length, 0, 'aucune modification de schéma : la formule était déjà user.Email');
+      assertEqual((await prefsRows())[0].Email_utilisateur, 'alice.martin@example.org', 'l\'adresse est quand même lue par la ligne-sonde');
+    });
+
     it('une valeur illisible n\'est jamais affichée comme adresse : message « n\'a pas pu être lue »', async function () {
       await loadFixtureState();
       window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: [['E', 'CircularRefError', 'Circular reference']], Todo_email: ['E,CircularRefError'] });
