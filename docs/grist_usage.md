@@ -495,3 +495,11 @@ l'iframe) depuis moins de 10 minutes. Limites : un rechargement décidé par Gri
 peut ne pas laisser le temps de la confirmation, certains navigateurs ne l'affichent pas, et le widget ne voit pas ce
 que contient une iframe d'un autre site (il ne peut pas savoir si du texte n'est pas enregistré) : la vraie sécurité
 reste une sauvegarde de brouillon côté GFS.
+
+**Étape Invités : une seule ligne et tri (10/11/2026).** Chaque invité tient toujours sur une seule ligne, quelle que
+soit la largeur (les colonnes s'adaptent à la largeur du cadre ; nom et poste côte à côte, le poste se tronque et se lit
+au survol ; sujets en rang, tous listés au survol ; en dessous d'environ 830 px la page défile horizontalement au lieu de
+replier la ligne). Un clic sur l'en-tête **Personne**, **Réponse** ou **Appel du jour** trie : croissant (A → Z ; viendra
+puis à confirmer puis excusé ; présent puis pas appelé puis absent), puis décroissant, puis retour à l'ordre d'origine
+(invités ajoutés sur un point d'abord) ; à égalité, nom de A à Z. Le tri est retenu par utilisateur
+(`Preferences_Widget.Inst_tri_invites`, auto-créée, valeur `clé:sens`).

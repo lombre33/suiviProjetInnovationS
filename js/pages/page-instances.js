@@ -57,7 +57,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre() }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false }
   };
 
@@ -181,6 +181,7 @@
       if (VARIANTS.indexOf(text(row.Inst_vue)) >= 0) S.prefs.vue = text(row.Inst_vue);
       if (ODJ_VUES.indexOf(text(row.Inst_odj_vue)) >= 0) S.prefs.odjVue = text(row.Inst_odj_vue);
       S.prefs.cadre = parseCadre(text(row.Inst_cadre));
+      S.prefs.invTri = L.GUEST_TRI.test(text(row.Inst_tri_invites)) ? text(row.Inst_tri_invites) : '';
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -190,7 +191,7 @@
     try {
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
-        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre)
+        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -256,7 +257,7 @@
     V.alerts = V.conds.filter(x => x.warn && !x.ok).map(x => x.text);
     if (!V.curDone && prevOpen.length) V.alerts.push('Étapes précédentes à valider : ' + prevOpen.join(', '));
     V.nDone = V.active.filter(x => V.valid(x.key)).length;
-    V.guestOrder = s.guests.slice().sort((a, b) => (a.origine === b.origine ? 0 : (a.origine === 'point' ? -1 : 1)));
+    V.guestOrder = L.sortGuests(s.guests, S.prefs.invTri, g => personOf(m, g.personneId).name);
     V.firstStart = g => L.firstStartOf(V.sched, g.id);
     return V;
   }
@@ -497,6 +498,13 @@
     return h + '</div>';
   }
 
+  // En-tête triable : un clic trie (croissant, décroissant, puis ordre d'origine) ; le choix est retenu par utilisateur.
+  function sortHead(key, label, ascTip, descTip) {
+    const m = L.GUEST_TRI.exec(S.prefs.invTri || ''), on = !!m && m[1] === key, dir = on ? m[2] : '';
+    const tip = 'Trier : ' + (on && dir === 'asc' ? descTip : (on ? 'ordre d\'origine' : ascTip));
+    return '<button type="button" class="hsort ' + (on ? 'on' : '') + '" title="' + esc(tip) + '" aria-label="' + esc(label + ' — ' + tip) + '" ' + da('g-sort', { v: key }) + '>' + esc(label) + (on ? ic(dir === 'asc' ? 'up' : 'chevron', 'xs') : '') + '</button>';
+  }
+
   function invitesHtml(V) {
     const { s, m } = V;
     const nSpecial = s.guests.filter(g => g.origine === 'point').length, nNo = s.guests.filter(g => g.reponse === 'excuse').length;
@@ -512,8 +520,8 @@
         + esc(compoMissing.slice(0, 6).map(pid => L.shortName(personOf(m, pid).name)).join(', ') + (compoMissing.length > 6 ? '…' : '')) + '</span><span class="sp"></span>'
         + '<button type="button" class="pillbtn" title="Ajouter ces personnes comme invités de la liste permanente" ' + da('g-compo-add') + '>' + ic('peopleAdd', 's') + 'Ajouter (' + compoMissing.length + ')</button></div>';
     }
-    h += '<div class="gwrap"><div class="grow head"><div>Personne</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>Réponse</div>'
-      + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>Appel du jour</div><div></div></div>';
+    h += '<div class="gwrap"><div class="grow head"><div>' + sortHead('nom', 'Personne', 'A → Z', 'Z → A') + '</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>' + sortHead('reponse', 'Réponse', 'viendra d\'abord', 'excusés d\'abord') + '</div>'
+      + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>' + sortHead('appel', 'Appel du jour', 'présents d\'abord', 'absents d\'abord') + '</div><div></div></div>';
     V.guestOrder.forEach(g => {
       const person = personOf(m, g.personneId);
       const sujets = V.sched.filter(row => row.p.invites.indexOf(g.id) >= 0).map(row => {
@@ -527,8 +535,9 @@
         const key = 't:' + g.id + ':' + scope;
         return '<div class="rel"><button type="button" class="tp ' + (value ? '' : 'empty') + '" ' + da('menu', { v: key }) + ' aria-label="' + field + '">' + (value || '--:--') + '</button>' + (isOpen(key) ? timeMenu(key, value, 'g-' + scope, g.id, V.startMin, V.endMin, true) : '') + '</div>';
       };
-      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag' : '') + '"><div><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + esc(person.name) + '</div><div class="psub">' + esc(L.cut(person.poste, 48)) + '</div></div>'
-        + '<div class="group col">' + sujets.map(sj => '<span class="tag plain sj ' + (sj.warn ? 'warn' : '') + '" title="' + esc(sj.title) + '">' + sj.time + ' · ' + esc(sj.label) + '</span>').join('') + '</div>'
+      // Une ligne d'invité tient TOUJOURS sur une seule ligne : nom et poste côte à côte (le poste se tronque, texte complet au survol), sujets en rang.
+      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag' : '') + '"><div class="pcell" title="' + esc(person.name + (person.poste ? ' — ' + person.poste : '')) + '"><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + '<span class="pn">' + esc(person.name) + '</span></div><div class="psub">' + esc(person.poste) + '</div></div>'
+        + '<div class="group sjrow" title="' + esc(sujets.map(sj => sj.time + ' · ' + sj.title).join('\n')) + '">' + sujets.map(sj => '<span class="tag plain sj ' + (sj.warn ? 'warn' : '') + '" title="' + esc(sj.title) + '">' + sj.time + ' · ' + esc(sj.label) + '</span>').join('') + '</div>'
         + '<div><button type="button" class="ib ' + (g.ecritLe ? 'on' : '') + '" title="' + esc(ecritTip) + '" aria-label="' + esc(ecritTip) + '" ' + da('g-ecrit', { id: g.id }) + '>' + ic('mail') + '</button></div>'
         + '<div><button type="button" class="ib ' + (hs === 'stale' ? 'warn' : (hs === 'sent' ? 'on' : '')) + '" title="' + esc(horTip) + '" aria-label="' + esc(horTip) + '" ' + (hs === 'none' ? 'disabled ' : '') + da('g-hor', { id: g.id }) + '>' + ic('clock') + '</button></div>'
         + '<div class="seg-i" role="group" aria-label="Réponse à l\'invitation">' + [['attente', 'ask', 'ask', 'À confirmer'], ['viendra', 'check', 'ok', 'Viendra'], ['excuse', 'no', 'no', 'Excusé(e)']].map(r => '<button type="button" class="' + (g.reponse === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-rep', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
@@ -1097,6 +1106,7 @@
       if (st === 'sent') write([upd('Instance_Invites', g.id, { Passage_envoye_le: null, Passage_envoye_heure: '' })]);
       else write([upd('Instance_Invites', g.id, { Passage_envoye_le: gristDay(V.today), Passage_envoye_heure: fs0 })]);
     },
+    'g-sort': el => { S.prefs.invTri = L.nextGuestTri(S.prefs.invTri, el.dataset.v); render(); savePrefs(); },
     'g-rep': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Reponse: C.reponse[el.dataset.v] })]),
     'g-start': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_de: V.s.heure })]),
     'g-end': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_a: L.hhmm(V.endMin) })]),
@@ -1282,7 +1292,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre() }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }

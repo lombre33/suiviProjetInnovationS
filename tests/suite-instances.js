@@ -1355,6 +1355,89 @@
       assertEqual(lastFields('UpdateRecord', 'Instance_Invites', 2).Commentaire, 'En déplacement');
     });
 
+    it('étape Invités : chaque invité tient TOUJOURS sur une seule ligne, de la grande largeur au petit écran (nom + poste côte à côte, sujets en rang, heures vides sans gonfler la ligne)', async function () {
+      await withLayout(async () => {
+        const sujet = (id, ordre, titre) => ({ id, Seance: 2, Ordre: ordre, Titre: titre, Nature: 'Discussion', Duree_min: 10, Projets: ['L'], Invites: ['L', 1], Presentateurs: ['L'], Lien_type: '', Lien: '' });
+        await setup({ rows: d => {
+          d.Instance_Points.push(sujet(5, 4, 'Un sujet au titre vraiment très long pour la place disponible dans la colonne'), sujet(6, 5, 'Deuxième sujet long lui aussi'), sujet(7, 6, 'Troisième'));
+        } });
+        step('invites');
+        for (const w of [1500, 1150, 1000, 940, 900, 860]) {
+          q('.in-gwrap').style.width = w + 'px';
+          await new Promise(r => setTimeout(r, 40));
+          qa('.in-grow').forEach(row => {
+            const box = row.getBoundingClientRect(), name = (row.querySelector('.in-pname') || row).textContent.trim() || 'en-tête';
+            assertTrue(box.height < 52, 'ligne « ' + name + ' » sur une seule ligne à ' + w + ' px (' + Math.round(box.height) + ' px)');
+            const kids = Array.from(row.children).map(c => c.getBoundingClientRect());
+            const centers = kids.map(k => k.top + k.height / 2);
+            assertTrue(Math.max.apply(null, centers) - Math.min.apply(null, centers) <= 6, 'tous les éléments de « ' + name + ' » à la même hauteur à ' + w + ' px');
+            assertTrue(row.scrollWidth <= row.clientWidth + 1, 'rien ne déborde à ' + w + ' px (' + row.scrollWidth + ' > ' + row.clientWidth + ')');
+          });
+        }
+        const alice = row('Alice');
+        assertIncludes(alice.querySelector('.in-pcell').title, 'Alice Martin — ', 'nom et poste complets au survol');
+        assertIncludes(alice.querySelector('.in-sjrow').title, 'Un sujet au titre vraiment très long', 'tous les sujets au survol');
+        assertEqual(alice.querySelectorAll('.in-sj').length, 4, 'les quatre sujets sont là, en rang');
+        // sous ~830 px, la ligne garde sa largeur minimale (la page défile) plutôt que de se replier
+        q('.in-gwrap').style.width = '700px';
+        await new Promise(r => setTimeout(r, 40));
+        assertTrue(alice.getBoundingClientRect().height < 52, 'toujours une seule ligne à 700 px');
+      });
+    });
+
+    it('étape Invités : tri par clic sur les en-têtes Personne / Réponse / Appel du jour (croissant, décroissant, ordre d\'origine), retenu par utilisateur', async function () {
+      // logique pure : présents d'abord en croissant, nom de A à Z à égalité
+      const names = { 1: 'Alice', 2: 'Bob', 3: 'Chloé', 4: 'Dana' };
+      const guests = [
+        { id: 1, personneId: 3, origine: 'permanent', reponse: 'attente', appel: '' }, { id: 2, personneId: 1, origine: 'permanent', reponse: 'excuse', appel: 'absent' },
+        { id: 3, personneId: 2, origine: 'permanent', reponse: 'viendra', appel: 'present' }, { id: 4, personneId: 4, origine: 'point', reponse: 'viendra', appel: '' }
+      ];
+      const nameOf = g => names[g.personneId], order = tri => L.sortGuests(guests, tri, nameOf).map(g => nameOf(g));
+      assertDeepEqual(order(''), ['Dana', 'Chloé', 'Alice', 'Bob'], 'ordre d\'origine : invités ajoutés sur un point d\'abord');
+      assertDeepEqual(order('reponse:asc'), ['Bob', 'Dana', 'Chloé', 'Alice'], 'viendra, puis à confirmer, puis excusé ; A→Z à égalité');
+      assertDeepEqual(order('reponse:desc'), ['Alice', 'Chloé', 'Bob', 'Dana'], 'excusé d\'abord');
+      assertDeepEqual(order('appel:asc'), ['Bob', 'Chloé', 'Dana', 'Alice'], 'présent, pas encore appelé, absent');
+      assertDeepEqual(order('appel:desc'), ['Alice', 'Chloé', 'Dana', 'Bob']);
+      assertDeepEqual(order('nom:asc'), ['Alice', 'Bob', 'Chloé', 'Dana']);
+      assertDeepEqual(order('nom:desc'), ['Dana', 'Chloé', 'Bob', 'Alice']);
+      assertDeepEqual(order('n\'importe quoi'), order(''), 'valeur inconnue : ordre d\'origine');
+      assertEqual(L.nextGuestTri('', 'appel'), 'appel:asc');
+      assertEqual(L.nextGuestTri('appel:asc', 'appel'), 'appel:desc');
+      assertEqual(L.nextGuestTri('appel:desc', 'appel'), '');
+      assertEqual(L.nextGuestTri('appel:desc', 'nom'), 'nom:asc', 'un autre en-tête repart en croissant');
+      // page
+      await setup({ noPrefs: true });
+      await window.loadInstancesUserPreferences();
+      step('invites');
+      const shown = () => qa('.in-grow:not(.in-head) .in-pn').map(n => n.textContent.trim());
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'ordre d\'origine (Chloé, ajoutée sur un point, d\'abord)');
+      click('g-appel', { id: 2, v: 'present' }); // Bob est présent
+      await waitFor(() => !!row('Bob').querySelector('.in-on.in-ok[aria-label="Présent(e)"]'), 'Bob présent');
+      click('g-sort', { v: 'appel' });
+      assertDeepEqual(shown(), ['Bob Durand', 'Alice Martin', 'Chloé Petit'], 'les présents d\'abord');
+      assertTrue(q('.in-hsort.in-on[data-v="appel"]') !== null, 'l\'en-tête trié est mis en évidence');
+      await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_tri_invites === 'appel:asc', 'tri retenu pour l\'utilisateur');
+      click('g-sort', { v: 'appel' });
+      assertDeepEqual(shown(), ['Alice Martin', 'Chloé Petit', 'Bob Durand'], 'les absents / non appelés d\'abord');
+      click('g-sort', { v: 'appel' });
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'retour à l\'ordre d\'origine');
+      click('g-sort', { v: 'reponse' });
+      assertDeepEqual(shown(), ['Alice Martin', 'Bob Durand', 'Chloé Petit'], 'Alice viendra ; Bob et Chloé à confirmer');
+      // restauré à la réouverture ; valeur inconnue = ordre d'origine
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_tri_invites: 'reponse:asc' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      step('invites');
+      assertDeepEqual(shown(), ['Alice Martin', 'Bob Durand', 'Chloé Petit'], 'tri restauré');
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_tri_invites: 'n\'importe quoi' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      step('invites');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'valeur inconnue : ordre d\'origine');
+    });
+
     it('ajouter une personne (invitée « sur un point ») et la retirer ; un invité repris de la liste permanente se retire aussi, de cette séance seulement', async function () {
       await setup();
       step('invites');

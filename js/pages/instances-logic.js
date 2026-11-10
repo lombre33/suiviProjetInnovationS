@@ -358,11 +358,36 @@
     return result;
   }
 
+  // --- Tri des invités (étape Invités) : clic sur l'en-tête Personne / Réponse / Appel du jour ---
+  // `tri` = 'clé:sens' avec clé nom | reponse | appel et sens asc | desc ; vide = ordre d'origine (invités ajoutés sur un point d'abord).
+  // Réponse en croissant : viendra, à confirmer, excusé ; appel en croissant : présent, pas encore appelé, absent (donc « présents d'abord »).
+  // À égalité, nom de A à Z (quel que soit le sens).
+  const GUEST_TRI = /^(nom|reponse|appel):(asc|desc)$/;
+  const GUEST_RANK = { reponse: { viendra: 0, attente: 1, excuse: 2 }, appel: { present: 0, '': 1, absent: 2 } };
+  function sortGuests(guests, tri, nameOf) {
+    const base = guests.map((g, i) => ({ g, i })).sort((a, b) => (a.g.origine === b.g.origine ? a.i - b.i : (a.g.origine === 'point' ? -1 : 1)));
+    const m = GUEST_TRI.exec(tri || '');
+    if (!m) return base.map(x => x.g);
+    const key = m[1], sign = m[2] === 'desc' ? -1 : 1;
+    const byName = (x, y) => String(nameOf(x.g)).localeCompare(String(nameOf(y.g)), 'fr', { sensitivity: 'base' });
+    const rank = x => { const r = GUEST_RANK[key][key === 'reponse' ? x.g.reponse : (x.g.appel || '')]; return r === undefined ? 1 : r; };
+    return base.sort((x, y) => {
+      if (key === 'nom') return sign * byName(x, y) || x.i - y.i;
+      return sign * (rank(x) - rank(y)) || byName(x, y) || x.i - y.i;
+    }).map(x => x.g);
+  }
+  // Clic sur un en-tête : croissant, puis décroissant, puis retour à l'ordre d'origine ; un autre en-tête repart en croissant.
+  function nextGuestTri(current, key) {
+    const m = GUEST_TRI.exec(current || '');
+    if (!m || m[1] !== key) return key + ':asc';
+    return m[2] === 'asc' ? key + ':desc' : '';
+  }
+
   // Recherche dans un menu : `hay` et `query` déjà passés par normName ; chaque mot de la recherche doit figurer dans le texte.
   const matchesSearch = (hay, query) => String(query || '').split(' ').every(word => !word || String(hay).indexOf(word) >= 0);
 
   const api = {
-    findCompositionTable, detectComposition, matchesSearch,
+    findCompositionTable, detectComposition, matchesSearch, sortGuests, nextGuestTri, GUEST_TRI,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,
