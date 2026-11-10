@@ -428,6 +428,29 @@ colonnes à créer à la main ; les cartes restent utilisables sans.
 `nom_et_Prenom` pour une lecture lisible dans Grist (le widget résout lui-même les noms depuis
 `Annuaire`). La future page To Do filtre sur cette colonne.
 
+### 8. Onglet Conventions : sous-étapes du statut de l'UB (10 novembre 2026)
+
+Sous la pastille de statut de **l'UB uniquement** (jamais sous un partenaire), de petites pastilles
+datées suivent l'avancement fin de la relecture puis de la signature. Elles apparaissent selon le statut
+de l'UB : « Relu » → *V1 disponible* et *Relu par Hélène & Antoine* ; « en cours de signature » →
+*Demande de visa* et *Parapheur envoyé* ; « Non relu » et « Signé » → aucune. Une pastille est grise et
+pointillée sans date, bleue avec « jj/mm » une fois datée ; un clic ouvre le même popover de date que la
+transmission au porteur (mêmes règles de saisie). Une sous-étape ne change jamais le statut ni le volet :
+seule la pastille de statut le fait, et les dates déjà saisies restent quand on change de statut.
+
+Quatre colonnes **Date** sont créées par le widget au premier lancement qui suit la mise à jour (dans
+`Projets`, avec une description pour les bulles d'aide ; jamais des formules) :
+
+| Colonne | Sous-étape | Visible quand le statut de l'UB est |
+| --- | --- | --- |
+| `Projets.convention_UB_v1_le` | V1 disponible | Relu |
+| `Projets.convention_UB_relu_le` | Relu par Hélène & Antoine (une seule date) | Relu |
+| `Projets.convention_UB_visa_le` | Demande de visa | en cours de signature |
+| `Projets.convention_UB_parapheur_le` | Parapheur envoyé | en cours de signature |
+
+Comme pour les autres colonnes de cet onglet, une colonne déjà présente dans `Projets` ou `Notifications`
+n'est pas recréée ; si le schéma n'est pas modifiable, le message de démarrage les liste.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies

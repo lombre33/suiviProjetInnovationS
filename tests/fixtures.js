@@ -181,6 +181,11 @@
       Transmise_signee_au_porteur_papier_le: [null, null, null, null, null, null, null],
       next_step_responsable: [['L'], ['L'], ['L'], ['L'], ['L'], ['L'], ['L']],
       convention_Date_derniere_modification: [null, null, null, null, null, null, null],
+      // Ajoutées le 10/11/2026 : sous-étapes du statut de l'UB (une date par sous-étape).
+      convention_UB_v1_le: [null, null, null, null, null, null, null],
+      convention_UB_relu_le: [null, null, null, null, null, null, null],
+      convention_UB_visa_le: [null, null, null, null, null, null, null],
+      convention_UB_parapheur_le: [null, null, null, null, null, null, null],
       Description_rapide_projet: ['', '', '', '', '', '', '']
     },
     // Table séparée (grist_structure : Notifications.Projet = Reference('Projets')),

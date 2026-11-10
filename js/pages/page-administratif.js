@@ -51,6 +51,27 @@
   // « Dernière action » : colonne Date qui existait déjà dans Projets
   // (docs/grist_structure), jamais utilisée jusqu'ici par le widget.
   const LAST_ACTION_FIELD = 'convention_Date_derniere_modification';
+  // Sous-étapes du statut de l'UB uniquement (demande du 10/11/2026, variante « pastilles
+  // sous le statut » de la maquette) : selon le statut de signature de l'UB, une ou deux
+  // dates à renseigner sous sa pastille. Relu → relecture ; en cours de signature →
+  // signature. Les autres établissements n'ont pas de sous-étape. Une colonne Date par
+  // sous-étape, créée par le widget (CONV_NEW_COLUMNS).
+  const UB_STATUS_FIELD = 'convention_statut_UB';
+  const UB_STEPS = {
+    1: { phase: 'Relecture', steps: [
+      { key: 'v1', column: 'convention_UB_v1_le', short: 'V1', label: 'V1 disponible',
+        description: 'Date à laquelle la V1 de la convention est disponible pour la relecture de l\'UB. Sous-étape du statut UB (page Administratif, onglet Conventions).' },
+      { key: 'relu', column: 'convention_UB_relu_le', short: 'Relu H. & A.', label: 'Relu par Hélène & Antoine',
+        description: 'Date à laquelle la convention a été relue par Hélène et Antoine. Sous-étape du statut UB (page Administratif, onglet Conventions).' }
+    ] },
+    2: { phase: 'Signature', steps: [
+      { key: 'visa', column: 'convention_UB_visa_le', short: 'Visa', label: 'Demande de visa',
+        description: 'Date de la demande de visa pour la signature de la convention par l\'UB. Sous-étape du statut UB (page Administratif, onglet Conventions).' },
+      { key: 'parapheur', column: 'convention_UB_parapheur_le', short: 'Parapheur', label: 'Parapheur envoyé',
+        description: 'Date d\'envoi de la convention dans le parapheur pour signature de l\'UB. Sous-étape du statut UB (page Administratif, onglet Conventions).' }
+    ] }
+  };
+  const UB_STEP_LIST = Object.values(UB_STEPS).flatMap(phase => phase.steps);
   // Colonnes que le widget crée lui-même au premier lancement si elles manquent
   // (ensureAdministratifColumns). Seules les colonnes réellement neuves : créer une
   // colonne déjà présente côté Notifications masquerait les valeurs existantes.
@@ -58,7 +79,8 @@
     { id: NEXT_STEP_RESP_FIELD, type: 'RefList:Annuaire', isFormula: false,
       description: 'Personnes (Annuaire) qui doivent réaliser la prochaine étape de la convention. Renseignée depuis la page Administratif du widget ; sert aussi à la page To Do.' },
     { id: TRANSMISE_PAPER_FIELD, type: 'Date', isFormula: false,
-      description: 'Date à laquelle la convention signée a été transmise au porteur par courrier papier. Son équivalent par e-mail est Transmise_signee_au_porteur_le.' }
+      description: 'Date à laquelle la convention signée a été transmise au porteur par courrier papier. Son équivalent par e-mail est Transmise_signee_au_porteur_le.' },
+    ...UB_STEP_LIST.map(step => ({ id: step.column, type: 'Date', isFormula: false, description: step.description }))
   ];
   // Date de début du projet (Projets.Date_debut_Projet, Date Grist = secondes
   // epoch à minuit UTC) affichée en lecture seule sur chaque carte, colorée selon
@@ -107,7 +129,15 @@
   const ICON_LINK_ADD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
   const ICON_MAIL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"></rect><polyline points="3 7 12 13.5 21 7"></polyline></svg>';
   const ICON_PAPER = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 2.5 14 8 19 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>';
-  const ICON_USER_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><line x1="19" y1="7" x2="19" y2="13"></line><line x1="16" y1="10" x2="22" y2="10"></line></svg>';
+  // Une icône par sous-étape de l'UB (fichier, œil, coche cerclée, avion en papier), 11 px.
+  const stepSvg = body => `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  const STEP_ICONS = {
+    v1: stepSvg('<path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 2.5 14 8 19 8"></polyline>'),
+    relu: stepSvg('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle>'),
+    visa: stepSvg('<circle cx="12" cy="12" r="9"></circle><path d="M8 12.5l2.7 2.7L16 9.8"></path>'),
+    parapheur: stepSvg('<path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path>')
+  };
+  const ICON_USER_PLUS ='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><line x1="19" y1="7" x2="19" y2="13"></line><line x1="16" y1="10" x2="22" y2="10"></line></svg>';
   const ICON_VIEW_ROWS ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>';
 
   const text = value => value == null ? '' : String(value);
@@ -248,7 +278,7 @@
 
   function partnersFor(project) {
     const etabs = referencedIds(project.Partenaire_s_convention_reversement).map(id => rowById('Etablissements', id)).filter(Boolean);
-    const defs = [{ label: 'UB', field: 'convention_statut_UB' }];
+    const defs = [{ label: 'UB', field: UB_STATUS_FIELD }];
     if (etabs[0]) defs.push({ label: text(etabs[0].Acronyme || etabs[0].Nom_complet), field: 'convention_statut_partenaire_1' });
     if (etabs[1]) defs.push({ label: text(etabs[1].Acronyme || etabs[1].Nom_complet), field: 'convention_statut_partenaire_2' });
     return defs.map(def => ({ ...def, statusIndex: partnerStatusIndex(project, def.field) }));
@@ -664,27 +694,40 @@
   }
   const refreshTransmitCell = project => replaceCell('data-transmit-cell', project, signedCell(project));
   const refreshTagsCell = project => replaceCell('data-tags-cell', project, tagsCell(project));
+  const refreshStepsCell = project => replaceCell('data-steps-cell', project, stepsCell(project));
 
   const TRANSMIT_KINDS = {
     mail: { column: TRANSMISE_MAIL_FIELD, channel: 'par e-mail', icon: ICON_MAIL },
     paper: { column: TRANSMISE_PAPER_FIELD, channel: 'sur papier', icon: ICON_PAPER }
   };
-  function openDatePopover(anchor, project, kind) {
+  // Popover de date partagé : transmission au porteur (e-mail, papier) et sous-étapes de l'UB.
+  // `spec` : { column, label (libellé du champ), aria, errorLabel, refresh(project), help? }.
+  const transmitSpec = kind => {
     const { column, channel } = TRANSMIT_KINDS[kind];
+    return { column, label: `Transmise ${channel} le`, aria: `Date de transmission ${channel}`, errorLabel: 'de la date de transmission', refresh: refreshTransmitCell };
+  };
+  const stepSpec = step => ({
+    column: step.column, label: step.label, aria: `Date : ${step.label}`, errorLabel: `de la date « ${step.label} »`, refresh: refreshStepsCell,
+    help: true
+  });
+  const STEP_BY_KIND = Object.fromEntries(UB_STEP_LIST.map(step => [`step-${step.key}`, step]));
+  function openDatePopover(anchor, project, kind, spec) {
+    const { column } = spec;
     const iso = CoreUtils.gristDateToInput(readField(project, column));
-    const html = `<div class="admin-pop-date"><span class="admin-field-label">Transmise ${channel} le</span>` +
-      `<input type="date" class="admin-pop-date-input" value="${escape(iso)}" aria-label="Date de transmission ${channel}">` +
+    const help = spec.help ? (window.HelpTooltip?.markup(homeRowFor(project, column).table, column) || '') : '';
+    const html = `<div class="admin-pop-date"><span class="admin-field-label">${escape(spec.label)}${help}</span>` +
+      `<input type="date" class="admin-pop-date-input" value="${escape(iso)}" aria-label="${escape(spec.aria)}">` +
       `<div class="admin-pop-actions"><button type="button" class="admin-pop-btn" data-pop-today>Aujourd'hui</button>` +
       `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div></div>`;
-    openPopover(anchor, `${kind}:${project.id}`, `Date de transmission ${channel}`, html, el => {
+    openPopover(anchor, `${kind}:${project.id}`, spec.aria, html, el => {
       const input = el.querySelector('input');
       let typed = false, pending = null;
       const save = async value => {
         pending = null;
         if (popover.el === el) popover.flush = null;
-        const saved = await saveDateColumn(project, column, value, 'de la date de transmission');
+        const saved = await saveDateColumn(project, column, value, spec.errorLabel);
         if (saved === null) return false; // saisie partielle : on laisse finir de taper
-        refreshTransmitCell(project);
+        spec.refresh(project);
         return true;
       };
       // Ne referme que CE popover : une réponse tardive de Grist ne doit pas fermer celui
@@ -846,6 +889,27 @@
       `</button>`;
   }
 
+  // Sous-étapes de l'UB : une petite pastille par sous-étape sous son statut (grise et
+  // pointillée sans date, bleue avec la date « jj/mm » une fois faite) ; un clic ouvre la date.
+  function ubStepsFor(project) {
+    const ub = partnersFor(project).find(partner => partner.field === UB_STATUS_FIELD);
+    return ub ? UB_STEPS[ub.statusIndex] || null : null;
+  }
+  function stepsCell(project) {
+    const phase = ubStepsFor(project);
+    if (!phase) return '';
+    const id = escape(project.id);
+    return `<div class="admin-steps" data-steps-cell="${id}" role="group" aria-label="Sous-étapes de l'UB : ${escape(phase.phase.toLowerCase())}">` +
+      phase.steps.map(step => {
+        const iso = CoreUtils.gristDateToInput(readField(project, step.column));
+        const state = iso ? `${step.label} le ${frDate(iso)}` : `${step.label} : pas encore fait`;
+        return `<button type="button" class="admin-step${iso ? ' is-set' : ''}" data-pop-anchor="step-${step.key}:${id}" aria-haspopup="dialog" title="${escape(state)}" aria-label="${escape(`UB — ${state} — cliquer pour modifier`)}">` +
+          `${STEP_ICONS[step.key]}<span class="admin-step-label">${escape(step.short)}</span>${iso ? `<span class="admin-step-date">${escape(frDate(iso).slice(0, 5))}</span>` : ''}</button>`;
+      }).join('') + '</div>';
+  }
+  const partnerCell = (project, partner) =>
+    `<div class="admin-partner-col">${partnerPill(project, partner)}${partner.field === UB_STATUS_FIELD ? stepsCell(project) : ''}</div>`;
+
   function commentBlock(project) {
     return `<label class="admin-comment"><span class="visually-hidden">Commentaire libre</span>` +
       `<textarea data-comment-project="${escape(project.id)}" rows="${viewMode === 'rows' ? 2 : 3}" placeholder="Commentaire libre…">${escape(project.comentaire_general_Suivi_projet)}</textarea></label>`;
@@ -946,7 +1010,7 @@
       `<span class="admin-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span>${startDateChip(project, 'conv', isLast)}</button>` +
-      `<div class="admin-partners">${partners.map(p => partnerPill(project, p)).join('')}</div>` +
+      `<div class="admin-partners">${partners.map(p => partnerCell(project, p)).join('')}</div>` +
       `<div class="admin-notes"><div class="admin-notes-line">${commentBlock(project)}${lastActionBlock(project)}</div>` +
       `<div class="admin-notes-line admin-notes-next">${nextStepBlock(project)}${tagsCell(project)}</div></div>` +
       linkCell(project) +
@@ -1260,7 +1324,8 @@
         const owner = projectById(projectId);
         if (!owner) return;
         if (kind === 'people') openPeoplePopover(anchor, owner);
-        else if (TRANSMIT_KINDS[kind]) openDatePopover(anchor, owner, kind);
+        else if (TRANSMIT_KINDS[kind]) openDatePopover(anchor, owner, kind, transmitSpec(kind));
+        else if (STEP_BY_KIND[kind]) openDatePopover(anchor, owner, kind, stepSpec(STEP_BY_KIND[kind]));
         return;
       }
       const untag = closest(event, '[data-untag]');

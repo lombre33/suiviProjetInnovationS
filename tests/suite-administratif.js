@@ -1067,7 +1067,8 @@
   });
 
   describe('Administratif — Conventions : colonnes créées par le widget au premier lancement', function () {
-    const NEW = ['next_step_responsable', 'Transmise_signee_au_porteur_papier_le'];
+    const UB_COLUMNS = ['convention_UB_v1_le', 'convention_UB_relu_le', 'convention_UB_visa_le', 'convention_UB_parapheur_le'];
+    const NEW = ['next_step_responsable', 'Transmise_signee_au_porteur_papier_le', ...UB_COLUMNS];
     const addColumns = () => window.__TEST_CALLS__.filter(c => c.type === 'AddColumn');
     async function withoutColumns(names, { inNotifications } = {}) {
       const projets = JSON.parse(JSON.stringify(window.__FIXTURES__.Projets));
@@ -1081,15 +1082,16 @@
       await window.CoreGrist.ready();
     }
 
-    it('crée les deux colonnes neuves dans Projets : référence multiple vers Annuaire et date, jamais des formules', async function () {
+    it('crée les colonnes neuves dans Projets (responsables, date papier, 4 sous-étapes UB) : référence multiple vers Annuaire et dates, jamais des formules', async function () {
       await withoutColumns(NEW);
       assertTrue(await window.ensureAdministratifColumns(), 'a créé des colonnes');
       const added = addColumns();
-      assertEqual(added.length, 2);
+      assertEqual(added.length, 6);
       assertTrue(added.every(c => c.table === 'Projets'));
       const byId = Object.fromEntries(added.map(c => [c.colId, c.colInfo]));
       assertEqual(byId.next_step_responsable.type, 'RefList:Annuaire');
       assertEqual(byId.Transmise_signee_au_porteur_papier_le.type, 'Date');
+      UB_COLUMNS.forEach(name => assertEqual(byId[name].type, 'Date', `${name} : une date`));
       added.forEach(c => assertFalse(c.colInfo.isFormula, `${c.colId} : donnée, pas formule`));
       added.forEach(c => assertFalse('description' in c.colInfo, 'la description n\'est pas passée à AddColumn'));
     });
@@ -1099,7 +1101,7 @@
       assertEqual(addColumns().length, 0);
       await withoutColumns(NEW, { inNotifications: ['next_step_responsable'] });
       await window.ensureAdministratifColumns();
-      assertEqual(addColumns().map(c => c.colId).join(), 'Transmise_signee_au_porteur_papier_le', 'seule la colonne vraiment absente est créée');
+      assertEqual(addColumns().map(c => c.colId).join(), ['Transmise_signee_au_porteur_papier_le', ...UB_COLUMNS].join(), 'seules les colonnes vraiment absentes sont créées');
     });
 
     it('pose la description des colonnes créées dans les métadonnées Grist, pour alimenter les bulles d\'aide', async function () {
@@ -1108,7 +1110,7 @@
       window.__mockSetTable('_grist_Tables_column', { id: [1], parentId: [1], colId: ['Acronyme'], description: [''] });
       await window.ensureAdministratifColumns();
       const described = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === '_grist_Tables_column');
-      assertEqual(described.length, 2, 'une description par colonne créée');
+      assertEqual(described.length, NEW.length, 'une description par colonne créée');
       assertTrue(described.every(c => c.fields.description.length > 30), 'descriptions explicites');
       await window.CoreGrist.loadColumnDescriptions();
       assertTrue(window.CoreGrist.getColumnDescription('Projets', 'next_step_responsable').length > 0, 'la bulle d\'aide peut la lire');
@@ -1142,6 +1144,259 @@
       const open = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
       assertTrue(!!open.querySelector('.admin-lastaction .help-icon'), 'icône sur « Dernière action »');
       assertTrue(!!lastStageCard('SIGNEX').querySelector('.admin-transmit .help-icon'), 'icône sur « Transmise au porteur le »');
+    });
+  });
+
+  // ── Sous-étapes du statut de l'UB (relecture : V1, relu ; signature : visa, parapheur) ──
+  describe('Administratif — Conventions : sous-étapes du statut de l\'UB (pastilles datées sous la pastille UB)', function () {
+    const STEP_COLUMNS = { v1: 'convention_UB_v1_le', relu: 'convention_UB_relu_le', visa: 'convention_UB_visa_le', parapheur: 'convention_UB_parapheur_le' };
+    const anyCard = acronym => Array.from(document.querySelectorAll('#admin-col-conv .admin-card'))
+      .find(card => card.querySelector('.admin-card-identity .project-acronym')?.textContent === acronym);
+    const ubPill = card => card.querySelectorAll('.admin-partner-pill')[0];
+    const stepBtn = (card, key) => card.querySelector(`[data-pop-anchor^="step-${key}:"]`);
+    const stepKeys = card => Array.from(card.querySelectorAll('.admin-step')).map(btn => btn.dataset.popAnchor.split(':')[0].replace('step-', ''));
+    const projectIdOf = btn => btn.dataset.popAnchor.split(':')[1];
+    const stepWrites = key => projectWrites(STEP_COLUMNS[key]);
+    async function withProject(acronym, changes, mutateTables) {
+      const tables = await loadTables();
+      Object.assign(tables.Projets.find(p => p.Acronyme === acronym), changes);
+      if (mutateTables) mutateTables(tables);
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+    }
+    const withUb = (acronym, ub, extra = {}) => withProject(acronym, { convention_statut_UB: ub, ...extra });
+    const typeKey = (input, key) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+    it('« Relu » affiche V1 disponible puis Relu par Hélène & Antoine, sous la pastille UB seulement (pas sous les partenaires)', async function () {
+      await loadFixtureState(); // CONVENTIX : UB « Relu », deux partenaires
+      const card = anyCard('CONVENTIX');
+      assertEqual(card.querySelectorAll('.admin-steps').length, 1, 'un seul groupe de sous-étapes par projet');
+      const columns = card.querySelectorAll('.admin-partner-col');
+      assertEqual(columns.length, 3, 'UB + 2 partenaires');
+      assertTrue(!!columns[0].querySelector('.admin-steps'), 'sous la pastille UB');
+      assertFalse(!!columns[1].querySelector('.admin-steps'), 'rien sous le partenaire 1');
+      assertFalse(!!columns[2].querySelector('.admin-steps'), 'rien sous le partenaire 2');
+      assertTrue(columns[0].querySelector('.admin-steps').previousElementSibling === ubPill(card), 'juste sous la pastille de statut');
+      assertDeepEqual(stepKeys(card), ['v1', 'relu']);
+      assertEqual(stepBtn(card, 'v1').querySelector('.admin-step-label').textContent, 'V1');
+      assertEqual(stepBtn(card, 'relu').querySelector('.admin-step-label').textContent, 'Relu H. & A.');
+      assertIncludes(stepBtn(card, 'v1').title, 'V1 disponible');
+      assertIncludes(stepBtn(card, 'relu').title, 'Relu par Hélène & Antoine');
+      assertEqual(card.querySelector('.admin-steps').getAttribute('role'), 'group');
+      assertIncludes(card.querySelector('.admin-steps').getAttribute('aria-label'), 'relecture');
+    });
+
+    it('« en cours de signature » affiche Demande de visa puis Parapheur envoyé ; « Non relu » et « Signé » n\'affichent rien', async function () {
+      await withUb('INNOVX', 'en cours de signature');
+      assertDeepEqual(stepKeys(anyCard('INNOVX')), ['visa', 'parapheur']);
+      assertIncludes(stepBtn(anyCard('INNOVX'), 'visa').title, 'Demande de visa');
+      assertIncludes(stepBtn(anyCard('INNOVX'), 'parapheur').title, 'Parapheur envoyé');
+      assertIncludes(anyCard('INNOVX').querySelector('.admin-steps').getAttribute('aria-label'), 'signature');
+      await withUb('INNOVX', 'Non relu');
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step').length, 0, 'Non relu : aucune sous-étape');
+      await withUb('INNOVX', null);
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step').length, 0, 'statut vide (= Non relu) : aucune sous-étape');
+      await withUb('INNOVX', 'Signé');
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step').length, 0, 'Signé : aucune sous-étape');
+      await withUb('INNOVX', 'Relu');
+      assertDeepEqual(stepKeys(anyCard('INNOVX')), ['v1', 'relu']);
+    });
+
+    it('le statut d\'un partenaire ne fait jamais apparaître de sous-étape (seul l\'UB en a)', async function () {
+      await withProject('CONVENTIX', { convention_statut_UB: 'Non relu', convention_statut_partenaire_1: 'Relu', convention_statut_partenaire_2: 'en cours de signature' });
+      assertEqual(anyCard('CONVENTIX').querySelectorAll('.admin-steps, .admin-step').length, 0);
+    });
+
+    it('grise et pointillée sans date ; bleue avec la date « jj/mm » une fois faite, chaque sous-étape indépendante', async function () {
+      await withUb('CONVENTIX', 'Relu', { convention_UB_v1_le: epochOf('2026-11-04') });
+      const card = anyCard('CONVENTIX');
+      assertTrue(stepBtn(card, 'v1').classList.contains('is-set'));
+      assertEqual(stepBtn(card, 'v1').querySelector('.admin-step-date').textContent, '04/11');
+      assertIncludes(stepBtn(card, 'v1').title, 'le 04/11/2026');
+      assertIncludes(stepBtn(card, 'v1').getAttribute('aria-label'), '04/11/2026');
+      assertFalse(stepBtn(card, 'relu').classList.contains('is-set'), 'l\'autre sous-étape reste grise');
+      assertFalse(!!stepBtn(card, 'relu').querySelector('.admin-step-date'), 'pas de date affichée sans date');
+      assertIncludes(stepBtn(card, 'relu').title, 'pas encore fait');
+    });
+
+    it('les dates des sous-étapes de l\'autre phase ne s\'affichent pas (visa/parapheur sous « Relu »)', async function () {
+      await withUb('CONVENTIX', 'Relu', { convention_UB_visa_le: epochOf('2026-11-06'), convention_UB_parapheur_le: epochOf('2026-11-07') });
+      assertDeepEqual(stepKeys(anyCard('CONVENTIX')), ['v1', 'relu']);
+      assertEqual(anyCard('CONVENTIX').querySelectorAll('.admin-step.is-set').length, 0);
+    });
+
+    it('les sous-étapes sont aussi sous la pastille UB en vue « cartes »', async function () {
+      await loadFixtureState();
+      document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      try {
+        assertTrue(document.querySelector('#admin-col-conv .admin-panel-body').classList.contains('mode-cards'));
+        assertDeepEqual(stepKeys(anyCard('CONVENTIX')), ['v1', 'relu']);
+      } finally { document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+    });
+
+    it('un clic sur une sous-étape ouvre sa date (avec son libellé) ; choisir une date l\'écrit dans SA colonne de Projets, à minuit UTC, et bleuit la pastille sans toucher aux statuts', async function () {
+      await withUb('CONVENTIX', 'Relu');
+      const btn = stepBtn(anyCard('CONVENTIX'), 'v1');
+      fireMouse(btn, 'click');
+      assertTrue(!!popoverEl(), 'le popover de date s\'ouvre');
+      assertIncludes(popoverEl().querySelector('.admin-field-label').textContent, 'V1 disponible');
+      assertFalse(!!popoverEl().querySelector('[data-pop-clear]'), 'rien à effacer sans date');
+      assertTrue(popoverEl().querySelector('.admin-pop-date-input').getAttribute('aria-label').includes('V1 disponible'));
+      await pickDate('2026-11-05');
+      const writes = stepWrites('v1');
+      assertEqual(writes.length, 1);
+      assertEqual(writes[0].table, 'Projets');
+      assertEqual(String(writes[0].id), projectIdOf(btn));
+      assertDeepEqual(writes[0].fields, { convention_UB_v1_le: epochOf('2026-11-05') }, 'seule la colonne de la sous-étape est écrite');
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && ('convention_statut_UB' in c.fields || 'Conventions_statut' in c.fields)).length, 0, 'le statut et l\'étape ne bougent pas');
+      assertFalse(!!popoverEl(), 'le popover se referme une fois la date enregistrée');
+      const after = stepBtn(anyCard('CONVENTIX'), 'v1');
+      assertTrue(after.classList.contains('is-set'));
+      assertEqual(after.querySelector('.admin-step-date').textContent, '05/11');
+      assertFalse(stepBtn(anyCard('CONVENTIX'), 'relu').classList.contains('is-set'));
+    });
+
+    it('chacune des quatre sous-étapes écrit sa propre colonne', async function () {
+      for (const [ub, key] of [['Relu', 'relu'], ['en cours de signature', 'visa'], ['en cours de signature', 'parapheur']]) {
+        await withUb('INNOVX', ub);
+        fireMouse(stepBtn(anyCard('INNOVX'), key), 'click');
+        assertIncludes(popoverEl().querySelector('.admin-field-label').textContent, { relu: 'Relu par Hélène & Antoine', visa: 'Demande de visa', parapheur: 'Parapheur envoyé' }[key]);
+        await pickDate('2026-11-09');
+        assertEqual(stepWrites(key).length, 1, `${key} : une écriture`);
+        assertEqual(stepWrites(key)[0].fields[STEP_COLUMNS[key]], epochOf('2026-11-09'));
+        Object.keys(STEP_COLUMNS).filter(other => other !== key).forEach(other => assertEqual(stepWrites(other).length, 0, `${key} n'écrit pas ${other}`));
+        window.__TEST_CALLS__.length = 0;
+      }
+    });
+
+    it('« Aujourd\'hui » enregistre le jour local ; « Effacer » (proposé seulement s\'il y a une date) vide la colonne et regrise la pastille', async function () {
+      await withUb('CONVENTIX', 'Relu');
+      await withClock(new Date(2026, 10, 10, 23, 50), async () => {
+        fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
+        fireMouse(popoverEl().querySelector('[data-pop-today]'), 'click');
+        await wait(0);
+      });
+      assertEqual(stepWrites('relu')[0].fields.convention_UB_relu_le, epochOf('2026-11-10'));
+      assertEqual(stepBtn(anyCard('CONVENTIX'), 'relu').querySelector('.admin-step-date').textContent, '10/11');
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
+      assertEqual(popoverEl().querySelector('.admin-pop-date-input').value, '2026-11-10', 'le popover reprend la date enregistrée');
+      fireMouse(popoverEl().querySelector('[data-pop-clear]'), 'click');
+      await wait(0);
+      assertEqual(stepWrites('relu')[1].fields.convention_UB_relu_le, null);
+      assertFalse(stepBtn(anyCard('CONVENTIX'), 'relu').classList.contains('is-set'), 'pastille de nouveau grise');
+    });
+
+    it('n\'enregistre rien tant que la saisie au clavier n\'est pas validée (Entrée) et n\'enregistre que la date complète ; Échap l\'abandonne', async function () {
+      await withUb('CONVENTIX', 'Relu');
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'v1'), 'click');
+      const input = popoverEl().querySelector('.admin-pop-date-input');
+      typeKey(input, '1'); setValue(input, '2026-11-01'); fire(input, 'change');
+      await wait(0);
+      assertEqual(stepWrites('v1').length, 0, 'segment intermédiaire non écrit');
+      assertTrue(!!popoverEl());
+      typeKey(input, '5'); setValue(input, '2026-11-15'); fire(input, 'change');
+      fireKey(input, 'Enter');
+      await wait(0);
+      assertEqual(stepWrites('v1').length, 1);
+      assertEqual(stepWrites('v1')[0].fields.convention_UB_v1_le, epochOf('2026-11-15'));
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
+      typeKey(popoverEl().querySelector('.admin-pop-date-input'), '9');
+      setValue(popoverEl().querySelector('.admin-pop-date-input'), '2026-11-19'); fire(popoverEl().querySelector('.admin-pop-date-input'), 'change');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait(0);
+      assertEqual(stepWrites('relu').length, 0, 'Échap abandonne la saisie');
+    });
+
+    it('n\'actualise que la zone des sous-étapes : ni la pastille UB, ni la carte, ni un brouillon de commentaire ne sont réécrits', async function () {
+      await withUb('CONVENTIX', 'Relu');
+      const card = anyCard('CONVENTIX'), pill = ubPill(card), steps = card.querySelector('.admin-steps');
+      const draft = card.querySelector('[data-comment-project]');
+      draft.value = 'brouillon pas encore enregistré';
+      fireMouse(stepBtn(card, 'v1'), 'click');
+      await pickDate('2026-11-05');
+      assertTrue(anyCard('CONVENTIX') === card, 'la carte n\'est pas reconstruite');
+      assertTrue(ubPill(anyCard('CONVENTIX')) === pill && pill.isConnected, 'la pastille UB est la même');
+      assertTrue(card.querySelector('.admin-steps') !== steps, 'seule la zone des sous-étapes est remplacée');
+      assertEqual(card.querySelector('[data-comment-project]').value, 'brouillon pas encore enregistré');
+    });
+
+    it('les bulles d\'aide : l\'icône « ? » du popover n\'apparaît que si la colonne a une description dans Grist', async function () {
+      window.__mockSetTable('_grist_Tables', { id: [1], tableId: ['Projets'] });
+      window.__mockSetTable('_grist_Tables_column', { id: [1], parentId: [1], colId: ['convention_UB_v1_le'], description: ['Date à laquelle la V1 a été mise à disposition'] });
+      await window.CoreGrist.loadColumnDescriptions();
+      await withUb('CONVENTIX', 'Relu');
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'v1'), 'click');
+      const icon = popoverEl().querySelector('.admin-field-label .help-icon');
+      assertTrue(!!icon, 'icône d\'aide sur le libellé du popover');
+      assertIncludes(icon.getAttribute('data-help-text'), 'V1 a été mise à disposition');
+      closePopover();
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
+      assertFalse(!!popoverEl().querySelector('.help-icon'), 'pas de description pour « Relu » : pas d\'icône');
+      closePopover();
+    });
+
+    it('si l\'écriture échoue : message d\'erreur nommant la date, pastille inchangée', async function () {
+      await withUb('CONVENTIX', 'Relu');
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      clearToast();
+      try {
+        fireMouse(stepBtn(anyCard('CONVENTIX'), 'v1'), 'click');
+        await pickDate('2026-11-05');
+      } finally { window.grist.docApi.applyUserActions = original; }
+      const toast = document.getElementById('toast').textContent;
+      assertIncludes(toast, 'boom');
+      assertIncludes(toast, 'V1 disponible');
+      assertFalse(stepBtn(anyCard('CONVENTIX'), 'v1').classList.contains('is-set'), 'toujours grise');
+    });
+
+    it('changer le statut de l\'UB avec la pastille remplace les sous-étapes (relecture → signature → plus rien) sans toucher aux dates déjà saisies', async function () {
+      await withUb('INNOVX', 'Non relu', { convention_UB_v1_le: epochOf('2026-11-02'), convention_UB_relu_le: epochOf('2026-11-03') });
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step').length, 0);
+      fireMouse(ubPill(anyCard('INNOVX')), 'click'); // Non relu → Relu
+      await wait(0);
+      assertDeepEqual(stepKeys(anyCard('INNOVX')), ['v1', 'relu']);
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step.is-set').length, 2, 'les dates déjà saisies sont reprises');
+      fireMouse(ubPill(anyCard('INNOVX')), 'click'); // Relu → en cours de signature
+      await wait(0);
+      assertDeepEqual(stepKeys(anyCard('INNOVX')), ['visa', 'parapheur']);
+      fireMouse(ubPill(anyCard('INNOVX')), 'click'); // → Signé
+      await wait(0);
+      assertEqual(anyCard('INNOVX').querySelectorAll('.admin-step').length, 0);
+      const stepColumnWrites = window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && Object.keys(STEP_COLUMNS).some(key => STEP_COLUMNS[key] in c.fields));
+      assertEqual(stepColumnWrites.length, 0, 'changer de statut n\'écrit aucune date de sous-étape');
+    });
+
+    it('un changement de statut qui fait disparaître la sous-étape ouverte referme son popover', async function () {
+      await withUb('INNOVX', 'Relu');
+      fireMouse(stepBtn(anyCard('INNOVX'), 'v1'), 'click');
+      assertTrue(!!popoverEl());
+      fireMouse(ubPill(anyCard('INNOVX')), 'click'); // Relu → en cours de signature : V1 n'existe plus
+      await wait(0);
+      assertFalse(!!popoverEl(), 'plus d\'ancre : popover refermé');
+    });
+
+    it('écrit sur la fiche Notifications si c\'est là que la colonne existe', async function () {
+      await withProject('INNOVX', { convention_statut_UB: 'Relu' }, tables => {
+        tables.Projets.forEach(p => { delete p.convention_UB_v1_le; });
+        tables.Notifications.forEach(n => { n.convention_UB_v1_le = null; });
+      });
+      fireMouse(stepBtn(anyCard('INNOVX'), 'v1'), 'click');
+      await pickDate('2026-11-05');
+      const call = stepWrites('v1')[0];
+      assertEqual(call.table, 'Notifications');
+      assertEqual(call.id, 1, 'fiche Notifications du projet INNOVX (Projet = 10)');
+    });
+
+    it('colonnes absentes de Grist (schéma non modifiable) : les pastilles s\'affichent quand même, grises, sans planter', async function () {
+      await withProject('CONVENTIX', { convention_statut_UB: 'Relu' }, tables => {
+        tables.Projets.forEach(p => { Object.values(STEP_COLUMNS).forEach(column => { delete p[column]; }); });
+      });
+      assertDeepEqual(stepKeys(anyCard('CONVENTIX')), ['v1', 'relu']);
+      assertEqual(anyCard('CONVENTIX').querySelectorAll('.admin-step.is-set').length, 0);
+      fireMouse(stepBtn(anyCard('CONVENTIX'), 'v1'), 'click');
+      assertTrue(!!popoverEl(), 'le popover s\'ouvre quand même');
+      closePopover();
     });
   });
 

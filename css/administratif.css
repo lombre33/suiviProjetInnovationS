@@ -57,8 +57,20 @@
    des 3 points cliqués à l'aveugle. */
 .admin-partners { display:flex; flex-wrap:wrap; gap:8px 14px; }
 .mode-rows .admin-partners { flex:0 0 280px; min-width:0; }
-.admin-partner-pill { all:unset; display:flex; flex-direction:column; gap:3px; width:128px; cursor:pointer; flex:none; }
-.mode-rows .admin-partner-pill { width:118px; }
+.admin-partner-col { display:flex; flex-direction:column; gap:3px; width:128px; flex:none; }
+.mode-rows .admin-partner-col { width:118px; }
+.admin-partner-pill { all:unset; display:flex; flex-direction:column; gap:3px; width:100%; cursor:pointer; flex:none; }
+/* Sous-étapes de l'UB (10/11/2026, maquette variante A) : une pastille par sous-étape sous
+   le statut de l'UB — pointillée et grise sans date, bleue avec « jj/mm » une fois faite. */
+.admin-steps { display:flex; flex-direction:column; gap:3px; margin-top:1px; }
+.admin-step { all:unset; box-sizing:border-box; display:flex; align-items:center; gap:5px; width:100%; height:20px; padding:0 6px; border:1px dashed var(--border-strong); border-radius:var(--radius-sm); color:var(--text-muted); cursor:pointer; font-size:10px; font-weight:700; }
+.admin-step svg { flex:none; }
+.admin-step:hover { background:var(--surface-sunken); color:var(--text); }
+.admin-step.is-set { border:1px solid var(--accent-soft-border); background:var(--accent-soft); color:var(--accent-hover); }
+.admin-step.is-set:hover { background:var(--accent-soft-border); }
+.admin-step:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.admin-step-label { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.admin-step-date { flex:none; font-variant-numeric:tabular-nums; }
 .admin-partner-top { display:flex; align-items:center; justify-content:space-between; gap:6px; }
 .admin-partner-name { font-size:10.5px; font-weight:800; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .admin-partner-icon { display:inline-flex; flex:none; }
