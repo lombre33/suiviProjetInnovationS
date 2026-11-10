@@ -242,6 +242,11 @@ n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widg
 ou `type` : affichage de l'ordre du jour), `Inst_cadre` (JSON : `bandeau`, `cr`, `plein`, `hauteur` — voir
 ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante par `ensureColumns`.
 
+**Ordre du jour : clavier et alignement (10/11/2026).** Les menus de recherche (projets, présentateurs, invités,
+relecteurs…) se parcourent aux flèches (↓/↑, en boucle), Entrée choisit la ligne surlignée (à défaut le premier
+résultat d'une recherche), Échap referme. La largeur du titre d'un point est fixe (proportionnelle à la liste) :
+ajouter un projet, un présentateur ou un invité ne décale que ce qui est à sa droite, jamais vers la gauche.
+
 **Place pour GFS (10/11/2026).** Étape Compte rendu : le bandeau du haut se replie (heure et salle
 masquées), la carte relecteurs/téléchargement se replie en « V0 rédigée · 1/2 validé » + icône de
 téléchargement dans l'en-tête de l'étape, la hauteur de GFS a trois tailles (écran, 1,5 fois, 2,5 fois :

@@ -745,6 +745,100 @@
       });
     });
 
+    it('menus de recherche (projets, présentateurs, invités) : flèches pour surligner, Entrée pour choisir, comme dans les autres listes', async function () {
+      await setup();
+      step('odj');
+      const input = () => q('.in-menu input[data-filter]');
+      const active = () => qa('.in-menu .in-mi.in-active').map(b => b.textContent.replace(/\s+/g, ' ').trim());
+      // présentateurs : liste de personnes
+      click('menu', { v: 'pres:1' });
+      assertTrue(document.activeElement === input() || !!input(), 'le champ de recherche est là');
+      assertDeepEqual(active(), [], 'rien de surligné à l\'ouverture');
+      fireKey(input(), 'ArrowDown');
+      assertEqual(active().length, 1);
+      assertIncludes(active()[0], 'Alice Martin', 'la première ligne est surlignée');
+      fireKey(input(), 'ArrowDown');
+      assertIncludes(active()[0], 'Bob Durand');
+      fireKey(input(), 'ArrowUp');
+      fireKey(input(), 'ArrowUp');
+      assertIncludes(active()[0], 'Dana Roy', 'la liste boucle : au-dessus de la première, la dernière');
+      fireKey(input(), 'ArrowDown');
+      assertIncludes(active()[0], 'Alice Martin', 'et inversement');
+      fireKey(input(), 'ArrowDown');
+      fireKey(input(), 'Enter');
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2], 'Entrée choisit Bob Durand');
+      // recherche : seul le résultat visible est parcouru, le premier est surligné d'office
+      await waitFor(() => !!input(), 'menu toujours ouvert');
+      input().value = 'chlo';
+      fire(input(), 'input');
+      assertIncludes(active()[0], 'Chloé Petit', 'le premier résultat est surligné dès la saisie');
+      assertEqual(active().length, 1);
+      fireKey(input(), 'ArrowDown');
+      assertIncludes(active()[0], 'Chloé Petit', 'une seule ligne visible : on y reste');
+      fireKey(input(), 'Enter');
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3]);
+      // Entrée sans ligne surlignée choisit le premier résultat d'une recherche, et ne fait rien sans recherche
+      await waitFor(() => !!input(), 'menu toujours ouvert');
+      const before = calls('UpdateRecord', 'Instance_Points').length;
+      fireKey(input(), 'Enter');
+      assertEqual(calls('UpdateRecord', 'Instance_Points').length, before, 'Entrée sans recherche ni surbrillance ne choisit rien');
+      input().value = 'dana';
+      fire(input(), 'input');
+      qa('.in-menu .in-mi.in-active').forEach(b => b.classList.remove('in-active'));
+      fireKey(input(), 'Enter');
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3, 4], 'premier résultat choisi');
+      // Échap referme
+      await waitFor(() => !!input(), 'menu toujours ouvert');
+      fireKey(input(), 'Escape');
+      assertEqual(qa('.in-menu').length, 0, 'Échap referme le menu');
+      // projets
+      click('menu', { v: 'proj:1' });
+      fireKey(input(), 'ArrowDown');
+      assertEqual(active().length, 1);
+      fireKey(input(), 'Enter');
+      assertEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Projets.length, 2, 'un projet relié au clavier');
+      // invités
+      await waitFor(() => !!input(), 'menu projets toujours ouvert');
+      fireKey(input(), 'Escape');
+      click('menu', { v: 'inv:1' });
+      fireKey(input(), 'ArrowDown');
+      fireKey(input(), 'ArrowDown');
+      fireKey(input(), 'Enter');
+      await waitCall('UpdateRecord', 'Instance_Points', 1);
+      assertTrue(lastFields('UpdateRecord', 'Instance_Points', 1).Invites.length >= 2, 'un invité ajouté au clavier');
+    });
+
+    it('invités du point : ajouter quelqu\'un ne décale que ce qui est à sa droite (titre, nature, durée, projets et présentateurs restent en place)', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        q('.in-pts').style.width = '1300px';
+        await settleResize();
+        // Positions mesurées depuis le bord gauche de la ligne (la page peut défiler à l'ouverture d'un menu).
+        const left = sel => Math.round(point(1).querySelector(sel).getBoundingClientRect().left - point(1).getBoundingClientRect().left);
+        const keys = ['.in-ptime', '.in-ptitle', '.in-seg-i', '.in-pdur', '.in-g-proj', '.in-g-pres', '.in-g-inv'];
+        // Les lignes aux contenus différents ont les mêmes colonnes de gauche (titre, nature, durée).
+        [1, 2, 3].forEach(id => {
+          ['.in-ptitle', '.in-seg-i', '.in-pdur'].forEach(sel => {
+            const rel = r => Math.round(r.querySelector(sel).getBoundingClientRect().left - r.getBoundingClientRect().left);
+            assertEqual(rel(point(id)), rel(point(1)), sel + ' de la ligne ' + id + ' aligné sur la ligne 1');
+          });
+          assertEqual(Math.round(point(id).querySelector('.in-ptitle').getBoundingClientRect().width), Math.round(point(1).querySelector('.in-ptitle').getBoundingClientRect().width), 'la largeur du titre ne dépend pas du contenu de la ligne');
+        });
+        const before = {}; keys.forEach(k => { before[k] = left(k); });
+        const docLeft = () => Math.round(point(1).querySelector('.in-g-doc').getBoundingClientRect().left - point(1).getBoundingClientRect().left);
+        const dossierBefore = docLeft();
+        click('menu', { v: 'inv:1' });
+        click('pt-inv', { id: 1, v: 1 }); // Alice : première invitée de ce point
+        await waitFor(() => point(1).querySelectorAll('.in-g-inv .in-tag').length === 1, 'invitée affichée');
+        click('menu-close');
+        q('.in-pts').style.width = '1300px'; // le rendu a recréé la liste : même largeur qu'avant
+        await settleResize();
+        keys.forEach(k => { assertEqual(left(k), before[k], k + ' n\'a pas bougé (pas de décrochage vers la gauche)'); });
+        assertTrue(docLeft() >= dossierBefore, 'seul ce qui est à droite peut se décaler, et vers la droite');
+      });
+    });
+
     it('inviter sur un point : une personne déjà dans la liste est simplement reliée, une nouvelle est d\'abord ajoutée « sur un point »', async function () {
       await setup();
       step('odj');
