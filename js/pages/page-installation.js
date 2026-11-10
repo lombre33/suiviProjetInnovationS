@@ -135,7 +135,7 @@
   // même ligne, mêmes clés de cache, colonnes propres à cette page).
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
-  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const INSTALL_PREFS_COLUMNS = [
     { id: 'Install_repliees', type: 'Text' },
     { id: 'Install_masquees', type: 'Text' },

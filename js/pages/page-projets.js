@@ -35,7 +35,7 @@
   // son propre email de façon fiable.
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_COLUMNS = [
-    { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 },
+    { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 },
     { id: 'Kanban_colonnes_repliees', type: 'Text' },
     { id: 'Kanban_colonnes_masquees', type: 'Text' },
     { id: 'Filtre_programme', type: 'Text' },

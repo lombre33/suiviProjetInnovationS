@@ -207,6 +207,9 @@
 
       await window.loadTodoUserPreferences();
 
+      const createdTable = window.__TEST_CALLS__.find(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
+      const emailColumn = createdTable && createdTable.colDefs.find(col => col.id === 'Email_utilisateur');
+      assertEqual(emailColumn && emailColumn.formula, 'user.Email', 'la formule ne doit pas se référencer elle-même (CircularRefError dans Grist)');
       const afterPrefs = await window.CoreGrist.getTable('Preferences_Widget');
       assertTrue('Todo_onglet_actif' in afterPrefs[0], 'Todo_onglet_actif doit avoir été ajoutée à Preferences_Widget');
       const addColumnOnAnnuaire = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Annuaire');
@@ -271,6 +274,7 @@
         const rows = await prefsRows();
         assertEqual(rows.length, 1, 'la ligne-sonde doit avoir été supprimée');
         assertEqual(rows[0].Todo_email, 'alice.martin@example.org', 'l\'email doit être retenu sur la ligne de la personne');
+        assertEqual(rows[0].Email_utilisateur, 'alice.martin@example.org', 'Email_utilisateur doit être renseigné sur la ligne de la personne (les autres pages le lisent)');
         assertTrue(window.__TEST_CALLS__.some(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget' && c.colId === 'Email_utilisateur'), 'Email_utilisateur doit être ajoutée à la table de préférences');
 
         window.__TEST_CALLS__.length = 0;
@@ -308,6 +312,44 @@
       window.renderTodo();
       assertTrue(notice.hidden, 'le choix retenu doit être rejoué au rechargement');
       assertEqual(addRecordCalls(), 0, 'pas de nouvelle sonde : l\'indisponibilité est mémorisée');
+    });
+
+    it('ligne dont Email_utilisateur est une erreur Grist (CircularRefError) : formule corrigée, email réécrit, la valeur illisible n\'est plus prise pour une adresse', async function () {
+      await loadFixtureState();
+      setAliceStructureLabel('Grands Programmes Innovation');
+      // État réel relevé chez Antoine : cellule d'erreur, et l'ancienne sonde en avait retenu le texte dans Todo_email.
+      window.__mockSetTable('Preferences_Widget', {
+        id: [1],
+        Email_utilisateur: [['E', 'CircularRefError', 'Circular reference', null, { error: 'x' }]],
+        Todo_email: ['E,CircularRefError,Circular reference,,[object Object]']
+      });
+      cacheRowId(1);
+      const restore = emulateTriggerEmail('alice.martin@example.org');
+      try {
+        await window.loadTodoUserPreferences();
+      } finally { restore(); }
+      window.renderTodo();
+      setView('me');
+      assertTrue(document.getElementById('todo-identify-notice').hidden, 'Alice doit être reconnue');
+      const fix = window.__TEST_CALLS__.find(c => c.type === 'ModifyColumn' && c.colId === 'Email_utilisateur');
+      assertTrue(!!fix, 'la formule de Email_utilisateur doit être corrigée');
+      assertEqual(fix.colInfo.formula, 'user.Email');
+      const rows = await prefsRows();
+      assertEqual(rows.length, 1, 'la ligne-sonde doit être supprimée');
+      assertEqual(rows[0].Email_utilisateur, 'alice.martin@example.org', 'la cellule en erreur doit être réécrite avec l\'adresse');
+      assertEqual(rows[0].Todo_email, 'alice.martin@example.org');
+    });
+
+    it('une valeur illisible n\'est jamais affichée comme adresse : message « n\'a pas pu être lue »', async function () {
+      await loadFixtureState();
+      window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: [['E', 'CircularRefError', 'Circular reference']], Todo_email: ['E,CircularRefError'] });
+      cacheRowId(1);
+      await window.loadTodoUserPreferences(); // pas de formule déclenchée simulée : la sonde ne reçoit rien
+      window.renderTodo();
+      setView('me');
+      const text = document.getElementById('todo-identify-text').textContent;
+      assertIncludes(text, 'n\'a pas pu être lue');
+      assertFalse(text.toLowerCase().includes('circular'), 'aucune trace de l\'erreur Grist dans le message');
     });
 
     it('email Grist sans fiche dans l\'Annuaire : le message cite l\'adresse ; une fiche avec plusieurs adresses est reconnue', async function () {

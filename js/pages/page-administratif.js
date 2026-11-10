@@ -357,7 +357,7 @@
   // devrait jamais se produire en pratique (js/app.js charge toujours les
   // préférences Kanban en premier, qui créent la table complète), gardé pour
   // ne pas dépendre de cet ordre.
-  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const ADMIN_PREFS_COLUMNS = [
     { id: 'Admin_notif_repliees', type: 'Text' },
     { id: 'Admin_notif_masquees', type: 'Text' },

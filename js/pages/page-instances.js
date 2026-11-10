@@ -30,7 +30,7 @@
   const text = D.text;
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
-  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
   const VARIANTS = ['A', 'B', 'C'];
   // Gagner de la place pour GFS (étape Compte rendu) : bandeau replié, relecture repliée, « plein cadre » (en-tête de l'appli et

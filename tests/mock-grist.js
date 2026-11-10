@@ -79,6 +79,13 @@
     return { id: tableId };
   }
 
+  function modifyColumn(tableId, colId, colInfo) {
+    const table = store[tableId];
+    if (!table || !Object.prototype.hasOwnProperty.call(table, colId)) throw new Error(`Mock Grist: column ${colId} does not exist in ${tableId}`);
+    global.__TEST_CALLS__.push({ type: 'ModifyColumn', table: tableId, colId, colInfo });
+    return null;
+  }
+
   function addColumn(tableId, colId, colInfo) {
     const table = store[tableId];
     if (!table) throw new Error(`Mock Grist: table ${tableId} does not exist`);
@@ -131,6 +138,7 @@
           if (type === 'RemoveRecord') return removeRecord(action[1], action[2]);
           if (type === 'AddTable') return addTable(action[1], action[2]);
           if (type === 'AddColumn') return addColumn(action[1], action[2], action[3]);
+          if (type === 'ModifyColumn') return modifyColumn(action[1], action[2], action[3]);
           throw new Error(`Mock Grist: unsupported action type ${type}`);
         });
         return { actionNum: global.__TEST_CALLS__.length, retValues };

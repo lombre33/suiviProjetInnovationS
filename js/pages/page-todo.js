@@ -351,7 +351,7 @@
   // correspondance avec Annuaire.Email. ---
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
-  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
+  const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const TODO_PREFS_COLUMNS = [
     { id: 'Todo_onglet_actif', type: 'Text' },
     { id: 'Todo_vue', type: 'Text' },
@@ -383,20 +383,26 @@
     currentPersonId = byEmail ? byEmail.id : (manual ? manual.id : null);
   }
 
-  // Grist ne remplit Email_utilisateur qu'à la CRÉATION d'une ligne : une ligne de préférences
-  // créée avant l'existence de la colonne (ou avant la formule) l'a vide pour toujours. On crée
-  // alors une ligne-sonde (Grist y met l'email de qui la crée), on lit l'email, on la supprime
-  // aussitôt, et l'email est retenu dans Todo_email : la sonde ne sert qu'une fois par personne.
-  const EMAIL_UNAVAILABLE = '(indisponible)';
+  // Grist ne remplit Email_utilisateur qu'à la CRÉATION d'une ligne. Deux cas où la ligne de la personne ne
+  // l'a pas : elle date d'avant la colonne, ou la formule d'origine (qui se référençait elle-même) a stocké
+  // une erreur « CircularRefError » à la place (cellule = tableau, jamais une adresse). On corrige la
+  // formule (user.Email), on crée une ligne-sonde où Grist met l'email de qui la crée, on la lit, on la
+  // supprime aussitôt, puis on réécrit l'email dans la ligne de la personne : les autres pages, qui lisent
+  // Email_utilisateur, en profitent aussi. Une adresse valide contient « @ » ; tout le reste est ignoré.
+  const validEmail = value => { const s = typeof value === 'string' ? value.trim() : ''; return s.includes('@') ? s : ''; };
+  const unavailableMarker = () => `(indisponible) ${new Date().toISOString().slice(0, 10)}`; // réessayé le lendemain
   async function probeUserEmail() {
     const docApi = CoreGrist.gristInstance.docApi;
     try {
+      try {
+        await docApi.applyUserActions([['ModifyColumn', PREFS_TABLE, 'Email_utilisateur', { isFormula: false, formula: EMAIL_TRIGGER_COLUMN.formula, recalcWhen: 0 }]]);
+      } catch (err) { console.warn('Correction de la formule Email_utilisateur impossible (droits ?) :', err.message); }
       const result = await docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
       const probeId = CoreUtils.extractAddedRecordId(result);
       let email = '';
       try {
         const probe = (await CoreGrist.getTable(PREFS_TABLE)).find(r => r.id === probeId);
-        email = text(probe && probe.Email_utilisateur).trim();
+        email = validEmail(probe && probe.Email_utilisateur);
       } finally {
         await docApi.applyUserActions([['RemoveRecord', PREFS_TABLE, probeId]]);
         CoreGrist.invalidateTable(PREFS_TABLE);
@@ -408,8 +414,10 @@
     }
   }
   async function writeOwnPrefs(fields) {
-    try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
-    catch (err) { console.warn('Enregistrement de l\'identité To Do a échoué :', err.message); }
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
+      CoreGrist.invalidateTable(PREFS_TABLE); // les pages chargées ensuite (Instances) relisent la ligne à jour
+    } catch (err) { console.warn('Enregistrement de l\'identité To Do a échoué :', err.message); }
   }
 
   async function chooseMe(personId) {
@@ -443,11 +451,13 @@
         if (!row) return;
       }
       prefsRowId = row.id;
-      let email = text(row.Email_utilisateur).trim();
-      if (!email && text(row.Todo_email).trim() && text(row.Todo_email) !== EMAIL_UNAVAILABLE) email = text(row.Todo_email).trim();
-      if (!email && text(row.Todo_email) !== EMAIL_UNAVAILABLE) {
+      const stored = text(row.Todo_email).trim();
+      let email = validEmail(row.Email_utilisateur) || validEmail(row.Todo_email);
+      if (!email && stored !== unavailableMarker()) {
         email = await probeUserEmail();
-        await writeOwnPrefs({ Todo_email: email || EMAIL_UNAVAILABLE });
+        await writeOwnPrefs(email ? { Email_utilisateur: email, Todo_email: email } : { Todo_email: unavailableMarker() });
+      } else if (email && !validEmail(row.Email_utilisateur)) {
+        await writeOwnPrefs({ Email_utilisateur: email });
       }
       manualPersonId = text(row.Todo_personne).trim();
       resolveCurrentPerson(email, manualPersonId);
