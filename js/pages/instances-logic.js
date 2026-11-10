@@ -141,6 +141,13 @@
     return a.length > 1 ? a[0].charAt(0) + '. ' + a[a.length - 1] : (a[0] || '');
   }
   function cut(text, n) { return text.length > n ? text.slice(0, n - 1) + '…' : text; }
+  // Initiales d'un nom : première lettre du premier et du dernier mot (« Jean-Pierre Martin » -> « JM »).
+  function initials(name) {
+    const a = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!a.length) return '';
+    const first = Array.from(a[0])[0] || '', last = a.length > 1 ? (Array.from(a[a.length - 1])[0] || '') : '';
+    return (first + last).toLocaleUpperCase('fr');
+  }
 
   // --- Ordre du jour : créneaux et conflits ---
   function schedule(points, startMin) {
@@ -150,6 +157,17 @@
       t += Number(p.duree) || 0;
       return { p, start, end: t };
     });
+  }
+  // Ordre du jour, vue « Timing » : une teinte (1 à 4) par heure écoulée depuis le début de la séance, en boucle.
+  function timeBand(startMin, seanceStartMin) {
+    const hours = Math.floor((Number(startMin) || 0) / 60) - Math.floor((Number(seanceStartMin) || 0) / 60);
+    return (((hours % 4) + 4) % 4) + 1;
+  }
+  // Ordre du jour, vue « par type de décision » : tous les points, groupés d'abord pour validation, puis discussion, puis
+  // information (l'ordre de passage est conservé dans chaque groupe). Jamais un filtre : un groupe vide n'est simplement pas listé.
+  const NATURE_ORDER = ['validation', 'discussion', 'information'];
+  function groupByNature(sched) {
+    return NATURE_ORDER.map(nature => ({ nature, rows: sched.filter(r => r.p.nature === nature) })).filter(g => g.rows.length);
   }
   function guestClash(guest, start, end, name) {
     if (!guest) return '';
@@ -259,8 +277,8 @@
   const api = {
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
-    notifNum, stripOrdinal, shortName, cut,
-    schedule, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
+    notifNum, stripOrdinal, shortName, initials, cut,
+    schedule, timeBand, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
     isValid, validatedInfo, stepConditions
   };
   root.InstancesLogic = api;

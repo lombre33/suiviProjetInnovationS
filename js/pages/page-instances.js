@@ -33,6 +33,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email if not $Email_utilisateur else $Email_utilisateur', recalcWhen: 0 };
   const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
   const VARIANTS = ['A', 'B', 'C'];
+  const ODJ_VUES = ['timing', 'type']; // vue de l'ordre du jour : ordre de passage (défaut) ou groupée par type de décision
   const CR_PDF_COLUMN = 'CR_PDF';
 
   let todayOverride = null;
@@ -40,7 +41,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A' }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing' }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false }
   };
 
@@ -160,6 +161,7 @@
       try { const map = JSON.parse(text(row.Inst_seances) || '{}'); S.prefs.seances = map && typeof map === 'object' ? map : {}; } catch (err) { S.prefs.seances = {}; }
       if (text(row.Inst_etape)) S.prefs.etape = text(row.Inst_etape);
       if (VARIANTS.indexOf(text(row.Inst_vue)) >= 0) S.prefs.vue = text(row.Inst_vue);
+      if (ODJ_VUES.indexOf(text(row.Inst_odj_vue)) >= 0) S.prefs.odjVue = text(row.Inst_odj_vue);
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -169,7 +171,7 @@
     try {
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
-        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue
+        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -396,47 +398,79 @@
   }
   const linkLabel = (V, type, link) => type === 'gfs' ? (V.m.gfsByIdent[link] ? V.m.gfsByIdent[link].nom : '') : ((link || '').replace(/^https?:\/\//, '').split('/')[0]);
 
-  function odjHtml(V) {
+  // Étiquette de personne : le nom court quand la place le permet, les initiales quand la ligne est étroite (voir css/instances.css,
+  // @container pts) — le nom complet reste toujours dans l'infobulle.
+  const personTag = (m, pid, cls, titlePrefix, removeLabel, act, attrs) => {
+    const name = personOf(m, pid).name;
+    return '<span class="tag ' + cls + '" title="' + esc(titlePrefix + name) + '"><span class="nm">' + esc(L.shortName(name)) + '</span><span class="ini" aria-hidden="true">' + esc(L.initials(name)) + '</span>'
+      + '<button type="button" aria-label="' + esc(removeLabel) + '" ' + da(act, attrs) + '>' + ic('x', 'xs') + '</button></span>';
+  };
+
+  // Une ligne de l'ordre du jour. `i` = rang dans l'ordre de passage ; `typeView` : la liste est triée par type (ordre de passage
+  // non modifiable ici), les contrôles de déplacement sont donc verrouillés.
+  function pointRowHtml(V, row, i, typeView) {
     const { s, m } = V;
+    const p = row.p, msgs = V.conf[p.id] || [];
+    const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
+    const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
+    const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
+    const tone = typeView ? 't-' + p.nature : 'b' + L.timeBand(row.start, V.startMin);
+    const lockTip = 'Passez en vue Timing pour changer l\'ordre de passage';
+    return '<div class="pt pc ' + tone + (msgs.length ? ' flag' : '') + '" data-pt="' + p.id + '"><div class="grip">'
+      + (typeView ? '<span class="gripbtn locked" title="' + lockTip + '">' + ic('dots', '', 'dots') + '</span>'
+        : '<span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>')
+      + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le point" ' + (typeView ? 'title="' + lockTip + '" disabled ' : (i === 0 ? 'disabled ' : '')) + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
+      + '<button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Descendre le point" ' + (typeView ? 'title="' + lockTip + '" disabled ' : (i === V.sched.length - 1 ? 'disabled ' : '')) + da('pt-down', { id: p.id }) + '>' + ic('chevron', 'xs') + '</button></span></div>'
+      + '<div class="ptime">' + L.hhmm(row.start) + '–' + L.hhmm(row.end) + (msgs.length ? '<span style="color:var(--warn);display:inline-flex" title="' + esc(msgs.join(' · ')) + '">' + ic('warn', 's') + '</span>' : '') + '</div>'
+      // titre : toujours en entier (la zone grandit avec le texte, voir autosizeTitles)
+      + '<textarea rows="1" class="inp ptitle" placeholder="Titre du point" aria-label="Titre du point" data-chg="pt-titre" data-id="' + p.id + '">' + esc(p.titre) + '</textarea>'
+      + '<div class="seg-i" role="group" aria-label="Nature du point">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
+      + '<label class="pdur"><input type="number" min="5" step="5" class="inp" aria-label="Durée en minutes" value="' + p.duree + '" data-chg="pt-duree" data-id="' + p.id + '">min</label>'
+      // projets
+      + '<div class="group"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
+      + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
+      + '<div class="rel"><button type="button" class="addb ' + (projOpen ? 'on' : '') + '" title="Relier un projet" aria-label="Relier un projet" ' + da('menu', { v: 'proj:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+      + (projOpen ? '<div class="menu">' + filterInput('Rechercher un projet…') + m.projects.map(pr => '<button type="button" class="mi ' + (p.projets.indexOf(pr.id) >= 0 ? 'on' : '') + '" ' + da('pt-proj', { id: p.id, v: pr.id }) + ftAttr(pr.acro + ' ' + pr.titre) + '><span class="mi-main"><span>' + esc(pr.acro) + '</span><span class="mi-sub">' + esc(L.cut(pr.titre, 40)) + '</span></span></button>').join('') + (m.projects.length ? '' : '<div class="mh">— Aucun projet —</div>') + '</div>' : '') + '</div></div>'
+      // présenté par (une ou plusieurs personnes)
+      + '<div class="group"><span class="gic" title="Présenté par">' + ic('mic', 's') + '</span>'
+      + p.presentateurs.map(pid => personTag(m, pid, 'pres', 'Présenté par ', 'Retirer le présentateur', 'pt-pres', { id: p.id, v: pid })).join('')
+      + '<div class="rel"><button type="button" class="addb ' + (presOpen ? 'on' : '') + '" title="Indiquer qui présente ce point" aria-label="Indiquer qui présente ce point" ' + da('menu', { v: 'pres:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+      + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
+      // invités
+      + '<div class="group"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
+      + guestChips.map(g => personTag(m, g.personneId, '', '', 'Retirer l\'invité du point', 'pt-inv', { id: p.id, v: g.personneId })).join('')
+      + '<div class="rel"><button type="button" class="addb ' + (invOpen ? 'on' : '') + '" title="Inviter sur ce point" aria-label="Inviter sur ce point" ' + da('menu', { v: 'inv:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
+      + (invOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => {
+        const g = s.guests.find(x => x.personneId === pp.id), on = g && p.invites.indexOf(g.id) >= 0;
+        return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
+      }).join('') + '</div>' : '') + '</div></div>'
+      // dossier
+      + '<div class="group"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="Dossier du point" aria-label="Dossier du point" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + (lkHas ? '<span>' + esc(L.cut(linkLabel(V, p.lienType, p.lien), 18)) + '</span>' : '') + '</button>'
+      + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div>'
+      + '<button type="button" class="ibtn ptrash" aria-label="Supprimer le point" title="Supprimer le point" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
+  }
+
+  // Vue de l'ordre du jour : « timing » (par défaut : ordre de passage, une teinte par heure) ou « type » (tous les points,
+  // groupés pour validation, puis discussion, puis information). Choix retenu par utilisateur (Preferences_Widget.Inst_odj_vue).
+  const NATURE_GROUP_LABEL = { validation: 'Pour validation', discussion: 'Pour discussion', information: 'Pour information' };
+  function odjHtml(V) {
+    const { s } = V;
+    const typeView = S.prefs.odjVue === 'type';
     let h = '<div class="toolbar"><span class="total ' + (V.over ? 'over' : '') + '">' + plural(s.points.length, 'point', 'points') + ' · ' + L.durTxt(V.lastEnd - V.startMin) + ' · fin ' + L.hhmm(V.lastEnd)
-      + '</span><span class="sp"></span><button type="button" class="rbtn primary" title="Ajouter un point" aria-label="Ajouter un point" ' + da('pt-add') + '>' + ic('plus') + '</button></div>';
+      + '</span><div class="seg" role="group" aria-label="Affichage de l\'ordre du jour">'
+      + '<button type="button" class="' + (typeView ? '' : 'on') + '" title="Dans l\'ordre de passage, une couleur par heure" ' + da('odj-vue', { v: 'timing' }) + '>' + ic('clock', 's') + 'Timing</button>'
+      + '<button type="button" class="' + (typeView ? 'on' : '') + '" title="Tous les points, d\'abord pour validation, puis discussion, puis information" ' + da('odj-vue', { v: 'type' }) + '>' + ic('list', 's') + 'Par type</button></div>'
+      + '<span class="sp"></span><button type="button" class="rbtn primary" title="Ajouter un point" aria-label="Ajouter un point" ' + da('pt-add') + '>' + ic('plus') + '</button></div>';
     if (!s.points.length) h += '<div class="empty">Aucun point</div>';
     h += '<div class="pts">';
-    V.sched.forEach((row, i) => {
-      const p = row.p, msgs = V.conf[p.id] || [];
-      const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
-      const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
-      const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
-      h += '<div class="pt ' + (msgs.length ? 'flag' : '') + '" data-pt="' + p.id + '"><div class="grip"><span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>'
-        + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le point" ' + (i === 0 ? 'disabled ' : '') + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
-        + '<button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Descendre le point" ' + (i === V.sched.length - 1 ? 'disabled ' : '') + da('pt-down', { id: p.id }) + '>' + ic('chevron', 'xs') + '</button></span></div>'
-        + '<div class="ptime">' + L.hhmm(row.start) + '–' + L.hhmm(row.end) + (msgs.length ? '<span style="color:var(--warn);display:inline-flex" title="' + esc(msgs.join(' · ')) + '">' + ic('warn', 's') + '</span>' : '') + '</div>'
-        + '<input type="text" class="inp ptitle" placeholder="Titre du point" aria-label="Titre du point" value="' + esc(p.titre) + '" data-chg="pt-titre" data-id="' + p.id + '">'
-        + '<div class="seg-i" role="group" aria-label="Nature du point">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
-        + '<label class="pdur"><input type="number" min="5" step="5" class="inp" aria-label="Durée en minutes" value="' + p.duree + '" data-chg="pt-duree" data-id="' + p.id + '">min</label>'
-        // projets
-        + '<div class="group"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
-        + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
-        + '<div class="rel"><button type="button" class="addb ' + (projOpen ? 'on' : '') + '" title="Relier un projet" aria-label="Relier un projet" ' + da('menu', { v: 'proj:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
-        + (projOpen ? '<div class="menu">' + filterInput('Rechercher un projet…') + m.projects.map(pr => '<button type="button" class="mi ' + (p.projets.indexOf(pr.id) >= 0 ? 'on' : '') + '" ' + da('pt-proj', { id: p.id, v: pr.id }) + ftAttr(pr.acro + ' ' + pr.titre) + '><span class="mi-main"><span>' + esc(pr.acro) + '</span><span class="mi-sub">' + esc(L.cut(pr.titre, 40)) + '</span></span></button>').join('') + (m.projects.length ? '' : '<div class="mh">— Aucun projet —</div>') + '</div>' : '') + '</div></div>'
-        // présenté par (une ou plusieurs personnes)
-        + '<div class="group"><span class="gic" title="Présenté par">' + ic('mic', 's') + '</span>'
-        + p.presentateurs.map(pid => '<span class="tag pres" title="' + esc('Présenté par ' + personOf(m, pid).name) + '">' + esc(L.shortName(personOf(m, pid).name)) + '<button type="button" aria-label="Retirer le présentateur" ' + da('pt-pres', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
-        + '<div class="rel"><button type="button" class="addb ' + (presOpen ? 'on' : '') + '" title="Indiquer qui présente ce point" aria-label="Indiquer qui présente ce point" ' + da('menu', { v: 'pres:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
-        + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
-        // invités
-        + '<div class="group"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
-        + guestChips.map(g => '<span class="tag" title="' + esc(personOf(m, g.personneId).name) + '">' + esc(L.shortName(personOf(m, g.personneId).name)) + '<button type="button" aria-label="Retirer l\'invité du point" ' + da('pt-inv', { id: p.id, v: g.personneId }) + '>' + ic('x', 'xs') + '</button></span>').join('')
-        + '<div class="rel"><button type="button" class="addb ' + (invOpen ? 'on' : '') + '" title="Inviter sur ce point" aria-label="Inviter sur ce point" ' + da('menu', { v: 'inv:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
-        + (invOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => {
-          const g = s.guests.find(x => x.personneId === pp.id), on = g && p.invites.indexOf(g.id) >= 0;
-          return '<button type="button" class="mi ' + (on ? 'on' : '') + '" ' + da('pt-inv', { id: p.id, v: pp.id }) + ftAttr(pp.name + ' ' + pp.poste) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (on ? 'invité sur ce point' : (g ? 'déjà dans la liste' : 'ajout à la liste')) + '</span></button>';
-        }).join('') + '</div>' : '') + '</div></div>'
-        // dossier
-        + '<div class="group"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="Dossier du point" aria-label="Dossier du point" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + (lkHas ? '<span>' + esc(L.cut(linkLabel(V, p.lienType, p.lien), 18)) + '</span>' : '') + '</button>'
-        + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div>'
-        + '<button type="button" class="ibtn" aria-label="Supprimer le point" title="Supprimer le point" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
-    });
+    if (typeView) {
+      L.groupByNature(V.sched).forEach(g => {
+        h += '<div class="grph t-' + g.nature + '"><span class="ndot ' + g.nature + '"></span>' + NATURE_GROUP_LABEL[g.nature] + '<span class="tag-soft">' + g.rows.length + '</span></div>';
+        g.rows.forEach(row => { h += pointRowHtml(V, row, V.sched.indexOf(row), true); });
+      });
+    } else {
+      V.sched.forEach((row, i) => { h += pointRowHtml(V, row, i, false); });
+    }
     return h + '</div>';
   }
 
@@ -611,7 +645,18 @@
     main.innerHTML = buildMain();
     const focus = main.querySelector('[data-autofocus]');
     if (focus && active && !main.contains(active)) focus.focus();
+    autosizeTitles();
     renderViewer();
+  }
+
+  // Les titres des points ne sont jamais coupés : chaque zone de texte prend la hauteur de son contenu (et se recalcule quand
+  // la largeur change, car la ligne se replie ou les noms passent en initiales — voir @container pts dans css/instances.css).
+  function autosizeTitles() {
+    const root = rootEl(); if (!root) return;
+    root.querySelectorAll('textarea.in-ptitle').forEach(el => {
+      el.style.height = 'auto';
+      if (el.scrollHeight) el.style.height = el.scrollHeight + 2 + 'px'; // +2 : la bordure
+    });
   }
 
   // --- Compte rendu : GFS intégré (le texte se rédige ici) et PDF exporté ---
@@ -905,6 +950,7 @@
     'menu-close': () => { S.ui.menu = null; render(); },
     'step': (el) => setStep(el.dataset.v),
     'vue': (el) => { S.prefs.vue = el.dataset.v; render(); savePrefs(); },
+    'odj-vue': (el) => { if (ODJ_VUES.indexOf(el.dataset.v) < 0) return; S.prefs.odjVue = el.dataset.v; render(); savePrefs(); },
     'seance-pick': (el, V) => { S.prefs.seances[V.inst.id] = Number(el.dataset.id); S.prefs.etape = 'macro'; S.ui.menu = null; render(); savePrefs(); },
     'seance-new': (el, V) => newSeance(V),
     'time-pick': (el, V) => {
@@ -1011,6 +1057,7 @@
   }
   // Recherche dans un menu : on masque les lignes sans re-rendre (le champ garde le focus).
   function onInput(e) {
+    if (e.target.matches && e.target.matches('textarea.in-ptitle')) { autosizeTitles(); return; }
     const el = e.target.closest('[data-filter]'); if (!el) return;
     const menu = el.closest('.in-menu'); if (!menu) return;
     const q = el.value.trim().toLowerCase();
@@ -1019,7 +1066,7 @@
   function onKey(e) {
     if (e.key === 'Escape') {
       if (S.ui.menu) { S.ui.menu = null; render(); } else if (S.ui.settings) { S.ui.settings = false; render(); }
-    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"])')) e.target.blur();
+    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) { e.preventDefault(); e.target.blur(); }
   }
   // Glisser-déposer des points : on ne re-rend qu'au dépôt (re-rendre pendant le glissement l'annule).
   function onDragStart(e) {
@@ -1056,6 +1103,8 @@
     root.addEventListener('dragover', onDragOver);
     root.addEventListener('drop', onDrop);
     root.addEventListener('dragend', clearDrag);
+    let resizeTimer = null;
+    global.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(autosizeTitles, 120); });
     const btn = document.getElementById('btn-instances'), menu = document.getElementById('instances-menu');
     if (btn && menu) {
       btn.addEventListener('click', () => { menu.hidden = !menu.hidden; ensureLoaded(); renderNavMenu(); });
@@ -1077,7 +1126,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       const root = rootEl(); if (root) root.innerHTML = '';
     }

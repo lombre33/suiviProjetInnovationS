@@ -238,7 +238,15 @@ références sont écrites en identifiants (`['L', …]` pour les RefList) ; les
 Le bouton « Mettre à disposition du VP » n'est jamais automatique : il demande confirmation puis
 écrit `Export_VP` ; il **ne modifie pas** `Notifications.notifications_Statut`, et le widget
 n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widget` :
-`Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`.
+`Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`, `Inst_odj_vue` (`timing` par défaut
+ou `type` : affichage de l'ordre du jour, colonne ajoutée à la table existante par `ensureColumns`).
+
+**Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage, une teinte par heure de la séance
+(4 teintes qui reviennent). Vue *Par type* : tous les points (jamais un filtre), regroupés pour
+validation, puis discussion, puis information ; l'ordre de passage n'est pas modifiable dans cette vue.
+Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit). Les noms de
+personnes (présentateurs, invités) passent en initiales quand la ligne est étroite (< 1560 px), puis
+les infos se replient sous le titre ; le nom complet reste dans l'infobulle.
 
 **Instances présentées (10/11/2026).** Seules les instances dont le nom (colonne `Instances` de la
 table `Instances`) est « CTO Innovation » ou « Comité innovation » (casse, accents et ponctuation

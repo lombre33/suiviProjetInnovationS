@@ -111,6 +111,19 @@
   const waitCall = (type, table, id, label) => waitFor(() => lastFields(type, table, id), label || `écriture ${type} ${table}`);
   const text = sel => (q(sel) ? q(sel).textContent.replace(/\s+/g, ' ').trim() : '');
   const point = id => q(`.in-pt[data-pt="${id}"]`);
+  // Les tests ne chargent aucun CSS et gardent #app-dom masqué (voir tests/index.html). Pour vérifier une mise en page réelle
+  // (titre jamais coupé, initiales, corbeille décollée de la bordure), on injecte css/instances.css et on affiche le conteneur
+  // le temps du test, puis on remet tout comme avant.
+  async function withLayout(fn) {
+    const css = await (await fetch('../css/instances.css', { cache: 'no-store' })).text();
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    const host = document.getElementById('app-dom'), before = host.getAttribute('style');
+    host.style.cssText = 'display:block;position:absolute;left:0;top:0;width:2000px';
+    try { await fn(); } finally { if (before == null) host.removeAttribute('style'); else host.setAttribute('style', before); style.remove(); }
+  }
+  const settleResize = () => { window.dispatchEvent(new Event('resize')); return new Promise(r => setTimeout(r, 220)); };
 
   // -------------------------------------------------------------------------------------------------
   describe('Instances — règles pures (instances-logic.js)', function () {
@@ -582,6 +595,148 @@
       assertEqual(rows.find(r => r.title.startsWith('INNOVX')).pres, 'A. Martin');
       assertEqual(rows.find(r => r.title.startsWith('Notifications')).pres, 'A. Martin, B. Durand');
       assertIncludes(qa('.in-mpres').pop().title, 'Présenté par Alice Martin, Bob Durand');
+    });
+
+    it('couleurs : en vue Timing (par défaut), chaque heure de la séance a sa teinte ; les points d\'une même heure partagent la leur', async function () {
+      await setup();
+      step('odj');
+      const band = id => (point(id).className.match(/in-b(\d)/) || [])[1];
+      assertEqual(band(1), '1', '09:30');
+      assertEqual(band(2), '1', '09:40 : même heure que le premier point');
+      assertEqual(band(3), '2', '10:10 : l\'heure suivante');
+      assertTrue(qa('.in-pt').every(r => !/in-t-/.test(r.className)), 'pas de couleur de type en vue Timing');
+      assertDeepEqual(qa('.in-pt').map(r => r.dataset.pt), ['1', '2', '3'], 'ordre de passage');
+      assertTrue(q('.in-toolbar .in-seg button.in-on').textContent.indexOf('Timing') >= 0, 'Timing est la vue par défaut');
+      assertEqual(qa('.in-grph').length, 0, 'pas de titres de groupe en vue Timing');
+      assertEqual(L.timeBand(9 * 60 + 30, 9 * 60 + 30), 1);
+      assertEqual(L.timeBand(10 * 60, 9 * 60 + 30), 2);
+      assertEqual(L.timeBand(12 * 60 + 10, 9 * 60 + 30), 4);
+      assertEqual(L.timeBand(13 * 60, 9 * 60 + 30), 1, 'les teintes reviennent après quatre heures');
+    });
+
+    it('vue « par type de décision » : tous les points, pour validation puis discussion puis information — un tri, pas un filtre', async function () {
+      await setup({ rows: d => { d.Instance_Points.push({ id: 5, Seance: 2, Ordre: 4, Titre: 'Point d\'information', Nature: 'Information', Duree_min: 10, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' }); } });
+      step('odj');
+      click('odj-vue', { v: 'type' });
+      assertEqual(qa('.in-pt').length, 4, 'aucun point masqué');
+      assertDeepEqual(qa('.in-pts > *').map(e => e.classList.contains('in-grph') ? 'G:' + e.childNodes[1].textContent + ':' + e.querySelector('.in-tag-soft').textContent : e.dataset.pt),
+        ['G:Pour validation:2', '1', '3', 'G:Pour discussion:1', '2', 'G:Pour information:1', '5'], 'validation (1, 3), discussion (2), information (5), ordre de passage conservé dans chaque groupe');
+      assertEqual(point(1).classList.contains('in-t-validation'), true);
+      assertEqual(point(2).classList.contains('in-t-discussion'), true);
+      assertEqual(point(5).classList.contains('in-t-information'), true);
+      assertTrue(qa('.in-pt').every(r => !/in-b\d/.test(r.className)), 'les teintes d\'heure laissent la place à celles du type');
+      assertEqual(text('.in-pt[data-pt="3"] .in-ptime'), '10:10–10:35', 'les horaires restent ceux de l\'ordre de passage');
+      assertEqual(text('.in-toolbar .in-total'), '4 points · 1 h 15 · fin 10:45');
+      assertTrue(q('.in-toolbar .in-seg button.in-on').textContent.indexOf('Par type') >= 0);
+      await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_odj_vue === 'type', 'vue retenue pour l\'utilisateur');
+    });
+
+    it('vue par type : l\'ordre de passage ne se change pas (déplacement verrouillé, rien n\'est écrit), la vue Timing le redonne', async function () {
+      await setup();
+      step('odj');
+      click('odj-vue', { v: 'type' });
+      assertTrue(qa('.in-pt [data-act="pt-up"], .in-pt [data-act="pt-down"]').every(b => b.disabled), 'flèches désactivées');
+      assertEqual(qa('.in-pt .in-gripbtn[draggable="true"]').length, 0, 'plus de glisser-déposer');
+      assertEqual(qa('.in-pt .in-gripbtn.in-locked').length, 3);
+      const before = calls('UpdateRecord', 'Instance_Points').length;
+      fireMouse(q('[data-act="pt-up"][data-id="3"]'), 'click');
+      await new Promise(r => setTimeout(r, 50));
+      assertEqual(calls('UpdateRecord', 'Instance_Points').length, before, 'aucun changement d\'ordre');
+      click('odj-vue', { v: 'timing' });
+      assertEqual(qa('.in-pt .in-gripbtn[draggable="true"]').length, 3, 'glisser-déposer de retour');
+      assertTrue(q('[data-act="pt-up"][data-id="1"]').disabled && !q('[data-act="pt-up"][data-id="3"]').disabled, 'flèches de nouveau actives, sauf en haut de liste');
+      click('pt-up', { id: 3 });
+      await waitFor(() => calls('UpdateRecord', 'Instance_Points').length > before, 'ordre de passage modifié en vue Timing');
+    });
+
+    it('la vue de l\'ordre du jour est retenue par utilisateur (Preferences_Widget.Inst_odj_vue) ; une valeur inconnue retombe sur Timing', async function () {
+      await setup({ noPrefs: true });
+      await window.loadInstancesUserPreferences();
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_odj_vue: 'type' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      step('odj');
+      assertTrue(qa('.in-grph').length > 0, 'vue Par type restaurée');
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_odj_vue: 'n\'importe quoi' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      step('odj');
+      assertEqual(qa('.in-grph').length, 0, 'valeur inconnue : vue Timing');
+    });
+
+    it('titres lisibles en entier : zone de texte qui prend la hauteur du titre, jamais coupé', async function () {
+      const long = 'Revue détaillée du jalon INNOVX : budget, calendrier, risques, dépendances avec les autres projets du programme et décision attendue sur la trajectoire de déploiement pour la rentrée prochaine';
+      await withLayout(async () => {
+        await setup({ rows: d => { d.Instance_Points[1].Titre = long; } });
+        step('odj');
+        q('.in-pts').style.width = '900px';
+        await settleResize();
+        const title = id => q('.in-pt[data-pt="' + id + '"] .in-ptitle');
+        assertEqual(title(2).tagName, 'TEXTAREA', 'le titre n\'est plus un champ d\'une seule ligne');
+        assertEqual(title(2).value, long, 'le titre complet est dans la zone');
+        assertTrue(title(2).offsetHeight >= title(2).scrollHeight, 'rien n\'est coupé (hauteur ≥ contenu) : ' + title(2).offsetHeight + ' / ' + title(2).scrollHeight);
+        assertTrue(title(2).offsetHeight > title(1).offsetHeight + 10, 'le long titre est sur plusieurs lignes, le court reste compact');
+        title(1).value = long + ' ' + long + ' ' + long;
+        fire(title(1), 'input');
+        assertTrue(title(1).offsetHeight >= title(1).scrollHeight && title(1).offsetHeight > title(2).offsetHeight, 'la zone grandit pendant la saisie');
+        q('.in-pts').style.width = '520px';
+        await settleResize();
+        assertTrue(title(2).offsetHeight >= title(2).scrollHeight, 'toujours rien de coupé quand la ligne rétrécit');
+      });
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      q('.in-pt[data-pt="1"] .in-ptitle').focus();
+      q('.in-pt[data-pt="1"] .in-ptitle').dispatchEvent(enter);
+      assertTrue(enter.defaultPrevented, 'Entrée valide au lieu d\'insérer un retour à la ligne');
+      change('pt-titre', { id: 1 }, 'Nouveau titre');
+      assertEqual((await waitCall('UpdateRecord', 'Instance_Points', 1)).Titre, 'Nouveau titre');
+    });
+
+    it('les noms de personnes passent en initiales quand la ligne est étroite, et le nom complet reste dans l\'infobulle', async function () {
+      assertEqual(L.initials('Alice Martin'), 'AM');
+      assertEqual(L.initials('Chloé Petit'), 'CP');
+      assertEqual(L.initials('éric de la Fontaine'), 'ÉF');
+      assertEqual(L.initials('Madonna'), 'M');
+      assertEqual(L.initials(''), '');
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        const tag = q('.in-pt[data-pt="3"] .in-tag.in-pres');
+        assertEqual(tag.querySelector('.in-nm').textContent, 'A. Martin');
+        assertEqual(tag.querySelector('.in-ini').textContent, 'AM');
+        assertIncludes(tag.title, 'Alice Martin');
+        const shown = el => getComputedStyle(el).display !== 'none';
+        q('.in-pts').style.width = '1700px';
+        await waitFor(() => shown(tag.querySelector('.in-nm')) && !shown(tag.querySelector('.in-ini')), 'ligne large : noms complets');
+        q('.in-pts').style.width = '1200px';
+        await waitFor(() => !shown(tag.querySelector('.in-nm')) && shown(tag.querySelector('.in-ini')), 'ligne étroite : initiales');
+      });
+    });
+
+    it('ligne étroite : les infos se replient sous le titre, rien ne déborde, et la corbeille garde une marge à droite', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        for (const w of [1700, 1200, 800, 520]) {
+          q('.in-pts').style.width = w + 'px';
+          await new Promise(r => setTimeout(r, 30));
+          qa('.in-pt').forEach(row => {
+            const box = row.getBoundingClientRect();
+            const trash = row.querySelector('.in-ptrash').getBoundingClientRect();
+            assertTrue(box.width > 0, 'la ligne est affichée à ' + w + ' px');
+            assertTrue(box.right - trash.right >= 12, 'corbeille décollée de la bordure à ' + w + ' px (' + Math.round(box.right - trash.right) + ' px)');
+            assertTrue(trash.left >= box.left, 'corbeille dans la ligne à ' + w + ' px');
+            Array.from(row.children).forEach(child => {
+              assertTrue(child.getBoundingClientRect().right <= box.right + 1, 'aucun élément ne déborde à ' + w + ' px : ' + child.className);
+            });
+          });
+        }
+        const title = point(2).querySelector('.in-ptitle').getBoundingClientRect(), group = point(2).querySelector('.in-group').getBoundingClientRect();
+        assertTrue(group.top >= title.bottom - 1, 'à 520 px, projets, présentateurs et invités passent sous le titre');
+        const first = point(2).querySelector('.in-ptime').getBoundingClientRect();
+        assertTrue(Math.abs(first.top - title.top) < 30, 'à 520 px, l\'heure et le titre restent sur la même ligne');
+      });
     });
 
     it('inviter sur un point : une personne déjà dans la liste est simplement reliée, une nouvelle est d\'abord ajoutée « sur un point »', async function () {
