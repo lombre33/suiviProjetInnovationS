@@ -486,6 +486,12 @@
       manualPersonId = text(row.Todo_personne).trim();
       resolveCurrentPerson(email, manualPersonId);
       if (createdNow) return; // ligne neuve : aucune préférence enregistrée à appliquer
+      // Ligne déjà là (créée par le Kanban au tout premier lancement) mais sans préférence To Do : même règle qu'Administratif
+      // et Installation, les volets vides démarrent repliés. Sans ce garde-fou, des listes vides seraient lues comme
+      // « aucun volet replié » et tous les volets, vides compris, s'afficheraient dépliés.
+      const hasSavedPreferences = !!(text(row.Todo_onglet_actif) || text(row.Todo_vue) ||
+        text(row.Todo_notif_repliees) || text(row.Todo_conv_repliees) || text(row.Todo_install_repliees));
+      if (!hasSavedPreferences) return;
       if (text(row.Todo_onglet_actif) && TAB_DEFS[row.Todo_onglet_actif]) activeTab = row.Todo_onglet_actif;
       if (text(row.Todo_vue)) viewMode = row.Todo_vue;
       pendingTodoPrefs = {
@@ -547,5 +553,7 @@
   window.loadTodoUserPreferences = loadTodoUserPreferences;
   // Seuils d'urgence exposés pour les tests (même patron que window.AdministratifUrgency).
   window.TodoUrgency = { setClock(fn) { nowFn = typeof fn === 'function' ? fn : () => new Date(); } };
+  // Pour les tests : l'état des volets vit dans cette fermeture et traverse les tests ; on repart de volets jamais construits.
+  window.TodoTesting = { resetPanelState() { Object.keys(panelState).forEach(key => delete panelState[key]); pendingTodoPrefs = null; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
