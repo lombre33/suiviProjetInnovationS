@@ -93,6 +93,16 @@
   }
   function personNames(ids) { return ids.map(id => personName(personById(id))).filter(Boolean).join(', '); }
   function structureLabel(structure) { return text(structure && structure.Acronyme) || text(structure && structure.Nom_Complet); }
+  // « Installé chez » d'un projet. Côté Grist, Ligne_OPE_installe_chez est une formule ReferenceList
+  // vers Structures : la valeur reçue est ['L', id…], jamais un texte (le texte brut afficherait
+  // « L,3 »). Un texte déjà prêt est gardé tel quel.
+  function installedAtLabel(project) {
+    const value = project.Ligne_OPE_installe_chez;
+    if (value == null || value === '') return '';
+    const ids = Array.isArray(value) ? referencedIds(value) : (typeof value === 'number' ? [value] : null);
+    if (!ids) return text(value).trim();
+    return ids.map(id => structureLabel(CoreUtils.findById(getStructures(), refId(id)))).filter(Boolean).join(', ');
+  }
   // Rôle déduit de la structure du poste (voir l'en-tête du fichier) : aucune
   // saisie manuelle, aucune ACL — seulement un mode d'affichage par défaut.
   function personRoles(person) {
@@ -144,7 +154,7 @@
     return getProjects().map(project => {
       const stageIdx = INSTALL_STAGES.indexOf(text(project[INSTALL_STATUS_FIELD]));
       if (stageIdx === -1) return null;
-      const chezQui = text(project.Ligne_OPE_installe_chez);
+      const chezQui = installedAtLabel(project);
       const action = text(project.Action_Ligne_OPE_a_faire);
       return { project, stageIdx, taggedIds: [], actionText: chezQui ? `${action} — installé chez ${chezQui}` : action };
     }).filter(Boolean);

@@ -169,6 +169,39 @@
       assertIncludes(card.querySelector('.todo-action-text').textContent, 'DIESE');
     });
 
+    // Revue de bugs du 10/11/2026 : côté Grist, Ligne_OPE_installe_chez est une formule ReferenceList vers
+    // Structures (['L', id]) ; le test ci-dessus lui donnait un texte, ce qui masquait l'affichage « L,3 ».
+    it('"installé chez" lit la ReferenceList de Grist (["L", id]) et affiche l\'acronyme de la structure, jamais "L,3"', async function () {
+      await loadFixtureState();
+      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
+      project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
+      project(10).Ligne_OPE_installe_chez = ['L', 3]; // Structures#3 = DIESE
+      window.renderTodo();
+      setTab('install');
+      setView('all');
+      const action = cardByAcronym(panel('Installé'), 'INNOVX').querySelector('.todo-action-text').textContent;
+      assertIncludes(action, 'Vérifier le virement — installé chez DIESE');
+      assertFalse(action.includes('L,'), 'jamais la valeur brute de la ReferenceList');
+    });
+
+    it('"installé chez" : liste vide ([\'L\']) ou structure inconnue → pas de mention, et plusieurs structures sont séparées par une virgule', async function () {
+      await loadFixtureState();
+      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
+      project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
+      project(10).Ligne_OPE_installe_chez = ['L'];
+      project(11).Action_Ligne_OPE_a_faire = 'Relancer';
+      project(11).Ligne_OPE_installe_chez = ['L', 1, 3]; // NOTIFY : LAB1 et DIESE
+      window.renderTodo();
+      setTab('install');
+      setView('all');
+      const actionOf = acronym => cardByAcronym(panel('Installé'), acronym).querySelector('.todo-action-text').textContent;
+      assertFalse(actionOf('INNOVX').includes('installé chez'), 'liste vide : aucune mention');
+      assertIncludes(actionOf('NOTIFY'), 'Relancer — installé chez LAB1, DIESE');
+      project(10).Ligne_OPE_installe_chez = ['L', 999];
+      window.renderTodo();
+      assertFalse(actionOf('INNOVX').includes('installé chez'), 'structure inconnue : aucune mention (pas d\'identifiant brut)');
+    });
+
     it('une valeur de statut imprévue (colonne absente ou vide) n\'affiche rien et ne plante pas', async function () {
       await loadFixtureState();
       project(10).Statut_installation_fonds = ''; // simule une colonne absente/vide
