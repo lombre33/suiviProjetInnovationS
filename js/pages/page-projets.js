@@ -63,7 +63,7 @@
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
-  const rowById = (tableName, id) => tableRows(tableName).find(row => String(row.id) === String(id));
+  const rowById = (tableName, id) => CoreUtils.findById(tableRows(tableName), id);
   const refId = value => {
     if (value && typeof value === 'object') return value.id ?? value;
     return value;
@@ -124,12 +124,18 @@
   // (pas de colonne "autre") — classifyStatus() renvoie alors null et le
   // filtre du render() l'écarte naturellement.
   // ─────────────────────────────────────────────────────────────────────────────
+  // Libellés de référence normalisés une seule fois (classifyStatus tourne pour chaque projet à
+  // chaque rendu : normalized() = toLowerCase + NFD + regex, inutile de la refaire sur des constantes).
+  const SIGNED_CONVENTION = normalized('Convention signée de toutes les parties');
+  const INSTRUCTION_STATUSES = ['1) Information projet saisies', '2) Notification_relecture', '3) Prette pour CTO', 'En attente statut Notifications'].map(normalized);
+  const NOTIFICATION_STATUSES = ['4) complète', '5) envoyée pour signature VP', '6) Signée'].map(normalized);
+  const RUNNING_STATUSES = ['En cours', 'En retard'].map(normalized);
   function classifyStatus(project) {
     // 3) Conventions — règle prioritaire (cf. commentaire ci-dessus).
     // Comparaison sur le libellé SANS ordinal : la dernière étape est passée de
     // "5) …" à "4) …" le 29/09/2026 (Conventions_statut redéfini à 4 étapes), et
     // des lignes Grist peuvent encore porter l'ancien numéro.
-    const conventionSigned = normalized(text(field(project, ['Conventions_statut']))).replace(/^\d+\)\s*/, '') === normalized('Convention signée de toutes les parties');
+    const conventionSigned = normalized(text(field(project, ['Conventions_statut']))).replace(/^\d+\)\s*/, '') === SIGNED_CONVENTION;
     const conventionValue = project.Convention_de_reversement;
     const hasConvention = conventionValue === true || conventionValue === 1 || normalized(conventionValue) === 'true' || normalized(conventionValue) === 'oui' || normalized(conventionValue) === 'cochée' || normalized(conventionValue) === 'cochee';
     if (hasConvention && !conventionSigned) return 'Conventions';
@@ -141,19 +147,10 @@
     // "En attente statut Notifications" : Statut_Macro avant qu'une ligne
     // Notifications ne soit liée au projet (cf. projet tout juste créé) —
     // classé dans Instruction à la demande d'Antoine (01/10/2026).
-    if (status === normalized('1) Information projet saisies')
-        || status === normalized('2) Notification_relecture')
-        || status === normalized('3) Prette pour CTO')
-        || status === normalized('En attente statut Notifications')) {
-      return 'Instruction';
-    }
+    if (INSTRUCTION_STATUSES.includes(status)) return 'Instruction';
 
     // 2) Notifications
-    if (status === normalized('4) complète')
-        || status === normalized('5) envoyée pour signature VP')
-        || status === normalized('6) Signée')) {
-      return 'Notifications';
-    }
+    if (NOTIFICATION_STATUSES.includes(status)) return 'Notifications';
 
     // 4) Installation des fonds — sous-chaîne "Finance" (Statut_Financier
     //    alimente Statut_Macro avec des libellés type "Finance_En Attente
@@ -161,9 +158,7 @@
     if (status.includes('finance')) return 'Installation des fonds';
 
     // 5) Projet en cours
-    if (status === normalized('En cours') || status === normalized('En retard')) {
-      return 'Projet en cours';
-    }
+    if (RUNNING_STATUSES.includes(status)) return 'Projet en cours';
 
     // Hors règles : pas de colonne "autre".
     return null;
@@ -191,13 +186,11 @@
   }
   function filteredProjects() {
     const filters = currentFilters();
+    // Les étiquettes Programme/Instance ne sont résolues que si le filtre correspondant est actif.
     return getProjects().filter(project => {
-      const acronym = text(project.Acronyme);
-      const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
-      const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
-      return (!filters.programmes.length || filters.programmes.includes(programme)) &&
-        (!filters.instances.length || filters.instances.includes(instance)) &&
-        (!filters.search || normalized(acronym).includes(filters.search));
+      if (filters.programmes.length && !filters.programmes.includes(programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS'])))) return false;
+      if (filters.instances.length && !filters.instances.includes(instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances'])))) return false;
+      return !filters.search || normalized(text(project.Acronyme)).includes(filters.search);
     });
   }
   function options(fieldNames, query = '') {
@@ -251,8 +244,11 @@
     const board = document.getElementById('projects-kanban'); if (!board) return;
     const projects = filteredProjects();
     const visibleColumns = COLUMNS.filter(column => !columnState[column.key].hidden);
+    // Une seule classification par projet (avant : une par colonne affichée).
+    const cardsByColumn = new Map(COLUMNS.map(column => [column.key, []]));
+    projects.forEach(p => { const bucket = cardsByColumn.get(classifyStatus(p)); if (bucket) bucket.push(p); });
     board.innerHTML = visibleColumns.map(column => {
-      const cards = projects.filter(p => classifyStatus(p) === column.key);
+      const cards = cardsByColumn.get(column.key);
       const state = columnState[column.key];
       const collapsedCls = state.collapsed ? ' is-collapsed' : '';
       return `<section class="kanban-column${collapsedCls}" style="--column-accent:${column.color}" aria-labelledby="kanban-${normalized(column.key)}"><header class="kanban-column-header"><h3 id="kanban-${normalized(column.key)}">${column.label}</h3><div class="kanban-column-actions"><span class="kanban-count">${cards.length}</span><button type="button" class="kanban-icon-btn" data-toggle-collapse="${escape(column.key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} la colonne ${escape(column.label)}">${ICON_CHEVRON}</button><button type="button" class="kanban-icon-btn" data-hide-column="${escape(column.key)}" aria-label="Masquer la colonne ${escape(column.label)}">${ICON_EYE_OFF}</button></div></header><div class="kanban-cards">${cards.length ? cards.map(card).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`;
@@ -306,7 +302,7 @@
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
       await CoreGrist.ensureTable(PREFS_TABLE, PREFS_COLUMNS);
-      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
       if (!row) {
@@ -314,6 +310,7 @@
         // ligne, dont Grist remplit lui-même Email_utilisateur (formule
         // déclenchée). Rien à appliquer : les valeurs par défaut restent en place.
         const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
         return;

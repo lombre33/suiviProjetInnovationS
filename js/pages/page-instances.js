@@ -161,11 +161,12 @@
     try {
       await global.CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...D.PREFS_COLUMNS]);
       await global.CoreGrist.ensureColumns(PREFS_TABLE, D.PREFS_COLUMNS);
-      const rows = await global.CoreGrist.getTable(PREFS_TABLE);
+      const rows = await global.CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
       if (!row) {
         const result = await global.CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        global.CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         S.prefsRowId = global.CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(S.prefsRowId);
         return;

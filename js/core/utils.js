@@ -146,5 +146,35 @@
     });
   }
 
-  global.CoreUtils = { debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
+  // Index « clé -> ligne » d'un tableau de lignes, mémorisé par tableau (WeakMap) : remplace les
+  // `rows.find(row => String(row.id) === String(id))` des pages, qui parcouraient toute la table à
+  // chaque étiquette d'une carte (O(projets x lignes) à chaque rendu). Premier gagnant en cas de
+  // doublon, comme find(). Les tables du widget sont remplacées en bloc à chaque rechargement
+  // (CoreState.setTable) : un nouveau tableau = un nouvel index ; la longueur et la dernière ligne
+  // sont vérifiées au cas où un tableau serait modifié sur place (ajout, retrait).
+  const rowIndexes = new WeakMap();
+  const NO_ROWS = new Map();
+  function indexBy(rows, name, keyOf) {
+    if (!Array.isArray(rows)) return NO_ROWS;
+    let byName = rowIndexes.get(rows);
+    if (!byName) { byName = new Map(); rowIndexes.set(rows, byName); }
+    const last = rows.length ? rows[rows.length - 1] : undefined;
+    let entry = byName.get(name);
+    if (!entry || entry.length !== rows.length || entry.last !== last) {
+      const map = new Map();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (row == null) continue;
+        const key = String(keyOf(row));
+        if (!map.has(key)) map.set(key, row);
+      }
+      entry = { length: rows.length, last, map };
+      byName.set(name, entry);
+    }
+    return entry.map;
+  }
+  const idKey = row => row.id;
+  function findById(rows, id) { return indexBy(rows, 'id', idKey).get(String(id)); }
+
+  global.CoreUtils = { indexBy, findById, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);

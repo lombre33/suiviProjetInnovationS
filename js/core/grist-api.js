@@ -67,6 +67,17 @@
   // d'accès insuffisants, document hors Grist) : getColumnDescription() renvoie alors
   // '' partout, donc aucune icône d'aide nulle part plutôt qu'une erreur bloquante.
   let columnDescriptions = null;
+  // Schéma connu du document : {tableId: Set(colId)}, rempli par loadColumnDescriptions()
+  // (mêmes métadonnées, une seule lecture) puis tenu à jour par ensureTable/ensureColumns.
+  // Connaissance POSITIVE seulement : une table/colonne présente ici existe, l'absence ne
+  // prouve rien (métadonnées illisibles, table créée par ailleurs) — on retombe alors sur
+  // la vérification d'origine (listTables / fetchTable). Sert à ne plus relire des tables
+  // entières ou refaire un aller-retour uniquement pour constater que tout existe déjà.
+  const knownSchema = new Map();
+  // Lectures partagées pendant le démarrage (voir openSharedWindow) : plusieurs pages
+  // lisaient chacune la table Preferences_Widget en entier (9 lectures au total).
+  const sharedFetches = new Map();
+  let sharedWindowOpen = false;
   const CoreGrist = {
     get gristInstance() { return gristInstance; },
     ready(timeoutMs = 10000) {
@@ -83,16 +94,39 @@
       })();
       return readyPromise;
     },
-    async getTable(name) {
+    // `{ shared: true }` : tant que la fenêtre de démarrage est ouverte (openSharedWindow),
+    // une seule lecture est faite puis partagée entre tous les appelants (lecture seule :
+    // ne pas modifier les lignes renvoyées). Fenêtre fermée, c'est une lecture ordinaire.
+    async getTable(name, options) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      if (options && options.shared && sharedWindowOpen) {
+        let pending = sharedFetches.get(name);
+        if (!pending) {
+          pending = gristInstance.docApi.fetchTable(name).then(toRecords);
+          sharedFetches.set(name, pending);
+          // Un échec n'est pas mémorisé (ex. table pas encore créée) : l'appelant suivant relit.
+          pending.catch(() => { if (sharedFetches.get(name) === pending) sharedFetches.delete(name); });
+        }
+        return pending;
+      }
       const data = await gristInstance.docApi.fetchTable(name);
       return toRecords(data);
     },
+    openSharedWindow() { sharedWindowOpen = true; },
+    closeSharedWindow() { sharedWindowOpen = false; sharedFetches.clear(); },
+    // À appeler après avoir écrit dans la table (ajout de ligne, de colonne) : la prochaine
+    // lecture partagée doit la relire.
+    invalidateTable(name) { sharedFetches.delete(name); },
+    // Colonnes connues d'une table (Set) ou null si le schéma n'a pas pu être lu.
+    knownColumns(tableId) { return knownSchema.get(tableId) || null; },
     async ensureTable(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      if (knownSchema.has(tableId)) return false;
       const existing = await gristInstance.docApi.listTables();
       if (existing.includes(tableId)) return false;
       await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns]]);
+      knownSchema.set(tableId, new Set(['id', ...columns.map(col => col.id)]));
+      sharedFetches.delete(tableId);
       return true;
     },
     // Ajoute les colonnes manquantes à une table déjà existante (ensureTable ne
@@ -104,14 +138,19 @@
     // jamais la création des colonnes.
     async ensureColumns(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      const known = knownSchema.get(tableId);
+      if (known && columns.every(col => known.has(col.id))) return false;
       const existing = await gristInstance.docApi.fetchTable(tableId);
       const existingIds = new Set(Object.keys(existing));
       const missing = columns.filter(col => !existingIds.has(col.id));
-      if (!missing.length) return false;
+      if (!missing.length) { knownSchema.set(tableId, existingIds); return false; }
       await gristInstance.docApi.applyUserActions(missing.map(col => {
         const { id, description, ...colInfo } = col;
         return ['AddColumn', tableId, id, colInfo];
       }));
+      missing.forEach(col => existingIds.add(col.id));
+      knownSchema.set(tableId, existingIds);
+      sharedFetches.delete(tableId);
       await describeColumns(tableId, missing);
       return true;
     },
@@ -129,17 +168,23 @@
         const tableIdByRef = new Map();
         tables.id.forEach((ref, i) => tableIdByRef.set(ref, tables.tableId[i]));
         const byTable = {};
+        const schema = new Map();
+        tableIdByRef.forEach(tableId => schema.set(tableId, new Set(['id'])));
         cols.id.forEach((ref, i) => {
           const tableId = tableIdByRef.get(cols.parentId[i]);
+          if (tableId) schema.get(tableId).add(cols.colId[i]);
           const description = cols.description ? cols.description[i] : '';
           if (!tableId || !description) return;
           if (!byTable[tableId]) byTable[tableId] = {};
           byTable[tableId][cols.colId[i]] = description;
         });
         columnDescriptions = byTable;
+        knownSchema.clear();
+        schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
         console.warn('Chargement des descriptions de colonnes a échoué :', err.message);
         columnDescriptions = {};
+        knownSchema.clear();
       }
     },
     // '' quand le schéma n'a pas (encore) été chargé, que la table/colonne est

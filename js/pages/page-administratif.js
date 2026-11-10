@@ -113,7 +113,7 @@
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
-  const rowById = (tableName, id) => tableRows(tableName).find(row => String(row.id) === String(id));
+  const rowById = (tableName, id) => CoreUtils.findById(tableRows(tableName), id);
   const refId = value => (value && typeof value === 'object') ? (value.id ?? value) : value;
   const refLabel = (value, tableName, fields = []) => {
     if (Array.isArray(value)) return value.filter(item => item !== 'L').map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ');
@@ -157,9 +157,9 @@
   }
 
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
-  function projectById(id) { return getProjects().find(p => String(p.id) === String(id)); }
+  function projectById(id) { return CoreUtils.findById(getProjects(), id); }
   function getNotifications() { return (window.CoreState && CoreState.getTable('Notifications')) || []; }
-  function notifRowFor(projectId) { return getNotifications().find(row => String(refId(row.Projet)) === String(projectId)); }
+  function notifRowFor(projectId) { return CoreUtils.indexBy(getNotifications(), 'projet', row => refId(row.Projet)).get(String(projectId)); }
   function notifStageIndex(projectId) {
     const row = notifRowFor(projectId);
     return row ? NOTIF_STAGES.indexOf(text(row.notifications_Statut)) : -1;
@@ -406,13 +406,11 @@
   }
   function filteredProjects() {
     const filters = currentFilters();
+    // Les étiquettes Programme/Instance ne sont résolues que si le filtre correspondant est actif.
     return getProjects().filter(project => {
-      const acronym = text(project.Acronyme);
-      const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
-      const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
-      return (!filters.programmes.length || filters.programmes.includes(programme)) &&
-        (!filters.instances.length || filters.instances.includes(instance)) &&
-        (!filters.search || normalized(acronym).includes(filters.search));
+      if (filters.programmes.length && !filters.programmes.includes(programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS'])))) return false;
+      if (filters.instances.length && !filters.instances.includes(instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances'])))) return false;
+      return !filters.search || normalized(text(project.Acronyme)).includes(filters.search);
     });
   }
   function options(fieldNames, query = '') {
@@ -480,7 +478,7 @@
   }
 
   function setProjectField(projectId, fieldName, value) {
-    const project = getProjects().find(p => String(p.id) === String(projectId));
+    const project = projectById(projectId);
     if (project) project[fieldName] = value;
   }
 
@@ -502,7 +500,7 @@
   // bouton "Suivant →", demande d'Antoine du 29/09/2026) : permet aussi de
   // revenir en arrière ou de sauter des étapes.
   async function moveConv(projectId, targetIdx) {
-    const project = getProjects().find(p => String(p.id) === String(projectId));
+    const project = projectById(projectId);
     if (!project || !(targetIdx >= 0 && targetIdx < CONV_STAGES.length)) return;
     if (convStageIndex(project) === targetIdx) return;
     const nextValue = CONV_STAGES[targetIdx];
@@ -990,9 +988,11 @@
     if (!window.CoreState || !CoreState.getTable('Projets')) return;
     const projects = filteredProjects();
 
-    const notifByStage = NOTIF_STAGES.map((_, idx) => projects.filter(p => notifStageIndex(p.id) === idx));
-    const convProjects = projects.filter(needsConvention);
-    const convByStage = CONV_STAGES.map((_, idx) => convProjects.filter(p => convStageIndex(p) === idx));
+    // Une seule passe : l'étape de chaque projet est calculée une fois (avant : une fois par étape).
+    const notifByStage = NOTIF_STAGES.map(() => []);
+    projects.forEach(p => { const idx = notifStageIndex(p.id); if (idx >= 0) notifByStage[idx].push(p); });
+    const convByStage = CONV_STAGES.map(() => []);
+    projects.filter(needsConvention).forEach(p => { const idx = convStageIndex(p); if (idx >= 0) convByStage[idx].push(p); });
     const notifPanels = buildPanels('notif', NOTIF_STAGES, notifByStage, notifCard);
     const convPanels = buildPanels('conv', CONV_STAGES, convByStage, convCard);
 
@@ -1003,7 +1003,7 @@
 
     [notifRoot, convRoot].forEach(root => {
       root.querySelectorAll('[data-open-project]').forEach(btn => btn.addEventListener('click', () => {
-        const project = getProjects().find(p => String(p.id) === String(btn.dataset.openProject));
+        const project = projectById(btn.dataset.openProject);
         if (project && window.ProjectModal?.open) window.ProjectModal.open(project);
         else if (window.openProject) window.openProject(btn.dataset.openProject);
       }));
@@ -1029,7 +1029,7 @@
       }));
       root.querySelectorAll('[data-cycle-partner]').forEach(btn => btn.addEventListener('click', () => {
         const [projectId, fieldName] = btn.dataset.cyclePartner.split(':');
-        const project = getProjects().find(p => String(p.id) === String(projectId));
+        const project = projectById(projectId);
         if (project) cyclePartner(project, fieldName);
       }));
       root.querySelectorAll('[data-comment-project]').forEach(textarea => textarea.addEventListener('blur', () => saveComment(textarea.dataset.commentProject, textarea.value)));
@@ -1073,7 +1073,11 @@
   // continue et dit lesquelles créer à la main.
   async function ensureAdministratifColumns() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return false;
+    // Colonnes déjà connues par le schéma lu au démarrage (aucun appel) ; sinon relecture de la table,
+    // comme avant (schéma illisible).
     const columnsOf = async name => {
+      const known = CoreGrist.knownColumns && CoreGrist.knownColumns(name);
+      if (known && known.size) return known;
       try { return new Set(Object.keys(await CoreGrist.gristInstance.docApi.fetchTable(name))); }
       catch (err) { return new Set(); }
     };
@@ -1096,7 +1100,7 @@
     try {
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...ADMIN_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, ADMIN_PREFS_COLUMNS);
-      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
       if (!row) {
@@ -1104,6 +1108,7 @@
         // ligne, partagée avec le Kanban Projets — normalement déjà créée par
         // loadKanbanUserPreferences(), appelé avant celui-ci dans js/app.js.
         const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
         return;

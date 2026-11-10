@@ -85,8 +85,8 @@
   function getAnnuaire() { return (window.CoreState && CoreState.getTable('Annuaire')) || []; }
   function getPostes() { return (window.CoreState && CoreState.getTable('Postes2')) || []; }
   function getStructures() { return (window.CoreState && CoreState.getTable('Structures')) || []; }
-  function projectById(id) { return getProjects().find(p => String(p.id) === String(id)); }
-  function personById(id) { return getAnnuaire().find(p => String(p.id) === String(id)); }
+  function projectById(id) { return CoreUtils.findById(getProjects(), id); }
+  function personById(id) { return CoreUtils.findById(getAnnuaire(), id); }
   function personName(person) {
     if (!person) return '';
     return text(person.nom_et_Prenom || [person.Prenom, person.NOM].filter(Boolean).join(' '));
@@ -97,8 +97,8 @@
   // saisie manuelle, aucune ACL — seulement un mode d'affichage par défaut.
   function personRoles(person) {
     if (!person) return [];
-    const poste = getPostes().find(p => p.id === refId(person.Poste2));
-    const structure = poste && getStructures().find(s => s.id === refId(poste.Structure2));
+    const poste = CoreUtils.findById(getPostes(), refId(person.Poste2));
+    const structure = poste && CoreUtils.findById(getStructures(), refId(poste.Structure2));
     const label = structureLabel(structure);
     if (!label) return [];
     const roles = new Set();
@@ -367,13 +367,14 @@
     try {
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...TODO_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, TODO_PREFS_COLUMNS);
-      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
       if (!row) {
         // Première utilisation dans ce navigateur : nouvelle ligne, normalement
         // déjà créée par loadKanbanUserPreferences() avant celui-ci (js/app.js).
         const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
         return;

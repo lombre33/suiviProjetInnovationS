@@ -154,9 +154,10 @@
     await loadScript('mock-grist.js');
     await loadScript('harness.js');
 
-    // App source, same load order as the real index.html. js/app.js is
-    // intentionally NOT loaded: its own DOMContentLoaded auto-init would race with
-    // per-test setup — tests call CoreGrist.ready()/loadAllTables() explicitly.
+    // App source, same load order as the real index.html. js/app.js is loaded last
+    // with its auto-init disabled (__SUIVI_SKIP_AUTOINIT__): its own DOMContentLoaded
+    // init would race with per-test setup — tests call window.SuiviApp.initializeApp()
+    // (or CoreGrist.ready()/loadAllTables()) explicitly.
     await loadScript('../js/core/utils.js');
     await loadScript('../js/core/state.js');
     await loadScript('../js/core/grist-api.js');
@@ -175,6 +176,8 @@
     await loadScript('../js/pages/instances-logic.js');
     await loadScript('../js/pages/instances-data.js');
     await loadScript('../js/pages/page-instances.js');
+    window.__SUIVI_SKIP_AUTOINIT__ = true;
+    await loadScript('../js/app.js');
 
     // Outil de signature (signature/, URL dédiée) : mêmes fichiers que la vraie page, hors index.html/boot.js.
     window.SIG_ROOT = location.origin + '/signature/';
@@ -202,6 +205,7 @@
     await loadScript('suite-redaction-variables.js');
     await loadScript('suite-signature.js');
     await loadScript('suite-instances.js');
+    await loadScript('suite-performance.js');
 
     await window.CoreGrist.ready();
     await window.runAllTests();

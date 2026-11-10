@@ -53,7 +53,7 @@
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
-  const rowById = (tableName, id) => tableRows(tableName).find(row => String(row.id) === String(id));
+  const rowById = (tableName, id) => CoreUtils.findById(tableRows(tableName), id);
   const refId = value => (value && typeof value === 'object') ? (value.id ?? value) : value;
   const referencedIds = value => Array.isArray(value) ? value.filter(item => item !== 'L' && item != null && item !== 0) : [];
   const refLabel = (value, tableName, fields = []) => {
@@ -80,7 +80,7 @@
   const stripOrdinal = label => text(label).replace(/^\d+\)\s*/, '');
 
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
-  function projectById(id) { return getProjects().find(p => String(p.id) === String(id)); }
+  function projectById(id) { return CoreUtils.findById(getProjects(), id); }
 
   // Une seule ligne OPE par projet en pratique, malgré le schéma ReferenceList
   // (même lecture que refreshInstalleChez() dans project-modal.js).
@@ -172,13 +172,11 @@
   }
   function filteredProjects() {
     const filters = currentFilters();
+    // Les étiquettes Programme/Instance ne sont résolues que si le filtre correspondant est actif.
     return getProjects().filter(project => {
-      const acronym = text(project.Acronyme);
-      const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
-      const instance = instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances']));
-      return (!filters.programmes.length || filters.programmes.includes(programme)) &&
-        (!filters.instances.length || filters.instances.includes(instance)) &&
-        (!filters.search || normalized(acronym).includes(filters.search));
+      if (filters.programmes.length && !filters.programmes.includes(programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS'])))) return false;
+      if (filters.instances.length && !filters.instances.includes(instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances'])))) return false;
+      return !filters.search || normalized(text(project.Acronyme)).includes(filters.search);
     });
   }
   function options(fieldNames, query = '') {
@@ -451,13 +449,14 @@
       await CoreGrist.ensureColumns('Projets', [STATUT_COLUMN]);
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...INSTALL_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, INSTALL_PREFS_COLUMNS);
-      const rows = await CoreGrist.getTable(PREFS_TABLE);
+      const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
       if (!row) {
         // Première utilisation dans ce navigateur : nouvelle ligne, partagée
         // avec les autres pages (normalement déjà créée avant celle-ci, cf. js/app.js).
         const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+        CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
         return;
