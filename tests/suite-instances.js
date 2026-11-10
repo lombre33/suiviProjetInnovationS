@@ -254,6 +254,47 @@
       assertEqual(L.firstStartOf(sched, 99), '');
     });
 
+    it('sous-points : ils se découpent dans la durée du point tant qu\'un reste vide ; tous renseignés, le point prend leur total', function () {
+      const sub = (id, duree, invites) => ({ id, duree, invites: invites || [], projets: [], titre: 's' + id });
+      const pts = d => [{ id: 1, duree: 15, invites: [], subs: d }, { id: 2, duree: 10, invites: [], subs: [] }];
+      const START = 9 * 60 + 30;
+      // un seul sous-point renseigné (5 min) : le point garde ses 15 min, les deux autres restent vides
+      let r = L.scheduleWithSubs(pts([sub(11, 5), sub(12, 0), sub(13, 0)]), START);
+      assertEqual(L.hhmm(r.top[0].end), '09:45', 'le point garde sa durée');
+      assertEqual(L.hhmm(r.top[1].start), '09:45', 'le point suivant ne bouge pas');
+      assertDeepEqual(r.top[0].subRows.map(x => L.hhmm(x.start) + '-' + L.hhmm(x.end)), ['09:30-09:35', '09:35-09:35', '09:35-09:35'], 'le premier sous-point commence avec le point, les suivants s\'enchaînent');
+      assertFalse(r.top[0].subAll);
+      assertEqual(r.top[0].subOver, 0);
+      assertDeepEqual(r.all.map(x => x.p.id), [1, 11, 12, 13, 2], 'ordre de lecture à plat : point, ses sous-points, point suivant');
+      // tous renseignés : le point prend le total (35 min), et le suivant se décale
+      r = L.scheduleWithSubs(pts([sub(11, 5), sub(12, 10), sub(13, 20)]), START);
+      assertTrue(r.top[0].subAll);
+      assertEqual(L.hhmm(r.top[0].end), '10:05', 'le point prend le total des sous-points');
+      assertEqual(L.hhmm(r.top[1].start), '10:05');
+      assertEqual(r.top[0].subOver, 0, 'plus de dépassement quand le point prend le total');
+      // total plus petit que la durée saisie : le point prend quand même le total
+      r = L.scheduleWithSubs(pts([sub(11, 5), sub(12, 5)]), START);
+      assertEqual(L.hhmm(r.top[0].end), '09:40');
+      // sous-points renseignés qui dépassent la durée du point alors que l'un reste vide : alerte, le point ne bouge pas
+      r = L.scheduleWithSubs(pts([sub(11, 10), sub(12, 10), sub(13, 0)]), START);
+      assertEqual(r.top[0].subOver, 5);
+      assertEqual(L.hhmm(r.top[0].end), '09:45');
+      // un sous-point vidé : le point retrouve la durée qu'on lui avait donnée (jamais écrasée)
+      r = L.scheduleWithSubs(pts([sub(11, 5), sub(12, 0)]), START);
+      assertEqual(L.dureeOf({ duree: 15, subs: [sub(11, 5), sub(12, 0)] }), 15);
+      assertEqual(L.dureeOf({ duree: 15, subs: [sub(11, 5), sub(12, 7)] }), 12);
+      assertEqual(L.dureeOf({ duree: 15, subs: [] }), 15, 'sans sous-point : la durée du point');
+      // invité sur un sous-point : son premier horaire est celui du sous-point
+      const g = L.scheduleWithSubs([{ id: 1, duree: 30, invites: [], subs: [sub(11, 10, [9]), sub(12, 10, [8])] }], START);
+      assertEqual(L.firstStartOf(g.all, 8), '09:40');
+      assertEqual(L.firstStartOf(g.all, 9), '09:30');
+      // conditions de l'étape : le titre et la durée du point sont exigés, sa durée peut venir de ses sous-points
+      const cond = points => L.stepConditions('odj', { seance: { points, heure: '09:30' }, sched: L.scheduleWithSubs(points, START).top, conflicts: {}, endMin: START + 90, guests: [], relectures: {}, projectIds: [], projectVp: {} });
+      assertTrue(cond([{ id: 1, titre: 'A', duree: 0, invites: [], projets: [], subs: [sub(11, 10), sub(12, 5)] }]).find(c => /titre et une durée/.test(c.text)).ok, 'durée venue des sous-points');
+      assertFalse(cond([{ id: 1, titre: 'A', duree: 0, invites: [], projets: [], subs: [sub(11, 10), sub(12, 0)] }]).find(c => /titre et une durée/.test(c.text)).ok, 'un sous-point vide : le point reste à 0');
+      assertFalse(cond([{ id: 1, titre: 'A', duree: 15, invites: [], projets: [], subs: [sub(11, 10), sub(12, 10), sub(13, 0)] }]).find(c => /sous-points durent plus/.test(c.text)).ok, 'alerte de dépassement');
+    });
+
     it('horaire de passage : aucun / à envoyer / envoyé / modifié depuis l\'envoi', function () {
       assertEqual(L.horaireState({ passageLe: '' }, ''), 'none');
       assertEqual(L.horaireState({ passageLe: '2026-11-01', passageHeure: '09:40' }, ''), 'sent');
@@ -348,7 +389,7 @@
       assertIncludes(text('.in-band'), 'Aucune séance pour cette instance');
     });
 
-    it('Instance_Points déjà créée avant « Présenté par » : la colonne Presentateurs est ajoutée (RefList vers Annuaire, avec sa description)', async function () {
+    it('Instance_Points déjà créée avant « Présenté par » et les sous-points : les colonnes Presentateurs (RefList vers Annuaire) et Parent (Ref vers Instance_Points) sont ajoutées, avec leur description', async function () {
       window.InstancesPage._reset();
       const data = dataset();
       Object.keys(data).forEach(name => window.__mockSetTable(name, mk(data[name], data[name].length ? undefined : EMPTY_COLUMNS[name])));
@@ -356,8 +397,10 @@
       await window.CoreGrist.loadAllTables();
       await window.InstancesPage.open();
       const added = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Instance_Points');
-      assertDeepEqual(added.map(c => c.colId), ['Presentateurs']);
+      assertDeepEqual(added.map(c => c.colId), ['Presentateurs', 'Parent']);
       assertEqual(added[0].colInfo.type, 'RefList:Annuaire');
+      assertEqual(added[1].colInfo.type, 'Ref:Instance_Points', 'Parent : un sous-point pointe vers son point');
+      assertDeepEqual(window.InstancesPage.state.model.seanceById[2].points[0].subs, [], 'ancien point : aucun sous-point');
       assertDeepEqual(window.InstancesPage.state.model.seanceById[2].points[0].presentateurs, [], 'ancien point : aucun présentateur');
       const col = window.InstancesData.NEW_TABLES.find(t => t.id === 'Instance_Points').cols.find(c => c.id === 'Presentateurs');
       assertTrue(!!col.description, 'la colonne porte une description (bulle d\'aide)');
@@ -676,6 +719,180 @@
       assertEqual(text('.in-pt:nth-child(1) .in-ptime'), '09:30–10:00');
     });
 
+    // ---- Sous-points (Antoine 10/11 : « replié par défaut », durée dans le parent, parent = total quand tous sont remplis) ----
+    const SUBS_ROWS = d => {
+      const base = { Seance: 2, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' };
+      d.Instance_Points.push(
+        Object.assign({ id: 21, Parent: 3, Ordre: 1, Titre: 'Premier sous-point', Nature: 'Information', Duree_min: 10 }, base),
+        Object.assign({ id: 22, Parent: 3, Ordre: 2, Titre: '', Nature: 'Discussion', Duree_min: 0 }, base)
+      );
+    };
+
+    it('sous-points : repliés par défaut (le nombre se lit sur le bouton), le bouton les déplie avec les mêmes propriétés qu\'un point', async function () {
+      await setup({ rows: SUBS_ROWS });
+      step('odj');
+      assertEqual(qa('.in-pt').length, 3, 'repliés : seuls les points de l\'ordre du jour sont affichés');
+      assertEqual(text('.in-pt[data-pt="3"] .in-subtog .in-subn'), '2', 'le nombre de sous-points sur le bouton');
+      assertFalse(!!point(1).querySelector('.in-subn'), 'pas de nombre sans sous-point');
+      assertEqual(point(3).querySelector('.in-subtog').getAttribute('aria-expanded'), 'false');
+      click('sub-toggle', { id: 3 });
+      assertEqual(qa('.in-pt').length, 5);
+      assertEqual(qa('.in-pt.in-sub').length, 2);
+      const sub = point(21);
+      ['.in-ptitle', '.in-seg-i', '.in-pdur input', '.in-g-proj', '.in-g-pres', '.in-g-inv', '.in-g-doc', '.in-ptrash', '.in-ptime'].forEach(sel => assertTrue(!!sub.querySelector(sel), 'même propriété que le point : ' + sel));
+      assertEqual(sub.querySelector('.in-ptitle').value, 'Premier sous-point');
+      assertTrue(!!sub.querySelector('.in-seg-i .in-on.in-information'));
+      assertEqual(text('.in-pt[data-pt="21"] .in-ptime'), '10:10–10:20', 'le premier sous-point commence avec son point');
+      assertEqual(text('.in-pt[data-pt="22"] .in-ptime'), '10:20', 'sous-point encore vide : seulement son début');
+      assertEqual(point(3).querySelector('.in-subtog').getAttribute('aria-expanded'), 'true');
+      assertEqual(qa('.in-pt .in-ptitle').map(e => e.value).slice(2, 5).join('|'), 'Notifications prêtes|Premier sous-point|', 'sous-points juste sous leur point');
+      assertFalse(!!point(21).querySelector('[data-drag]'), 'pas de glisser-déposer pour un sous-point (flèches seulement)');
+      click('sub-toggle', { id: 3 });
+      assertEqual(qa('.in-pt').length, 3, 'replié de nouveau');
+    });
+
+    it('sous-points : le point garde sa durée tant qu\'un sous-point est vide, puis prend le total quand tous sont remplis (sa durée saisie n\'est jamais écrasée)', async function () {
+      await setup({ rows: SUBS_ROWS });
+      step('odj');
+      click('sub-toggle', { id: 3 });
+      const dur = id => point(id).querySelector('.in-pdur input');
+      assertEqual(text('.in-pt[data-pt="3"] .in-ptime'), '10:10–10:35', 'sous-point 22 vide : le point garde ses 25 min');
+      assertEqual(dur(3).value, '25');
+      assertFalse(dur(3).disabled);
+      // le second sous-point est renseigné (5 min) : tous remplis, le point prend 10 + 5 = 15 min
+      change('pt-duree', { id: 22 }, '5');
+      await waitFor(() => text('.in-pt[data-pt="3"] .in-ptime') === '10:10–10:25', 'le point prend le total');
+      assertEqual(dur(3).value, '15');
+      assertTrue(dur(3).disabled, 'durée du point = total : champ grisé');
+      assertEqual(text('.in-pt[data-pt="22"] .in-ptime'), '10:20–10:25');
+      assertFalse(!!calls('UpdateRecord', 'Instance_Points').find(c => c.id === 3 && c.fields.Duree_min !== undefined), 'la durée saisie du point n\'est pas réécrite');
+      assertIncludes(text('.in-subbar'), 'Le point prend le total des sous-points : 15 min');
+      // le total remonte aussi dans la ligne « durée de l'instance »
+      assertEqual(text('.in-toolbar .in-total'), '3 points · 55 min · fin 10:25');
+      // un sous-point vidé : le point retrouve ses 25 min
+      change('pt-duree', { id: 22 }, '');
+      await waitFor(() => text('.in-pt[data-pt="3"] .in-ptime') === '10:10–10:35', 'le point retrouve sa durée');
+      assertEqual(dur(3).value, '25');
+      assertFalse(dur(3).disabled);
+    });
+
+    it('sous-points : renseignés au-delà de la durée du point alors qu\'un reste vide → alerte orange, le point ne bouge pas', async function () {
+      await setup({ rows: d => { SUBS_ROWS(d); d.Instance_Points.find(p => p.id === 21).Duree_min = 20; d.Instance_Points.push({ id: 23, Seance: 2, Parent: 3, Ordre: 3, Titre: '', Nature: 'Discussion', Duree_min: 10, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' }); } });
+      step('odj');
+      assertEqual(text('.in-pt[data-pt="3"] .in-ptime'), '10:10–10:35', 'le point garde 25 min (22 est vide)');
+      assertTrue(point(3).querySelector('.in-subtog').classList.contains('in-over'), 'bouton orange');
+      assertIncludes(point(3).querySelector('.in-subtog').title, '5 min de plus');
+      assertIncludes(q('.in-alert-pill').title, 'sous-points durent plus', 'alerte non bloquante de l\'étape');
+    });
+
+    it('sous-points : ajouter (même nature que le point, durée vide), supprimer, et remonter / descendre entre frères seulement', async function () {
+      await setup({ rows: SUBS_ROWS });
+      step('odj');
+      click('sub-toggle', { id: 1 });
+      assertIncludes(text('.in-subbar'), 'Durée du point : 10 min');
+      click('sub-add', { id: 1 });
+      const added = await waitCall('AddRecord', 'Instance_Points');
+      assertEqual(added.Parent, 1);
+      assertEqual(added.Ordre, 1);
+      assertEqual(added.Duree_min, 0, 'durée vide : le point garde la sienne');
+      assertEqual(added.Nature, 'Validation', 'même nature que le point');
+      assertEqual(added.Seance, 2);
+      assertDeepEqual(added.Projets, ['L']);
+      await waitFor(() => qa('.in-pt.in-sub').length === 1, 'sous-point affiché, point déplié');
+      assertEqual(text('.in-pt[data-pt="1"] .in-subtog .in-subn'), '1');
+      // deux sous-points sous le point 3 : l'ordre ne bouge qu'entre eux
+      click('sub-toggle', { id: 3 });
+      window.__TEST_CALLS__.length = 0;
+      click('pt-down', { id: 21 });
+      assertDeepEqual(calls('UpdateRecord', 'Instance_Points').map(c => [c.id, c.fields.Ordre]).sort((a, b) => a[0] - b[0]), [[21, 2], [22, 1]], 'seuls les frères changent de rang');
+      await waitFor(() => qa('.in-pt[data-pt="3"] ~ .in-pt.in-sub .in-ptitle')[0].value === '', 'sous-point 22 passé devant');
+      assertTrue(point(22).querySelector('[data-act="pt-up"]').disabled, 'le premier sous-point ne monte pas');
+      // supprimer un sous-point : seulement lui
+      window.__TEST_CALLS__.length = 0;
+      click('pt-del', { id: 22 });
+      assertDeepEqual(calls('RemoveRecord', 'Instance_Points').map(c => c.id), [22]);
+    });
+
+    it('sous-points : ajouter un sous-point met le curseur dans son titre (saisie fluide)', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        click('sub-toggle', { id: 2 });
+        click('sub-add', { id: 2 });
+        await waitFor(() => document.activeElement && document.activeElement.classList.contains('in-ptitle') && document.activeElement.closest('.in-pt.in-sub'), 'le focus est dans le titre du nouveau sous-point');
+        assertEqual(document.activeElement.value, '');
+      });
+    });
+
+    it('sous-points : supprimer un point qui en porte demande confirmation et emporte ses sous-points', async function () {
+      await setup({ rows: SUBS_ROWS });
+      step('odj');
+      click('pt-del', { id: 3 });
+      assertEqual(calls('RemoveRecord', 'Instance_Points').length, 0, 'rien n\'est supprimé avant confirmation');
+      assertIncludes(text('.in-subbar.in-del'), 'Supprimer ce point et ses 2 sous-points ?');
+      click('menu-close');
+      assertEqual(calls('RemoveRecord', 'Instance_Points').length, 0);
+      assertFalse(!!q('.in-subbar.in-del'), 'confirmation fermée');
+      click('pt-del', { id: 3 });
+      click('pt-del-ok', { id: 3 });
+      assertDeepEqual(calls('RemoveRecord', 'Instance_Points').map(c => c.id).sort((a, b) => a - b), [3, 21, 22], 'le point et ses deux sous-points');
+      assertEqual(qa('.in-pt').length, 2);
+    });
+
+    it('sous-points : un sous-point sans point (parent absent ou lui-même sous-point) reste visible comme un point', async function () {
+      await setup({ rows: d => {
+        SUBS_ROWS(d);
+        d.Instance_Points.push({ id: 31, Seance: 2, Parent: 999, Ordre: 8, Titre: 'Parent disparu', Nature: 'Discussion', Duree_min: 5, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' });
+        d.Instance_Points.push({ id: 32, Seance: 2, Parent: 21, Ordre: 9, Titre: 'Sous-sous-point', Nature: 'Discussion', Duree_min: 5, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' });
+      } });
+      step('odj');
+      assertEqual(qa('.in-pt').length, 5, 'points 1 à 3 + deux lignes au premier niveau');
+      assertEqual(point(31).querySelector('.in-ptitle').value, 'Parent disparu');
+      assertEqual(point(32).querySelector('.in-ptitle').value, 'Sous-sous-point');
+      assertFalse(point(32).classList.contains('in-sub'));
+    });
+
+    it('sous-points : les invités, leurs horaires de passage, les conflits et les notifications liées en tiennent compte', async function () {
+      await setup({ rows: d => {
+        SUBS_ROWS(d);
+        const sub = d.Instance_Points.find(p => p.id === 21);
+        sub.Invites = ['L', 2]; sub.Projets = ['L', 13];
+        d.Instance_Invites.find(g => g.id === 2).Dispo_a = '10:00'; // Bob n'est là que jusqu'à 10:00
+      } });
+      step('invites');
+      const bob = qa('.in-grow:not(.in-head)').find(r => r.querySelector('.in-pname').textContent.includes('Bob'));
+      assertIncludes(bob.querySelector('.in-sj').textContent, '10:10 · Premier sous-point', 'le sujet de Bob est un sous-point');
+      assertTrue(bob.classList.contains('in-flag'), 'indisponible sur le créneau du sous-point');
+      step('odj');
+      click('sub-toggle', { id: 3 });
+      assertTrue(point(21).classList.contains('in-flag'), 'le sous-point en conflit est signalé');
+      assertFalse(point(3).classList.contains('in-flag'), 'pas le point parent');
+      step('notifs');
+      assertEqual(qa('.in-nrow:not(.in-head)').length, 4, 'le projet relié à un sous-point est listé');
+    });
+
+    it('sous-points : une seule ligne par sous-point, colonnes alignées avec celles des points, titre toujours en entier', async function () {
+      await withLayout(async () => {
+        await setup({ rows: SUBS_ROWS });
+        step('odj');
+        q('.in-pts').style.width = '1154px';
+        click('sub-toggle', { id: 3 });
+        await settleResize();
+        const rel = (el, sel) => { const r = el.querySelector(sel).getBoundingClientRect(); return Math.round(r.left - el.getBoundingClientRect().left); };
+        const rowH = id => Math.round(point(id).getBoundingClientRect().height);
+        assertTrue(rowH(21) < 56 && rowH(22) < 56, 'un sous-point tient sur une seule ligne (' + rowH(21) + ' px)');
+        assertTrue(rowH(21) <= rowH(3), 'un sous-point n\'est pas plus haut qu\'un point');
+        ['.in-ptime', '.in-seg-i', '.in-pdur', '.in-pgroups', '.in-ptrash'].forEach(sel => assertEqual(rel(point(21), sel), rel(point(3), sel), 'colonne alignée : ' + sel));
+        const w = id => Math.round(point(id).querySelector('.in-ptitle').getBoundingClientRect().width);
+        assertTrue(Math.abs(w(3) - w(21)) < 40, 'le retrait du sous-point reste modeste (' + w(3) + ' → ' + w(21) + ' px)');
+        point(21).querySelector('.in-ptitle').value = 'Un sous-point avec un titre assez long pour passer sur plusieurs lignes dans la zone de texte, sans jamais être coupé';
+        point(21).querySelector('.in-ptitle').dispatchEvent(new Event('input', { bubbles: true }));
+        await settleResize();
+        const ta = point(21).querySelector('.in-ptitle');
+        assertTrue(ta.scrollHeight <= ta.clientHeight + 1, 'titre jamais coupé');
+      });
+    });
+
     it('glisser-déposer : le point déposé prend la place de la cible (une seule écriture groupée)', async function () {
       await setup();
       step('odj');
@@ -894,7 +1111,7 @@
         const rowW = point(1).getBoundingClientRect().width;
         const title = id => point(id).querySelector('.in-ptitle').getBoundingClientRect();
         const groups = id => { const r = point(id).querySelector('.in-pgroups').getBoundingClientRect(); return { left: r.left - point(id).getBoundingClientRect().left, width: r.width }; }; // relatif à la ligne : la page peut défiler
-        assertTrue(title(1).width >= 0.38 * rowW, 'le titre occupe l\'espace libre : ' + Math.round(title(1).width) + ' px sur ' + Math.round(rowW) + ' px');
+        assertTrue(title(1).width >= 0.35 * rowW, 'le titre occupe l\'espace libre : ' + Math.round(title(1).width) + ' px sur ' + Math.round(rowW) + ' px');
         assertTrue(groups(1).width < 0.3 * rowW, 'la colonne de droite ne garde pas de place inutile (' + Math.round(groups(1).width) + ' px)');
         const w0 = Math.round(title(1).width), g0 = Math.round(groups(1).left);
         // Un invité de plus tient dans la réserve : ni le titre ni la colonne ne bougent.

@@ -150,15 +150,39 @@
   }
 
   // --- Ordre du jour : créneaux et conflits ---
+  // Durée « effective » d'un point : la sienne, SAUF quand il porte des sous-points et qu'ils ont tous une durée — alors il prend leur
+  // total (demande d'Antoine du 10/11/2026). Tant qu'un sous-point reste vide (durée 0), le point garde sa durée et les sous-points
+  // renseignés s'y découpent. Sa durée saisie n'est jamais écrasée : si un sous-point est vidé, le point retrouve sa durée.
+  const subsTotal = p => (p.subs || []).reduce((t, q) => t + (Number(q.duree) || 0), 0);
+  const subsAllFilled = p => (p.subs || []).length > 0 && p.subs.every(q => Number(q.duree) > 0);
+  const dureeOf = p => (subsAllFilled(p) ? subsTotal(p) : Number(p.duree) || 0);
   function schedule(points, startMin) {
     let t = startMin || 0;
     return points.map(p => {
       const start = t;
-      t += Number(p.duree) || 0;
+      t += dureeOf(p);
       return { p, start, end: t };
     });
   }
-  // Ordre du jour, vue « Timing » : une teinte (1 à 4) par heure écoulée depuis le début de la séance, en boucle.
+  // Sous-points (11/2026) : un point peut porter des sous-points (même forme, `p.subs`), repliés par défaut dans la page. Le premier
+  // sous-point commence avec le parent, chacun suit le précédent. `top` = les points de l'ordre du jour (comme `schedule`), chaque
+  // ligne portant `subRows` (+ `subTotal`, `subAll` : tous renseignés → le point prend le total, `subOver` : minutes de dépassement
+  // du point quand des sous-points restent vides) ; `all` = tout à plat dans l'ordre de lecture (parent, ses sous-points, point
+  // suivant…), pour les invités, les conflits de disponibilité et les projets reliés.
+  function scheduleWithSubs(points, startMin) {
+    const top = schedule(points, startMin), all = [];
+    top.forEach(row => {
+      all.push(row);
+      let t = row.start;
+      row.subRows = (row.p.subs || []).map(sp => { const start = t; t += Number(sp.duree) || 0; return { p: sp, start, end: t, parentId: row.p.id, sub: true }; });
+      row.subTotal = t - row.start;
+      row.subAll = subsAllFilled(row.p);
+      row.subOver = row.subRows.length && !row.subAll ? Math.max(0, row.subTotal - (Number(row.p.duree) || 0)) : 0;
+      row.subRows.forEach(r => all.push(r));
+    });
+    return { top, all };
+  }
+  const allPoints = s => (s.points || []).reduce((list, p) => list.concat([p], p.subs || []), []);
   function timeBand(startMin, seanceStartMin) {
     const hours = Math.floor((Number(startMin) || 0) / 60) - Math.floor((Number(seanceStartMin) || 0) / 60);
     return (((hours % 4) + 4) % 4) + 1;
@@ -190,9 +214,11 @@
     });
     return out;
   }
+  // Premier horaire où l'invité est attendu (le plus tôt, sous-points compris : `sched` peut être le tableau à plat de scheduleWithSubs).
   function firstStartOf(sched, guestId) {
-    const row = sched.find(r => r.p.invites.indexOf(guestId) >= 0);
-    return row ? hhmm(row.start) : '';
+    let best = null;
+    sched.forEach(r => { if (r.p.invites.indexOf(guestId) >= 0 && (best === null || r.start < best)) best = r.start; });
+    return best === null ? '' : hhmm(best);
   }
   // 'none' (aucun point : pas d'horaire) | 'todo' | 'sent' | 'stale' (l'horaire a bougé depuis l'envoi)
   function horaireState(guest, firstStart) {
@@ -239,10 +265,12 @@
       const startMin = toMin(seance.heure) || 0;
       const end = sched.length ? sched[sched.length - 1].end : startMin;
       const lim = ctx.endMin;
+      const nSubOver = sched.filter(r => r.subOver > 0).length;
       return [
         { ok: seance.points.length > 0, text: 'Au moins un point' },
-        { ok: seance.points.every(p => String(p.titre).trim() && Number(p.duree) > 0), text: 'Un titre et une durée pour chaque point' },
+        { ok: seance.points.every(p => String(p.titre).trim() && dureeOf(p) > 0), text: 'Un titre et une durée pour chaque point' },
         { warn: true, chip: true, ok: nconf === 0, text: plural(nconf, 'point en conflit de disponibilité', 'points en conflit de disponibilité') },
+        { warn: true, ok: nSubOver === 0, text: plural(nSubOver, 'point dont les sous-points durent plus que lui', 'points dont les sous-points durent plus qu\'eux') },
         { warn: true, ok: end <= lim, text: 'Fin prévue ' + hhmm(end) + ', après la fin de l\'instance (' + hhmm(lim) + ')' }
       ];
     }
@@ -253,7 +281,7 @@
       ];
     }
     if (key === 'invitation') {
-      const pending = guests.filter(g => { const st = horaireState(g, firstStartOf(sched, g.id)); return st === 'todo' || st === 'stale'; }).length;
+      const pending = guests.filter(g => { const st = horaireState(g, firstStartOf(ctx.schedAll || sched, g.id)); return st === 'todo' || st === 'stale'; }).length;
       return [
         { ok: !!seance.mailInvitationLe, text: "Date d'envoi du mail" },
         { warn: true, ok: pending === 0, text: plural(pending, 'horaire de passage à envoyer', 'horaires de passage à envoyer') }
@@ -391,7 +419,7 @@
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,
-    schedule, timeBand, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
+    schedule, scheduleWithSubs, allPoints, dureeOf, subsAllFilled, subsTotal, timeBand, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
     isValid, validatedInfo, stepConditions
   };
   root.InstancesLogic = api;

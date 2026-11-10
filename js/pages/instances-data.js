@@ -57,7 +57,8 @@
       col('Seance', 'Ref:Suivi_Instance'), col('Ordre', 'Int'), col('Titre', 'Text'), choiceCol('Nature', values(C.nature)),
       col('Duree_min', 'Int'), col('Projets', 'RefList:Projets'), col('Invites', 'RefList:Instance_Invites'),
       col('Presentateurs', 'RefList:Annuaire', { description: "Personnes qui présentent ce point à la séance (une ou plusieurs). Indépendant de la liste des invités du point : choisir un présentateur ne l'invite pas." }),
-      choiceCol('Lien_type', values(C.lien)), col('Lien', 'Text')
+      choiceCol('Lien_type', values(C.lien)), col('Lien', 'Text'),
+      col('Parent', 'Ref:Instance_Points', { description: "Point de l'ordre du jour dont cette ligne est un sous-point (vide pour un point). Un sous-point a les mêmes propriétés qu'un point et se découpe dans la durée de son parent." })
     ] },
     { id: 'Instance_Relectures', cols: [
       col('Seance', 'Ref:Suivi_Instance'), col('Personne', 'Ref:Annuaire'), choiceCol('Statut', values(C.relecture)), col('Relu_le', 'Date')
@@ -247,11 +248,16 @@
       if (!inst) return;
       const hp = L.parisParts(row.Heure);
       const date = L.gristDateToIso(row.date) || (hp ? hp.date : '');
-      const points = (pointsBy[row.id] || []).slice().sort((a, b) => (Number(a.Ordre) || 0) - (Number(b.Ordre) || 0) || a.id - b.id).map(p => ({
+      const rows = (pointsBy[row.id] || []).slice().sort((a, b) => (Number(a.Ordre) || 0) - (Number(b.Ordre) || 0) || a.id - b.id).map(p => ({
         id: p.id, ordre: Number(p.Ordre) || 0, titre: text(p.Titre), nature: L.choiceKey(C.nature, p.Nature, 'discussion'),
         duree: Number(p.Duree_min) || 0, projets: refList(p.Projets), invites: refList(p.Invites), presentateurs: refList(p.Presentateurs),
-        lienType: L.choiceKey(C.lien, p.Lien_type, ''), lien: text(p.Lien)
+        lienType: L.choiceKey(C.lien, p.Lien_type, ''), lien: text(p.Lien), parent: refId(p.Parent), subs: []
       }));
+      // Les sous-points (Parent renseigné) se rangent sous leur point ; un parent absent, ou qui est lui-même un sous-point, laisse la ligne au premier niveau.
+      const rowById = {}; rows.forEach(r => { rowById[r.id] = r; });
+      const isSub = r => !!r.parent && !!rowById[r.parent] && !rowById[r.parent].parent && r.parent !== r.id;
+      rows.filter(isSub).forEach(r => rowById[r.parent].subs.push(r));
+      const points = rows.filter(r => !isSub(r));
       const guests = (guestsBy[row.id] || []).map(g => ({
         id: g.id, personneId: refId(g.Personne), origine: L.choiceKey(C.origine, g.Origine, 'permanent'),
         ecritLe: L.gristDateToIso(g.Ecrit_le), passageLe: L.gristDateToIso(g.Passage_envoye_le), passageHeure: text(g.Passage_envoye_heure).trim(),

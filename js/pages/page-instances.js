@@ -58,7 +58,7 @@
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
     prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
-    ui: { menu: null, settings: false }
+    ui: { menu: null, settings: false, subs: {} }
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -220,14 +220,15 @@
   // ---------------------------------------------------------------------------------------------
   function validationCtx(m, s, cfg) {
     const projectIds = [];
-    s.points.forEach(p => p.projets.forEach(id => { if (projectIds.indexOf(id) < 0) projectIds.push(id); }));
+    L.allPoints(s).forEach(p => p.projets.forEach(id => { if (projectIds.indexOf(id) < 0) projectIds.push(id); }));
     const projectVp = {};
     projectIds.forEach(id => { projectVp[id] = L.vpState(s.exports[id], L.notifNum(projectOf(m, id).notif)); });
-    const sched = L.schedule(s.points, L.toMin(s.heure) || 0);
+    // sched = les points de l'ordre du jour (chacun avec ses sous-points dans `subRows`) ; schedAll = tout à plat, sous-points compris
+    const { top: sched, all: schedAll } = L.scheduleWithSubs(s.points, L.toMin(s.heure) || 0);
     const guestsById = {}; s.guests.forEach(g => { guestsById[g.id] = g; });
     const nameOf = pid => personOf(m, pid).name;
-    const conflicts = L.computeConflicts(sched, guestsById, nameOf);
-    return { seance: s, cfg, sched, conflicts, guests: s.guests, relectures: s.relectures, validations: s.validations, endMin: (L.toMin(s.heure) || 0) + cfg.duree, personName: nameOf, projectIds, projectVp };
+    const conflicts = L.computeConflicts(schedAll, guestsById, nameOf);
+    return { seance: s, cfg, sched, schedAll, conflicts, guests: s.guests, relectures: s.relectures, validations: s.validations, endMin: (L.toMin(s.heure) || 0) + cfg.duree, personName: nameOf, projectIds, projectVp };
   }
   function computeView() {
     const m = S.model, inst = currentInstance();
@@ -238,7 +239,7 @@
     if (!V.s) return V;
     const s = V.s, cfg = inst.cfg;
     const ctx = V.ctx = validationCtx(m, s, cfg);
-    V.sched = ctx.sched; V.conf = ctx.conflicts; V.endMin = ctx.endMin; V.nameOf = ctx.personName;
+    V.sched = ctx.sched; V.schedAll = ctx.schedAll; V.conf = ctx.conflicts; V.endMin = ctx.endMin; V.nameOf = ctx.personName;
     V.startMin = L.toMin(s.heure) || 0;
     V.lastEnd = V.sched.length ? V.sched[V.sched.length - 1].end : V.startMin;
     V.over = V.lastEnd > V.endMin;
@@ -258,7 +259,7 @@
     if (!V.curDone && prevOpen.length) V.alerts.push('Étapes précédentes à valider : ' + prevOpen.join(', '));
     V.nDone = V.active.filter(x => V.valid(x.key)).length;
     V.guestOrder = L.sortGuests(s.guests, S.prefs.invTri, g => personOf(m, g.personneId).name);
-    V.firstStart = g => L.firstStartOf(V.sched, g.id);
+    V.firstStart = g => L.firstStartOf(V.schedAll, g.id);
     return V;
   }
   const progressOf = (m, se, active) => active.filter(x => L.isValid(x.key, { seance: se, validations: se.validations })).length + '/' + active.length;
@@ -432,24 +433,30 @@
 
   // Une ligne de l'ordre du jour. `i` = rang dans l'ordre de passage ; `typeView` : la liste est triée par type (ordre de passage
   // non modifiable ici), les contrôles de déplacement sont donc verrouillés.
-  function pointRowHtml(V, row, i, typeView) {
+  // Sous-point (`row.sub`) : même ligne, mêmes propriétés ; `par` = ligne du point parent (sa teinte), `n` = nombre de lignes sœurs.
+  function pointRowHtml(V, row, i, typeView, n, par) {
     const { s, m } = V;
-    const p = row.p, msgs = V.conf[p.id] || [];
+    const p = row.p, msgs = V.conf[p.id] || [], isSub = !!row.sub, locked = typeView && !isSub;
+    const kind = isSub ? 'sous-point' : 'point';
     const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
     const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
     const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
-    const tone = typeView ? 't-' + p.nature : 'b' + L.timeBand(row.start, V.startMin);
+    const tone = (typeView ? 't-' + (par || row).p.nature : 'b' + L.timeBand((par || row).start, V.startMin)) + (isSub ? ' sub' : '');
     const lockTip = 'Passez en vue Timing pour changer l\'ordre de passage';
-    return '<div class="pt pc ' + tone + (msgs.length ? ' flag' : '') + '" data-pt="' + p.id + '"><div class="grip">'
-      + (typeView ? '<span class="gripbtn locked" title="' + lockTip + '">' + ic('dots', '', 'dots') + '</span>'
-        : '<span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>')
-      + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le point" ' + (typeView ? 'title="' + lockTip + '" disabled ' : (i === 0 ? 'disabled ' : '')) + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
-      + '<button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Descendre le point" ' + (typeView ? 'title="' + lockTip + '" disabled ' : (i === V.sched.length - 1 ? 'disabled ' : '')) + da('pt-down', { id: p.id }) + '>' + ic('chevron', 'xs') + '</button></span></div>'
-      + '<div class="ptime">' + L.hhmm(row.start) + '–' + L.hhmm(row.end) + (msgs.length ? '<span style="color:var(--warn);display:inline-flex" title="' + esc(msgs.join(' · ')) + '">' + ic('warn', 's') + '</span>' : '') + '</div>'
+    const subCount = isSub ? 0 : (row.subRows || []).length, subsOpen = !isSub && !!S.ui.subs[p.id];
+    const foldTip = subCount ? (subsOpen ? 'Replier' : 'Déplier') + ' les sous-points (' + subCount + ')' + (row.subOver ? ' — ils durent ' + L.durTxt(row.subOver) + ' de plus que le point' : '') : 'Ajouter des sous-points à ce point';
+    const fold = isSub ? '' : '<button type="button" class="subtog ' + (subsOpen ? 'on ' : '') + (row.subOver ? 'over' : '') + '" title="' + esc(foldTip) + '" aria-label="' + esc(foldTip) + '" aria-expanded="' + (subsOpen ? 'true' : 'false') + '" ' + da('sub-toggle', { id: p.id }) + '>' + ic('chevron', 'xs') + (subCount ? '<span class="subn">' + subCount + '</span>' : '') + '</button>';
+    return '<div class="pt pc ' + tone + (msgs.length ? ' flag' : '') + '" data-pt="' + p.id + '"' + (isSub ? ' data-sub="' + par.p.id + '"' : '') + '><div class="grip">'
+      + (locked ? '<span class="gripbtn locked" title="' + lockTip + '">' + ic('dots', '', 'dots') + '</span>'
+        : (isSub ? '<span class="gripbtn nodrag" aria-hidden="true"></span>' : '<span class="gripbtn" draggable="true" data-drag="' + p.id + '" title="Glisser pour changer l\'ordre">' + ic('dots', '', 'dots') + '</span>'))
+      + '<span style="display:inline-flex;flex-direction:column"><button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Monter le ' + kind + '" ' + (locked ? 'title="' + lockTip + '" disabled ' : (i === 0 ? 'disabled ' : '')) + da('pt-up', { id: p.id }) + '>' + ic('up', 'xs') + '</button>'
+      + '<button type="button" class="ibtn" style="height:14px;width:20px" aria-label="Descendre le ' + kind + '" ' + (locked ? 'title="' + lockTip + '" disabled ' : (i === n - 1 ? 'disabled ' : '')) + da('pt-down', { id: p.id }) + '>' + ic('chevron', 'xs') + '</button></span></div>'
+      + '<div class="ptime' + (isSub && row.end === row.start ? ' pend' : '') + '">' + L.hhmm(row.start) + (isSub && row.end === row.start ? '' : '–' + L.hhmm(row.end)) + (msgs.length ? '<span style="color:var(--warn);display:inline-flex" title="' + esc(msgs.join(' · ')) + '">' + ic('warn', 's') + '</span>' : '') + '</div>'
       // titre : toujours en entier (la zone grandit avec le texte, voir autosizeTitles)
-      + '<textarea rows="1" class="inp ptitle" placeholder="Titre du point" aria-label="Titre du point" data-chg="pt-titre" data-id="' + p.id + '">' + esc(p.titre) + '</textarea>'
-      + '<div class="seg-i" role="group" aria-label="Nature du point">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
-      + '<label class="pdur"><input type="number" min="5" step="5" class="inp" aria-label="Durée en minutes" value="' + p.duree + '" data-chg="pt-duree" data-id="' + p.id + '">min</label>'
+      + '<div class="ttl">' + (isSub ? '<span class="subln" aria-hidden="true"></span>' : '')
+      + '<textarea rows="1" class="inp ptitle" placeholder="Titre du ' + kind + '" aria-label="Titre du ' + kind + '" data-chg="pt-titre" data-id="' + p.id + '">' + esc(p.titre) + '</textarea>' + fold + '</div>'
+      + '<div class="seg-i" role="group" aria-label="Nature du ' + kind + '">' + ['validation', 'discussion', 'information'].map(n => '<button type="button" class="' + (p.nature === n ? 'on ' + n : '') + '" title="' + C.nature[n] + '" aria-label="' + C.nature[n] + '" ' + da('pt-nat', { id: p.id, v: n }) + '>' + ic(n) + '</button>').join('') + '</div>'
+      + '<label class="pdur"' + (row.subAll ? ' title="Total des sous-points : le point prend leur somme (la durée saisie revient si l\'un d\'eux est vidé)"' : '') + '><input type="number" min="' + (isSub ? 0 : 5) + '" step="5" class="inp' + (row.subAll ? ' derived' : '') + '" aria-label="Durée en minutes" ' + (isSub ? 'placeholder="–" value="' + (p.duree || '') : 'value="' + (row.subAll ? row.end - row.start : p.duree)) + '"' + (row.subAll ? ' disabled' : '') + ' data-chg="pt-duree" data-id="' + p.id + '">min</label>'
       // projets
       + '<div class="pgroups"><div class="group g-proj"><span class="gic" title="Projets">' + ic('project', 's') + '</span>'
       + p.projets.map(pid => '<span class="tag proj" title="' + esc(projectOf(m, pid).titre) + '">' + esc(projectOf(m, pid).acro) + '<button type="button" aria-label="Retirer le projet" ' + da('pt-proj', { id: p.id, v: pid }) + '>' + ic('x', 'xs') + '</button></span>').join('')
@@ -471,7 +478,32 @@
       // dossier
       + '<div class="group g-doc"><div class="rel"><button type="button" class="addb ' + (lkHas ? 'on' : '') + '" title="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" aria-label="' + esc(lkHas ? 'Dossier du point : ' + linkLabel(V, p.lienType, p.lien) : 'Dossier du point') + '" ' + da('menu', { v: 'lien:' + p.id }) + '>' + ic('clip', 's') + '</button>'
       + (lkOpen ? linkMenu(V, 'lien:' + p.id, 'pt', p.id, p.lienType, p.lien) : '') + '</div></div></div>'
-      + '<button type="button" class="ibtn ptrash" aria-label="Supprimer le point" title="Supprimer le point" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
+      + '<button type="button" class="ibtn ptrash" aria-label="Supprimer le ' + kind + '" title="Supprimer le ' + kind + (subCount ? ' et ses ' + subCount + ' sous-point' + (subCount > 1 ? 's' : '') : '') + '" ' + da('pt-del', { id: p.id }) + '>' + ic('trash') + '</button></div>';
+  }
+
+  // Rappel sous les sous-points : leur durée se découpe dans celle du point tant que l'un d'eux reste vide ; tous renseignés, le point prend le total.
+  function subInfoText(row) {
+    const subs = row.subRows || [], dur = Number(row.p.duree) || 0, empty = subs.filter(r => !(Number(r.p.duree) > 0)).length;
+    if (!subs.length) return 'Durée du point : ' + L.durTxt(dur) + '. Dès que tous les sous-points ont une durée, le point prend leur total.';
+    if (row.subAll) return 'Le point prend le total des sous-points : ' + L.durTxt(row.subTotal) + '.';
+    return L.durTxt(row.subTotal) + ' de sous-points sur ' + L.durTxt(dur) + ' du point · ' + empty + ' sans durée'
+      + (row.subOver ? ' — dépasse de ' + L.durTxt(row.subOver) : '');
+  }
+  // Un point et, dessous, ses sous-points (repliés par défaut) : même ligne, mêmes propriétés. Sous le dernier sous-point, une ligne
+  // pleine largeur pour en ajouter et rappeler le découpage de la durée du parent ; elle sert aussi à confirmer la suppression d'un
+  // point qui porte des sous-points (ils partent avec lui).
+  function pointBlockHtml(V, row, i, typeView) {
+    let h = pointRowHtml(V, row, i, typeView, V.sched.length);
+    const id = row.p.id, subs = row.subRows || [];
+    if (isOpen('ptdel:' + id)) {
+      h += '<div class="subbar del"><span class="subinfo">Supprimer ce point et ses ' + subs.length + ' sous-point' + (subs.length > 1 ? 's' : '') + ' ?</span>'
+        + '<button type="button" class="pillbtn ghost" ' + da('menu-close') + '>Annuler</button><button type="button" class="pillbtn danger" ' + da('pt-del-ok', { id }) + '>Supprimer</button></div>';
+    }
+    if (!S.ui.subs[id]) return h;
+    subs.forEach((sr, k) => { h += pointRowHtml(V, sr, k, typeView, subs.length, row); });
+    h += '<div class="subbar"><button type="button" class="addb" ' + da('sub-add', { id }) + '>' + ic('plus', 'xs') + 'Sous-point</button>'
+      + '<span class="subinfo ' + (row.subOver ? 'over' : '') + '">' + subInfoText(row) + '</span></div>';
+    return h;
   }
 
   // Vue de l'ordre du jour : « timing » (par défaut : ordre de passage, une teinte par heure) ou « type » (tous les points,
@@ -490,10 +522,10 @@
     if (typeView) {
       L.groupByNature(V.sched).forEach(g => {
         h += '<div class="grph t-' + g.nature + '"><span class="ndot ' + g.nature + '"></span>' + NATURE_GROUP_LABEL[g.nature] + '<span class="tag-soft">' + g.rows.length + '</span></div>';
-        g.rows.forEach(row => { h += pointRowHtml(V, row, V.sched.indexOf(row), true); });
+        g.rows.forEach(row => { h += pointBlockHtml(V, row, V.sched.indexOf(row), true); });
       });
     } else {
-      V.sched.forEach((row, i) => { h += pointRowHtml(V, row, i, false); });
+      V.sched.forEach((row, i) => { h += pointBlockHtml(V, row, i, false); });
     }
     return h + '</div>';
   }
@@ -524,7 +556,7 @@
       + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>' + sortHead('appel', 'Appel du jour', 'présents d\'abord', 'absents d\'abord') + '</div><div></div></div>';
     V.guestOrder.forEach(g => {
       const person = personOf(m, g.personneId);
-      const sujets = V.sched.filter(row => row.p.invites.indexOf(g.id) >= 0).map(row => {
+      const sujets = V.schedAll.filter(row => row.p.invites.indexOf(g.id) >= 0).map(row => {
         const clash = L.guestClash(g, row.start, row.end, person.name);
         return { time: L.hhmm(row.start), label: L.cut(row.p.titre, 30), title: row.p.titre + (clash ? ' — ' + clash : ''), warn: !!clash };
       });
@@ -619,7 +651,7 @@
     h += '</div></div><div class="gwrap"><div class="nrow head"><div>Projet</div><div>Point(s)</div><div>Notification</div><div>Mise à disposition du VP</div></div>';
     projIds.forEach(id => {
       const pr = projectOf(m, id), n = L.notifNum(pr.notif), v = vp[id];
-      h += '<div class="nrow"><div class="pname">' + esc(pr.acro) + '</div><div class="psub">' + esc(V.sched.filter(r => r.p.projets.indexOf(id) >= 0).map(r => L.hhmm(r.start) + ' ' + r.p.titre).join(' · ')) + '</div>'
+      h += '<div class="nrow"><div class="pname">' + esc(pr.acro) + '</div><div class="psub">' + esc(V.schedAll.filter(r => r.p.projets.indexOf(id) >= 0).map(r => L.hhmm(r.start) + ' ' + r.p.titre).join(' · ')) + '</div>'
         + '<div><span class="nst ' + (n >= 6 ? 'ok' : (n >= 3 ? 'cur' : 'todo')) + '">' + esc(L.stripOrdinal(pr.notif) || '—') + '</span></div><div><span class="nst ' + v.cls + '" title="' + esc(v.tip) + '">' + esc(v.label) + '</span></div></div>';
     });
     if (!projIds.length) h += '<div class="nrow"><div class="psub">Aucun projet relié</div></div>';
@@ -962,33 +994,48 @@
   const gristDay = iso => (iso ? L.isoToGristDate(iso) : null);
   const setMenu = key => { S.ui.menu = S.ui.menu === key ? null : key; render(); };
   function setStep(key) { S.prefs.etape = key; S.ui.menu = null; render(); savePrefs(); }
-  const pointOf = (V, id) => V.s.points.find(p => p.id === Number(id));
+  const pointOf = (V, id) => L.allPoints(V.s).find(p => p.id === Number(id));
+  // Sous-points : le parent d'un sous-point (undefined pour un point), et les « frères » à réordonner entre eux.
+  const parentOf = (V, id) => V.s.points.find(p => (p.subs || []).some(q => q.id === Number(id)));
+  const siblingsOf = (V, id) => { const par = parentOf(V, id); return par ? par.subs : V.s.points; };
   const guestOf = (V, id) => V.s.guests.find(g => g.id === Number(id));
   const upd = (table, id, fields) => ({ op: 'update', table, id: Number(id), fields });
   const addOp = (table, fields) => ({ op: 'add', table, fields });
   const delOp = (table, id) => ({ op: 'remove', table, id: Number(id) });
 
   function pointsOrderOps(V, ids) {
-    const byId = {}; V.s.points.forEach(p => { byId[p.id] = p; });
+    const byId = {}; L.allPoints(V.s).forEach(p => { byId[p.id] = p; });
     return ids.map((id, i) => (byId[id].ordre !== i + 1 ? upd('Instance_Points', id, { Ordre: i + 1 }) : null)).filter(Boolean);
   }
   function movePoint(V, fromId, toId) {
-    const ids = V.s.points.map(p => p.id);
+    const ids = siblingsOf(V, fromId).map(p => p.id);
     const i = ids.indexOf(Number(fromId)), j = ids.indexOf(Number(toId));
     if (i < 0 || j < 0 || i === j) return;
     ids.splice(j, 0, ids.splice(i, 1)[0]);
     write(pointsOrderOps(V, ids));
   }
   function shiftPoint(V, id, d) {
-    const ids = V.s.points.map(p => p.id);
+    const ids = siblingsOf(V, id).map(p => p.id);
     const i = ids.indexOf(Number(id)), j = i + d;
     if (i < 0 || j < 0 || j >= ids.length) return;
     ids.splice(j, 0, ids.splice(i, 1)[0]);
     write(pointsOrderOps(V, ids));
   }
+  // Donne le focus à un champ qui n'est pas encore (re)dessiné : on attend son apparition quelques instants.
+  function focusWhenThere(sel, tries) {
+    const el = rootEl() && rootEl().querySelector(sel);
+    if (el) { el.focus(); return; }
+    if ((tries || 0) < 15) setTimeout(() => focusWhenThere(sel, (tries || 0) + 1), 60);
+  }
+  // Supprime un point ; ses sous-points partent avec lui (et les invités qui n'étaient là que pour eux).
+  function deletePoint(V, p) {
+    const ids = [p.id].concat((p.subs || []).map(q => q.id));
+    delete S.ui.subs[p.id];
+    write(ids.map(id => delOp('Instance_Points', id)).concat(orphanGuestOps(V, ids)));
+  }
   // Invités « ajoutés sur un point » devenus orphelins (aucun point, jamais écrits) : retirés de la liste.
   const orphanGuestOps = (V, removedPointIds) => V.s.guests.filter(g => g.origine === 'point' && !g.ecritLe && !g.passageLe
-    && !V.s.points.some(p => removedPointIds.indexOf(p.id) < 0 && p.invites.indexOf(g.id) >= 0)).map(g => delOp('Instance_Invites', g.id));
+    && !L.allPoints(V.s).some(p => removedPointIds.indexOf(p.id) < 0 && p.invites.indexOf(g.id) >= 0)).map(g => delOp('Instance_Invites', g.id));
   async function toggleGuestOnPoint(V, pointId, personId) {
     const p = pointOf(V, pointId); if (!p) return;
     let g = V.s.guests.find(x => x.personneId === Number(personId));
@@ -1000,7 +1047,7 @@
     const on = p.invites.indexOf(gid) >= 0;
     const list = on ? p.invites.filter(x => x !== gid) : p.invites.concat([gid]);
     const ops = [upd('Instance_Points', p.id, { Invites: D.toList(list) })];
-    if (on && g && g.origine === 'point' && !g.ecritLe && !g.passageLe && !V.s.points.some(q => q.id !== p.id && q.invites.indexOf(gid) >= 0)) ops.push(delOp('Instance_Invites', gid));
+    if (on && g && g.origine === 'point' && !g.ecritLe && !g.passageLe && !L.allPoints(V.s).some(q => q.id !== p.id && q.invites.indexOf(gid) >= 0)) ops.push(delOp('Instance_Invites', gid));
     write(ops);
   }
 
@@ -1086,7 +1133,22 @@
     'reopen': (el, V) => reopenStep(V),
     // ordre du jour
     'pt-add': (el, V) => write([addOp('Instance_Points', { Seance: V.s.id, Ordre: V.s.points.reduce((n, p) => Math.max(n, p.ordre), 0) + 1, Titre: '', Nature: C.nature.discussion, Duree_min: 15, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' })]),
-    'pt-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Points', id)].concat(orphanGuestOps(V, [id]))); },
+    'pt-del': (el, V) => {
+      const p = pointOf(V, el.dataset.id); if (!p) return;
+      if ((p.subs || []).length) { S.ui.menu = 'ptdel:' + p.id; S.ui.subs[p.id] = true; render(); return; } // confirmation : les sous-points partent avec lui
+      deletePoint(V, p);
+    },
+    'pt-del-ok': (el, V) => { const p = pointOf(V, el.dataset.id); S.ui.menu = null; if (p) deletePoint(V, p); else render(); },
+    // sous-points
+    'sub-toggle': (el) => { const id = Number(el.dataset.id); S.ui.menu = null; S.ui.subs[id] = !S.ui.subs[id]; render(); },
+    'sub-add': async (el, V) => {
+      const par = pointOf(V, el.dataset.id); if (!par || par.parent) return;
+      const subs = par.subs || [];
+      S.ui.subs[par.id] = true;
+      const [newId] = await write([addOp('Instance_Points', { Seance: V.s.id, Parent: par.id, Ordre: subs.reduce((n, q) => Math.max(n, q.ordre), 0) + 1, Titre: '', Nature: C.nature[par.nature] || C.nature.discussion, Duree_min: 0, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' })]);
+      // saisie fluide : le curseur arrive directement dans le titre du nouveau sous-point
+      if (newId) focusWhenThere('.in-pt[data-pt="' + newId + '"] .in-ptitle');
+    },
     'pt-up': (el, V) => shiftPoint(V, el.dataset.id, -1),
     'pt-down': (el, V) => shiftPoint(V, el.dataset.id, 1),
     'pt-nat': (el, V) => write([upd('Instance_Points', el.dataset.id, { Nature: C.nature[el.dataset.v] })]),
@@ -1111,7 +1173,7 @@
     'g-start': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_de: V.s.heure })]),
     'g-end': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_a: L.hhmm(V.endMin) })]),
     'g-appel': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Appel: g.appel === el.dataset.v ? '' : C.appel[el.dataset.v] })]); },
-    'g-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Invites', id)].concat(V.s.points.filter(p => p.invites.indexOf(id) >= 0).map(p => upd('Instance_Points', p.id, { Invites: D.toList(p.invites.filter(x => x !== id)) })))); },
+    'g-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Invites', id)].concat(L.allPoints(V.s).filter(p => p.invites.indexOf(id) >= 0).map(p => upd('Instance_Points', p.id, { Invites: D.toList(p.invites.filter(x => x !== id)) })))); },
     'g-compo-add': (el, V) => {
       const missing = V.cfg.composition.filter(pid => V.m.peopleById[pid] && !V.s.guests.some(g => g.personneId === pid));
       if (!missing.length) return;
@@ -1241,14 +1303,14 @@
   function clearDrag() { S.drag = null; rootEl().querySelectorAll('.in-dragging,.in-drop').forEach(el => el.classList.remove('in-dragging', 'in-drop')); }
   function onDragOver(e) {
     if (S.drag == null) return;
-    const row = e.target.closest && e.target.closest('.in-pt[data-pt]'); if (!row) return;
+    const row = e.target.closest && e.target.closest('.in-pt[data-pt]:not(.in-sub)'); if (!row) return;
     e.preventDefault();
     rootEl().querySelectorAll('.in-drop').forEach(el => { if (el !== row) el.classList.remove('in-drop'); });
     if (Number(row.dataset.pt) !== S.drag) row.classList.add('in-drop');
   }
   function onDrop(e) {
     if (S.drag == null) return;
-    const row = e.target.closest && e.target.closest('.in-pt[data-pt]'); if (!row) return;
+    const row = e.target.closest && e.target.closest('.in-pt[data-pt]:not(.in-sub)'); if (!row) return;
     e.preventDefault();
     const from = S.drag; clearDrag();
     const V = currentView(); if (V && V.s && from !== Number(row.dataset.pt)) movePoint(V, from, row.dataset.pt);
@@ -1292,7 +1354,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {} };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }

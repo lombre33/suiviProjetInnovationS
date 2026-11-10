@@ -229,7 +229,7 @@ références sont écrites en identifiants (`['L', …]` pour les RefList) ; les
 | Table | Colonnes |
 | --- | --- |
 | `Instances` (ajouts) | `Heure_debut` (Text, HH:MM), `Duree_min` (Int), `Etapes_actives` (ChoiceList, vide = toutes), `Relecteurs_CR` / `Invites_permanents` (RefList → `Annuaire`), `Modele_invitation` / `Modele_CR` (Text) — chacune avec une description (bulles d'aide du paramétrage) |
-| `Instance_Points` | `Seance` (→ `Suivi_Instance`), `Ordre`, `Titre`, `Nature` (Validation / Discussion / Information), `Duree_min`, `Projets` (RefList → `Projets`), `Invites` (RefList → `Instance_Invites`), `Presentateurs` (RefList → `Annuaire` : qui présente le point, indépendant des invités ; ajoutée à la table existante par `ensureColumns`), `Lien_type`, `Lien` |
+| `Instance_Points` | `Seance` (→ `Suivi_Instance`), `Ordre`, `Titre`, `Nature` (Validation / Discussion / Information), `Duree_min`, `Projets` (RefList → `Projets`), `Invites` (RefList → `Instance_Invites`), `Presentateurs` (RefList → `Annuaire` : qui présente le point, indépendant des invités ; ajoutée à la table existante par `ensureColumns`), `Parent` (Ref → `Instance_Points`, vide pour un point ; ajoutée par `ensureColumns` : fait de la ligne un sous-point), `Lien_type`, `Lien` |
 | `Instance_Invites` | `Seance`, `Personne` (→ `Annuaire`), `Origine` (Liste permanente / Ajouté sur un point), `Ecrit_le`, `Passage_envoye_le`, `Passage_envoye_heure`, `Reponse` (À confirmer / Viendra / Excusé(e)), `Dispo_de`, `Dispo_a`, `Commentaire`, `Appel` (Présent(e) / Absent(e)) |
 | `Instance_Relectures` | `Seance`, `Personne`, `Statut` (Modifs demandées / Validée ; pas de ligne = à relire), `Relu_le` |
 | `Instance_Validations` | `Seance`, `Etape`, `Date`, `Par` (→ `Annuaire`) — une ligne par étape validée (les étapes « Mail d'invitation » et « Envoi du CR » se valident par leur date dans `Suivi_Instance`) |
@@ -315,6 +315,22 @@ séance (`Suivi_Instance`) comme enregistrement sélectionné ; ses réglages so
 `?gfs=<url>` sur l'URL du widget. Le bouton « Télécharger le CR » ouvre le **dernier** fichier de la
 cellule `Suivi_Instance.CR_PDF` ; quand GFS écrit dans `Suivi_Instance`, la page relit ses tables.
 L'onglet « PDF exporté » affiche ce même PDF dans la page.
+
+**Sous-points de l'ordre du jour (10/11/2026).** Un point peut avoir des sous-points : même table
+`Instance_Points`, `Parent` renseigné, mêmes propriétés (titre, nature, durée, projets, présentateurs,
+invités, dossier). Un seul niveau : une ligne dont le parent est absent ou est déjà un sous-point reste
+un point. Repliés par défaut (bouton à droite du titre, avec le nombre ; état non retenu, seulement
+pour la session) ; sous le dernier, une ligne « + Sous-point » et un rappel de durée. `Ordre` des
+sous-points = rang parmi leurs frères ; les flèches ne déplacent qu'entre frères (pas de glisser-déposer).
+Durée (demande d'Antoine) : tant qu'**un** sous-point reste vide (durée 0), le point **garde sa durée**
+et les sous-points renseignés s'y découpent (le premier commence avec le point, les autres s'enchaînent) ;
+dès que **tous** ont une durée, le point **prend leur total** (champ grisé, la durée saisie n'est jamais
+réécrite : elle revient si un sous-point est vidé). Renseignés au-delà de la durée du point avec un
+sous-point encore vide : bouton orange et alerte non bloquante. Un sous-point neuf a une durée vide et la
+nature de son point ; le curseur arrive dans son titre. Supprimer un point qui en porte demande
+confirmation et emporte ses sous-points. Les invités (sujets, premier horaire de passage), les conflits
+de disponibilité et les notifications liées comptent aussi les sous-points. Code : `L.dureeOf`,
+`L.scheduleWithSubs` (`instances-logic.js`), `pointBlockHtml` (`page-instances.js`), fin de `css/instances.css`.
 
 ## Lignes_OPE
 

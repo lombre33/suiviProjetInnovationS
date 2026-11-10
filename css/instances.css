@@ -405,3 +405,28 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-grow .in-ib.in-warn:hover{background:#c46c00}
 .in-grow .in-dispo .in-ib.in-on{background:var(--accent);color:#fff}
 .in-grow .in-dispo .in-ib.in-on:hover{background:var(--accent-h)}
+
+/* Sous-points de l'ordre du jour (11/2026) : repliés par défaut, mêmes propriétés qu'un point. Le retrait n'est fait QUE dans la cellule
+   du titre : les colonnes (sous-grille) restent alignées avec celles des points, et un sous-point reste sur une seule ligne. */
+.in-ttl{display:flex;align-items:center;gap:4px;min-width:0}
+.in-ttl>.in-ptitle{flex:1 1 auto;width:auto;min-width:0}
+.in-subtog{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:2px;height:22px;min-width:22px;padding:0 4px;border:1px dashed var(--border2);border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:800;cursor:pointer}
+.in-subtog svg{transform:rotate(-90deg);transition:transform .12s}
+.in-subtog.in-on svg{transform:none}
+.in-subtog:hover{background:var(--sunken);color:var(--text)}
+.in-subtog.in-on{border-style:solid;background:var(--accent-s);border-color:var(--accent-sb);color:var(--accent-h)}
+.in-subtog.in-over{border-style:solid;background:var(--warn-s);border-color:var(--warn-sb);color:var(--warn)}
+.in-subn{font-variant-numeric:tabular-nums}
+.in-pt.in-sub{padding-top:5px;padding-bottom:5px;background:var(--surface)}
+.in-pt.in-sub.in-flag{background:var(--warn-s)}
+.in-pt.in-sub .in-ptime{font-weight:700;color:var(--muted)}
+.in-gripbtn.in-nodrag{cursor:default;pointer-events:none}
+.in-subln{position:relative;flex:0 0 18px;align-self:stretch}
+.in-subln::before{content:"";position:absolute;left:6px;top:-14px;bottom:50%;width:10px;border-left:2px solid var(--border2);border-bottom:2px solid var(--border2);border-bottom-left-radius:7px}
+.in-pts>.in-subbar{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:0 8px 0 40px;font-size:11.5px;color:var(--muted)}
+.in-subinfo.in-over{color:var(--warn);font-weight:700}
+.in-pts>.in-subbar.in-del{padding:8px 16px;border:1px solid var(--warn-sb);background:var(--warn-s);border-radius:12px;color:var(--text);font-size:12.5px;font-weight:700}
+.in-pillbtn.in-danger{background:#b3261e;border-color:#b3261e}
+.in-pillbtn.in-danger:hover{background:#8f1d17}
+.in-pt.in-sub .in-ptime.in-pend{opacity:.55}
+.in-inp.in-derived:disabled{background:var(--sunken);color:var(--text);font-weight:800;opacity:1;border-color:transparent;cursor:default}
