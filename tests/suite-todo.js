@@ -36,6 +36,26 @@
     select.value = value;
     fire(select, 'change');
   }
+  // Le mock ne sait pas évaluer la formule déclenchée Email_utilisateur : on la mime (Grist pose l'email
+  // de la personne qui crée la ligne de préférences, au moment de la création seulement).
+  function emulateTriggerEmail(email) {
+    const docApi = window.grist.docApi;
+    const original = docApi.applyUserActions;
+    docApi.applyUserActions = async function (actions) {
+      const result = await original.call(docApi, actions);
+      for (let i = 0; i < actions.length; i++) {
+        if (actions[i][0] === 'AddRecord' && actions[i][1] === 'Preferences_Widget') {
+          await original.call(docApi, [['UpdateRecord', 'Preferences_Widget', result.retValues[i], { Email_utilisateur: email }]]);
+        }
+      }
+      return result;
+    };
+    return () => { docApi.applyUserActions = original; };
+  }
+  function cacheRowId(id) { try { localStorage.setItem('suiviProjetInnovationS:prefsRowId', String(id)); } catch (err) { /* ignore */ } }
+  async function prefsRows() { return window.CoreGrist.getTable('Preferences_Widget'); }
+  function addRecordCalls() { return window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Preferences_Widget').length; }
+
   function project(id) { return window.CoreState.getTable('Projets').find(p => p.id === id); }
 
   describe('To Do — rôle déduit de Structures (via Postes2.Structure2), un onglet entier sans tag', function () {
@@ -220,6 +240,89 @@
       setView('me');
 
       assertFalse(document.getElementById('todo-identify-notice').hidden, 'le message doit être visible sans correspondance');
+    });
+  });
+  describe('To Do — identification de « moi » (correctif « non identifié » par défaut)', function () {
+    it('1re ouverture dans ce navigateur : la ligne créée est relue, l\'email posé par Grist identifie la personne', async function () {
+      await loadFixtureState();
+      setAliceStructureLabel('Grands Programmes Innovation');
+      window.__mockSetTable('Preferences_Widget', { id: [], Email_utilisateur: [] });
+      const restore = emulateTriggerEmail('alice.martin@example.org');
+      try {
+        await window.loadTodoUserPreferences();
+      } finally { restore(); }
+      window.renderTodo();
+      setTab('notif');
+      setView('me');
+      assertTrue(document.getElementById('todo-identify-notice').hidden, 'Alice doit être reconnue dès la 1re ouverture');
+      assertTrue(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'ses tâches doivent apparaître');
+    });
+
+    it('ligne de préférences antérieure à la colonne Email_utilisateur : colonne ajoutée, ligne-sonde créée puis supprimée, email retenu, sonde jamais répétée', async function () {
+      await loadFixtureState();
+      window.__mockSetTable('Preferences_Widget', { id: [1] }); // ni Email_utilisateur ni Todo_*
+      cacheRowId(1);
+      const restore = emulateTriggerEmail('alice.martin@example.org');
+      try {
+        await window.loadTodoUserPreferences();
+        window.renderTodo();
+        setView('me');
+        assertTrue(document.getElementById('todo-identify-notice').hidden, 'Alice doit être reconnue grâce à la ligne-sonde');
+        const rows = await prefsRows();
+        assertEqual(rows.length, 1, 'la ligne-sonde doit avoir été supprimée');
+        assertEqual(rows[0].Todo_email, 'alice.martin@example.org', 'l\'email doit être retenu sur la ligne de la personne');
+        assertTrue(window.__TEST_CALLS__.some(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget' && c.colId === 'Email_utilisateur'), 'Email_utilisateur doit être ajoutée à la table de préférences');
+
+        window.__TEST_CALLS__.length = 0;
+        await window.loadTodoUserPreferences(); // 2e ouverture
+        assertEqual(addRecordCalls(), 0, 'aucune nouvelle sonde : l\'email est déjà retenu');
+        assertTrue(document.getElementById('todo-identify-notice').hidden);
+      } finally { restore(); }
+    });
+
+    it('email illisible (la sonde ne reçoit rien) : message sans adresse, choix « Qui êtes-vous ? » retenu et rejoué, sans re-sonde', async function () {
+      await loadFixtureState();
+      setAliceStructureLabel('Grands Programmes Innovation');
+      window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: [''] });
+      cacheRowId(1);
+      await window.loadTodoUserPreferences();
+      window.renderTodo();
+      setView('me');
+      const notice = document.getElementById('todo-identify-notice');
+      assertFalse(notice.hidden, 'non identifié tant que la personne ne se désigne pas');
+      assertIncludes(document.getElementById('todo-identify-text').textContent, 'n\'a pas pu être lue');
+      assertEqual((await prefsRows()).length, 1, 'la ligne-sonde doit être supprimée même sans email');
+
+      const me = document.getElementById('todo-me-select');
+      assertTrue(Array.from(me.options).some(o => o.textContent === 'Alice Martin'), 'la liste doit proposer les personnes de l\'Annuaire');
+      me.value = '1';
+      fire(me, 'change');
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assertTrue(notice.hidden, 'Alice est identifiée après son choix');
+      setTab('notif');
+      assertTrue(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'));
+      assertEqual((await prefsRows())[0].Todo_personne, '1', 'le choix doit être retenu dans Preferences_Widget');
+
+      window.__TEST_CALLS__.length = 0;
+      await window.loadTodoUserPreferences(); // rechargement
+      window.renderTodo();
+      assertTrue(notice.hidden, 'le choix retenu doit être rejoué au rechargement');
+      assertEqual(addRecordCalls(), 0, 'pas de nouvelle sonde : l\'indisponibilité est mémorisée');
+    });
+
+    it('email Grist sans fiche dans l\'Annuaire : le message cite l\'adresse ; une fiche avec plusieurs adresses est reconnue', async function () {
+      await loadFixtureState();
+      window.__mockSetTable('Preferences_Widget', { id: [1], Email_utilisateur: ['nouveau@example.org'] });
+      cacheRowId(1);
+      await window.loadTodoUserPreferences();
+      window.renderTodo();
+      setView('me');
+      assertIncludes(document.getElementById('todo-identify-text').textContent, 'nouveau@example.org');
+
+      window.CoreState.getTable('Annuaire').find(p => p.id === 1).Email = 'a.martin@univ.fr ; Nouveau@Example.org';
+      await window.loadTodoUserPreferences();
+      window.renderTodo();
+      assertTrue(document.getElementById('todo-identify-notice').hidden, 'une des adresses de la fiche correspond (casse ignorée)');
     });
   });
 })();

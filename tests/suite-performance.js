@@ -242,7 +242,9 @@
         const instruction = Array.from(document.querySelectorAll('#projects-kanban .kanban-column')).find(s => s.querySelector('h3')?.textContent === 'Instruction');
         assertTrue(instruction.classList.contains('is-collapsed'), 'Instruction repliée comme enregistré');
         assertFalse(Array.from(document.querySelectorAll('#projects-kanban h3')).some(h => h.textContent === 'Notifications'), 'Notifications masquée comme enregistré');
-        assertEqual(window.__TEST_CALLS__.filter(call => call.type === 'AddRecord' && call.table === 'Preferences_Widget').length, 1, 'une seule ligne de préférences, jamais une par page');
+        // Lignes restantes (et non appels) : le mock n'évalue pas la formule Email_utilisateur, la page To Do crée alors une
+        // ligne-sonde qu'elle supprime aussitôt (js/pages/page-todo.js, probeUserEmail).
+        assertEqual((await window.grist.docApi.fetchTable('Preferences_Widget')).id.length, 1, 'une seule ligne de préférences, jamais une par page');
       } finally {
         window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Kanban_colonnes_repliees: '', Kanban_colonnes_masquees: '' }]]).catch(() => {});
         idle.restore(); restore();

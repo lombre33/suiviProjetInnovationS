@@ -194,6 +194,8 @@
   let activeTab = 'notif';
   let viewMode = 'me'; // 'me' | 'all' | id Annuaire (string)
   let currentPersonId = null;
+  let detectedEmail = '';
+  let manualPersonId = '';
   const panelState = {};
   function panelKey(tab, idx) { return `${tab}:${idx}`; }
   let pendingTodoPrefs = null;
@@ -273,10 +275,24 @@
     el.textContent = `${total} tâche${total === 1 ? '' : 's'} visible${total === 1 ? '' : 's'}`;
   }
 
+  // Non identifié(e) : l'email Grist ne correspond à aucune fiche de l'Annuaire (ou n'a pas pu
+  // être lu) — la personne dit une fois qui elle est, le choix est retenu (Todo_personne).
   function updateIdentifyNotice() {
     const el = document.getElementById('todo-identify-notice');
     if (!el) return;
-    el.hidden = !(viewMode === 'me' && !currentPersonId);
+    const unidentified = viewMode === 'me' && !currentPersonId;
+    el.hidden = !unidentified;
+    if (!unidentified) return;
+    const message = document.getElementById('todo-identify-text');
+    if (message) message.textContent = detectedEmail
+      ? `Votre adresse Grist (${detectedEmail}) ne correspond à aucune fiche de l'Annuaire.`
+      : 'Votre adresse Grist n\'a pas pu être lue.';
+    const select = document.getElementById('todo-me-select');
+    if (select) {
+      const people = getAnnuaire().map(p => ({ id: p.id, name: personName(p) })).filter(p => p.name)
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      select.innerHTML = '<option value="">Qui êtes-vous ?</option>' + people.map(p => `<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');
+    }
   }
 
   // Personnes sélectionnables dans "voir les tâches de…" : celles qui ont un
@@ -339,6 +355,8 @@
   const TODO_PREFS_COLUMNS = [
     { id: 'Todo_onglet_actif', type: 'Text' },
     { id: 'Todo_vue', type: 'Text' },
+    { id: 'Todo_personne', type: 'Text' },
+    { id: 'Todo_email', type: 'Text' },
     { id: 'Todo_notif_repliees', type: 'Text' },
     { id: 'Todo_conv_repliees', type: 'Text' },
     { id: 'Todo_install_repliees', type: 'Text' }
@@ -355,21 +373,63 @@
     catch (err) { /* navigation privée / stockage bloqué : tant pis */ }
   }
 
-  function resolveCurrentPerson(email) {
-    const normalizedEmail = normalized(email);
-    if (!normalizedEmail) { currentPersonId = null; return; }
-    const match = getAnnuaire().find(p => normalized(p.Email) === normalizedEmail);
-    currentPersonId = match ? match.id : null;
+  const emailsOf = value => text(value).split(/[;,\s]+/).map(normalized).filter(Boolean);
+  // Email Grist d'abord (une fiche peut en porter plusieurs : « a@x ; b@y »), puis le choix
+  // « C'est moi » retenu dans Todo_personne quand l'Annuaire n'a pas cette adresse.
+  function resolveCurrentPerson(email, manualId) {
+    detectedEmail = normalized(email);
+    const byEmail = detectedEmail ? getAnnuaire().find(p => emailsOf(p.Email).includes(detectedEmail)) : null;
+    const manual = !byEmail && manualId ? personById(manualId) : null;
+    currentPersonId = byEmail ? byEmail.id : (manual ? manual.id : null);
+  }
+
+  // Grist ne remplit Email_utilisateur qu'à la CRÉATION d'une ligne : une ligne de préférences
+  // créée avant l'existence de la colonne (ou avant la formule) l'a vide pour toujours. On crée
+  // alors une ligne-sonde (Grist y met l'email de qui la crée), on lit l'email, on la supprime
+  // aussitôt, et l'email est retenu dans Todo_email : la sonde ne sert qu'une fois par personne.
+  const EMAIL_UNAVAILABLE = '(indisponible)';
+  async function probeUserEmail() {
+    const docApi = CoreGrist.gristInstance.docApi;
+    try {
+      const result = await docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
+      const probeId = CoreUtils.extractAddedRecordId(result);
+      let email = '';
+      try {
+        const probe = (await CoreGrist.getTable(PREFS_TABLE)).find(r => r.id === probeId);
+        email = text(probe && probe.Email_utilisateur).trim();
+      } finally {
+        await docApi.applyUserActions([['RemoveRecord', PREFS_TABLE, probeId]]);
+        CoreGrist.invalidateTable(PREFS_TABLE);
+      }
+      return email;
+    } catch (err) {
+      console.warn('Lecture de l\'email Grist (ligne-sonde) impossible :', err.message);
+      return '';
+    }
+  }
+  async function writeOwnPrefs(fields) {
+    try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
+    catch (err) { console.warn('Enregistrement de l\'identité To Do a échoué :', err.message); }
+  }
+
+  async function chooseMe(personId) {
+    manualPersonId = personId ? String(personId) : '';
+    resolveCurrentPerson(detectedEmail, manualPersonId);
+    window.renderTodo();
+    if (prefsRowId) await writeOwnPrefs({ Todo_personne: manualPersonId });
   }
 
   async function loadTodoUserPreferences() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...TODO_PREFS_COLUMNS]);
-      await CoreGrist.ensureColumns(PREFS_TABLE, TODO_PREFS_COLUMNS);
-      const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
+      // Email_utilisateur aussi : ensureTable ne crée que les tables absentes, une table de préférences
+      // antérieure à cette colonne ne l'aurait jamais reçue.
+      await CoreGrist.ensureColumns(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...TODO_PREFS_COLUMNS]);
+      let rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
-      const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
+      let row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
+      const createdNow = !row;
       if (!row) {
         // Première utilisation dans ce navigateur : nouvelle ligne, normalement
         // déjà créée par loadKanbanUserPreferences() avant celui-ci (js/app.js).
@@ -377,10 +437,21 @@
         CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
-        return;
+        // Relue pour y trouver l'email que Grist vient d'y poser (avant, cette 1re ouverture restait « non identifié »).
+        rows = await CoreGrist.getTable(PREFS_TABLE);
+        row = rows.find(r => r.id === prefsRowId);
+        if (!row) return;
       }
       prefsRowId = row.id;
-      resolveCurrentPerson(text(row.Email_utilisateur));
+      let email = text(row.Email_utilisateur).trim();
+      if (!email && text(row.Todo_email).trim() && text(row.Todo_email) !== EMAIL_UNAVAILABLE) email = text(row.Todo_email).trim();
+      if (!email && text(row.Todo_email) !== EMAIL_UNAVAILABLE) {
+        email = await probeUserEmail();
+        await writeOwnPrefs({ Todo_email: email || EMAIL_UNAVAILABLE });
+      }
+      manualPersonId = text(row.Todo_personne).trim();
+      resolveCurrentPerson(email, manualPersonId);
+      if (createdNow) return; // ligne neuve : aucune préférence enregistrée à appliquer
       if (text(row.Todo_onglet_actif) && TAB_DEFS[row.Todo_onglet_actif]) activeTab = row.Todo_onglet_actif;
       if (text(row.Todo_vue)) viewMode = row.Todo_vue;
       pendingTodoPrefs = {
@@ -426,6 +497,7 @@
       updateIdentifyNotice();
       saveTodoUserPreferences();
     });
+    document.getElementById('todo-me-select')?.addEventListener('change', event => { if (event.target.value) chooseMe(event.target.value); });
     document.getElementById('todo-reset')?.addEventListener('click', () => {
       activeTab = 'notif';
       viewMode = 'me';
