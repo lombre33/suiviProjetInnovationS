@@ -713,18 +713,29 @@
   // couvre que les tables métier. Pas de mise en cache : la modale n'ouvre ce champ
   // qu'occasionnellement, et une table toujours à jour évite un cache à invalider
   // quand des pièces jointes sont ajoutées/retirées côté Grist pendant la session.
-  async function loadAttachmentMeta() {
-    const api = global.CoreGrist?.gristInstance;
-    const meta = new Map();
-    if (api) {
-      try {
-        const table = await api.docApi.fetchTable('_grist_Attachments');
-        (table.id || []).forEach((id, i) => meta.set(id, text(table.fileName?.[i])));
-      } catch (err) {
-        console.warn('Lecture des pièces jointes impossible :', err.message);
+  // Les deux champs (Notification, Convention) demandent cette table au même instant à chaque
+  // ouverture : une seule lecture est partagée entre appels simultanés (jamais conservée
+  // ensuite, la table reste donc toujours à jour à l'ouverture suivante).
+  let attachmentMetaInFlight = null;
+  function loadAttachmentMeta() {
+    if (attachmentMetaInFlight) return attachmentMetaInFlight;
+    const request = (async () => {
+      const api = global.CoreGrist?.gristInstance;
+      const meta = new Map();
+      if (api) {
+        try {
+          const table = await api.docApi.fetchTable('_grist_Attachments');
+          (table.id || []).forEach((id, i) => meta.set(id, text(table.fileName?.[i])));
+        } catch (err) {
+          console.warn('Lecture des pièces jointes impossible :', err.message);
+        }
       }
-    }
-    return meta;
+      return meta;
+    })();
+    attachmentMetaInFlight = request;
+    const release = () => { if (attachmentMetaInFlight === request) attachmentMetaInFlight = null; };
+    request.then(release, release);
+    return request;
   }
 
   // Affiche dans `container` un lien de visualisation/téléchargement par pièce jointe

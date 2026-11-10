@@ -176,5 +176,18 @@
   const idKey = row => row.id;
   function findById(rows, id) { return indexBy(rows, 'id', idKey).get(String(id)); }
 
-  global.CoreUtils = { indexBy, findById, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
+  // Appelle `fn` une fois que les appels se sont arrêtés pendant `delay` ms (derniers arguments).
+  // cancel() abandonne l'appel en attente, flush() l'exécute tout de suite. Sert aux champs de
+  // recherche : chaque frappe écrivait la préférence dans Grist (une action enregistrée et
+  // diffusée à chaque lettre) ; seule la dernière valeur est utile.
+  function debounce(fn, delay) {
+    let timer = null, pendingArgs = null;
+    const run = () => { timer = null; const args = pendingArgs; pendingArgs = null; if (args) fn(...args); };
+    const debounced = (...args) => { pendingArgs = args; clearTimeout(timer); timer = setTimeout(run, delay); };
+    debounced.cancel = () => { clearTimeout(timer); timer = null; pendingArgs = null; };
+    debounced.flush = () => { if (timer !== null) { clearTimeout(timer); run(); } };
+    return debounced;
+  }
+
+  global.CoreUtils = { indexBy, findById, debounce, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);

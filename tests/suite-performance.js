@@ -304,4 +304,125 @@
       } finally { idle.restore(); restore(); }
     });
   });
+
+  describe('Écriture différée de la recherche (CoreUtils.debounce)', function () {
+    it('debounce : un seul appel avec les derniers arguments, annulable, exécutable tout de suite', async function () {
+      const seen = [];
+      const soon = window.CoreUtils.debounce(value => seen.push(value), 30);
+      soon('a'); soon('ab'); soon('abc');
+      assertEqual(seen.length, 0, 'rien pendant la frappe');
+      await wait(80);
+      assertDeepEqual(seen, ['abc'], 'un seul appel, dernière valeur');
+      soon('x'); soon.cancel();
+      await wait(80);
+      assertDeepEqual(seen, ['abc'], 'annulé');
+      soon('y'); soon.flush();
+      assertDeepEqual(seen, ['abc', 'y'], 'exécuté tout de suite');
+      soon.flush();
+      assertDeepEqual(seen, ['abc', 'y'], 'rien à exécuter');
+    });
+
+    async function typeInKanbanSearch(values) {
+      const search = document.getElementById('filter-search');
+      values.forEach(value => { setValue(search, value); fire(search, 'input'); });
+    }
+    const prefsUpdates = () => window.__TEST_CALLS__.filter(call => call.type === 'UpdateRecord' && call.table === 'Preferences_Widget');
+
+    it('Kanban : taper "innovx" lettre par lettre n\'écrit la préférence qu\'une fois, avec le texte complet', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      await window.loadKanbanUserPreferences();
+      window.renderProjectsKanban();
+      const before = prefsUpdates().length;
+      await typeInKanbanSearch(['i', 'in', 'inn', 'inno', 'innov', 'innovx']);
+      const filtered = Array.from(document.querySelectorAll('#projects-kanban .project-acronym')).map(el => el.textContent);
+      assertDeepEqual(filtered, ['INNOVX'], 'le filtre s\'applique à chaque lettre, sans attendre l\'écriture');
+      assertEqual(prefsUpdates().length, before, 'aucune écriture pendant la frappe');
+      await wait(750);
+      const written = prefsUpdates().slice(before);
+      assertEqual(written.length, 1, 'une seule écriture après la dernière lettre');
+      assertEqual(written[0].fields.Filtre_recherche, 'innovx');
+      await typeInKanbanSearch(['']);
+      await wait(750);
+    });
+
+    it('Kanban : un clic sur une colonne pendant la frappe enregistre tout de suite (recherche comprise) sans double écriture', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      await window.loadKanbanUserPreferences();
+      window.renderProjectsKanban();
+      const before = prefsUpdates().length;
+      await typeInKanbanSearch(['inn']);
+      document.querySelector('[data-toggle-collapse="Instruction"]').click();
+      await wait(0);
+      const immediate = prefsUpdates().slice(before);
+      assertEqual(immediate.length, 1, 'écriture immédiate du repli');
+      assertEqual(immediate[0].fields.Filtre_recherche, 'inn', 'elle embarque aussi la recherche en cours');
+      await wait(750);
+      assertEqual(prefsUpdates().length, before + 1, 'l\'écriture différée a été annulée');
+      document.querySelector('[data-toggle-collapse="Instruction"]').click();
+      await typeInKanbanSearch(['']);
+      await wait(750);
+    });
+  });
+
+  describe('Modale projet — pièces jointes : une seule lecture de _grist_Attachments par ouverture', function () {
+    it('les champs Notification et Convention partagent la même lecture, la suivante relit (table toujours à jour)', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.__mockSetTable('_grist_Attachments', { id: [501, 502], fileName: ['Notification_signee.pdf', 'Avenant.pdf'] });
+      const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+      record.Notifications_Signees = ['L', 501];
+      record.Convention_de_reversement_le_cas_echeant = ['L', 501, 502];
+      const spy = spyDocApi();
+      try {
+        window.ProjectModal.open(record);
+        await wait(30);
+        assertEqual(spy.count('fetch:_grist_Attachments'), 1, 'une seule lecture pour les deux champs');
+        window.ProjectModal.open(record);
+        await wait(30);
+        assertEqual(spy.count('fetch:_grist_Attachments'), 2, 'ouverture suivante : relue');
+      } finally { spy.restore(); document.querySelectorAll('.cp-modal').forEach(el => el.remove()); }
+    });
+  });
+
+  describe('Administratif — changement d\'onglet sans reconstruction', function () {
+    async function loadAdmin() {
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+    }
+    const section = tab => document.querySelector(`[data-admin-panel="${tab}"]`);
+
+    it('les cartes déjà construites restent en place : seul l\'onglet affiché change', async function () {
+      await loadAdmin();
+      const convCard = document.querySelector('#admin-col-conv .admin-card');
+      const notifCard = document.querySelector('#admin-col-notif .admin-card');
+      assertTrue(!!convCard && !!notifCard, 'les deux onglets sont construits');
+      document.querySelector('[data-admin-tab="conv"]').click();
+      assertFalse(section('conv').classList.contains('is-hidden'), 'Conventions affiché');
+      assertTrue(section('notif').classList.contains('is-hidden'), 'Notifications masqué');
+      assertEqual(document.querySelector('[data-admin-tab="conv"]').getAttribute('aria-selected'), 'true');
+      assertTrue(convCard.isConnected && convCard === document.querySelector('#admin-col-conv .admin-card'), 'carte Conventions non reconstruite');
+      document.querySelector('[data-admin-tab="notif"]').click();
+      assertFalse(section('notif').classList.contains('is-hidden'), 'Notifications de retour');
+      assertTrue(notifCard.isConnected && notifCard === document.querySelector('#admin-col-notif .admin-card'), 'carte Notifications non reconstruite');
+    });
+
+    it('les volets masqués proposés à la restauration suivent l\'onglet affiché', async function () {
+      await loadAdmin();
+      document.querySelector('[data-admin-tab="conv"]').click();
+      document.querySelector('#admin-col-conv [data-hide-panel]').click();
+      const chips = () => document.querySelectorAll('#admin-hidden-panels [data-restore-panel]').length;
+      assertEqual(chips(), 1, 'un volet Conventions masqué proposé à la restauration');
+      document.querySelector('[data-admin-tab="notif"]').click();
+      assertEqual(chips(), 0, 'rien à restaurer côté Notifications');
+      assertTrue(document.getElementById('admin-hidden-panels').hidden, 'bandeau des volets masqués caché');
+      document.querySelector('[data-admin-tab="conv"]').click();
+      assertEqual(chips(), 1, 'de retour sur Conventions');
+      document.querySelector('#admin-hidden-panels [data-restore-panel]').click();
+      assertEqual(chips(), 0, 'volet restauré');
+      document.querySelector('[data-admin-tab="notif"]').click();
+    });
+  });
 })();

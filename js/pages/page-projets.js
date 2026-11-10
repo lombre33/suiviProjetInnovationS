@@ -333,6 +333,7 @@
     }
   }
   async function saveUserPreferences() {
+    saveUserPreferencesSoon.cancel();
     if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
     const fields = {
       Kanban_colonnes_repliees: encodeColumnList(COLUMNS.filter(c => columnState[c.key].collapsed).map(c => c.key)),
@@ -347,6 +348,9 @@
       console.warn('Enregistrement des préférences utilisateur a échoué :', err.message);
     }
   }
+  // Frappe dans la recherche : écriture différée (une seule, après la dernière lettre) plutôt qu'à chaque touche.
+  const saveUserPreferencesSoon = CoreUtils.debounce(() => saveUserPreferences(), 600);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveUserPreferencesSoon.flush(); }); // page masquée : on n'attend plus
   function card(project) {
     const holder = personLabel(field(project, ['Porteur_1', 'Porteur', 'porteur_1'])) || 'Porteur non renseigné';
     const accompanist = personLabel(field(project, ['Accompagnateur'])) || 'Accompagnateur non renseigné';
@@ -373,7 +377,7 @@
     setupMultiCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
     setupMultiCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     render();
-    document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferences(); });
+    document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferencesSoon(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
       ['filter-programme', 'filter-instance'].forEach(id => {
         const input = document.getElementById(id);

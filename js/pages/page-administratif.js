@@ -1035,7 +1035,17 @@
       root.querySelectorAll('[data-comment-project]').forEach(textarea => textarea.addEventListener('blur', () => saveComment(textarea.dataset.commentProject, textarea.value)));
     });
 
+    lastPanels = { notif: notifPanels, conv: convPanels };
     renderHiddenPanels(activeTab === 'notif' ? notifPanels : convPanels);
+    syncPopover();
+  }
+  // Volets du dernier rendu : render() construit les DEUX onglets, changer d'onglet n'a donc qu'à
+  // basculer l'affichage (avant : tout reconstruire, ~100 ms pour 300 projets).
+  let lastPanels = null;
+  function switchTab() {
+    if (!lastPanels) { render(); return; }
+    updateTabUI();
+    renderHiddenPanels(lastPanels[activeTab]);
     syncPopover();
   }
 
@@ -1160,6 +1170,7 @@
   }
 
   async function saveAdministratifUserPreferences() {
+    saveAdministratifUserPreferencesSoon.cancel();
     if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
     const collect = (side, prop) => encodeIdxList(Object.keys(panelState)
       .filter(key => key.startsWith(`${side}:`) && panelState[key][prop])
@@ -1179,6 +1190,9 @@
       console.warn('Enregistrement des préférences Administratif a échoué :', err.message);
     }
   }
+  // Frappe dans la recherche : écriture différée (une seule, après la dernière lettre) plutôt qu'à chaque touche.
+  const saveAdministratifUserPreferencesSoon = CoreUtils.debounce(() => saveAdministratifUserPreferences(), 600);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveAdministratifUserPreferencesSoon.flush(); }); // page masquée : on n'attend plus
 
   function updateViewToggle() {
     const btn = document.getElementById('admin-toggle-view');
@@ -1312,7 +1326,7 @@
     setupMultiCombo('admin-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     updateViewToggle();
     render();
-    document.getElementById('admin-filter-search')?.addEventListener('input', () => { render(); saveAdministratifUserPreferences(); });
+    document.getElementById('admin-filter-search')?.addEventListener('input', () => { render(); saveAdministratifUserPreferencesSoon(); });
     document.getElementById('admin-clear-filters')?.addEventListener('click', () => {
       ['admin-filter-programme', 'admin-filter-instance'].forEach(id => {
         const input = document.getElementById(id);
@@ -1332,7 +1346,7 @@
     document.querySelectorAll('[data-admin-tab]').forEach(btn => btn.addEventListener('click', () => {
       activeTab = btn.dataset.adminTab;
       closePopover();
-      render();
+      switchTab();
     }));
   }
 

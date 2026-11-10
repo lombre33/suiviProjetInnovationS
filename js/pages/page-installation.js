@@ -479,6 +479,7 @@
   }
 
   async function saveInstallationUserPreferences() {
+    saveInstallationUserPreferencesSoon.cancel();
     if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
     const collect = type => Object.entries(panelState).filter(([, state]) => state[type]).map(([key]) => key);
     const fields = {
@@ -495,6 +496,9 @@
       console.warn("Enregistrement des préférences Installation a échoué :", err.message);
     }
   }
+  // Frappe dans la recherche : écriture différée (une seule, après la dernière lettre) plutôt qu'à chaque touche.
+  const saveInstallationUserPreferencesSoon = CoreUtils.debounce(() => saveInstallationUserPreferences(), 600);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveInstallationUserPreferencesSoon.flush(); }); // page masquée : on n'attend plus
 
   function init() {
     initInstallDelegation();
@@ -502,7 +506,7 @@
     setupMultiCombo('install-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
     setupMultiCombo('install-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     render();
-    document.getElementById('install-filter-search')?.addEventListener('input', () => { render(); saveInstallationUserPreferences(); });
+    document.getElementById('install-filter-search')?.addEventListener('input', () => { render(); saveInstallationUserPreferencesSoon(); });
     document.getElementById('install-clear-filters')?.addEventListener('click', () => {
       ['install-filter-programme', 'install-filter-instance'].forEach(id => {
         const input = document.getElementById(id);

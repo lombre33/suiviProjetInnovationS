@@ -1468,7 +1468,7 @@
       const search = document.getElementById('admin-filter-search');
       setValue(search, 'INNOVX');
       fire(search, 'input');
-      await wait(0);
+      await wait(750); // la frappe dans la recherche est enregistrée en différé (une écriture après la dernière lettre)
 
       const rows = await window.CoreGrist.getTable('Preferences_Widget');
       assertDeepEqual(rows[0].Admin_filtre_programme.split(',').sort(), ['Programme A', 'Programme B'].sort(),
