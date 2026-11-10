@@ -796,6 +796,21 @@
 
     set('cp-Projet', ['Projet']);
     set('cp-Acronyme', ['Acronyme']);
+    // Un statut absent de la liste fixe (valeur saisie dans Grist, ancienne valeur) doit rester
+    // sélectionnable : sans option correspondante, la liste se vide et l'enregistrement effacerait le
+    // statut du projet, même pour une simple correction de commentaire.
+    const statutSelect = m.querySelector('#cp-statut');
+    if (statutSelect) {
+      statutSelect.querySelectorAll('option[data-cp-extra]').forEach(option => option.remove());
+      const statut = text(valueOf(record, ['Statut_operationnel_projet', 'Statut opérationnel', 'Statut']));
+      if (statut.trim() && !Array.from(statutSelect.options).some(option => option.value === statut)) {
+        const extra = document.createElement('option');
+        extra.value = statut;
+        extra.textContent = statut;
+        extra.dataset.cpExtra = '1';
+        statutSelect.appendChild(extra);
+      }
+    }
     set('cp-statut', ['Statut_operationnel_projet', 'Statut opérationnel', 'Statut']);
     m._renderStatusDot();
     set('cp-comment', ['comentaire_general_Suivi_projet', 'commentaire_general_Suivi_projet']);
@@ -939,6 +954,12 @@
       m._setActiveTab('budget');
       return;
     }
+    // Un seul enregistrement à la fois : un second clic (ou Entrée) avant la réponse de Grist créerait
+    // le projet en double, sans que rien ne le signale.
+    if (m._saving) return;
+    m._saving = true;
+    const saveButton = m.querySelector('[data-cp-save]');
+    saveButton.disabled = true;
     try {
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
@@ -947,6 +968,9 @@
       global.dispatchEvent(new CustomEvent('project-created'));
     } catch (e) {
       m.querySelector('#cp-project-error').textContent = (mode === 'edit' ? 'Modification impossible : ' : 'Création impossible : ') + e.message;
+    } finally {
+      m._saving = false;
+      saveButton.disabled = false;
     }
   }
 

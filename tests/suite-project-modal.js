@@ -82,6 +82,41 @@
       assertTrue(modalEl().classList.contains('cp-hidden'), 'la modale doit se refermer après création');
     });
 
+    // Revue de bugs du 10/11/2026 : rien n'empêchait un second clic (ou Entrée) pendant l'aller-retour avec
+    // Grist, qui créait le projet en double.
+    it('un second clic sur "Créer le projet" avant la réponse de Grist ne crée pas le projet en double', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const original = window.grist.docApi.applyUserActions;
+      let release;
+      window.grist.docApi.applyUserActions = (actions) => new Promise(resolve => { release = () => resolve(original(actions)); });
+      try {
+        const saveButton = modalEl().querySelector('[data-cp-save]');
+        const first = saveButton.onclick();
+        const second = saveButton.onclick();
+        assertTrue(saveButton.disabled, 'le bouton doit être grisé pendant l\'enregistrement');
+        await wait(0);
+        release();
+        await Promise.all([first, second]);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Projets').length, 1, 'un seul projet créé');
+      assertFalse(modalEl().querySelector('[data-cp-save]').disabled, 'le bouton est de nouveau actif après l\'enregistrement');
+    });
+
+    it('après un échec d\'enregistrement, le bouton redevient actif et un nouvel essai part', async function () {
+      await loadFixtureState();
+      await fillMinimalValidProject();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        await modalEl().querySelector('[data-cp-save]').onclick();
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertIncludes(modalEl().querySelector('#cp-project-error').textContent, 'boom');
+      assertFalse(modalEl().querySelector('[data-cp-save]').disabled, 'le bouton doit redevenir actif');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'AddRecord' && c.table === 'Projets').length, 1, 'le nouvel essai crée le projet');
+    });
+
     it('déclenche l\'évènement project-created pour rafraîchir le Kanban', async function () {
       await loadFixtureState();
       let fired = false;
@@ -164,6 +199,31 @@
       assertEqual(call.table, 'Projets');
       assertEqual(call.id, 10);
       assertEqual(call.fields.Acronyme, 'INNOVX2');
+    });
+
+    // Revue de bugs du 10/11/2026 : la liste du statut opérationnel n'a que 7 valeurs fixes. Un projet dont
+    // le statut vient d'ailleurs (saisi dans Grist, ancienne valeur) voyait la liste se vider à l'ouverture,
+    // et le moindre enregistrement (une simple correction de commentaire) effaçait son statut.
+    it('un statut opérationnel hors de la liste fixe est conservé : affiché à l\'ouverture, réécrit tel quel à l\'enregistrement', async function () {
+      const tables = await loadFixtureState();
+      const record = { ...tables.Projets.find(p => p.Acronyme === 'INNOVX'), Statut_operationnel_projet: 'Reporté à 2027' };
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-statut').value, 'Reporté à 2027', 'le statut du projet doit rester sélectionné');
+      setValue(modalEl().querySelector('#cp-comment'), 'Simple correction de commentaire');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertEqual(window.__TEST_CALLS__.length, 1);
+      assertEqual(window.__TEST_CALLS__[0].fields.Statut_operationnel_projet, 'Reporté à 2027', 'le statut ne doit pas être effacé');
+    });
+
+    it('le statut hors liste n\'est pas reporté sur le projet ouvert ensuite (création ou autre projet)', async function () {
+      const tables = await loadFixtureState();
+      const record = { ...tables.Projets.find(p => p.Acronyme === 'INNOVX'), Statut_operationnel_projet: 'Reporté à 2027' };
+      window.ProjectModal.open(record);
+      window.ProjectModal.open(); // création
+      const select = modalEl().querySelector('#cp-statut');
+      assertEqual(select.value, 'En attente des dispo des fonds', 'valeur par défaut à la création');
+      assertFalse(Array.from(select.options).some(option => option.value === 'Reporté à 2027'), 'l\'option ajoutée pour le projet précédent doit disparaître');
+      assertEqual(select.options.length, 7, 'la liste fixe de 7 valeurs seulement');
     });
   });
 
