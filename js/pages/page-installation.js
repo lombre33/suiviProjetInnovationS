@@ -52,6 +52,7 @@
   const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
   const ICON_EYE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
   const ICON_GRIP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"></circle><circle cx="15" cy="6" r="1.7"></circle><circle cx="9" cy="12" r="1.7"></circle><circle cx="15" cy="12" r="1.7"></circle><circle cx="9" cy="18" r="1.7"></circle><circle cx="15" cy="18" r="1.7"></circle></svg>';
+  const ICON_CONVENTION = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3"></path><path d="M20 16H7l3 3"></path></svg>';
 
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
@@ -276,12 +277,24 @@
       STAGES.map((label, idx) => `<option value="${idx}"${idx === current ? ' selected' : ''}>${escape(stripOrdinal(label))}</option>`).join('') + `</select>`;
   }
 
+  // Haut de carte (Antoine, 12/11/2026) : bulle avec le nom du programme, et une marque propre aux projets en convention de reversement.
+  function cardTop(project) {
+    const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
+    const convention = project.Convention_de_reversement === true;
+    if (!programme && !convention) return '';
+    return `<div class="install-card-top">` +
+      (programme ? `<span class="install-chip install-chip-programme" title="Programme">${escape(programme)}</span>` : '') +
+      (convention ? `<span class="install-chip install-chip-convention" title="Convention de reversement">${ICON_CONVENTION}Convention</span>` : '') +
+      `</div>`;
+  }
+
   function installCard(project) {
     const action = actionInfo(project);
     const ope = opeInfo(project);
     const commentHelp = window.HelpTooltip?.markup('Projets', 'Commentaire_ligne_OPE') || '';
     return `<div class="install-card" data-project-id="${escape(project.id)}">` +
       `<span class="install-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
+      cardTop(project) +
       `<div class="install-card-head">` +
       `<button type="button" class="install-card-identity" data-open-project="${escape(project.id)}"><span class="install-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
       stageSelect(project) +

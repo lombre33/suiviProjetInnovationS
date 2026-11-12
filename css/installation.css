@@ -48,6 +48,9 @@
 .install-chip { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px; font-size:10.5px; font-weight:800; white-space:nowrap; border:1px solid transparent; }
 .install-chip-action { background:var(--accent-soft); color:var(--accent-hover); border-color:var(--accent-soft-border); }
 .install-chip-action.is-warn { background:var(--warning-soft); color:var(--warning); border-color:var(--warning-soft-border); }
+.install-card-top { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
+.install-chip-programme { max-width:100%; overflow:hidden; text-overflow:ellipsis; background:var(--surface-sunken); color:var(--text); border-color:var(--border-strong); }
+.install-chip-convention { gap:4px; padding:0 9px 0 7px; background:#f1ecfc; color:#6d4fc2; border-color:#d9cdf5; }
 .install-chip-ope { background:var(--surface-sunken); color:var(--text-muted); border-color:var(--border-strong); }
 .install-chip-ope.is-muted { color:var(--text-faint); font-style:italic; font-weight:700; }
 button.install-chip-ope { appearance:none; font-family:inherit; cursor:pointer; }

@@ -97,6 +97,37 @@
       assertTrue(opeChip.classList.contains('is-muted'));
     });
 
+    it('affiche en haut de la carte la bulle du programme, avant l\'acronyme', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
+      const bubble = card.querySelector('.install-card-top .install-chip-programme');
+      assertTrue(!!bubble, 'la carte doit afficher une bulle avec le nom du programme');
+      assertEqual(bubble.textContent, 'Programme A');
+      const head = card.querySelector('.install-card-head');
+      assertTrue(!!(bubble.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING), 'la bulle doit précéder la ligne acronyme/étape');
+    });
+
+    it('marque d\'une pastille "Convention" les seuls projets en convention de reversement', async function () {
+      await loadFixtureState();
+      const withConvention = cardByAcronym(panelIn('install-col-non_classe', 'En attente DR'), 'CONVENTIX');
+      const mark = withConvention.querySelector('.install-card-top .install-chip-convention');
+      assertTrue(!!mark, 'CONVENTIX (Convention_de_reversement cochée) doit porter la marque convention');
+      assertEqual(mark.textContent, 'Convention');
+      assertEqual(mark.getAttribute('title'), 'Convention de reversement');
+      const without = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
+      assertFalse(!!without.querySelector('.install-chip-convention'), 'INNOVX (sans convention) ne porte pas la marque');
+    });
+
+    it('sans programme ni convention, la carte n\'a pas de ligne de tête vide', async function () {
+      await loadFixtureState();
+      const projects = window.CoreState.getTable('Projets');
+      const innovx = projects.find(p => p.Acronyme === 'INNOVX');
+      innovx.Programme = 0;
+      window.renderInstallation();
+      const card = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
+      assertFalse(!!card.querySelector('.install-card-top'), 'ni bulle ni marque => pas de ligne de tête');
+    });
+
     it('affiche le montant total et le rappel budget par grande masse (Fonctionnement/Investissement/Personnel)', async function () {
       await loadFixtureState();
       const innovxCard = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
