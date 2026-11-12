@@ -310,7 +310,7 @@
       const name = g => 'P' + g.id, kind = g => g.k;
       assertDeepEqual(L.sortGuests(guests, '', name, kind).map(g => g.id), [4, 3, 2, 5, 1, 6], 'spécifiques d\'abord : VP, directeur.trice, autres (ordre d\'origine) ; puis les permanents inchangés');
       assertDeepEqual(L.sortGuests(guests, '', name).map(g => g.id), [2, 3, 4, 5, 1, 6], 'sans grade connu : comme avant');
-      assertDeepEqual(L.sortGuests(guests, 'nom:desc', name, kind).map(g => g.id), [6, 5, 4, 3, 2, 1], 'un tri choisi par clic reprend la main');
+      assertDeepEqual(L.sortGuests(guests, 'nom:desc', name, kind).map(g => g.id), [5, 4, 3, 2, 6, 1], 'un tri choisi par clic s\'applique dans chaque liste : les spécifiques restent à part, en tête');
     });
 
     it('horaire de passage : aucun / à envoyer / envoyé / modifié depuis l\'envoi', function () {
@@ -1794,14 +1794,14 @@
         { id: 3, personneId: 2, origine: 'permanent', reponse: 'viendra', appel: 'present' }, { id: 4, personneId: 4, origine: 'point', reponse: 'viendra', appel: '' }
       ];
       const nameOf = g => names[g.personneId], order = tri => L.sortGuests(guests, tri, nameOf).map(g => nameOf(g));
-      assertDeepEqual(order(''), ['Dana', 'Chloé', 'Alice', 'Bob'], 'ordre d\'origine : invités ajoutés sur un point d\'abord');
-      assertDeepEqual(order('reponse:asc'), ['Bob', 'Dana', 'Chloé', 'Alice'], 'viendra, puis à confirmer, puis excusé ; A→Z à égalité');
-      assertDeepEqual(order('reponse:desc'), ['Alice', 'Chloé', 'Bob', 'Dana'], 'excusé d\'abord');
-      assertDeepEqual(order('appel:asc'), ['Bob', 'Chloé', 'Dana', 'Alice'], 'présent, pas encore appelé, absent');
-      assertDeepEqual(order('appel:desc'), ['Alice', 'Chloé', 'Dana', 'Bob']);
-      assertDeepEqual(order('nom:asc'), ['Alice', 'Bob', 'Chloé', 'Dana']);
+      assertDeepEqual(order(''), ['Dana', 'Alice', 'Bob', 'Chloé'], 'par défaut : spécifiques d\'abord, puis dans chaque liste les excusés (Alice), ceux qui viennent (Bob), les à confirmer (Chloé)');
+      assertDeepEqual(order('reponse:asc'), ['Dana', 'Bob', 'Chloé', 'Alice'], 'dans chaque liste : viendra, puis à confirmer, puis excusé ; A→Z à égalité');
+      assertDeepEqual(order('reponse:desc'), ['Dana', 'Alice', 'Chloé', 'Bob'], 'excusé d\'abord');
+      assertDeepEqual(order('appel:asc'), ['Dana', 'Bob', 'Chloé', 'Alice'], 'présent, pas encore appelé, absent (dans chaque liste)');
+      assertDeepEqual(order('appel:desc'), ['Dana', 'Alice', 'Chloé', 'Bob']);
+      assertDeepEqual(order('nom:asc'), ['Dana', 'Alice', 'Bob', 'Chloé']);
       assertDeepEqual(order('nom:desc'), ['Dana', 'Chloé', 'Bob', 'Alice']);
-      assertDeepEqual(order('n\'importe quoi'), order(''), 'valeur inconnue : ordre d\'origine');
+      assertDeepEqual(order('n\'importe quoi'), order(''), 'valeur inconnue : ordre par défaut');
       assertEqual(L.nextGuestTri('', 'appel'), 'appel:asc');
       assertEqual(L.nextGuestTri('appel:asc', 'appel'), 'appel:desc');
       assertEqual(L.nextGuestTri('appel:desc', 'appel'), '');
@@ -1811,32 +1811,32 @@
       await window.loadInstancesUserPreferences();
       step('invites');
       const shown = () => qa('.in-grow:not(.in-head) .in-pn').map(n => n.textContent.trim());
-      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'ordre d\'origine (Chloé, ajoutée sur un point, d\'abord)');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'ordre par défaut (Chloé, spécifique, d\'abord ; puis Alice qui viendra, Bob à confirmer)');
       click('g-appel', { id: 2, v: 'present' }); // Bob est présent
       await waitFor(() => !!row('Bob').querySelector('.in-on.in-ok[aria-label="Présent(e)"]'), 'Bob présent');
       click('g-sort', { v: 'appel' });
-      assertDeepEqual(shown(), ['Bob Durand', 'Alice Martin', 'Chloé Petit'], 'les présents d\'abord');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Bob Durand', 'Alice Martin'], 'les présents d\'abord, dans chaque liste (la liste des spécifiques reste en tête)');
       assertTrue(q('.in-hsort.in-on[data-v="appel"]') !== null, 'l\'en-tête trié est mis en évidence');
       await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_tri_invites === 'appel:asc', 'tri retenu pour l\'utilisateur');
       click('g-sort', { v: 'appel' });
-      assertDeepEqual(shown(), ['Alice Martin', 'Chloé Petit', 'Bob Durand'], 'les absents / non appelés d\'abord');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'les absents / non appelés d\'abord');
       click('g-sort', { v: 'appel' });
-      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'retour à l\'ordre d\'origine');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'retour à l\'ordre par défaut');
       click('g-sort', { v: 'reponse' });
-      assertDeepEqual(shown(), ['Alice Martin', 'Bob Durand', 'Chloé Petit'], 'Alice viendra ; Bob et Chloé à confirmer');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'Alice viendra avant Bob (à confirmer) ; Chloé reste dans sa liste');
       // restauré à la réouverture ; valeur inconnue = ordre d'origine
       await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_tri_invites: 'reponse:asc' }]]);
       window.InstancesPage._reset();
       await window.loadInstancesUserPreferences();
       await window.InstancesPage.open();
       step('invites');
-      assertDeepEqual(shown(), ['Alice Martin', 'Bob Durand', 'Chloé Petit'], 'tri restauré');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'tri restauré');
       await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_tri_invites: 'n\'importe quoi' }]]);
       window.InstancesPage._reset();
       await window.loadInstancesUserPreferences();
       await window.InstancesPage.open();
       step('invites');
-      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'valeur inconnue : ordre d\'origine');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'valeur inconnue : ordre par défaut');
     });
 
     it('ajouter une personne (invitée « sur un point ») et la retirer ; un invité repris de la liste permanente se retire aussi, de cette séance seulement', async function () {
@@ -2325,6 +2325,29 @@
         const bg = getComputedStyle(point(2).querySelector('.in-g-inv .in-tag.in-gvp')).backgroundColor;
         assertEqual(bg, 'rgb(181, 23, 158)', 'VP : magenta plein');
       });
+    });
+
+    it('invités : par défaut, dans chaque liste, les excusés d\'abord, puis ceux qui viennent, puis les à confirmer (VP et directeur.trice avant dans les spécifiques)', function () {
+      const g = (id, origine, reponse, k) => ({ id, origine, reponse, k });
+      const guests = [g(1, 'permanent', 'attente'), g(2, 'permanent', 'viendra'), g(3, 'permanent', 'excuse'), g(4, 'point', 'attente'), g(5, 'point', 'excuse'),
+        g(6, 'point', 'viendra', 'vp'), g(7, 'point', 'attente', 'vp'), g(8, 'point', 'viendra', 'dir'), g(9, 'permanent', 'excuse')];
+      assertDeepEqual(L.sortGuests(guests, '', x => 'P' + x.id, x => x.k || '').map(x => x.id),
+        [6, 7, 8, 5, 4, 3, 9, 2, 1], 'spécifiques : VP (viendra, à confirmer), directeur.trice, puis excusé, à confirmer ; habituels : excusés (3, 9), viendra (2), à confirmer (1)');
+      assertDeepEqual(L.sortGuests(guests, 'reponse:desc', x => 'P' + x.id, x => x.k || '').map(x => x.id), [5, 7, 4, 6, 8, 3, 9, 1, 2], 'un tri choisi reprend la main, dans chaque liste (excusés d\'abord ; VP avant à égalité)');
+    });
+
+    it('invités spécifiques : une liste à part, en tête, avec son titre ; les invités habituels dessous ; le tri joue dans chaque liste', async function () {
+      await setup();
+      step('invites');
+      const flow = () => qa('.in-gwrap > .in-gsec, .in-gwrap > .in-grow:not(.in-head)').map(e => e.classList.contains('in-gsec') ? '[' + Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join('') + ' ' + e.querySelector('.in-tag-soft').textContent + ']' : e.querySelector('.in-pn').textContent.trim());
+      assertDeepEqual(flow(), ['[Invités spécifiques 1]', 'Chloé Petit', '[Invités habituels 2]', 'Alice Martin', 'Bob Durand'], 'liste dédiée en tête, puis les habituels');
+      assertTrue(q('.in-gsec.in-spec').compareDocumentPosition(q('.in-gsec.in-usual')) & Node.DOCUMENT_POSITION_FOLLOWING);
+      click('g-sort', { v: 'nom' }); click('g-sort', { v: 'nom' }); // Z → A
+      assertDeepEqual(flow(), ['[Invités spécifiques 1]', 'Chloé Petit', '[Invités habituels 2]', 'Bob Durand', 'Alice Martin'], 'tri dans chaque liste, les spécifiques restent en tête');
+      // aucun invité spécifique : pas de titre de section (aucune place perdue)
+      await setup({ rows: d => { d.Instance_Invites.find(g => g.id === 3).Origine = 'Liste permanente'; } });
+      step('invites');
+      assertEqual(qa('.in-gsec').length, 0, 'sans invité spécifique, la liste est simple');
     });
 
     it('notifications liées : statut par projet (Grist + Export_VP), jamais de lecture de PDF_signe', async function () {

@@ -388,6 +388,7 @@
   // Réponse en croissant : viendra, à confirmer, excusé ; appel en croissant : présent, pas encore appelé, absent (donc « présents d'abord »).
   // À égalité, nom de A à Z (quel que soit le sens).
   const GUEST_TRI = /^(nom|reponse|appel):(asc|desc)$/;
+  const DEFAULT_REPONSE_RANK = { excuse: 0, viendra: 1, attente: 2 };
   const GUEST_RANK = { reponse: { viendra: 0, attente: 1, excuse: 2 }, appel: { present: 0, '': 1, absent: 2 } };
   // Grade du poste (Postes2.grade, saisi par Antoine le 12/11/2026 : VP, Directeur.trice etablissement, Agent, Direction service,
   // assitant.e) → 'vp' | 'dir' | '' : seuls les VP et les directeur.trice.s d'établissement sont mis en couleur dans les séances.
@@ -398,23 +399,29 @@
     if (/^directeur\b.*\betablissement\b/.test(n)) return 'dir';
     return '';
   }
-  // Invités : d'abord ceux ajoutés sur un point (« spécifiques »), et parmi eux les VP, puis les directeur.trice.s d'établissement ;
-  // `kindOf(guest)` donne 'vp' | 'dir' | ''. Un tri choisi par clic sur un en-tête reprend ensuite la main.
+  // Invités : deux listes, d'abord ceux ajoutés sur un point (« spécifiques »), et parmi eux les VP, puis les directeur.trice.s
+  // d'établissement ; `kindOf(guest)` donne 'vp' | 'dir' | ''. Un tri choisi par clic sur un en-tête s'applique ensuite dans chaque liste.
   function sortGuests(guests, tri, nameOf, kindOf) {
     const kindRank = g => { const k = kindOf ? kindOf(g) : ''; return k === 'vp' ? 0 : (k === 'dir' ? 1 : 2); };
+    // Ordre par défaut de chaque liste (Antoine 12/11) : les VP puis directeur.trice.s d'abord (invités spécifiques seulement), puis les
+    // excusés, ceux qui viennent, et enfin les « à confirmer » ; l'ordre d'origine départage.
+    const repRank = g => { const r = DEFAULT_REPONSE_RANK[g.reponse]; return r === undefined ? 2 : r; };
     const base = guests.map((g, i) => ({ g, i })).sort((a, b) => {
       if (a.g.origine !== b.g.origine) return a.g.origine === 'point' ? -1 : 1;
       if (a.g.origine === 'point' && kindRank(a.g) !== kindRank(b.g)) return kindRank(a.g) - kindRank(b.g);
-      return a.i - b.i;
+      return repRank(a.g) - repRank(b.g) || a.i - b.i;
     });
     const m = GUEST_TRI.exec(tri || '');
     if (!m) return base.map(x => x.g);
     const key = m[1], sign = m[2] === 'desc' ? -1 : 1;
     const byName = (x, y) => String(nameOf(x.g)).localeCompare(String(nameOf(y.g)), 'fr', { sensitivity: 'base' });
     const rank = x => { const r = GUEST_RANK[key][key === 'reponse' ? x.g.reponse : (x.g.appel || '')]; return r === undefined ? 1 : r; };
+    // Les deux listes restent séparées (spécifiques d'abord) : le tri choisi s'applique DANS chacune.
+    const grp = x => (x.g.origine === 'point' ? 0 : 1);
     return base.sort((x, y) => {
+      if (grp(x) !== grp(y)) return grp(x) - grp(y);
       if (key === 'nom') return sign * byName(x, y) || x.i - y.i;
-      return sign * (rank(x) - rank(y)) || byName(x, y) || x.i - y.i;
+      return sign * (rank(x) - rank(y)) || (grp(x) === 0 ? kindRank(x.g) - kindRank(y.g) : 0) || byName(x, y) || x.i - y.i;
     }).map(x => x.g);
   }
   // Clic sur un en-tête : croissant, puis décroissant, puis retour à l'ordre d'origine ; un autre en-tête repart en croissant.

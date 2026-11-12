@@ -353,7 +353,7 @@ Code : `onEnter`, `addPoint`, `dropTarget`, `movePoint` (`page-instances.js`).
 Un VP ressort en magenta plein (étiquette d'invité sur un point, ligne et pastille « VP » dans l'étape
 Invités), un.e directeur.trice d'établissement en bleu-vert (pastille « Dir. »). Parmi les invités
 **spécifiques** (ceux ajoutés sur un point ; ex-« spéciaux », renommés), les VP passent en premier, puis
-les directeur.trice.s d'établissement ; un tri choisi par clic sur un en-tête reprend ensuite la main.
+les directeur.trice.s d'établissement (voir « Deux listes d'invités » ci-dessous).
 Sans colonne `grade` (ou sans valeur), rien n'est coloré. Code : `gradeKind`, `sortGuests`
 (`instances-logic.js`), `buildModel` (`instances-data.js`), `gradeClass` (`page-instances.js`), fin de
 `css/instances.css`.
@@ -366,6 +366,15 @@ Sans colonne `grade` (ou sans valeur), rien n'est coloré. Code : `gradeKind`, `
 quand l'heure est enregistrée dans la séance ; le sélecteur d'heure existant reste pour une autre
 heure. Les autres instances n'ont pas ces boutons. Tout (points, invités, conflits) repart de la
 nouvelle heure.
+
+**Deux listes d'invités (12/11/2026).** L'étape Invités sépare, par défaut et toujours, les **invités
+spécifiques** (ajoutés sur un point), en tête sous leur titre violet, des **invités habituels** (liste
+permanente, composition) ; les titres de section n'apparaissent que s'il y a des invités spécifiques.
+Ordre par défaut dans chaque liste : (spécifiques seulement : VP, puis directeur.trice.s d'établissement)
+puis les **excusés**, puis ceux qui **viennent**, puis les **à confirmer** (réponse à l'invitation, pas
+l'appel du jour) ; un invité qui change de réponse change donc de rang. Le tri choisi par clic sur un
+en-tête (Personne, Réponse, Appel du jour) s'applique ensuite DANS chaque liste, jamais entre les deux.
+Code : `L.sortGuests`, `DEFAULT_REPONSE_RANK` (`instances-logic.js`), classes `gsec` (fin de `css/instances.css`).
 
 ## Lignes_OPE
 

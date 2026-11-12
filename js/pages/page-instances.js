@@ -563,7 +563,17 @@
     }
     h += '<div class="gwrap"><div class="grow head"><div>' + sortHead('nom', 'Personne', 'A → Z', 'Z → A') + '</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>' + sortHead('reponse', 'Réponse', 'viendra d\'abord', 'excusés d\'abord') + '</div>'
       + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>' + sortHead('appel', 'Appel du jour', 'présents d\'abord', 'absents d\'abord') + '</div><div></div></div>';
+    // Deux listes : les invités spécifiques (ajoutés sur un point, VP en premier) à part en tête, puis les invités habituels ; les titres de
+    // section n'apparaissent que s'il y a des invités spécifiques (aucune place perdue sinon).
+    let lastGroup = '';
     V.guestOrder.forEach(g => {
+      const grp = g.origine === 'point' ? 'spec' : 'usual';
+      if (nSpecial && grp !== lastGroup) {
+        h += grp === 'spec'
+          ? '<div class="gsec spec" title="Personnes ajoutées sur un point de l\'ordre du jour ; les VP d\'abord, puis les directeur.trice.s d\'établissement">' + ic('star', 's') + 'Invités spécifiques<span class="tag-soft">' + nSpecial + '</span></div>'
+          : '<div class="gsec usual" title="Liste permanente de l\'instance et composition">Invités habituels<span class="tag-soft">' + (s.guests.length - nSpecial) + '</span></div>';
+      }
+      lastGroup = grp;
       const person = personOf(m, g.personneId);
       const sujets = V.schedAll.filter(row => row.p.invites.indexOf(g.id) >= 0).map(row => {
         const clash = L.guestClash(g, row.start, row.end, person.name);

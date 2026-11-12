@@ -450,3 +450,9 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 
 /* Heures de début proposées d'un clic dans le bandeau (CTO : 9h00 / 10h45) */
 .in-band .in-seg{align-self:center}
+
+/* Étape Invités : deux listes (invités spécifiques en tête, puis invités habituels) séparées par un titre de section */
+.in-gsec{display:flex;align-items:center;gap:8px;padding:8px 12px 6px;border-bottom:1px solid var(--border);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:var(--sunken)}
+.in-gsec.in-spec{color:var(--viol);background:#f6f3ff}
+.in-gsec.in-usual{border-top:1px solid var(--border)}
+.in-gsec .in-ic{color:var(--viol)}
