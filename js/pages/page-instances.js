@@ -448,6 +448,7 @@
     const kind = isSub ? 'sous-point' : 'point';
     const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
     const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
+    const defaultIds = defaultGuestIds(V.inst); // invités par défaut de l'instance : un présentateur qui n'en fait pas partie est aussi ajouté aux invités
     const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
     const tone = 't-' + p.nature + (isSub ? ' sub' : ''); // couleur de mise en valeur : validation et discussion ; information = couleur par défaut
     const lockTip = 'Passez en vue Timing pour changer l\'ordre de passage';
@@ -474,7 +475,7 @@
       + '<div class="group g-pres"><span class="gic" title="Présenté par">' + ic('mic', 's') + '</span>'
       + p.presentateurs.map(pid => personTag(m, pid, 'pres', 'Présenté par ', 'Retirer le présentateur', 'pt-pres', { id: p.id, v: pid })).join('')
       + '<div class="rel"><button type="button" class="addb ' + (presOpen ? 'on' : '') + '" title="Indiquer qui présente ce point" aria-label="Indiquer qui présente ce point" ' + da('menu', { v: 'pres:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
-      + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
+      + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : (defaultIds.indexOf(pp.id) < 0 && !s.guests.some(x => x.personneId === pp.id) ? 'ajout aux invités' : '')) + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
       // invités
       + '<div class="group g-inv"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
       + guestChips.map(g => personTag(m, g.personneId, gradeClass(personOf(m, g.personneId)), '', 'Retirer l\'invité du point', 'pt-inv', { id: p.id, v: g.personneId })).join('')
@@ -1093,6 +1094,23 @@
     write(ops);
   }
 
+  // Présentateur d'un point. Quelqu'un qui présente un point sans faire partie des invités par défaut de l'instance (liste permanente et
+  // composition) est aussi invité, comme invité « spécifique » (ajouté sur un point), et relié à ce point : il y vient. Retirer le
+  // présentateur ne retire jamais l'invité (il a pu être ajouté à la main, ou avoir déjà répondu) : la corbeille de la liste s'en charge.
+  async function togglePresenter(V, pointId, personId) {
+    const p = pointOf(V, pointId); if (!p) return;
+    const on = p.presentateurs.indexOf(personId) >= 0;
+    const list = on ? p.presentateurs.filter(x => x !== personId) : p.presentateurs.concat([personId]);
+    write([upd('Instance_Points', p.id, { Presentateurs: D.toList(list) })]);
+    if (on || defaultGuestIds(V.inst).indexOf(personId) >= 0) return;
+    let g = V.s.guests.find(x => x.personneId === personId), gid = g && g.id;
+    if (!g) {
+      [gid] = await write([guestAdd(V.s.id, personId, C.origine.point)]);
+      if (!gid) return;
+    }
+    if (p.invites.indexOf(gid) < 0) write([upd('Instance_Points', p.id, { Invites: D.toList(p.invites.concat([gid])) })]);
+  }
+
   const guestAdd = (seanceId, pid, origine) => addOp('Instance_Invites', { Seance: seanceId, Personne: pid, Origine: origine, Reponse: C.reponse.attente, Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' });
   const defaultGuestIds = inst => inst.cfg.permanents.concat(inst.cfg.composition.filter(pid => inst.cfg.permanents.indexOf(pid) < 0));
   function newSeance(V) {
@@ -1193,7 +1211,7 @@
     'pt-nat': (el, V) => write([upd('Instance_Points', el.dataset.id, { Nature: C.nature[el.dataset.v] })]),
     'pt-proj': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.projets.indexOf(pid) >= 0 ? p.projets.filter(x => x !== pid) : p.projets.concat([pid]); write([upd('Instance_Points', p.id, { Projets: D.toList(list) })]); },
     'pt-inv': (el, V) => toggleGuestOnPoint(V, el.dataset.id, el.dataset.v),
-    'pt-pres': (el, V) => { const p = pointOf(V, el.dataset.id), pid = Number(el.dataset.v); const list = p.presentateurs.indexOf(pid) >= 0 ? p.presentateurs.filter(x => x !== pid) : p.presentateurs.concat([pid]); write([upd('Instance_Points', p.id, { Presentateurs: D.toList(list) })]); },
+    'pt-pres': (el, V) => togglePresenter(V, el.dataset.id, Number(el.dataset.v)),
     // dossier du point
     'pt-link-type': (el, V) => write(setLinkOps(V, el.dataset.id, el.dataset.v, '')),
     'pt-link-file': (el, V) => { S.ui.menu = null; write(setLinkOps(V, el.dataset.id, 'gfs', el.dataset.v)); },

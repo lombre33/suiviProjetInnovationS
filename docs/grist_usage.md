@@ -388,6 +388,13 @@ enregistrée l'emporte. Le sélecteur d'heure de début, lui, est déjà au quar
 les sujets orange, sans changer cette couleur. Le grade (VP, directeur.trice) ne colore plus la ligne :
 seulement sa pastille. Classes `rep-ok` / `rep-no` / `flag` (fin de `css/instances.css`).
 
+**Présentateur = aussi invité (12/11/2026).** Choisir un présentateur sur un point qui n'est PAS dans la liste par
+défaut de l'instance (`Instances.Invites_permanents` + composition) l'ajoute aux invités de la séance
+(`Instance_Invites`, origine « Ajouté sur un point », donc dans la liste des invités spécifiques) et le relie au
+point (`Instance_Points.Invites`). Une personne déjà invitée sur la séance (ajoutée ailleurs) est seulement reliée au
+point, sans seconde fiche. Retirer un présentateur ne le retire PAS des invités (il peut être invité sans présenter) ;
+le rechoisir ne recrée rien. Le menu « Présenté par » affiche « ajout aux invités » sous les personnes concernées.
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait

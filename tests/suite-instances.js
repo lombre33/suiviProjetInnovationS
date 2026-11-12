@@ -113,6 +113,8 @@
     fire(el, 'change');
   }
   const calls = (type, table) => window.__TEST_CALLS__.filter(c => c.type === type && c.table === table);
+  // Dernière écriture des présentateurs d'un point (choisir un présentateur hors liste par défaut écrit aussi l'invité et son lien au point).
+  const lastPres = id => { const list = calls('UpdateRecord', 'Instance_Points').filter(c => c.id === id && 'Presentateurs' in c.fields); return list.length ? list[list.length - 1].fields.Presentateurs : null; };
   const lastFields = (type, table, id) => { const list = calls(type, table).filter(c => id == null || c.id === id); return list.length ? list[list.length - 1].fields : null; };
   const waitCall = (type, table, id, label) => waitFor(() => lastFields(type, table, id), label || `écriture ${type} ${table}`);
   const text = sel => (q(sel) ? q(sel).textContent.replace(/\s+/g, ' ').trim() : '');
@@ -1094,7 +1096,7 @@
       assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Projets, ['L']);
     });
 
-    it('présenté par : une ou plusieurs personnes par point, RefList vers Annuaire, sans inviter la personne', async function () {
+    it('présenté par : une ou plusieurs personnes par point, RefList vers Annuaire', async function () {
       await setup();
       step('odj');
       const names = id => qa('.in-pt[data-pt="' + id + '"] .in-tag.in-pres').map(t => t.firstChild.textContent);
@@ -1105,19 +1107,76 @@
       click('menu', { v: 'pres:1' });
       assertTrue(!!q('.in-menu input[data-filter]'), 'recherche dans la liste des personnes');
       click('pt-pres', { id: 1, v: 2 });
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2]);
+      assertDeepEqual(lastPres(1), ['L', 2]);
       click('pt-pres', { id: 1, v: 3 }); // le menu reste ouvert : plusieurs personnes à la suite
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3]);
+      assertDeepEqual(lastPres(1), ['L', 2, 3]);
       await waitFor(() => names(1).length === 2, 'deux présentateurs affichés');
       assertDeepEqual(names(1), ['B. Durand', 'C. Petit']);
       assertEqual(qa('.in-menu .in-mi.in-on').length, 2, 'les présentateurs sont repérés dans la liste');
       click('pt-pres', { id: 1, v: 2 }); // recliquer retire
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 3]);
+      assertDeepEqual(lastPres(1), ['L', 3]);
       click('menu', { v: 'pres:1' });
       click('pt-pres', { id: 1, v: 3 });
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L'], 'dernier présentateur retiré par sa croix');
-      assertEqual(calls('AddRecord', 'Instance_Invites').length, 0, 'choisir un présentateur n\'invite personne');
+      assertDeepEqual(lastPres(1), ['L'], 'dernier présentateur retiré par sa croix');
+    });
+
+    it('présenté par : une personne hors de la liste par défaut de l\'instance est aussi invitée (et reliée au point) ; une personne de la liste ne l\'est pas', async function () {
+      await setup({ people: [{ id: 5, NOM: 'Vidal', Prenom: 'Eve', nom_et_Prenom: 'Eve Vidal', Email: '', Poste2: 0 }], rows: d => { d.COMPOSITION_INSTANCES = COMPOSITION(); } });
+      step('odj');
+      const guestsAdded = () => calls('AddRecord', 'Instance_Invites').filter(c => c.fields.Origine === 'Ajouté sur un point');
+      // Bob (permanent) : présentateur seulement, personne n'est ajouté
+      click('menu', { v: 'pres:1' });
+      click('pt-pres', { id: 1, v: 2 });
+      assertEqual(guestsAdded().length, 0, 'une personne de la liste par défaut n\'est pas ajoutée aux invités');
       assertTrue(calls('UpdateRecord', 'Instance_Points').every(c => !('Invites' in c.fields)), 'la liste des invités du point n\'est pas touchée');
+      // Dana (composition du CTO) : dans la liste par défaut aussi
+      click('pt-pres', { id: 1, v: 4 });
+      assertEqual(guestsAdded().length, 0, 'la composition de l\'instance fait partie de la liste par défaut');
+      // Eve : hors liste, pas encore invitée → invitée « Ajouté sur un point », reliée au point, présentatrice
+      click('pt-pres', { id: 1, v: 5 });
+      await waitFor(() => guestsAdded().length === 1, 'Eve ajoutée aux invités');
+      const added = guestsAdded()[0].fields;
+      assertEqual(added.Personne, 5);
+      assertEqual(added.Seance, 2, 'invitée de CETTE séance');
+      assertEqual(added.Reponse, 'À confirmer');
+      assertDeepEqual(lastPres(1), ['L', 2, 4, 5]);
+      await waitFor(() => { const f = lastFields('UpdateRecord', 'Instance_Points', 1); return f && 'Invites' in f; }, 'invitée aussi reliée au point');
+      const newId = calls('AddRecord', 'Instance_Invites').length ? 5 : 0; // id de l'invitée (4 invités existants dans le jeu de données)
+      const link = lastFields('UpdateRecord', 'Instance_Points', 1).Invites;
+      assertEqual(link.length, 2, 'liste des invités du point : ["L", id]');
+      assertEqual(link[0], 'L');
+      assertTrue(newId > 0 && link[1] > 4, 'lien vers la nouvelle invitée');
+      await waitFor(() => qa('.in-pt[data-pt="1"] .in-g-inv .in-tag').length === 1, 'étiquette d\'invité sur le point');
+      // Retirer la présentatrice ne retire PAS l'invitée ; la rechoisir ne la recrée pas
+      click('pt-pres', { id: 1, v: 5 });
+      assertDeepEqual(lastPres(1), ['L', 2, 4]);
+      assertEqual(calls('RemoveRecord', 'Instance_Invites').length, 0, 'l\'invitée reste invitée');
+      click('pt-pres', { id: 1, v: 5 });
+      await new Promise(r => setTimeout(r, 30));
+      assertEqual(guestsAdded().length, 1, 'pas de second ajout pour la même personne');
+      const withInvites = calls('UpdateRecord', 'Instance_Points').filter(c => c.id === 1 && 'Invites' in c.fields);
+      assertEqual(withInvites.length, 1, 'le lien au point n\'est pas réécrit');
+      assertEqual(withInvites[0].fields.Invites.length, 2, 'et pas de doublon dans la liste du point');
+    });
+
+    it('présenté par : une personne déjà invitée sur la séance (ajoutée sur un autre point) est seulement reliée au point', async function () {
+      await setup();
+      step('odj');
+      click('menu', { v: 'pres:1' });
+      click('pt-pres', { id: 1, v: 3 }); // Chloé : invitée spécifique du point 2, hors liste par défaut
+      await waitFor(() => { const f = lastFields('UpdateRecord', 'Instance_Points', 1); return f && 'Invites' in f; }, 'Chloé reliée au point 1');
+      assertEqual(calls('AddRecord', 'Instance_Invites').length, 0, 'aucune seconde fiche d\'invité pour Chloé');
+      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Invites, ['L', 3]);
+    });
+
+    it('présenté par : le menu indique « ajout aux invités » pour une personne hors liste par défaut et pas encore invitée', async function () {
+      await setup({ people: [{ id: 5, NOM: 'Vidal', Prenom: 'Eve', nom_et_Prenom: 'Eve Vidal', Email: '', Poste2: 0 }] });
+      step('odj');
+      click('menu', { v: 'pres:1' });
+      const row = id => qa('.in-menu .in-mi').find(b => b.getAttribute('data-id') === '1' && b.getAttribute('data-v') === String(id));
+      assertIncludes(row(5).textContent, 'ajout aux invités', 'Eve : hors liste, pas invitée');
+      assertTrue(row(2).textContent.indexOf('ajout aux invités') < 0, 'Bob : dans la liste par défaut');
+      assertTrue(row(3).textContent.indexOf('ajout aux invités') < 0, 'Chloé : déjà invitée');
     });
 
     it('présenté par : la vue d\'ensemble nomme les présentateurs de chaque point', async function () {
@@ -1288,7 +1347,8 @@
 
     it('le titre prend tout l\'espace laissé par les projets et les personnes : la colonne de droite s\'adapte à la ligne la plus chargée, sans bouger tant qu\'on reste dans sa réserve', async function () {
       await withLayout(async () => {
-        await setup({ rows: d => { d.Instance_Points.forEach(p => { p.Projets = ['L']; p.Invites = ['L']; p.Presentateurs = ['L', 1]; }); } });
+        // Chloé et Dana font partie des invités permanents : les choisir comme présentateurs n'ajoute pas d'invité (seule la colonne des présentateurs grossit).
+        await setup({ rows: d => { d.Instance_Points.forEach(p => { p.Projets = ['L']; p.Invites = ['L']; p.Presentateurs = ['L', 1]; }); d.Instances[0].Invites_permanents = ['L', 1, 2, 3, 4]; } });
         step('odj');
         const setW = async w => { q('.in-pts').style.width = w + 'px'; await settleResize(); };
         await setW(1154); // la liste dans le conteneur de l'appli
@@ -1420,7 +1480,7 @@
       assertIncludes(active()[0], 'Alice Martin', 'et inversement');
       fireKey(input(), 'ArrowDown');
       fireKey(input(), 'Enter');
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2], 'Entrée choisit Bob Durand');
+      assertDeepEqual(lastPres(1), ['L', 2], 'Entrée choisit Bob Durand');
       // recherche : seul le résultat visible est parcouru, le premier est surligné d'office
       await waitFor(() => !!input(), 'menu toujours ouvert');
       input().value = 'chlo';
@@ -1430,7 +1490,7 @@
       fireKey(input(), 'ArrowDown');
       assertIncludes(active()[0], 'Chloé Petit', 'une seule ligne visible : on y reste');
       fireKey(input(), 'Enter');
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3]);
+      assertDeepEqual(lastPres(1), ['L', 2, 3]);
       // Entrée sans ligne surlignée choisit le premier résultat d'une recherche, et ne fait rien sans recherche
       await waitFor(() => !!input(), 'menu toujours ouvert');
       const before = calls('UpdateRecord', 'Instance_Points').length;
@@ -1440,7 +1500,7 @@
       fire(input(), 'input');
       qa('.in-menu .in-mi.in-active').forEach(b => b.classList.remove('in-active'));
       fireKey(input(), 'Enter');
-      assertDeepEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Presentateurs, ['L', 2, 3, 4], 'premier résultat choisi');
+      assertDeepEqual(lastPres(1), ['L', 2, 3, 4], 'premier résultat choisi');
       // Échap referme
       await waitFor(() => !!input(), 'menu toujours ouvert');
       fireKey(input(), 'Escape');
