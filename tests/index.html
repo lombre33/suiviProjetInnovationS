@@ -18,6 +18,7 @@
      these tests assert on data/DOM structure, not visual layout. -->
 <div id="app-dom">
   <div id="toast" class="toast hidden"></div>
+  <nav class="nav"><button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button><button class="nav-btn" data-view="view-administratif">Administratif</button><button class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button><button class="nav-btn" data-view="view-todo">To Do</button></nav>
   <div class="in-navdd"><button id="btn-instances" class="nav-btn" data-view="view-instances" aria-haspopup="menu">Instances</button><div id="instances-menu" class="in-navmenu" hidden></div></div>
   <section id="view-instances" class="view hidden" aria-label="Instances"><div id="instances-root" class="in-root"></div></section>
   <div id="error-container" class="error-container hidden">
@@ -211,6 +212,7 @@
     await loadScript('suite-instances.js');
     await loadScript('suite-instances-complements.js');
     await loadScript('suite-performance.js');
+    await loadScript('suite-navigation.js');
     await loadScript('suite-utils.js');
     await loadScript('suite-filtres-complements.js');
 

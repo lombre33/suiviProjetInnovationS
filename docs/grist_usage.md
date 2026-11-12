@@ -393,6 +393,27 @@ Lecture seule : `N_OPE` (Text), étiquette de la ligne OPE dans la modale projet
 lus par le widget — c'est la formule `Projets.Ligne_OPE_installe_chez` qui fournit la
 structure d'installation.
 
+## Dernière page ouverte (12/11/2026)
+
+Le widget revient sur la dernière page ouverte (Projets, Administratif, Installation des fonds, Suivi opérationnel, To Do,
+Instances) après un rechargement (Ctrl+Maj+R), une fermeture/réouverture ou un changement de page dans Grist. Avant, il
+repartait toujours sur le Kanban. Code : `js/app.js` (section « Dernière page ouverte »).
+
+- **Où** : colonne `Preferences_Widget.Page_courante` (Text, auto-créée avec `CoreGrist.ensureColumns`, aucune écriture
+  tant que la colonne existe déjà), sur la ligne de préférences de l'utilisateur (même id de ligne en cache que les autres
+  pages). Valeur : l'id de la page, par ex. `view-todo`. Une écriture à chaque changement de page, aucune au démarrage.
+- **Copie locale** : `localStorage` clé `suiviProjetInnovationS:lastView` = `{"view":"view-todo","pending":false}`, écrite
+  tout de suite. `pending: true` = Grist n'a pas (encore) confirmé l'écriture (rechargement lancé juste après le clic,
+  droits insuffisants…) : la copie, plus récente, fait alors foi. Sinon Grist a le dernier mot. La copie sert aussi à
+  afficher la page retenue **avant** la fin de la lecture des tables (pas d'éclair du Kanban).
+- **Quelles pages** : toutes celles qui ont un bouton `.nav-btn[data-view]` dans la barre — une page ajoutée à la barre est
+  donc retenue sans rien toucher. Les écrans passagers (fiche projet, Rédaction) ne le sont pas : après un rechargement
+  depuis la Rédaction, on retrouve Administratif. Une valeur inconnue (page supprimée, texte illisible) est ignorée : Kanban.
+- **Instances** : page retrouvée = `InstancesPage.open()` appelé au démarrage (elle ne chargeait ses données qu'au clic sur
+  la barre). L'instance affichée est déjà retenue séparément (`Inst_instance`).
+- Limite connue : comme les autres préférences, la ligne est propre à un navigateur (id de ligne en cache) ; vider les
+  données du site fait repartir sur le Kanban.
+
 ## Écarts entre le code et le schéma
 
 L'export `docs/grist_structure` est conforme : les huit tables existent et toutes les

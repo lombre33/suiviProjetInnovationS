@@ -53,14 +53,85 @@ function observeViewVisibility() {
   if (viewObserver || typeof MutationObserver !== 'function') return;
   viewObserver = new MutationObserver(records => records.forEach(record => {
     const el = record.target;
-    if (el.id && !el.classList.contains('hidden')) ensureViewRendered(el.id);
+    if (el.id && !el.classList.contains('hidden')) { ensureViewRendered(el.id); rememberView(el.id); } // aussi les retours « hors showView » (fermeture de la Rédaction)
   }));
   document.querySelectorAll('.view').forEach(view => viewObserver.observe(view, { attributes: true, attributeFilter: ['class'] }));
 }
 function applyTables(tables) { Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data)); }
 
+// --- Dernière page ouverte (retrouvée au rechargement) -----------------------------------------
+// Chaque changement de page est retenu par utilisateur dans Preferences_Widget.Page_courante (colonne auto-créée), avec une
+// copie dans localStorage écrite aussitôt. La copie sert de filet : un rechargement lancé juste après un clic (Ctrl+Maj+R) peut
+// couper l'écriture dans Grist ; la copie reste alors « en attente » (pending) et fait foi à la place de Grist, qui n'a rien
+// reçu. Au démarrage, la page retenue est affichée tout de suite d'après la copie (pas d'éclair du Kanban pendant la lecture des
+// tables), puis confirmée une fois les préférences lues.
+// Retenues : les pages de la barre de navigation (une page ajoutée à la barre l'est donc automatiquement). Les écrans passagers
+// (fiche projet, Rédaction) ne le sont pas : après un rechargement, on retrouve la page d'où l'on y était entré (Administratif).
+const NAV_PREFS_TABLE = 'Preferences_Widget';
+const NAV_PREFS_COLUMNS = [{ id: 'Page_courante', type: 'Text', description: 'Dernière page ouverte dans le widget par cet utilisateur : il la retrouve au rechargement. Renseignée automatiquement par le widget.' }];
+const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId'; // même clé que les pages (page-projets.js…) : la ligne de l'utilisateur
+const LAST_VIEW_STORAGE_KEY = 'suiviProjetInnovationS:lastView';
+let navPrefsRowId = null;
+let rememberedView = null;
+function isRestorableView(viewId) {
+  return typeof viewId === 'string' && /^view-[\w-]+$/.test(viewId) && !!document.getElementById(viewId) && !!document.querySelector(`.nav-btn[data-view="${viewId}"]`);
+}
+function readStoredView() {
+  try { const raw = JSON.parse(localStorage.getItem(LAST_VIEW_STORAGE_KEY) || 'null'); if (raw && typeof raw.view === 'string') return { view: raw.view, pending: !!raw.pending }; }
+  catch (err) { /* valeur illisible : comme s'il n'y en avait pas */ }
+  return { view: '', pending: false };
+}
+function writeStoredView(view, pending) {
+  try { localStorage.setItem(LAST_VIEW_STORAGE_KEY, JSON.stringify({ view, pending })); }
+  catch (err) { /* navigation privée / stockage bloqué : la page ne sera retenue que dans Grist */ }
+}
+function setActiveNav(viewId) { document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === viewId)); }
+// Affiche la page retenue sans la « retenir » de nouveau : rien à écrire, c'est déjà elle.
+function restoreView(viewId) {
+  if (!isRestorableView(viewId)) return false;
+  rememberedView = viewId;
+  if (visibleViewId() !== viewId) showView(viewId);
+  setActiveNav(viewId);
+  return true;
+}
+function rememberView(viewId) {
+  if (viewId === rememberedView || !isRestorableView(viewId)) return;
+  rememberedView = viewId;
+  writeStoredView(viewId, true);
+  saveViewToGrist(viewId);
+}
+async function saveViewToGrist(viewId) {
+  if (!navPrefsRowId || !CoreGrist.gristInstance) return; // ligne de préférences inconnue : la copie reste « en attente » et fait foi
+  try {
+    await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', NAV_PREFS_TABLE, navPrefsRowId, { Page_courante: viewId }]]);
+    if (rememberedView === viewId) writeStoredView(viewId, false); // sinon une navigation plus récente a pris le relais
+  } catch (err) { console.warn('Enregistrement de la dernière page ouverte a échoué :', err.message); }
+}
+// Page à afficher d'après Grist (lue dans la lecture partagée des préférences : aucune lecture de plus) et la copie locale.
+async function loadNavigationPreference() {
+  let saved = '';
+  try {
+    if (CoreGrist.gristInstance) {
+      await CoreGrist.ensureColumns(NAV_PREFS_TABLE, NAV_PREFS_COLUMNS); // aucun appel une fois la colonne connue
+      const rows = await CoreGrist.getTable(NAV_PREFS_TABLE, { shared: true });
+      let cachedId = null;
+      try { cachedId = Number(localStorage.getItem(PREFS_ROWID_STORAGE_KEY)) || null; } catch (err) { /* stockage bloqué */ }
+      const row = cachedId ? CoreUtils.findById(rows, cachedId) : null;
+      if (row) { navPrefsRowId = row.id; saved = String(row.Page_courante || '').trim(); }
+    }
+  } catch (err) { console.warn('Chargement de la dernière page ouverte a échoué :', err.message); }
+  const stored = readStoredView();
+  return (stored.pending ? [stored.view, saved] : [saved, stored.view]).find(isRestorableView) || '';
+}
+// Pour les tests : repart d'un navigateur qui n'a encore rien retenu.
+function resetLastView() {
+  rememberedView = null; navPrefsRowId = null;
+  try { localStorage.removeItem(LAST_VIEW_STORAGE_KEY); } catch (err) { /* ignore */ }
+}
+
 async function initializeApp() {
   try {
+    restoreView(readStoredView().view); // la page retenue s'affiche tout de suite (copie locale), avant la lecture des tables
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
     // Tout ce qui ne dépend de rien d'autre part en même temps : les tables, le schéma (descriptions des
@@ -79,8 +150,11 @@ async function initializeApp() {
     if (window.loadInstallationUserPreferences) await window.loadInstallationUserPreferences();
     if (window.loadTodoUserPreferences) await window.loadTodoUserPreferences();
     if (window.loadInstancesUserPreferences) await window.loadInstancesUserPreferences();
+    restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
     CoreGrist.closeSharedWindow();
     renderAllViews(); setupEventListeners(); observeViewVisibility();
+    // La page Instances ne charge ses données qu'à l'ouverture depuis la barre : retrouvée au rechargement, elle doit les charger elle-même.
+    if (visibleViewId() === 'view-instances') Promise.resolve(window.InstancesPage?.open?.()).catch(() => {});
   } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
   finally { CoreGrist.closeSharedWindow?.(); }
 }
@@ -117,5 +191,5 @@ function setupEventListeners() {
 }
 // Points d'entrée exposés pour les tests (tests/suite-app.js) ; tests/index.html pose
 // __SUIVI_SKIP_AUTOINIT__ pour que le chargement de ce fichier ne lance pas l'application.
-window.SuiviApp = { initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved };
+window.SuiviApp = { initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved, resetLastView };
 if (!window.__SUIVI_SKIP_AUTOINIT__) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp); else initializeApp(); }

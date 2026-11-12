@@ -160,6 +160,9 @@
     widgetOptions = null;
     global.__TEST_CALLS__.length = 0;
     try { localStorage.removeItem('suiviProjetInnovationS:prefsRowId'); } catch (err) { /* ignore */ }
+    // Dernière page ouverte (js/app.js) : copie locale et mémoire de l'appli, sinon la page d'un test serait « retrouvée » par le suivant.
+    if (global.SuiviApp && typeof global.SuiviApp.resetLastView === 'function') global.SuiviApp.resetLastView();
+    try { localStorage.removeItem('suiviProjetInnovationS:lastView'); } catch (err) { /* ignore */ }
     if (global.CoreState && typeof global.CoreState.clearState === 'function') {
       global.CoreState.clearState();
     }
