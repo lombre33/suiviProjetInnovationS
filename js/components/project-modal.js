@@ -14,7 +14,8 @@
   const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Projets', colId);
   const label = (r, fields) => fields.map(k => r?.[k]).find(v => v != null && v !== '') || '';
   const personLabel = r => label(r, ['nom_et_Prenom', 'Prenom', 'NOM']);
-  const opeLabel = r => text(r?.N_OPE);
+  // Numéro de la ligne OPE ; « N° à venir · structure » tant qu'elle n'en a pas (cf. CoreUtils.opeLabel).
+  const opeLabel = r => global.CoreUtils.opeLabel(r);
   const FIN = {
     2026: ['c2026_M10_Fonctionnement', 'c2026_M20_Investissement', 'c2026_M30_Personnel'],
     2027: ['c2027_M10_Fonctionnement', 'c2027_M20_Investissement', 'c2027_M30_Personnel'],
@@ -110,8 +111,16 @@
           list.innerHTML = `<button type="button" data-create-ope="${esc(input.value.trim())}">+ Créer la ligne OPE "${esc(input.value.trim())}"</button>`;
         }
       }
+      // Ligne OPE sans numéro (Antoine, 12/11/2026) : même modale OPE, numéro laissé vide, on indique seulement où elle sera ouverte.
+      if (table === 'Lignes_OPE' && typeof window.openCreateOpeModal === 'function') {
+        list.insertAdjacentHTML('beforeend', '<button type="button" data-create-ope-tbd>+ Ligne OPE sans numéro (où elle sera ouverte)</button>');
+      }
       list.classList.toggle('cp-hidden', !list.innerHTML);
       list.querySelectorAll('button').forEach(b => b.onclick = () => {
+        if (b.dataset.createOpeTbd !== undefined) {
+          window.openCreateOpeModal('', input);
+          return;
+        }
         if (b.dataset.createPerson !== undefined) {
           window.openCreatePersonModal(b.dataset.createPerson, input);
           return;
@@ -130,6 +139,20 @@
     input.oninput = () => { input.dataset.id = ''; refreshAvatar(); render(); };
     input.onfocus = () => render(false);
     input.onclick = event => {
+      // Ligne OPE déjà choisie : même modale OPE que sur la page Installation des fonds (numéro, installée chez), sans doublon.
+      if (table === 'Lignes_OPE' && input.value.trim() && input.dataset.id && typeof window.openEditOpeModal === 'function') {
+        const ligne = all().find(r => String(r.id) === String(input.dataset.id));
+        if (ligne) {
+          event.preventDefault();
+          event.stopPropagation();
+          list.classList.add('cp-hidden');
+          window.openEditOpeModal(ligne.id, saved => {
+            input.value = displayValue(saved);
+            input._cpRefSync();
+          });
+          return;
+        }
+      }
       if (table === 'Annuaire' && input.value.trim() && input.dataset.id && typeof window.openEditPersonModal === 'function') {
         const person = all().find(r => String(r.id) === String(input.dataset.id));
         if (person) {
@@ -713,7 +736,7 @@
     ref.input.dataset.id = hasId ? String(id) : '';
     ref.input.value = !hasId ? '' : (raw && typeof raw === 'object'
       ? personLabel(raw)
-      : (found ? (tableName === 'Annuaire' ? personLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme'])) : text(raw)));
+      : (found ? (tableName === 'Annuaire' ? personLabel(found) : (tableName === 'Lignes_OPE' ? opeLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme']))) : text(raw)));
     ref.refreshAvatar?.();
   }
 

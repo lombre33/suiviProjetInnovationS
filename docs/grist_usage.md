@@ -429,7 +429,10 @@ Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait
 projet dans la colonne DIESE / Ailleurs. Ces deux colonnes sont les seules que le widget
 écrit : à la création (`AddRecord`, champ « Ligne OPE » de la modale projet) et à la
 modification (`UpdateRecord`, clic sur le nom de l'OPE d'une carte de la page Installation
-des fonds, 12/11/2026). `totalCPConsomme` et la formule `N_OPE_LibelleOperation` ne sont pas
+des fonds, ou clic sur le champ « Ligne OPE » déjà renseigné de la modale projet : même modale).
+`N_OPE` peut être vide (12/11/2026) : une ligne dont on sait seulement la structure où elle
+sera ouverte (`installe_chez`) est acceptée ; le widget l'affiche « N° à venir · structure »
+(`CoreUtils.opeLabel`) et « N° OPE à venir — chez … » sur la page Installation. `totalCPConsomme` et la formule `N_OPE_LibelleOperation` ne sont pas
 lues par le widget ; `Projets.Ligne_OPE_installe_chez` (formule) sert encore à l'onglet
 Installation de la page To Do.
 

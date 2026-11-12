@@ -48,7 +48,7 @@
 
     const opeWrap = document.createElement('div');
     opeWrap.className = 'cp-field cp-full';
-    opeWrap.innerHTML = '<label for="cpo-nope">N° de ligne OPE *</label><input id="cpo-nope" type="text" required>';
+    opeWrap.innerHTML = '<label for="cpo-nope">N° de ligne OPE</label><input id="cpo-nope" type="text" placeholder="Pas encore attribué"><small class="cp-hint">Facultatif tant que la ligne n\'est pas ouverte.</small>';
     withHelp(opeWrap.querySelector('label'), 'N_OPE');
     form.appendChild(opeWrap);
     const opeInput = opeWrap.querySelector('input');
@@ -61,6 +61,7 @@
     const structureWrap = document.createElement('div');
     structureWrap.className = 'cp-field cp-full';
     structureWrap.innerHTML = `<label for="cpo-structure">Installée chez</label><select id="cpo-structure"><option value="">— Sélectionner —</option>${structures.map(s => `<option value="${esc(s.id)}">${esc(text(s.Acronyme))}</option>`).join('')}</select>`;
+    structureWrap.insertAdjacentHTML('beforeend', '<small class="cp-hint">Structure où la ligne est ou sera ouverte.</small>');
     withHelp(structureWrap.querySelector('label'), 'installe_chez');
     form.appendChild(structureWrap);
     const structureSelect = structureWrap.querySelector('select');
@@ -76,14 +77,15 @@
     modal.querySelector('[data-cp-save]').onclick = async () => {
       const error = modal.querySelector('.cp-error'), button = modal.querySelector('[data-cp-save]');
       const nOpe = opeInput.value.trim();
-      if (!nOpe) {
-        error.textContent = 'Le numéro de la ligne OPE est obligatoire.';
+      const installeChez = Number(structureSelect.value) || null;
+      // Le numéro peut manquer tant que la ligne n'est pas ouverte, à condition de savoir où elle le sera.
+      if (!nOpe && !installeChez) {
+        error.textContent = 'Renseignez le numéro de la ligne OPE ou, à défaut, la structure où elle sera ouverte (l\'un des deux est obligatoire).';
         return;
       }
       button.disabled = true;
       error.textContent = '';
       try {
-        const installeChez = Number(structureSelect.value) || null;
         const fields = { N_OPE: nOpe, installe_chez: installeChez };
         if (existing) {
           await updateRecord(existing.id, fields);
@@ -98,7 +100,7 @@
         const result = await addRecord(fields);
         const current = rows('Lignes_OPE');
         let id = extractAddedRecordId(result);
-        if (!id) {
+        if (!id && nOpe) {
           const found = current.filter(row => row.N_OPE === nOpe).pop();
           id = found?.id;
         }
@@ -109,7 +111,7 @@
           global.CoreState.setTable('Lignes_OPE', [...current, updated]);
         }
         if (originInput) {
-          originInput.value = nOpe;
+          originInput.value = global.CoreUtils.opeLabel(updated);
           originInput.dataset.id = String(id);
           originInput._cpRefSync?.();
         }

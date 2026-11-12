@@ -61,6 +61,19 @@
     return Math.floor(new Date(`${value}T00:00:00Z`).getTime() / 1000);
   }
 
+  // Libellé d'une ligne OPE (table Lignes_OPE) : son numéro ; tant qu'elle n'en a pas (ligne dont on sait seulement
+  // où elle sera ouverte, demande d'Antoine du 12/11/2026), « N° à venir » suivi de la structure d'installation.
+  function opeLabel(ligne) {
+    if (!ligne) return '';
+    const numero = ligne.N_OPE == null ? '' : String(ligne.N_OPE).trim();
+    if (numero) return numero;
+    const chez = ligne.installe_chez && typeof ligne.installe_chez === 'object' ? ligne.installe_chez.id : ligne.installe_chez;
+    const structures = chez && global.CoreState && typeof global.CoreState.getTable === 'function' ? (global.CoreState.getTable('Structures') || []) : [];
+    const structure = chez ? findById(structures, chez) : null;
+    const nom = structure ? String(structure.Acronyme || structure.Nom_Complet || '').trim() : '';
+    return nom ? 'N° à venir · ' + nom : 'N° à venir';
+  }
+
   function escapeHtml(str) {
     return String(str ?? '').replace(/[&<>"']/g, char => ({
       '&': '&amp;',
@@ -209,5 +222,5 @@
     return debounced;
   }
 
-  global.CoreUtils = { indexBy, findById, debounce, encodeList, decodeList, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
+  global.CoreUtils = { indexBy, findById, debounce, encodeList, decodeList, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, opeLabel, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);

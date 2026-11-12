@@ -96,6 +96,7 @@
 .cp-switch input:focus-visible ~ .cp-switch-track { outline:2px solid var(--accent-soft-border,#c7dbfd); outline-offset:2px; }
 .cp-switch-text { display:flex; flex-direction:column; gap:2px; padding-top:1px; }
 .cp-switch-title { font-size:13.5px; font-weight:700; color:var(--text,#1b2430); }
+.cp-hint { display:block; margin-top:4px; font-size:11.5px; font-weight:500; color:var(--text-muted,#667085); }
 .cp-switch-hint { font-size:11.5px; color:var(--text-faint,#98a2b3); }
 
 /* Champs "personne" (Porteurs) : petit avatar (initiales) à gauche du champ de recherche. */

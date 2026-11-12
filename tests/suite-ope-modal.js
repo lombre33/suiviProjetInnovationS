@@ -86,6 +86,101 @@
     });
   });
 
+  describe('Modale ligne OPE — ligne sans numéro, seulement la structure où elle sera ouverte (12/11/2026)', function () {
+    it('le numéro n\'est plus marqué obligatoire et la structure est expliquée', async function () {
+      await loadFixtureState();
+      const modal = window.openCreateOpeModal('');
+      assertEqual(modal.querySelector('label[for="cpo-nope"]').textContent, 'N° de ligne OPE');
+      assertFalse(modal.querySelector('#cpo-nope').required, 'le champ numéro n\'est pas requis');
+      assertEqual(modal.querySelector('#cpo-nope').placeholder, 'Pas encore attribué');
+      assertIncludes(modal.textContent, 'ou sera ouverte');
+    });
+
+    it('crée une ligne sans numéro quand la structure est indiquée, et le champ Ligne OPE l\'affiche', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = ligneOpeInput();
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      fire(input, 'focus');
+      const tbd = list.querySelector('[data-create-ope-tbd]');
+      assertTrue(!!tbd, 'l\'entrée « Ligne OPE sans numéro » doit être proposée dans la liste');
+      tbd.click();
+      assertTrue(!!opeModalEl(), 'c\'est la même modale OPE qui s\'ouvre (pas de doublon)');
+      assertEqual(opeModalEl().querySelector('#cpo-nope').value, '', 'numéro laissé vide');
+      opeModalEl().querySelector('#cpo-structure').value = '3';
+      await opeModalEl().querySelector('[data-cp-save]').onclick();
+
+      assertEqual(window.__TEST_CALLS__.length, 1);
+      const call = window.__TEST_CALLS__[0];
+      assertEqual(call.type, 'AddRecord');
+      assertEqual(call.table, 'Lignes_OPE');
+      assertDeepEqual(call.fields, { N_OPE: '', installe_chez: 3 });
+      assertEqual(opeModalEl(), null, 'la modale se ferme');
+      assertEqual(input.value, 'N° à venir · DIESE', 'sans numéro, le champ montre « N° à venir » et la structure');
+      assertEqual(input.dataset.id, String(call.id));
+      assertEqual(projectModalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'DIESE');
+    });
+
+    it('l\'entrée « sans numéro » reste proposée même quand une ligne correspond à la recherche', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = ligneOpeInput();
+      setValue(input, 'OPE-2026-001');
+      fire(input, 'input');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertTrue(!!list.querySelector('button[data-id]'), 'la ligne existante reste proposée');
+      assertTrue(!!list.querySelector('[data-create-ope-tbd]'));
+      assertTrue(!list.querySelector('[data-create-ope]'), 'pas de création « avec numéro » quand ça matche');
+    });
+
+    it('un clic sur la ligne OPE déjà choisie ouvre la même modale, en modification', async function () {
+      await loadFixtureState();
+      const tables = window.CoreState;
+      const record = tables.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      const input = ligneOpeInput();
+      assertEqual(input.value, 'OPE-2026-001');
+      fire(input, 'click');
+      assertTrue(!!opeModalEl(), 'la modale OPE doit s\'ouvrir au clic');
+      assertEqual(opeModalEl().querySelector('h2').textContent, 'Modifier la ligne OPE');
+      setValue(opeModalEl().querySelector('#cpo-nope'), '');
+      opeModalEl().querySelector('#cpo-structure').value = '3';
+      await opeModalEl().querySelector('[data-cp-save]').onclick();
+      const call = window.__TEST_CALLS__[0];
+      assertEqual(call.type, 'UpdateRecord');
+      assertDeepEqual(call.fields, { N_OPE: '', installe_chez: 3 });
+      assertEqual(input.value, 'N° à venir · DIESE', 'le champ reflète la modification');
+      assertEqual(projectModalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'DIESE');
+    });
+
+    it('rouvrir un projet dont la ligne n\'a pas de numéro l\'affiche « N° à venir · structure »', async function () {
+      await loadFixtureState();
+      const lignes = window.CoreState.getTable('Lignes_OPE').map(l => l.id === 1 ? { ...l, N_OPE: '' } : l);
+      window.CoreState.setTable('Lignes_OPE', lignes);
+      const record = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
+      window.ProjectModal.open(record);
+      assertEqual(ligneOpeInput().value, 'N° à venir · LAB1');
+    });
+
+    it('CoreUtils.opeLabel : numéro seul, ou « N° à venir » avec la structure, ou rien', async function () {
+      await loadFixtureState();
+      assertEqual(window.CoreUtils.opeLabel({ N_OPE: ' OPE-1 ', installe_chez: 1 }), 'OPE-1');
+      assertEqual(window.CoreUtils.opeLabel({ N_OPE: '', installe_chez: 3 }), 'N° à venir · DIESE');
+      assertEqual(window.CoreUtils.opeLabel({ N_OPE: null, installe_chez: 0 }), 'N° à venir');
+      assertEqual(window.CoreUtils.opeLabel(null), '');
+    });
+
+    it('modification : on peut garder la ligne sans numéro si la structure est renseignée', async function () {
+      await loadFixtureState();
+      const modal = window.openEditOpeModal(1);
+      setValue(modal.querySelector('#cpo-nope'), '');
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertEqual(window.__TEST_CALLS__.length, 1, 'structure LAB1 conservée : l\'enregistrement part');
+      assertDeepEqual(window.__TEST_CALLS__[0].fields, { N_OPE: '', installe_chez: 1 });
+      assertEqual(opeModalEl(), null);
+    });
+  });
+
   describe('Modale ligne OPE — modification d\'une ligne existante (12/11/2026, page Installation des fonds)', function () {
     it('s\'ouvre pré-remplie (numéro, installée chez) avec « Enregistrer », sans rien écrire', async function () {
       await loadFixtureState();
@@ -120,13 +215,14 @@
       assertTrue(!!saved && saved.id === 2 && saved.N_OPE === 'OPE-2026-020', 'onSaved reçoit la ligne enregistrée');
     });
 
-    it('permet de retirer la structure (installée chez vide) et refuse un numéro vide', async function () {
+    it('permet de retirer la structure (installée chez vide) et refuse une ligne sans numéro ni structure', async function () {
       await loadFixtureState();
       const modal = window.openEditOpeModal(1);
       setValue(modal.querySelector('#cpo-nope'), '   ');
+      modal.querySelector('#cpo-structure').value = '';
       await modal.querySelector('[data-cp-save]').onclick();
       assertIncludes(modal.querySelector('.cp-error').textContent, 'obligatoire');
-      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun appel Grist sans numéro');
+      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun appel Grist sans numéro ni structure');
 
       setValue(modal.querySelector('#cpo-nope'), 'OPE-2026-001');
       modal.querySelector('#cpo-structure').value = '';

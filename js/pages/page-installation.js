@@ -117,7 +117,9 @@
     if (!ligne) return { id: null, label: 'Aucune ligne OPE', muted: true };
     const structure = structureFor(ligne);
     const structureLabel = structure ? text(structure.Acronyme || structure.Nom_Complet) : '';
-    return { id: ligne.id, label: `OPE n°${text(ligne.N_OPE)}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false };
+    const numero = text(ligne.N_OPE).trim();
+    // Ligne dont on sait seulement où elle sera ouverte : pas encore de numéro (12/11/2026).
+    return { id: ligne.id, label: `${numero ? 'OPE n°' + numero : 'N° OPE à venir'}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false, complete: !!numero && !!structureLabel };
   }
 
   // État d'affichage des volets (repliés/masqués) — purement local à la

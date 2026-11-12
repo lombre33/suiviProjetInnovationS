@@ -82,6 +82,17 @@
       assertEqual(notifyCard.querySelector('.install-chip-ope').textContent, 'OPE n°OPE-2026-003 — chez DIESE');
     });
 
+    it('une ligne OPE sans numéro mais avec sa structure reste classée et s\'affiche « N° OPE à venir — chez … »', async function () {
+      await loadFixtureState();
+      const lignes = window.CoreState.getTable('Lignes_OPE').map(l => l.id === 3 ? { ...l, N_OPE: '' } : l);
+      window.CoreState.setTable('Lignes_OPE', lignes);
+      window.renderInstallation();
+      const card = cardByAcronym(panelIn('install-col-diese', 'Installé'), 'NOTIFY');
+      assertTrue(!!card, 'la structure suffit à classer la carte côté DIESE');
+      assertEqual(card.querySelector('.install-chip-ope').textContent, 'N° OPE à venir — chez DIESE');
+      assertTrue(!!card.querySelector('[data-open-ope]'), 'la pastille ouvre toujours la modale OPE, pour y renseigner le numéro');
+    });
+
     it('sans action renseignée, aucune pastille action (même avec une ligne OPE, cf. INNOVX)', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
