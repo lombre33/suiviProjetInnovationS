@@ -1064,7 +1064,8 @@
   }
 
   global.ProjectModal = {
-    open(record) {
+    // options.tab : onglet à afficher à l'ouverture (clé de TABS, ex. 'conventions') ; « Général » par défaut.
+    open(record, options) {
       const m = createModal();
       m.dataset.mode = record ? 'edit' : 'create';
       m._projectRecord = record || null;
@@ -1091,7 +1092,7 @@
         renderMissingBanner(m, m._refs);
       }
       m.classList.remove('cp-hidden');
-      m._setActiveTab('general');
+      m._setActiveTab(options && TABS.some(t => t.key === options.tab) ? options.tab : 'general');
       m._refs.Periode.oninput = () => {};
       return m;
     }

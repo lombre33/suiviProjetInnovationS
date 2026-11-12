@@ -30,7 +30,7 @@
     {
       name: 'Installation des fonds', programme: 'install-filter-programme', instance: 'install-filter-instance', search: 'install-filter-search', clear: 'install-clear-filters',
       render: () => window.renderInstallation(), load: () => window.loadInstallationUserPreferences(),
-      shown: () => Array.from(document.querySelectorAll('#install-panels-wrap .install-acronym')).map(el => el.textContent),
+      shown: () => Array.from(document.querySelectorAll('#install-zones .install-acronym')).map(el => el.textContent),
       cols: { programme: 'Install_filtre_programme', instance: 'Install_filtre_instance', search: 'Install_filtre_recherche' }, kanbanFirst: true
     }
   ];

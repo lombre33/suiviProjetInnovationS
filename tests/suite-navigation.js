@@ -371,7 +371,7 @@
       const restore = prepare();
       try {
         await app().initializeApp();
-        await setPrefs({ Todo_onglet_actif: 'conv', Todo_vue: 'all', Install_vue: 'diese' });
+        await setPrefs({ Todo_onglet_actif: 'conv', Todo_vue: 'all', Install_lieux: 'diese' });
         app().showView('view-todo');
         await waitFor(() => readMirror().view === 'view-todo' && readMirror().pending === false, 'To Do confirmée');
         await reload();
@@ -380,15 +380,17 @@
         assertTrue(document.querySelector('[data-todo-tab="conv"]').classList.contains('is-active'), 'onglet Conventions de la To Do');
         assertEqual(document.getElementById('todo-view-select').value, 'all', 'vue « toute l\'équipe »');
         app().showView('view-installation-fonds');
-        assertTrue(document.querySelector('[data-install-tab="diese"]').classList.contains('is-active'), 'colonne DIESE de l\'Installation');
+        assertTrue(document.querySelector('[data-install-lieu="diese"]').classList.contains('is-on'), 'lieu DIESE de l\'Installation');
+        assertFalse(document.querySelector('[data-install-lieu="autre"]').classList.contains('is-on'), 'et seulement DIESE');
         await waitFor(() => readMirror().view === 'view-installation-fonds' && readMirror().pending === false, 'Installation confirmée');
         await reload();
         await app().initializeApp();
         assertDeepEqual(visibleIds(), ['view-installation-fonds']);
-        assertTrue(document.querySelector('[data-install-tab="diese"]').classList.contains('is-active'), 'toujours la colonne DIESE après un nouveau rechargement');
+        assertTrue(document.querySelector('[data-install-lieu="diese"]').classList.contains('is-on'), 'toujours DIESE après un nouveau rechargement');
+        assertFalse(document.querySelector('[data-install-lieu="autre"]').classList.contains('is-on'));
       } finally {
         document.getElementById('todo-reset')?.click(); // onglet et vue remis à zéro pour les suites suivantes (état en mémoire de la page)
-        document.querySelector('[data-install-tab="all"]')?.click();
+        document.getElementById('install-clear-filters')?.click(); // bascule DIESE / AUTRE remise sur les deux
         restore();
       }
     });

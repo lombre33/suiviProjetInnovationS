@@ -438,16 +438,30 @@ Installation de la page To Do.
 
 ## Installation des fonds (12/11/2026)
 
-`Projets.Statut_installation_fonds` : Choice créée par le widget au premier lancement
-(`ensureColumns`), étapes `1) En attente DR`, `2) Ouverture demandée à la DF`,
-`3) Installé`, `4) Reliquat à traiter`, `5) Clôturer`. La 1re étape s'appelait
-`1) En attente ouverture` jusqu'au 12/11/2026 : au chargement, le widget réécrit cette
-ancienne valeur dans les projets (une écriture groupée) et remplace la liste de choix de
-la colonne (`CoreGrist.ensureChoices`, couleurs conservées) ; sans droit d'écriture, la
-page range ces projets à la 1re étape. Valeur vide ou inconnue = 1re étape. L'étape se
-change par glisser-déposer ou par le menu de la carte ; elle est indépendante de
-`Action_Ligne_OPE_a_faire` (affichée telle quelle sur la carte, y compris les valeurs que
-la modale projet ne propose pas, comme « ligne validée »).
+Page en **frise de jalons**, deux zones empilées : **Création** puis **Prolongation/réabondement**, et une bascule
+**DIESE / AUTRE** (« OU » non exclusif, au moins un lieu reste actif) dans le bandeau de filtres.
+
+- **Lieu** d'un projet : DIESE si `Lignes_OPE.installe_chez` est la structure d'acronyme `DIESE` ; tout le reste (autre
+  structure, aucune ligne OPE) = AUTRE. **Zone** : déduite de `Projets.Action_Ligne_OPE_a_faire` (« Prolongation de ligne »
+  et « re-Abondement de ligne » -> Prolongation ; tout le reste, y compris vide et « à determiner » -> Création).
+  Jamais modifiée par la page (la carte affiche l'action, le glisser inter-zones est refusé).
+- **Jalon** : `Projets.Jalon_installation_fonds`, Choice créée par le widget au premier lancement (`ensureColumns`), six
+  valeurs : `1) Création / prolongation de ligne`, `2) En attente DF (ou OPE sur UBInvest)`, `3) OPE disponible UB Invest`,
+  `4) Projet en cours`, `5) Reliquats à traiter`, `6) Projet clôturé (reliquat inclus)`. Les trois premiers sont visibles ;
+  les trois derniers sont derrière le petit « + » de chaque zone (déplié = `Preferences_Widget.Install_plus`). Libellés
+  affichés propres à la zone (Prolongation : « Prolongation/réattribution », « En attente DF »). Valeur vide ou inconnue =
+  1er jalon. Changement par glisser-déposer ou par le menu de la carte.
+- **Reprise de l'ancienne colonne** `Statut_installation_fonds` (jamais modifiée ni supprimée) : `1) En attente
+  ouverture`/`1) En attente DR` -> 1, `2) Ouverture demandée à la DF` -> 2, `3) Installé` -> 3, `4) Reliquat à traiter` -> 5,
+  `5) Clôturer` -> 6. La page la lit tant que `Jalon_installation_fonds` est vide ; au chargement le widget recopie ces
+  valeurs dans la nouvelle colonne (une écriture groupée, une seule fois) et complète la liste de choix de la colonne
+  (`CoreGrist.ensureChoices`, couleurs conservées). La page To Do (onglet Installation) lit la même colonne.
+- **Rouge** : un projet au jalon 3 (« OPE disponible UB Invest ») dont la ligne OPE n'est pas complète (numéro **et**
+  structure) est affiché en rouge (carte, pastille OPE, rond du jalon), avec « OPE à compléter ».
+- **Préférences** (`Preferences_Widget`, 5 colonnes `Install_*` auto-créées) : `Install_lieux` (lieux actifs),
+  `Install_plus` (zones dépliées), `Install_filtre_programme`, `Install_filtre_instance`, `Install_filtre_recherche`.
+  Les anciennes colonnes des volets (`Install_vue`, `Install_repliees`, `Install_masquees`) ne sont plus lues.
+- Un clic sur « Convention » ouvre la modale projet sur l'onglet Convention (`ProjectModal.open(record, {tab:'conventions'})`).
 
 ## Dernière page ouverte (12/11/2026)
 
@@ -469,7 +483,7 @@ repartait toujours sur le Kanban. Code : `js/app.js` (section « Dernière page 
   la barre). L'instance affichée est déjà retenue séparément (`Inst_instance`).
 - **Sous-menus** (12/11/2026) : chaque page retrouve aussi son onglet / son étape — Administratif : Notifications ou
   Conventions (`Admin_onglet_actif`, auto-créée, seul l'onglet est écrit au clic ; avant ce jour il n'était pas retenu) ;
-  To Do : onglet et vue (`Todo_onglet_actif`, `Todo_vue`) ; Installation des fonds : colonne (`Install_vue`) ; Instances :
+  To Do : onglet et vue (`Todo_onglet_actif`, `Todo_vue`) ; Installation des fonds : lieux actifs et zones dépliées (`Install_lieux`, `Install_plus`) ; Instances :
   instance, séance, étape (ODJ, Invités, CR…) et vue (`Inst_*`). Non retenu : l'affichage tableau / cartes d'Administratif.
 - Limite connue : comme les autres préférences, la ligne est propre à un navigateur (id de ligne en cache) ; vider les
   données du site fait repartir sur le Kanban.

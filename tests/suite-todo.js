@@ -72,20 +72,20 @@
       assertTrue(!!cardByAcronym(panel('Convention en signature'), 'CONVENTIX'), 'CONVENTIX doit apparaître (rôle Conventions via "Grands Programmes")');
 
       setTab('install');
-      project(10).Statut_installation_fonds = '3) Installé';
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest';
       window.renderTodo();
-      assertFalse(!!cardByAcronym(panel('Installé'), 'INNOVX'), 'Alice n\'a pas le rôle Installation ("Grands Programmes" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
+      assertFalse(!!cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX'), 'Alice n\'a pas le rôle Installation ("Grands Programmes" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
     });
 
     it('Alice (structure "DR Sud") a le rôle Installation mais pas Notifications/Conventions', async function () {
       await loadFixtureState();
       setAliceStructureLabel('DR Sud');
-      project(10).Statut_installation_fonds = '3) Installé';
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest';
       window.renderTodo();
 
       setView('1');
       setTab('install');
-      assertTrue(!!cardByAcronym(panel('Installé'), 'INNOVX'), 'INNOVX doit apparaître (rôle Installation via "DR")');
+      assertTrue(!!cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX'), 'INNOVX doit apparaître (rôle Installation via "DR")');
 
       setTab('notif');
       assertFalse(!!cardByAcronym(panel('Information projet saisies'), 'INNOVX'), 'Alice n\'a pas le rôle Notifications ("DR" ne le couvre pas) et n\'est pas taguée : rien ne doit apparaître');
@@ -141,39 +141,39 @@
     });
   });
 
-  describe('To Do — onglet Installation (Statut_installation_fonds, fil "Installation des fonds")', function () {
-    it('les 5 volets existent ; les fixtures par défaut placent INNOVX et NOTIFY dans les bons volets, les autres volets restent vides', async function () {
-      await loadFixtureState(); // INNOVX = "2) Ouverture demandée à la DF", NOTIFY = "3) Installé" (fixtures.js)
+  describe('To Do — onglet Installation (Jalon_installation_fonds, frise de la page Installation des fonds)', function () {
+    it('les 6 volets existent ; les fixtures par défaut placent INNOVX et NOTIFY dans les bons volets, les autres volets restent vides', async function () {
+      await loadFixtureState(); // fixtures.js (ancienne colonne Statut_installation_fonds, reprise) : INNOVX = "2) Ouverture demandée à la DF" → 2e jalon, NOTIFY = "3) Installé" → 3e
       setTab('install');
       setView('all');
-      ['En attente DR', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer'].forEach(label => {
+      ['Création / prolongation de ligne', 'En attente DF (ou OPE sur UBInvest)', 'OPE disponible UB Invest', 'Projet en cours', 'Reliquats à traiter', 'Projet clôturé (reliquat inclus)'].forEach(label => {
         assertTrue(!!panel(label), `le volet "${label}" doit exister`);
       });
-      assertTrue(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX doit apparaître dans le volet Ouverture demandée à la DF');
-      assertTrue(!!cardByAcronym(panel('Installé'), 'NOTIFY'), 'NOTIFY doit apparaître dans le volet Installé');
-      assertTrue(!!panel('En attente DR').querySelector('.kanban-empty'), 'le volet En attente DR doit rester vide');
-      assertTrue(!!panel('Clôturer').querySelector('.kanban-empty'), 'le volet Clôturer doit rester vide');
+      assertTrue(!!cardByAcronym(panel('En attente DF (ou OPE sur UBInvest)'), 'INNOVX'), 'INNOVX doit apparaître dans le volet En attente DF (ou OPE sur UBInvest)');
+      assertTrue(!!cardByAcronym(panel('OPE disponible UB Invest'), 'NOTIFY'), 'NOTIFY doit apparaître dans le volet OPE disponible UB Invest');
+      assertTrue(!!panel('Création / prolongation de ligne').querySelector('.kanban-empty'), 'le volet Création / prolongation de ligne doit rester vide');
+      assertTrue(!!panel('Projet clôturé (reliquat inclus)').querySelector('.kanban-empty'), 'le volet Projet clôturé doit rester vide');
     });
 
-    it('un projet resté sous l\'ancien libellé « 1) En attente ouverture » (renommé « En attente DR » le 12/11/2026) reste dans la 1re étape', async function () {
+    it('un projet resté sous l\'ancien libellé « 1) En attente ouverture » (ancienne colonne Statut_installation_fonds) reste dans le 1er jalon', async function () {
       await loadFixtureState();
       project(10).Statut_installation_fonds = '1) En attente ouverture'; // INNOVX, valeur d'avant le renommage
       setTab('install');
       setView('all');
       window.renderTodo();
-      assertTrue(!!cardByAcronym(panel('En attente DR'), 'INNOVX'), 'INNOVX doit rester visible, dans le volet En attente DR');
+      assertTrue(!!cardByAcronym(panel('Création / prolongation de ligne'), 'INNOVX'), 'INNOVX doit rester visible, dans le volet Création / prolongation de ligne');
     });
 
-    it('un projet avec Statut_installation_fonds renseigné affiche l\'action et "installé chez"', async function () {
+    it('un projet avec un jalon renseigné affiche l\'action et "installé chez"', async function () {
       await loadFixtureState();
-      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest'; // INNOVX
       project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
       project(10).Ligne_OPE_installe_chez = 'DIESE';
       window.renderTodo();
       setTab('install');
       setView('all');
-      const card = cardByAcronym(panel('Installé'), 'INNOVX');
-      assertTrue(!!card, 'INNOVX doit apparaître dans le volet Installé');
+      const card = cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX');
+      assertTrue(!!card, 'INNOVX doit apparaître dans le volet OPE disponible UB Invest');
       assertIncludes(card.querySelector('.todo-action-text').textContent, 'Vérifier le virement');
       assertIncludes(card.querySelector('.todo-action-text').textContent, 'DIESE');
     });
@@ -182,20 +182,20 @@
     // Structures (['L', id]) ; le test ci-dessus lui donnait un texte, ce qui masquait l'affichage « L,3 ».
     it('"installé chez" lit la ReferenceList de Grist (["L", id]) et affiche l\'acronyme de la structure, jamais "L,3"', async function () {
       await loadFixtureState();
-      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest'; // INNOVX
       project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
       project(10).Ligne_OPE_installe_chez = ['L', 3]; // Structures#3 = DIESE
       window.renderTodo();
       setTab('install');
       setView('all');
-      const action = cardByAcronym(panel('Installé'), 'INNOVX').querySelector('.todo-action-text').textContent;
+      const action = cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX').querySelector('.todo-action-text').textContent;
       assertIncludes(action, 'Vérifier le virement — installé chez DIESE');
       assertFalse(action.includes('L,'), 'jamais la valeur brute de la ReferenceList');
     });
 
     it('"installé chez" : liste vide ([\'L\']) ou structure inconnue → pas de mention, et plusieurs structures sont séparées par une virgule', async function () {
       await loadFixtureState();
-      project(10).Statut_installation_fonds = '3) Installé'; // INNOVX
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest'; // INNOVX
       project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
       project(10).Ligne_OPE_installe_chez = ['L'];
       project(11).Action_Ligne_OPE_a_faire = 'Relancer';
@@ -203,7 +203,7 @@
       window.renderTodo();
       setTab('install');
       setView('all');
-      const actionOf = acronym => cardByAcronym(panel('Installé'), acronym).querySelector('.todo-action-text').textContent;
+      const actionOf = acronym => cardByAcronym(panel('OPE disponible UB Invest'), acronym).querySelector('.todo-action-text').textContent;
       assertFalse(actionOf('INNOVX').includes('installé chez'), 'liste vide : aucune mention');
       assertIncludes(actionOf('NOTIFY'), 'Relancer — installé chez LAB1, DIESE');
       project(10).Ligne_OPE_installe_chez = ['L', 999];
@@ -219,7 +219,7 @@
       setTab('install');
       setView('all');
       assertFalse(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX ne doit apparaître dans aucun volet sans statut reconnu');
-      assertFalse(!!cardByAcronym(panel('Installé'), 'NOTIFY'), 'NOTIFY ne doit apparaître dans aucun volet sans statut reconnu');
+      assertFalse(!!cardByAcronym(panel('OPE disponible UB Invest'), 'NOTIFY'), 'NOTIFY ne doit apparaître dans aucun volet sans statut reconnu');
     });
   });
 

@@ -67,11 +67,9 @@
 
   <section id="view-installation-fonds" class="view" aria-label="Installation des fonds">
     <div class="project-filters install-filters" role="search" aria-label="Filtres Installation des fonds">
-      <div class="install-tabs" role="tablist" aria-label="Colonnes à afficher">
-        <button type="button" class="install-tab is-active" data-install-tab="all" role="tab" aria-selected="true">Toutes</button>
-        <button type="button" class="install-tab" data-install-tab="diese" role="tab" aria-selected="false">DIESE</button>
-        <button type="button" class="install-tab" data-install-tab="ailleurs" role="tab" aria-selected="false">Ailleurs</button>
-        <button type="button" class="install-tab" data-install-tab="non_classe" role="tab" aria-selected="false">Sans OPE</button>
+      <div class="install-lieu-toggle" role="group" aria-label="Lieu d'installation de la ligne OPE">
+        <button type="button" class="install-lieu-btn is-diese is-on" data-install-lieu="diese" aria-pressed="true"><span class="install-lieu-dot" aria-hidden="true"></span>DIESE<span class="install-lieu-count"></span></button>
+        <button type="button" class="install-lieu-btn is-autre is-on" data-install-lieu="autre" aria-pressed="true"><span class="install-lieu-dot" aria-hidden="true"></span>AUTRE<span class="install-lieu-count"></span></button>
       </div>
       <label class="filter-combo"><span class="visually-hidden">Programme</span>
         <input id="install-filter-programme" type="search" placeholder="Tous les programmes" autocomplete="off" role="combobox" aria-controls="install-filter-programme-list" aria-autocomplete="list">
@@ -83,22 +81,8 @@
       </label>
       <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="install-filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
       <button id="install-clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
-      <div id="install-hidden-panels" class="kanban-hidden-columns" hidden></div>
     </div>
-    <div id="install-panels-wrap" class="install-panels-wrap">
-      <section class="install-column" data-install-column="diese" aria-label="Lignes installées DIESE">
-        <div class="install-column-head"><h3>Lignes installées DIESE</h3><span class="install-side-count" id="install-count-diese"></span></div>
-        <div id="install-col-diese" class="install-panels"></div>
-      </section>
-      <section class="install-column" data-install-column="ailleurs" aria-label="Lignes installées ailleurs">
-        <div class="install-column-head"><h3>Lignes installées ailleurs</h3><span class="install-side-count" id="install-count-ailleurs"></span></div>
-        <div id="install-col-ailleurs" class="install-panels"></div>
-      </section>
-      <section class="install-column" data-install-column="non_classe" aria-label="Sans ligne OPE">
-        <div class="install-column-head"><h3>Sans ligne OPE</h3><span class="install-side-count" id="install-count-non_classe"></span></div>
-        <div id="install-col-non_classe" class="install-panels"></div>
-      </section>
-    </div>
+    <div id="install-zones" class="install-zones"></div>
   </section>
 
   <section id="view-redaction" class="view hidden redaction-view" aria-label="Rédaction de la notification">

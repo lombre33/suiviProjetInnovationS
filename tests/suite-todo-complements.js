@@ -7,7 +7,7 @@
  * Fixtures (tests/fixtures.js) : Notifications → INNOVX « 1) Information projet saisies », NOTIFY « 5) envoyée pour
  * signature VP », CONVENTIX « 6) Signée », SIGNEX « 8) Archivee ». Conventions (toutes les cases cochées par
  * loadFixtureState) : INNOVX « 1) … redaction », CONVENTIX « 3) … en signature », SIGNEX « 4) … signée de toutes les
- * parties ». Installation : INNOVX « 2) Ouverture demandée à la DF », NOTIFY « 3) Installé ».
+ * parties ». Installation (ancienne colonne Statut_installation_fonds, reprise) : INNOVX « 2) Ouverture demandée à la DF » (2e jalon), NOTIFY « 3) Installé » (3e).
  *
  * L'état de la page (onglet, vue, volets) vit dans la fermeture de page-todo.js et traverse les tests : chaque test
  * pose son onglet et sa vue, et window.TodoTesting.resetPanelState() repart de volets jamais construits.
@@ -164,7 +164,7 @@
         project(11).Date_debut_Projet = inDays(2);
         window.renderTodo();
         showAll('install');
-        assertTrue(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX est bien listé sur Installation');
+        assertTrue(!!cardByAcronym(panel('En attente DF (ou OPE sur UBInvest)'), 'INNOVX'), 'INNOVX est bien listé sur Installation');
         assertEqual(document.querySelectorAll('#todo-panels .admin-start').length, 0, 'aucune pastille sur Installation');
       });
     });

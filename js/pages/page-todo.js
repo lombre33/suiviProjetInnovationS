@@ -50,18 +50,17 @@
     '4) Convention en signature partenaire': 2,
     '5) Convention signée de toutes les parties': 3
   };
-  // Statuts du fil "Refondre la page Installation des fonds" (livré 17da8be,
-  // 03/11/2026) : Projets.Statut_installation_fonds (Choice), mêmes préfixes
-  // ordinaux "N) " que NOTIF_STAGES/CONV_STAGES — lue défensivement malgré
-  // tout (indexOf renvoie -1 sur une valeur imprévue), cet onglet reste vide
-  // plutôt que de planter si la colonne venait à manquer.
+  // Jalons de la page Installation des fonds (frise du 12/11/2026) : Projets.Jalon_installation_fonds (Choice
+  // créée par js/pages/page-installation.js), mêmes préfixes ordinaux "N) " que NOTIF_STAGES/CONV_STAGES.
+  // Valeurs neutres (identiques dans les zones Création et Prolongation/réabondement), répétées ici comme les
+  // autres onglets portent leurs libellés ; l'index d'un projet vient de window.InstallationLogic.rawJalonIndex
+  // (qui reprend aussi l'ancienne colonne à 5 étapes Statut_installation_fonds). Aucun jalon renseigné : le projet
+  // n'apparaît pas dans cet onglet, qui reste vide plutôt que de planter si la colonne venait à manquer.
   const INSTALL_STAGES = [
-    '1) En attente DR', '2) Ouverture demandée à la DF', '3) Installé',
-    '4) Reliquat à traiter', '5) Clôturer'
+    '1) Création / prolongation de ligne', '2) En attente DF (ou OPE sur UBInvest)', '3) OPE disponible UB Invest',
+    '4) Projet en cours', '5) Reliquats à traiter', '6) Projet clôturé (reliquat inclus)'
   ];
-  // Ancien libellé de la 1re étape (renommée le 12/11/2026), pas encore repris dans Grist chez un utilisateur sans droit d'écriture.
-  const INSTALL_LEGACY_STAGE_INDEX = { '1) En attente ouverture': 0 };
-  const INSTALL_STATUS_FIELD = 'Statut_installation_fonds';
+  const INSTALL_STATUS_FIELD = 'Jalon_installation_fonds';
   // Tag "responsable" du next step (demande A.3 d'Antoine, posée sous
   // Conventions) : colonne confirmée le 03/11/2026 par le fil Page
   // Administratif — RefList → Annuaire, sur Projets uniquement (jamais sur
@@ -154,8 +153,7 @@
       }).filter(Boolean);
     }
     return getProjects().map(project => {
-      const status = text(project[INSTALL_STATUS_FIELD]);
-      const stageIdx = Object.prototype.hasOwnProperty.call(INSTALL_LEGACY_STAGE_INDEX, status) ? INSTALL_LEGACY_STAGE_INDEX[status] : INSTALL_STAGES.indexOf(status);
+      const stageIdx = window.InstallationLogic ? window.InstallationLogic.rawJalonIndex(project) : INSTALL_STAGES.indexOf(text(project[INSTALL_STATUS_FIELD]));
       if (stageIdx === -1) return null;
       const chezQui = installedAtLabel(project);
       const action = text(project.Action_Ligne_OPE_a_faire);

@@ -1,17 +1,18 @@
-/** Page Installation des fonds — 3 colonnes DIESE / Ailleurs / Sans ligne OPE,
- * chacune découpée en volets par étape (glisser-déposer, même patron que
- * l'onglet Conventions de js/pages/page-administratif.js). Maquette validée
- * par Antoine le 03/11/2026 (https://claude.ai/artifact/V2Y6KUVgYviy8A5umgzuWS).
+/** Page Installation des fonds — frise de jalons en deux zones empilées : « Création » et
+ * « Prolongation/réabondement » (maquette validée par Antoine le 12/11/2026 :
+ * https://claude.ai/artifact/82ve1pxXEhdzjJSnsR8cLQ ; première maquette du 03/11/2026 :
+ * https://claude.ai/artifact/V2Y6KUVgYviy8A5umgzuWS).
  *
- * Colonne (DIESE/Ailleurs/Sans ligne OPE) déduite de Lignes_OPE.installe_chez
- * (Reference → Structures), jamais d'un choix manuel : un projet ne change
- * donc jamais de colonne par glisser-déposer, seulement d'étape.
- *
- * Statut_installation_fonds (Choice sur Projets) est une colonne CRÉÉE par ce
- * module au premier lancement après livraison (ensureColumns ci-dessous) :
- * elle n'existe pas dans docs/grist_structure. Valeur vide/inconnue = 1re
- * étape ("En attente DR"), pas de ligne masquée en attendant que
- * Statut_installation_fonds soit renseigné.
+ * - Lieu (bascule DIESE / AUTRE du bandeau, « OU » non exclusif) : déduit de
+ *   Lignes_OPE.installe_chez (Reference → Structures), jamais d'un choix manuel. DIESE = structure
+ *   d'acronyme DIESE ; AUTRE = toute autre structure, et aussi les projets sans ligne OPE.
+ * - Zone : déduite de Projets.Action_Ligne_OPE_a_faire (prolongation / ré-abondement → Prolongation/
+ *   réabondement ; tout le reste → Création).
+ * - Jalon : Projets.Jalon_installation_fonds (Choice), colonne CRÉÉE par ce module (ensureColumns ci-dessous),
+ *   absente de docs/grist_structure. Valeur neutre (indépendante de la zone), libellés affichés propres à
+ *   la zone. Vide/inconnue = 1er jalon. L'ancienne colonne Statut_installation_fonds (5 étapes, jusqu'au
+ *   12/11/2026) est reprise au chargement, sans rien supprimer.
+ * - Les jalons « Projet en cours », « Reliquats à traiter » et « Projet clôturé » sont derrière un petit « + ».
  */
 (function () {
   'use strict';
@@ -20,39 +21,62 @@
   // (sinon, seul changement nécessaire si Grist utilise un autre libellé).
   const DIESE_ACRONYM = 'DIESE';
 
-  const STAGES = [
-    '1) En attente DR',
-    '2) Ouverture demandée à la DF',
-    '3) Installé',
-    '4) Reliquat à traiter',
-    '5) Clôturer'
+  // Valeurs enregistrées dans Jalon_installation_fonds : les mêmes dans les deux zones, pour qu'un projet qui
+  // change de zone (action OPE modifiée) garde son avancement. Les libellés de la 1re et de la 2e étape
+  // diffèrent selon la zone, voir ZONES.
+  const JALONS = [
+    '1) Création / prolongation de ligne',
+    '2) En attente DF (ou OPE sur UBInvest)',
+    '3) OPE disponible UB Invest',
+    '4) Projet en cours',
+    '5) Reliquats à traiter',
+    '6) Projet clôturé (reliquat inclus)'
   ];
-  const STATUT_COLUMN = { id: 'Statut_installation_fonds', type: 'Choice', widgetOptions: JSON.stringify({ choices: STAGES }) };
-  // Ancien libellé de la 1re étape (renommée « En attente DR » le 12/11/2026) : repris au chargement
-  // (voir migrateLegacyStatus) pour que les projets déjà rangés dans ce volet y restent.
-  const LEGACY_STATUS = { '1) En attente ouverture': STAGES[0] };
+  const JALON_COLUMN = { id: 'Jalon_installation_fonds', type: 'Choice', widgetOptions: JSON.stringify({ choices: JALONS }) };
+  const OPE_DISPONIBLE_INDEX = 2; // un projet à ce jalon doit avoir une ligne OPE complète, sinon alerte rouge
+  const FIRST_HIDDEN_INDEX = 3; // jalons derrière le « + » : Projet en cours, Reliquats, Clôturé
 
-  const SIDE_DEFS = [
-    { key: 'diese', title: 'Lignes installées DIESE' },
-    { key: 'ailleurs', title: 'Lignes installées ailleurs' },
-    { key: 'non_classe', title: 'Sans ligne OPE' }
-  ];
-
-  // Mêmes valeurs Choice que Action_Ligne_OPE_a_faire (project-modal.js,
-  // OPE_OPTIONS) — dupliqué ici plutôt qu'importé, comme le reste des pages
-  // (chacune porte ses propres libellés, cf. NOTIF_STAGES/CONV_STAGES).
-  const ACTION_LABELS = {
-    'Creation de ligne': 'Création de ligne',
-    'Prolongation de ligne': 'Prolongation',
-    're-Abondement de ligne': 'Ré-abondement',
-    'à determiner': 'À déterminer'
+  // Ancienne colonne à 5 étapes (livrée le 03/11/2026) → jalon correspondant. « Installé » = ligne
+  // installée et disponible = « OPE disponible UB Invest ».
+  const LEGACY_COLUMN = 'Statut_installation_fonds';
+  const LEGACY_JALON_INDEX = {
+    '1) En attente ouverture': 0,
+    '1) En attente DR': 0,
+    '2) Ouverture demandée à la DF': 1,
+    '3) Installé': 2,
+    '4) Reliquat à traiter': 4,
+    '5) Clôturer': 5
   };
 
-  const ICON_CHEVRON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
-  const ICON_EYE_OFF = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
-  const ICON_EYE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+  const ZONES = [
+    {
+      key: 'creation',
+      title: 'Création',
+      labels: ['Création de ligne', 'En attente DF ou OPE sur UBInvest', 'OPE disponible UB Invest', 'Projet en cours', 'Reliquats à traiter', 'Projet clôturé (reliquat inclus)']
+    },
+    {
+      key: 'prolongation',
+      title: 'Prolongation/réabondement',
+      labels: ['Prolongation/réattribution', 'En attente DF', 'OPE disponible UB Invest', 'Projet en cours', 'Reliquats à traiter', 'Projet clôturé (reliquat inclus)']
+    }
+  ];
+  const LIEUX = [
+    { key: 'diese', label: 'DIESE' },
+    { key: 'autre', label: 'AUTRE' }
+  ];
+  const PROLONGATION_ACTIONS = ['Prolongation de ligne', 're-Abondement de ligne'];
+
+  // Mêmes valeurs Choice que Action_Ligne_OPE_a_faire (project-modal.js, OPE_OPTIONS) — dupliqué ici plutôt
+  // qu'importé, comme le reste des pages. « Création de ligne » n'a pas de pastille : la zone le dit déjà.
+  const ACTION_LABELS = {
+    'Prolongation de ligne': 'Prolongation',
+    're-Abondement de ligne': 'Ré-abondement',
+    'à determiner': 'Action à déterminer'
+  };
+
   const ICON_GRIP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"></circle><circle cx="15" cy="6" r="1.7"></circle><circle cx="9" cy="12" r="1.7"></circle><circle cx="15" cy="12" r="1.7"></circle><circle cx="9" cy="18" r="1.7"></circle><circle cx="15" cy="18" r="1.7"></circle></svg>';
   const ICON_CONVENTION = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3"></path><path d="M20 16H7l3 3"></path></svg>';
+  const ICON_CHECK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
 
   const text = value => value == null ? '' : String(value);
   const escape = CoreUtils.escapeHtml;
@@ -82,6 +106,7 @@
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
   const stripOrdinal = label => text(label).replace(/^\d+\)\s*/, '');
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
   function getProjects() { return (window.CoreState && CoreState.getTable('Projets')) || []; }
   function projectById(id) { return CoreUtils.findById(getProjects(), id); }
@@ -95,63 +120,60 @@
   function structureFor(ligne) {
     return ligne && ligne.installe_chez ? rowById('Structures', ligne.installe_chez) : null;
   }
-  function sideForProject(project) {
-    const ligne = ligneOpeFor(project);
-    if (!ligne) return 'non_classe';
-    const structure = structureFor(ligne);
-    return text(structure && structure.Acronyme).trim() === DIESE_ACRONYM ? 'diese' : 'ailleurs';
+  // DIESE seulement si la ligne OPE est installée chez la structure DIESE ; sinon AUTRE (autre structure
+  // ou pas encore de ligne OPE).
+  function lieuForProject(project) {
+    const structure = structureFor(ligneOpeFor(project));
+    return text(structure && structure.Acronyme).trim() === DIESE_ACRONYM ? 'diese' : 'autre';
   }
-  // Vide ou valeur inconnue (colonne tout juste créée, aucune donnée migrée) =
-  // 1re étape, jamais un projet invisible faute de statut encore renseigné.
-  function stageIndex(project) {
-    const idx = STAGES.indexOf(text(project.Statut_installation_fonds));
-    return idx === -1 ? 0 : idx;
+  function zoneForProject(project) {
+    return PROLONGATION_ACTIONS.includes(text(project.Action_Ligne_OPE_a_faire)) ? 'prolongation' : 'creation';
   }
+  // -1 : aucun jalon renseigné (ni dans la nouvelle colonne, ni dans l'ancienne). La page range alors le projet
+  // au 1er jalon (jalonIndex) ; la page To Do, elle, ne le montre pas (rien n'a encore été décidé pour lui).
+  function rawJalonIndex(project) {
+    const idx = JALONS.indexOf(text(project[JALON_COLUMN.id]));
+    if (idx !== -1) return idx;
+    const legacy = text(project[LEGACY_COLUMN]);
+    return hasOwn(LEGACY_JALON_INDEX, legacy) ? LEGACY_JALON_INDEX[legacy] : -1;
+  }
+  function jalonIndex(project) { return Math.max(0, rawJalonIndex(project)); }
   function actionInfo(project) {
     const value = text(project.Action_Ligne_OPE_a_faire);
-    if (!value) return null;
-    return { label: ACTION_LABELS[value] || value, warn: value === 'à determiner' };
+    if (!value || value === 'Creation de ligne') return null;
+    return { label: ACTION_LABELS[value] || value };
   }
   function opeInfo(project) {
     const ligne = ligneOpeFor(project);
-    if (!ligne) return { id: null, label: 'Aucune ligne OPE', muted: true };
+    if (!ligne) return { id: null, label: 'Aucune ligne OPE', muted: true, complete: false };
     const structure = structureFor(ligne);
     const structureLabel = structure ? text(structure.Acronyme || structure.Nom_Complet) : '';
     const numero = text(ligne.N_OPE).trim();
     // Ligne dont on sait seulement où elle sera ouverte : pas encore de numéro (12/11/2026).
     return { id: ligne.id, label: `${numero ? 'OPE n°' + numero : 'N° OPE à venir'}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false, complete: !!numero && !!structureLabel };
   }
+  // Alerte rouge (Antoine, 12/11/2026) : projet à « OPE disponible UB Invest » sans ligne OPE complète (numéro ET structure).
+  function opeAlert(project, idx) { return idx === OPE_DISPONIBLE_INDEX && !opeInfo(project).complete; }
 
-  // État d'affichage des volets (repliés/masqués) — purement local à la
-  // session tant que les préférences ne sont pas chargées, clé "side:idx".
-  const panelState = {};
-  function panelKey(side, idx) { return `${side}:${idx}`; }
-  let pendingInstallPrefs = null;
-  function ensurePanelState(key, isInitiallyEmpty) {
-    if (!panelState[key]) {
-      const collapsed = pendingInstallPrefs ? pendingInstallPrefs.collapsedKeys.has(key) : !!isInitiallyEmpty;
-      const hidden = pendingInstallPrefs ? pendingInstallPrefs.hiddenKeys.has(key) : false;
-      panelState[key] = { collapsed, hidden };
-    }
-    return panelState[key];
-  }
-  let viewMode = 'all'; // 'all' | 'diese' | 'ailleurs' | 'non_classe'
+  // État d'affichage, purement local à la session tant que les préférences ne sont pas chargées.
+  const selectedLieux = new Set(LIEUX.map(l => l.key)); // bascule DIESE / AUTRE : au moins un reste actif
+  const expandedZones = new Set(); // zones dont la partie cachée (« + ») est dépliée
 
   // Préférences (table partagée Preferences_Widget, cf. page-administratif.js —
   // même ligne, mêmes clés de cache, colonnes propres à cette page).
   const PREFS_TABLE = 'Preferences_Widget';
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
+  // Install_repliees / Install_masquees / Install_vue (anciennes colonnes des volets, jusqu'au 12/11/2026) ne sont plus lues.
   const INSTALL_PREFS_COLUMNS = [
-    { id: 'Install_repliees', type: 'Text' },
-    { id: 'Install_masquees', type: 'Text' },
+    { id: 'Install_lieux', type: 'Text' },
+    { id: 'Install_plus', type: 'Text' },
     { id: 'Install_filtre_programme', type: 'Text' },
     { id: 'Install_filtre_instance', type: 'Text' },
-    { id: 'Install_filtre_recherche', type: 'Text' },
-    { id: 'Install_vue', type: 'Text' }
+    { id: 'Install_filtre_recherche', type: 'Text' }
   ];
   let prefsRowId = null;
-  const encodeList = CoreUtils.encodeList; // volets repliés / masqués, et libellés des filtres (qui peuvent contenir une virgule)
+  const encodeList = CoreUtils.encodeList; // zones dépliées, lieux, et libellés des filtres (qui peuvent contenir une virgule)
   const decodeList = CoreUtils.decodeList;
   function getCachedPrefsRowId() {
     try { const raw = localStorage.getItem(PREFS_ROWID_STORAGE_KEY); return raw ? Number(raw) : null; }
@@ -176,6 +198,7 @@
       search: normalized(document.getElementById('install-filter-search')?.value)
     };
   }
+  // Filtres du bandeau hors bascule DIESE / AUTRE (dont les compteurs tiennent compte des autres filtres).
   function filteredProjects() {
     const filters = currentFilters();
     // Les étiquettes Programme/Instance ne sont résolues que si le filtre correspondant est actif.
@@ -254,88 +277,108 @@
     }
   }
 
-  // Glisser-déposer entre volets d'une MÊME colonne (jamais entre DIESE/Ailleurs/Sans
-  // ligne OPE, qui ne sont jamais choisis à la main) : garde-fou dans moveInstall().
-  async function moveInstall(projectId, targetSide, targetIdx) {
+  // Glisser-déposer ou menu de la carte : seulement entre jalons d'une MÊME zone (la zone vient de
+  // l'action OPE, jamais d'un glisser). Un jalon caché (« + ») atteint par ce biais déplie la zone.
+  async function moveJalon(projectId, zoneKey, targetIdx) {
     const project = projectById(projectId);
-    if (!project || !(targetIdx >= 0 && targetIdx < STAGES.length)) return;
-    if (sideForProject(project) !== targetSide) return;
-    if (stageIndex(project) === targetIdx) return;
-    const nextValue = STAGES[targetIdx];
+    if (!project || !(targetIdx >= 0 && targetIdx < JALONS.length)) return;
+    if (zoneForProject(project) !== zoneKey) return;
+    if (jalonIndex(project) === targetIdx) return;
+    const nextValue = JALONS[targetIdx];
+    const zone = ZONES.find(z => z.key === zoneKey);
     try {
-      await writeFields('Projets', project.id, { Statut_installation_fonds: nextValue });
-      project.Statut_installation_fonds = nextValue;
-      CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(nextValue)}`);
+      await writeFields('Projets', project.id, { [JALON_COLUMN.id]: nextValue });
+      project[JALON_COLUMN.id] = nextValue;
+      CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${zone.labels[targetIdx]}`);
+      if (targetIdx >= FIRST_HIDDEN_INDEX && !expandedZones.has(zoneKey)) {
+        expandedZones.add(zoneKey);
+        saveInstallationUserPreferences();
+      }
       render();
     } catch (err) {
       CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true);
-      render(); // le menu d'étape de la carte revient à l'étape réellement enregistrée
+      render(); // le menu de la carte revient au jalon réellement enregistré
     }
   }
 
-  function stageSelect(project) {
-    const current = stageIndex(project);
+  function jalonSelect(project, zone, current) {
     return `<select class="install-status-select" data-install-status="${escape(project.id)}" title="Changer l'étape" aria-label="Étape de ${escape(project.Acronyme || project.Projet || 'ce projet')}">` +
-      STAGES.map((label, idx) => `<option value="${idx}"${idx === current ? ' selected' : ''}>${escape(stripOrdinal(label))}</option>`).join('') + `</select>`;
+      zone.labels.map((label, idx) => `<option value="${idx}"${idx === current ? ' selected' : ''}>${idx + 1} · ${escape(label)}</option>`).join('') + `</select>`;
   }
 
-  // Haut de carte (Antoine, 12/11/2026) : bulle avec le nom du programme, et une marque propre aux projets en convention de reversement.
+  // Haut de carte (Antoine, 12/11/2026) : bulle avec le nom du programme, et une marque propre aux projets en
+  // convention de reversement ; un clic sur la marque ouvre la modale projet sur l'onglet Convention.
   function cardTop(project) {
     const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
     const convention = project.Convention_de_reversement === true;
     if (!programme && !convention) return '';
     return `<div class="install-card-top">` +
       (programme ? `<span class="install-chip install-chip-programme" title="Programme">${escape(programme)}</span>` : '') +
-      (convention ? `<span class="install-chip install-chip-convention" title="Convention de reversement">${ICON_CONVENTION}Convention</span>` : '') +
+      (convention ? `<button type="button" class="install-chip install-chip-convention" data-open-convention="${escape(project.id)}" title="Ouvrir le projet, onglet Convention">${ICON_CONVENTION}Convention</button>` : '') +
       `</div>`;
   }
 
-  function installCard(project) {
+  function installCard(project, zone, idx) {
     const action = actionInfo(project);
     const ope = opeInfo(project);
+    const alert = opeAlert(project, idx);
+    const lieu = lieuForProject(project);
     const commentHelp = window.HelpTooltip?.markup('Projets', 'Commentaire_ligne_OPE') || '';
-    return `<div class="install-card" data-project-id="${escape(project.id)}">` +
+    const opeClasses = 'install-chip install-chip-ope' + (alert ? ' is-alert' : (ope.muted ? ' is-muted' : ''));
+    return `<div class="install-card is-${lieu}${alert ? ' is-alert' : ''}" data-project-id="${escape(project.id)}" data-lieu="${lieu}">` +
       `<span class="install-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
       cardTop(project) +
-      `<div class="install-card-head">` +
       `<button type="button" class="install-card-identity" data-open-project="${escape(project.id)}"><span class="install-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
-      stageSelect(project) +
-      `</div>` +
       `<div class="install-badges">` +
-      (action ? `<span class="install-chip install-chip-action${action.warn ? ' is-warn' : ''}">${escape(action.label)}</span>` : '') +
       (ope.id != null
-        ? `<button type="button" class="install-chip install-chip-ope" data-open-ope="${escape(ope.id)}" title="Ouvrir la ligne OPE">${escape(ope.label)}</button>`
-        : `<span class="install-chip install-chip-ope${ope.muted ? ' is-muted' : ''}">${escape(ope.label)}</span>`) +
+        ? `<button type="button" class="${opeClasses}" data-open-ope="${escape(ope.id)}" title="Ouvrir la ligne OPE">${escape(ope.label)}</button>`
+        : `<span class="${opeClasses}">${escape(ope.label)}</span>`) +
+      (alert ? `<span class="install-chip install-chip-alert">OPE à compléter</span>` : '') +
+      (action ? `<span class="install-chip install-chip-action">${escape(action.label)}</span>` : '') +
+      `</div>` +
+      `<div class="install-amount-row"><span class="install-amount-value">${escape(CoreUtils.formatCurrency(project.Montant_attribue_Total))}</span><span class="install-amount-label">attribués</span></div>` +
+      `<div class="install-budget-row">` +
+      `<div class="install-budget-item" title="Fonctionnement"><span class="install-budget-label">Fonct.</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_Fonctionnement))}</span></div>` +
+      `<div class="install-budget-item" title="Investissement"><span class="install-budget-label">Invest.</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_investissement))}</span></div>` +
+      `<div class="install-budget-item" title="Personnel"><span class="install-budget-label">Pers.</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_Personnel))}</span></div>` +
       `</div>` +
       `<label class="install-comment"><span class="install-field-label">Commentaire OPE/installation${commentHelp}</span>` +
       `<textarea data-install-comment="${escape(project.id)}" rows="2" placeholder="Commentaire…">${escape(project.Commentaire_ligne_OPE)}</textarea></label>` +
-      `<div class="install-amount-row"><span class="install-amount-label">Montant</span><span class="install-amount-value">${escape(CoreUtils.formatCurrency(project.Montant_attribue_Total))}</span></div>` +
-      `<div class="install-budget-row">` +
-      `<div class="install-budget-item"><span class="install-budget-label">Fonctionnement</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_Fonctionnement))}</span></div>` +
-      `<div class="install-budget-item"><span class="install-budget-label">Investissement</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_investissement))}</span></div>` +
-      `<div class="install-budget-item"><span class="install-budget-label">Personnel</span><span class="install-budget-value">${escape(CoreUtils.formatCurrency(project.Total_Personnel))}</span></div>` +
-      `</div></div>`;
+      jalonSelect(project, zone, idx) +
+      `</div>`;
   }
 
-  function buildColumnPanels(sideKey) {
-    const stageHelp = window.HelpTooltip?.markup('Projets', 'Statut_installation_fonds') || '';
-    const sideProjects = filteredProjects().filter(p => sideForProject(p) === sideKey);
-    return STAGES.map((stageLabel, idx) => {
-      const items = sideProjects.filter(p => stageIndex(p) === idx);
-      const key = panelKey(sideKey, idx);
-      const state = ensurePanelState(key, items.length === 0);
-      const collapsedCls = state.collapsed ? ' is-collapsed' : '';
-      const label = stripOrdinal(stageLabel);
-      return {
-        key, label, state, count: items.length,
-        html: `<section class="install-panel${collapsedCls}" data-drop-panel="${escape(key)}" aria-labelledby="install-panel-${escape(key)}">` +
-          `<header class="install-panel-header"><h4 id="install-panel-${escape(key)}">${escape(label)}${stageHelp}</h4>` +
-          `<span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
-          `<button type="button" class="kanban-icon-btn" data-toggle-install-panel="${escape(key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} le volet ${escape(label)}">${ICON_CHEVRON}</button>` +
-          `<button type="button" class="kanban-icon-btn" data-hide-install-panel="${escape(key)}" aria-label="Masquer le volet ${escape(label)}">${ICON_EYE_OFF}</button>` +
-          `</div></header><div class="install-panel-body">${items.length ? items.map(installCard).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>`
-      };
-    });
+  function milestoneHtml(zone, idx, items, expanded) {
+    const label = zone.labels[idx];
+    const extra = idx >= FIRST_HIDDEN_INDEX;
+    const empty = items.length === 0;
+    const alert = items.some(p => opeAlert(p, idx));
+    const jalonHelp = window.HelpTooltip?.markup('Projets', JALON_COLUMN.id) || '';
+    const classes = ['install-ms', empty ? 'is-done' : 'has-items', alert ? 'has-alert' : '', extra ? 'is-extra' : '', idx >= FIRST_HIDDEN_INDEX - 1 ? 'is-dashed' : ''].filter(Boolean).join(' ');
+    const key = `${zone.key}:${idx}`;
+    return `<div class="${classes}" data-install-ms="${escape(key)}">` +
+      `<div class="install-ms-head">` +
+      `<span class="install-ms-dot"${empty ? ' role="img" aria-label="Rien en attente"' : ''}>${empty ? ICON_CHECK : idx + 1}</span>` +
+      `<div class="install-ms-label-row"><h4 class="install-ms-label">${escape(label)}${jalonHelp}</h4>${empty ? '' : `<span class="install-ms-count">${items.length}</span>`}</div>` +
+      `</div>` +
+      `<div class="install-ms-body" data-drop-ms="${escape(key)}">${empty ? '<p class="install-ms-empty">Aucun projet</p>' : items.map(p => installCard(p, zone, idx)).join('')}</div>` +
+      `</div>`;
+  }
+
+  function zoneHtml(zone, projects) {
+    const expanded = expandedZones.has(zone.key);
+    const shown = expanded ? JALONS.length : FIRST_HIDDEN_INDEX;
+    const hiddenCount = projects.filter(p => jalonIndex(p) >= FIRST_HIDDEN_INDEX).length;
+    const columns = [];
+    for (let idx = 0; idx < shown; idx++) columns.push(milestoneHtml(zone, idx, projects.filter(p => jalonIndex(p) === idx), expanded));
+    const plusLabel = expanded ? 'Masquer projet en cours, reliquats et clôture' : 'Afficher projet en cours, reliquats et clôture';
+    const plus = `<div class="install-plus-col">` +
+      `<button type="button" class="install-plus-btn" data-install-plus="${zone.key}" aria-expanded="${expanded}" aria-label="${plusLabel}" title="${plusLabel}">${expanded ? '−' : '+'}` +
+      `${!expanded && hiddenCount ? `<span class="install-plus-badge">${hiddenCount}</span>` : ''}</button>` +
+      `<span class="install-plus-cap">${expanded ? 'Masquer' : 'En cours, reliquats, clôture'}</span></div>`;
+    return `<section class="install-zone" data-install-zone="${zone.key}" aria-label="${escape(zone.title)}">` +
+      `<div class="install-zone-head"><h3>${escape(zone.title)}</h3><span class="install-zone-count">${projects.length} projet${projects.length > 1 ? 's' : ''}</span></div>` +
+      `<div class="install-rail-scroll"><div class="install-rail ${expanded ? 'cols-6' : 'cols-3'}">${columns.join('')}${plus}</div></div></section>`;
   }
 
   function wireRootEvents(root) {
@@ -344,23 +387,21 @@
       if (project && window.ProjectModal?.open) window.ProjectModal.open(project);
       else if (window.openProject) window.openProject(btn.dataset.openProject);
     }));
+    root.querySelectorAll('[data-open-convention]').forEach(btn => btn.addEventListener('click', () => {
+      const project = projectById(btn.dataset.openConvention);
+      if (project && window.ProjectModal?.open) window.ProjectModal.open(project, { tab: 'conventions' });
+    }));
     root.querySelectorAll('[data-open-ope]').forEach(btn => btn.addEventListener('click', () => {
-      // Après enregistrement, le numéro ou la structure ont pu changer : la carte peut changer de colonne.
+      // Après enregistrement, le numéro ou la structure ont pu changer : la carte peut changer de lieu ou passer au rouge.
       if (window.openEditOpeModal) window.openEditOpeModal(btn.dataset.openOpe, () => render());
     }));
     root.querySelectorAll('[data-install-status]').forEach(select => select.addEventListener('change', () => {
       const project = projectById(select.dataset.installStatus);
-      if (project) moveInstall(project.id, sideForProject(project), Number(select.value));
+      if (project) moveJalon(project.id, zoneForProject(project), Number(select.value));
     }));
-    root.querySelectorAll('[data-toggle-install-panel]').forEach(btn => btn.addEventListener('click', () => {
-      const state = panelState[btn.dataset.toggleInstallPanel];
-      if (state) state.collapsed = !state.collapsed;
-      render();
-      saveInstallationUserPreferences();
-    }));
-    root.querySelectorAll('[data-hide-install-panel]').forEach(btn => btn.addEventListener('click', () => {
-      const state = panelState[btn.dataset.hideInstallPanel];
-      if (state) state.hidden = true;
+    root.querySelectorAll('[data-install-plus]').forEach(btn => btn.addEventListener('click', () => {
+      const zoneKey = btn.dataset.installPlus;
+      if (expandedZones.has(zoneKey)) expandedZones.delete(zoneKey); else expandedZones.add(zoneKey);
       render();
       saveInstallationUserPreferences();
     }));
@@ -376,79 +417,50 @@
     }));
   }
 
-  // Puces de restauration des volets masqués, dans le bandeau de filtres (une seule rangée pour les 3
-  // colonnes). Vue « Toutes » : la colonne précède l'étape (« Ailleurs · Installé »), sinon l'étape seule.
-  const SIDE_SHORT_LABELS = { diese: 'DIESE', ailleurs: 'Ailleurs', non_classe: 'Sans OPE' };
-  function renderHiddenPanels(panelsBySide) {
-    const container = document.getElementById('install-hidden-panels');
-    if (!container) return;
-    const entries = [];
-    SIDE_DEFS.forEach(def => {
-      if (viewMode !== 'all' && viewMode !== def.key) return;
-      (panelsBySide[def.key] || []).filter(p => p.state.hidden).forEach(panel => entries.push({ def, panel }));
+  // Bascule DIESE / AUTRE du bandeau : état (pressé ou non) et compteur de chaque lieu, selon les autres filtres.
+  function updateLieuToggle(base) {
+    LIEUX.forEach(lieu => {
+      const btn = document.querySelector(`[data-install-lieu="${lieu.key}"]`);
+      if (!btn) return;
+      const on = selectedLieux.has(lieu.key);
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', String(on));
+      const count = btn.querySelector('.install-lieu-count');
+      if (count) count.textContent = String(base.filter(p => lieuForProject(p) === lieu.key).length);
     });
-    container.hidden = entries.length === 0;
-    container.innerHTML = entries.length
-      ? `<span class="kanban-hidden-label">Masqués :</span>${entries.map(({ def, panel }) => {
-        const chipLabel = viewMode === 'all' ? `${SIDE_SHORT_LABELS[def.key]} · ${panel.label}` : panel.label;
-        return `<button type="button" class="kanban-restore-chip" data-restore-install-panel="${escape(panel.key)}" aria-label="Afficher le volet ${escape(panel.label)} (${escape(def.title)})">${ICON_EYE}<span>${escape(chipLabel)}</span></button>`;
-      }).join('')}`
-      : '';
-    container.querySelectorAll('[data-restore-install-panel]').forEach(btn => btn.addEventListener('click', () => {
-      const state = panelState[btn.dataset.restoreInstallPanel];
-      if (state) state.hidden = false;
-      render();
-      saveInstallationUserPreferences();
-    }));
-  }
-
-  function updateViewTabsUI() {
-    document.querySelectorAll('[data-install-tab]').forEach(btn => {
-      const isActive = btn.dataset.installTab === viewMode;
-      btn.classList.toggle('is-active', isActive);
-      btn.setAttribute('aria-selected', String(isActive));
-    });
-  }
-  function updateColumnVisibility() {
-    document.querySelectorAll('[data-install-column]').forEach(section => {
-      section.classList.toggle('is-hidden', viewMode !== 'all' && section.dataset.installColumn !== viewMode);
-    });
-    document.getElementById('install-panels-wrap')?.classList.toggle('is-single', viewMode !== 'all');
   }
 
   function render() {
     if (!window.CoreState || !CoreState.getTable('Projets')) return;
-    const panelsBySide = {};
-    SIDE_DEFS.forEach(def => {
-      const root = document.getElementById(`install-col-${def.key}`);
-      if (!root) return;
-      const panels = panelsBySide[def.key] = buildColumnPanels(def.key);
-      const total = panels.reduce((sum, p) => sum + p.count, 0);
-      root.innerHTML = panels.filter(p => !p.state.hidden).map(p => p.html).join('');
-      wireRootEvents(root);
-      const countEl = document.getElementById(`install-count-${def.key}`);
-      if (countEl) countEl.textContent = `${total} projet(s)`;
-    });
-    renderHiddenPanels(panelsBySide);
-    updateViewTabsUI();
-    updateColumnVisibility();
+    const root = document.getElementById('install-zones');
+    if (!root) return;
+    const base = filteredProjects();
+    updateLieuToggle(base);
+    const visible = base.filter(p => selectedLieux.has(lieuForProject(p)));
+    root.innerHTML = ZONES.map(zone => zoneHtml(zone, visible.filter(p => zoneForProject(p) === zone.key))).join('') +
+      (visible.length ? '' : '<p class="kanban-empty install-empty">Aucun projet ne correspond aux filtres.</p>');
+    wireRootEvents(root);
   }
 
-  // Délégation sur la racine persistante (les 3 colonnes sont toujours dans le
-  // DOM, seulement masquées en CSS par le sélecteur de vue) — même patron que
-  // initConvDelegation() dans page-administratif.js, type MIME propre à cette
-  // page pour ne jamais accepter une carte glissée depuis Conventions.
+  // Délégation sur la racine persistante (#install-zones, dont seul le contenu est recréé à chaque rendu) —
+  // même patron que initConvDelegation() dans page-administratif.js, type MIME propre à cette page pour ne
+  // jamais accepter une carte glissée depuis Conventions.
   const DRAG_TYPE = 'application/x-suivi-installation';
   const carriesInstallCard = event => !!(event.dataTransfer && Array.from(event.dataTransfer.types || []).includes(DRAG_TYPE));
   function initInstallDelegation() {
-    const root = document.getElementById('install-panels-wrap');
+    const root = document.getElementById('install-zones');
     if (!root) return;
     const closest = (event, selector) => (event.target && event.target.closest) ? event.target.closest(selector) : null;
     let draggingCard = null;
+    let draggingZone = null; // la zone de la carte glissée (illisible dans dragover : seules les valeurs d'en-tête le sont)
     const clearDragFeedback = () => {
       draggingCard = null;
+      draggingZone = null;
       root.querySelectorAll('.is-drop-target, .is-dragging').forEach(el => el.classList.remove('is-drop-target', 'is-dragging'));
     };
+    const zoneOf = el => el.closest('[data-install-zone]')?.dataset.installZone;
+    // Zone d'arrivée acceptée : celle de la carte glissée (une carte ne change pas de zone par glisser-déposer).
+    const accepts = body => !!body && (draggingZone == null || zoneOf(body) === draggingZone);
     root.addEventListener('dragstart', event => {
       const handle = closest(event, '[data-drag-project]');
       if (!handle || !event.dataTransfer) return;
@@ -459,43 +471,37 @@
       const card = handle.closest('.install-card');
       if (card && dt.setDragImage) { try { dt.setDragImage(card, 14, 14); } catch (err) { /* aperçu par défaut */ } }
       draggingCard = card;
+      draggingZone = card ? zoneOf(card) : null;
       if (card) setTimeout(() => { if (draggingCard === card) card.classList.add('is-dragging'); }, 0);
     });
     root.addEventListener('dragover', event => {
-      const panel = closest(event, '[data-drop-panel]');
-      if (!panel || !carriesInstallCard(event)) return;
+      const body = closest(event, '[data-drop-ms]');
+      if (!body || !carriesInstallCard(event) || !accepts(body)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      if (!panel.classList.contains('is-drop-target')) {
+      if (!body.classList.contains('is-drop-target')) {
         root.querySelectorAll('.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
-        panel.classList.add('is-drop-target');
+        body.classList.add('is-drop-target');
       }
     });
     root.addEventListener('dragleave', event => {
-      const panel = closest(event, '[data-drop-panel]');
-      if (panel && !panel.contains(event.relatedTarget)) panel.classList.remove('is-drop-target');
+      const body = closest(event, '[data-drop-ms]');
+      if (body && !body.contains(event.relatedTarget)) body.classList.remove('is-drop-target');
     });
     root.addEventListener('drop', event => {
-      const panel = closest(event, '[data-drop-panel]');
-      if (!panel || !carriesInstallCard(event)) return;
+      const body = closest(event, '[data-drop-ms]');
+      if (!body || !carriesInstallCard(event)) return;
       event.preventDefault();
       const projectId = event.dataTransfer.getData(DRAG_TYPE);
       clearDragFeedback();
       if (projectId) {
-        const [side, idxStr] = panel.dataset.dropPanel.split(':');
-        moveInstall(projectId, side, Number(idxStr));
+        const [zoneKey, idxStr] = body.dataset.dropMs.split(':');
+        moveJalon(projectId, zoneKey, Number(idxStr));
       }
     });
     root.addEventListener('dragend', clearDragFeedback);
   }
 
-  function applyInstallPrefsToPanelState() {
-    if (!pendingInstallPrefs) return;
-    Object.keys(panelState).forEach(key => {
-      panelState[key].collapsed = pendingInstallPrefs.collapsedKeys.has(key);
-      panelState[key].hidden = pendingInstallPrefs.hiddenKeys.has(key);
-    });
-  }
   function applyStoredInstallFilters(row) {
     const programmeInput = document.getElementById('install-filter-programme');
     if (programmeInput && row.Install_filtre_programme) programmeInput.dataset.selectedValues = row.Install_filtre_programme;
@@ -505,26 +511,26 @@
     if (search && row.Install_filtre_recherche) search.value = row.Install_filtre_recherche;
   }
 
-  // Projets restés sous l'ancien libellé de la 1re étape : valeur réécrite dans Grist (une seule écriture
-  // groupée) et dans les données déjà chargées. Au mieux : sans droit d'écriture, la page les range quand
-  // même à la 1re étape (valeur inconnue = 1re étape).
+  // Projets restés sur l'ancienne colonne à 5 étapes : le jalon correspondant est écrit dans la nouvelle colonne
+  // (une seule écriture groupée) et dans les données déjà chargées. Au mieux : sans droit d'écriture, la page lit
+  // quand même l'ancienne colonne (rawJalonIndex), rien n'est perdu.
   async function migrateLegacyStatus() {
-    const legacyOf = project => LEGACY_STATUS[text(project.Statut_installation_fonds)];
-    const stale = getProjects().filter(legacyOf);
+    const stale = getProjects().filter(p => !text(p[JALON_COLUMN.id]) && hasOwn(LEGACY_JALON_INDEX, text(p[LEGACY_COLUMN])));
     if (!stale.length) return;
+    const nextOf = project => JALONS[LEGACY_JALON_INDEX[text(project[LEGACY_COLUMN])]];
     try {
-      await CoreGrist.gristInstance.docApi.applyUserActions(stale.map(project => ['UpdateRecord', 'Projets', Number(project.id), { Statut_installation_fonds: legacyOf(project) }]));
-      stale.forEach(project => { project.Statut_installation_fonds = legacyOf(project); });
+      await CoreGrist.gristInstance.docApi.applyUserActions(stale.map(project => ['UpdateRecord', 'Projets', Number(project.id), { [JALON_COLUMN.id]: nextOf(project) }]));
+      stale.forEach(project => { project[JALON_COLUMN.id] = nextOf(project); });
     } catch (err) {
-      console.warn("Reprise de l'ancien libellé « En attente ouverture » a échoué :", err.message);
+      console.warn("Reprise des anciens statuts d'installation a échoué :", err.message);
     }
   }
 
   async function loadInstallationUserPreferences() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
-      await CoreGrist.ensureColumns('Projets', [STATUT_COLUMN]);
-      await CoreGrist.ensureChoices('Projets', STATUT_COLUMN.id, STAGES);
+      await CoreGrist.ensureColumns('Projets', [JALON_COLUMN]);
+      await CoreGrist.ensureChoices('Projets', JALON_COLUMN.id, JALONS);
       await migrateLegacyStatus();
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...INSTALL_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, INSTALL_PREFS_COLUMNS);
@@ -541,16 +547,13 @@
         return;
       }
       prefsRowId = row.id;
-      const hasSavedPreferences = !!(text(row.Install_repliees) || text(row.Install_masquees) ||
-        text(row.Install_filtre_programme) || text(row.Install_filtre_instance) ||
-        text(row.Install_filtre_recherche) || text(row.Install_vue));
+      const hasSavedPreferences = !!(text(row.Install_lieux) || text(row.Install_plus) ||
+        text(row.Install_filtre_programme) || text(row.Install_filtre_instance) || text(row.Install_filtre_recherche));
       if (!hasSavedPreferences) return;
-      pendingInstallPrefs = {
-        collapsedKeys: new Set(decodeList(row.Install_repliees)),
-        hiddenKeys: new Set(decodeList(row.Install_masquees))
-      };
-      if (row.Install_vue) viewMode = row.Install_vue;
-      applyInstallPrefsToPanelState();
+      const lieux = decodeList(row.Install_lieux).filter(key => LIEUX.some(l => l.key === key));
+      if (lieux.length) { selectedLieux.clear(); lieux.forEach(key => selectedLieux.add(key)); }
+      expandedZones.clear();
+      decodeList(row.Install_plus).filter(key => ZONES.some(z => z.key === key)).forEach(key => expandedZones.add(key));
       applyStoredInstallFilters(row);
     } catch (err) {
       console.warn("Chargement des préférences Installation a échoué :", err.message);
@@ -560,14 +563,12 @@
   async function saveInstallationUserPreferences() {
     saveInstallationUserPreferencesSoon.cancel();
     if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
-    const collect = type => Object.entries(panelState).filter(([, state]) => state[type]).map(([key]) => key);
     const fields = {
-      Install_repliees: encodeList(collect('collapsed')),
-      Install_masquees: encodeList(collect('hidden')),
+      Install_lieux: encodeList(LIEUX.map(l => l.key).filter(key => selectedLieux.has(key))), // ordre fixe, quel que soit l'ordre des clics
+      Install_plus: encodeList([...expandedZones]),
       Install_filtre_programme: encodeList(multiComboValues('install-filter-programme')),
       Install_filtre_instance: encodeList(multiComboValues('install-filter-instance')),
-      Install_filtre_recherche: document.getElementById('install-filter-search')?.value || '',
-      Install_vue: viewMode
+      Install_filtre_recherche: document.getElementById('install-filter-search')?.value || ''
     };
     try {
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
@@ -593,12 +594,21 @@
       });
       const search = document.getElementById('install-filter-search');
       if (search) search.value = '';
+      LIEUX.forEach(lieu => selectedLieux.add(lieu.key));
       renderFilters();
       render();
       saveInstallationUserPreferences();
     });
-    document.querySelectorAll('[data-install-tab]').forEach(btn => btn.addEventListener('click', () => {
-      viewMode = btn.dataset.installTab;
+    document.querySelectorAll('[data-install-lieu]').forEach(btn => btn.addEventListener('click', () => {
+      const key = btn.dataset.installLieu;
+      // « OU » non exclusif : on peut activer l'un, l'autre ou les deux ; le dernier actif ne se désactive pas
+      // (un « OU » vide n'afficherait rien).
+      if (selectedLieux.has(key)) {
+        if (selectedLieux.size === 1) return;
+        selectedLieux.delete(key);
+      } else {
+        selectedLieux.add(key);
+      }
       render();
       saveInstallationUserPreferences();
     }));
@@ -606,7 +616,7 @@
 
   window.renderInstallation = function () { renderFilters(); render(); };
   window.loadInstallationUserPreferences = loadInstallationUserPreferences;
-  // Exposé pour les tests (classement par colonne, sans dépendre du rendu DOM).
-  window.InstallationLogic = { sideForProject, stageIndex, STAGES };
+  // Exposé pour les tests et pour la page To Do (même colonne de jalons).
+  window.InstallationLogic = { lieuForProject, zoneForProject, jalonIndex, rawJalonIndex, JALONS, ZONES };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());
