@@ -282,8 +282,9 @@ cadre ne s'applique que sur l'étape Compte rendu et tant que la page Instances 
 de GFS n'est jamais recréée.
 
 **Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage. Couleurs (12/11/2026, plus de
-couleur par heure) : seuls les points pour validation (bleu) et pour discussion (violet) sont mis en
-valeur, l'information garde la couleur par défaut, dans les deux vues. Vue *Par type* : tous les points (jamais un filtre), regroupés pour
+couleur par heure) : par priorité, la validation ressort franchement (bleu franc, fond teinté), la discussion
+reste discrète (lavande pâle, 12/11 : le violet plein ressortait trop), l'information garde la
+couleur par défaut, dans les deux vues. Vue *Par type* : tous les points (jamais un filtre), regroupés pour
 validation, puis discussion, puis information ; l'ordre de passage n'est pas modifiable dans cette vue.
 Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit, dans sa propre colonne :
 c'est lui qui prend des lignes, jamais le reste) et **prend tout l'espace libre**. **Un point tient
@@ -356,6 +357,15 @@ les directeur.trice.s d'établissement ; un tri choisi par clic sur un en-tête 
 Sans colonne `grade` (ou sans valeur), rien n'est coloré. Code : `gradeKind`, `sortGuests`
 (`instances-logic.js`), `buildModel` (`instances-data.js`), `gradeClass` (`page-instances.js`), fin de
 `css/instances.css`.
+
+**Heure de début du CTO (12/11/2026).** `Suivi_Instance.Heure` est vide dans la plupart des séances
+(la page affiche alors l'heure habituelle `Instances.Heure_debut`). Pour « CTO Innovation »
+(`INSTANCE_RULES[].heures`, `instances-logic.js`), deux boutons **9h00 / 10h45** dans le bandeau
+(à côté de l'heure ; masqués avec lui quand le bandeau est replié) écrivent l'heure choisie dans
+`Suivi_Instance.Heure`, sur la date de la séance (message si elle n'a pas de date). Le bouton n'est mis en valeur que
+quand l'heure est enregistrée dans la séance ; le sélecteur d'heure existant reste pour une autre
+heure. Les autres instances n'ont pas ces boutons. Tout (points, invités, conflits) repart de la
+nouvelle heure.
 
 ## Lignes_OPE
 

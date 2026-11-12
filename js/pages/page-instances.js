@@ -308,6 +308,11 @@
       h += timeMenu('heure', s.heure, 'heure', '', 6 * 60, 20 * 60, false, '<div class="mform" style="grid-column:1/-1"><input type="date" class="dp" aria-label="Date de la séance" value="' + esc(s.date) + '" data-chg="seance-date"></div>');
     }
     h += '</div>';
+    // heures de début proposées d'un clic (CTO : 9h00 ou 10h45) : écrites dans Suivi_Instance.Heure, comme le sélecteur d'heure
+    // ci-dessus (qui reste pour une autre heure) ; mise en valeur seulement quand l'heure est enregistrée dans la séance
+    if (inst.cfg.heuresChoix.length) {
+      h += '<div class="seg bhide" role="group" aria-label="Heure de début de la séance">' + inst.cfg.heuresChoix.map(hh => '<button type="button" class="' + (s.heureSet && s.heure === hh ? 'on' : '') + '" title="Début de la séance à ' + hh.replace(':', 'h') + '" aria-pressed="' + (s.heureSet && s.heure === hh ? 'true' : 'false') + '" ' + da('time-pick', { s: 'heure', v: hh }) + '>' + hh.replace(/^0/, '').replace(':', 'h') + '</button>').join('') + '</div>';
+    }
     // salle (table Lieux)
     const salle = m.lieuxById[s.salleId];
     h += '<div class="rel bhide"><button type="button" class="tp" title="Salle" aria-label="Salle" ' + da('menu', { v: 'salle' }) + '>' + ic('pin', 's') + esc(salle ? salle.nom : 'Salle ?') + ic('chevron', 'xs') + '</button>';

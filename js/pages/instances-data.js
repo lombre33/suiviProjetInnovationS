@@ -231,7 +231,8 @@
         steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),
         composition: (composition.byInstance[row.id] || []).slice(),
-        modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR)
+        modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR),
+        heuresChoix: rule && rule.heures ? rule.heures.slice() : [] // heures de début proposées d'un clic (CTO : 9h00 ou 10h45)
       };
       return { id: row.id, nom, cfg, seances: [], known: !!rule };
     });

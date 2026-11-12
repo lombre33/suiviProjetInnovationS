@@ -690,6 +690,37 @@
       assertEqual(text('.in-toolbar .in-total'), '3 points · 1 h 05 · fin 10:35');
     });
 
+    it('CTO : deux heures de début au choix (9h00 ou 10h45) dans le bandeau, écrites dans Suivi_Instance.Heure ; rien pour les autres instances', async function () {
+      await setup({ rows: d => { d.Suivi_Instance.find(r => r.id === 2).Heure = null; } }); // colonne heure vide (cas le plus courant)
+      const seg = () => q('.in-seg[aria-label="Heure de début de la séance"]');
+      const labels = () => Array.from(seg().querySelectorAll('button')).map(b => b.textContent);
+      assertDeepEqual(labels(), ['9h00', '10h45'], 'les deux heures du CTO');
+      assertEqual(seg().querySelectorAll('.in-on').length, 0, 'colonne vide : aucune heure mise en valeur (l\'heure affichée est la valeur par défaut)');
+      assertIncludes(text('.in-tp'), '09:30', 'heure par défaut de l\'instance en attendant');
+      click('time-pick', { s: 'heure', v: '10:45' });
+      const w = await waitCall('UpdateRecord', 'Suivi_Instance', 2);
+      assertEqual(w.Heure, L.parisToEpoch('2026-11-23', '10:45'), 'écrit dans la colonne heure de la séance (même date)');
+      await waitFor(() => seg().querySelector('.in-on') && seg().querySelector('.in-on').textContent === '10h45', 'heure choisie mise en valeur');
+      assertEqual(seg().querySelector('.in-on').getAttribute('aria-pressed'), 'true');
+      assertIncludes(text('.in-tp'), '10:45', 'le bandeau suit');
+      step('odj');
+      assertEqual(text('.in-pt[data-pt="1"] .in-ptime'), '10:45–10:55', 'les points repartent de la nouvelle heure');
+      click('time-pick', { s: 'heure', v: '09:00' });
+      await waitFor(() => lastFields('UpdateRecord', 'Suivi_Instance', 2).Heure === L.parisToEpoch('2026-11-23', '09:00'), 'retour à 9h00');
+      await waitFor(() => seg().querySelector('.in-on') && seg().querySelector('.in-on').textContent === '9h00', 'bascule sur 9h00');
+      // sans date de séance : pas d'écriture, un message
+      await setup({ rows: d => { d.Suivi_Instance.filter(x => x.Instance === 1).forEach(r => { r.Heure = null; r.date = null; }); } }); // séances du CTO sans date
+      window.__TEST_CALLS__.length = 0;
+      click('time-pick', { s: 'heure', v: '10:45' });
+      await new Promise(r => setTimeout(r, 80));
+      assertEqual(calls('UpdateRecord', 'Suivi_Instance').length, 0, 'sans date, aucune heure n\'est écrite : ' + JSON.stringify(calls('UpdateRecord', 'Suivi_Instance')));
+      // Comité innovation : pas de choix imposé
+      window.InstancesPage.state.prefs.instanceId = 2;
+      window.InstancesPage.render();
+      assertFalse(!!seg(), 'pas de choix d\'heure pour les autres instances');
+      window.InstancesPage.state.prefs.instanceId = null;
+    });
+
     it('ajouter, renommer, changer la durée (les heures suivantes se recalculent) et supprimer un point', async function () {
       await setup();
       step('odj');
@@ -1116,6 +1147,12 @@
         assertEqual(tone(1), tone(3), 'deux points pour validation : même couleur, à des heures différentes');
         assertTrue(tone(1) !== tone(2), 'validation et discussion se distinguent');
         assertEqual(tone(5), '', 'l\'information n\'a pas de couleur de mise en valeur');
+        // ordre de priorité visuelle : validation > discussion > information (plus la couleur s'écarte du blanc, plus elle ressort)
+        const rgb = c => (String(c).match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const dist = c => 765 - rgb(c).reduce((a, b) => a + b, 0);
+        const bar = id => dist(getComputedStyle(point(id)).borderLeftColor), bg = id => dist(getComputedStyle(point(id)).backgroundColor);
+        assertTrue(bar(1) > bar(2) && bar(2) > bar(5), 'barre de gauche : validation (' + bar(1) + ') > discussion (' + bar(2) + ') > information (' + bar(5) + ')');
+        assertTrue(bg(1) > bg(2) && bg(2) > bg(5), 'fond : validation (' + bg(1) + ') > discussion (' + bg(2) + ') > information (' + bg(5) + ')');
       });
     });
 
@@ -2036,7 +2073,7 @@
         window.InstancesPage._setGfsTarget(gfsTarget);
         step('cr');
         const shown = sel => qa(sel).every(el => getComputedStyle(el).display !== 'none');
-        assertEqual(qa('.in-band .in-bhide').length, 2, 'heure et salle sont les deux éléments repliables');
+        assertEqual(qa('.in-band .in-bhide').length, 3, 'heure, heures au choix du CTO et salle sont les éléments repliables');
         assertTrue(shown('.in-band .in-bhide'), 'bandeau déplié par défaut');
         assertEqual(q('[data-act="fold"][data-v="bandeau"]').getAttribute('aria-expanded'), 'true');
         click('fold', { v: 'bandeau' });

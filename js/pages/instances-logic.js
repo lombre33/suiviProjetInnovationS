@@ -29,7 +29,8 @@
   // l'instance reste prioritaire dès qu'il a été enregistré.
   const normName = value => String(value == null ? '' : value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const INSTANCE_RULES = [
-    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice() },
+    // heures : les deux heures de début proposées d'un clic pour les séances du CTO (Antoine 12/11/2026), écrites dans Suivi_Instance.Heure
+    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice(), heures: ['09:00', '10:45'] },
     { match: 'comite innovation', steps: ['odj', 'invites', 'invitation', 'cr'] }
   ];
   function instanceRule(name) {

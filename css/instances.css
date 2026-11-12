@@ -175,10 +175,11 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-pt .in-ini{display:none}
 @container pts (min-width:1561px){.in-pt>.in-pgroups{min-width:440px}}
 @container pts (max-width:1560px){.in-pt .in-nm{display:none}.in-pt .in-ini{display:inline}}
-/* Couleurs (Antoine 12/11 : pas de couleur par heure) : seuls les points pour validation et pour discussion sont mis en valeur ;
-   l'information garde la couleur par défaut. Même couleur dans les deux vues (Timing et Par type). */
-.in-pt.in-t-validation{--tone:var(--accent);--tone-s:#eef4ff}
-.in-pt.in-t-discussion{--tone:var(--viol);--tone-s:#f5f0ff}
+/* Couleurs (Antoine 12/11 : pas de couleur par heure) : par ordre de priorité, la validation ressort franchement (bleu franc, fond
+   teinté), la discussion reste discrète (lavande pâle : le violet plein ressortait trop), l'information garde la couleur par défaut.
+   Même couleur dans les deux vues (Timing et Par type). */
+.in-pt.in-t-validation{--tone:var(--accent);--tone-s:#e8f0ff}
+.in-pt.in-t-discussion{--tone:#c4b5ea;--tone-s:#faf8ff}
 .in-pt.in-flag{--tone:var(--warn-sb);--tone-s:var(--warn-s)}
 .in-grph{display:flex;align-items:center;gap:8px;margin:10px 2px 2px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 .in-grph:first-child{margin-top:0}
@@ -446,3 +447,6 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-grow.in-gdir:not(.in-flag){background:#f0faf9}
 .in-grow.in-gvp .in-pn{color:#8c1078}
 .in-grow.in-gdir .in-pn{color:#0a6b67}
+
+/* Heures de début proposées d'un clic dans le bandeau (CTO : 9h00 / 10h45) */
+.in-band .in-seg{align-self:center}
