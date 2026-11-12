@@ -1,7 +1,9 @@
 /* Création d'une ligne OPE (table Lignes_OPE) à la volée, depuis le champ
    "Ligne OPE" de l'onglet Dates & OPE de la modale Projet — même patron que le
    "+ Créer" du champ Porteur (person-modal.js) : refField() (project-modal.js)
-   propose ce bouton quand la recherche ne correspond à aucune ligne existante. */
+   propose ce bouton quand la recherche ne correspond à aucune ligne existante.
+   Même modale pour modifier une ligne existante (openEditOpeModal) : la page
+   Installation des fonds l'ouvre d'un clic sur le nom de l'OPE d'une carte. */
 (function (global) {
   'use strict';
 
@@ -24,17 +26,22 @@
     return api().docApi.applyUserActions([['AddRecord', 'Lignes_OPE', null, fields]]);
   }
 
-  function openCreateOpeModal(initialName = '', originInput) {
+  function updateRecord(id, fields) {
+    return api().docApi.applyUserActions([['UpdateRecord', 'Lignes_OPE', Number(id), fields]]);
+  }
+
+  // `existing` : ligne à modifier (mode modification) ; sinon création, avec le texte tapé pour numéro.
+  function openOpeModal({ initialName = '', originInput, existing = null, onSaved } = {}) {
     const old = document.getElementById('cp-ope-modal');
     if (old) old.remove();
     const modal = document.createElement('div');
     modal.id = 'cp-ope-modal';
     modal.className = 'cp-modal cp-person-modal cp-poste-modal';
     modal.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
-      `<div class="cp-head"><h2>Créer une ligne OPE</h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
+      `<div class="cp-head"><h2>${existing ? 'Modifier la ligne OPE' : 'Créer une ligne OPE'}</h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
       `<div class="cp-body"><div class="cp-grid" id="cpo-form"></div></div>` +
       `<p class="cp-error" role="alert"></p>` +
-      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>Créer la ligne</button></div>` +
+      `<div class="cp-actions"><button type="button" data-cp-cancel>Annuler</button><button type="button" data-cp-save>${existing ? 'Enregistrer' : 'Créer la ligne'}</button></div>` +
       `</div>`;
     document.body.appendChild(modal);
     const form = modal.querySelector('#cpo-form');
@@ -45,7 +52,7 @@
     withHelp(opeWrap.querySelector('label'), 'N_OPE');
     form.appendChild(opeWrap);
     const opeInput = opeWrap.querySelector('input');
-    opeInput.value = text(initialName).trim();
+    opeInput.value = existing ? text(existing.N_OPE) : text(initialName).trim();
 
     // "installé chez" : sélection parmi les Structures existantes seulement (jamais de
     // texte libre sur un champ référence, cf. memory grist-referenceList-vs-reference-fixe),
@@ -57,6 +64,10 @@
     withHelp(structureWrap.querySelector('label'), 'installe_chez');
     form.appendChild(structureWrap);
     const structureSelect = structureWrap.querySelector('select');
+    if (existing) {
+      const chez = existing.installe_chez && typeof existing.installe_chez === 'object' ? existing.installe_chez.id : existing.installe_chez;
+      structureSelect.value = chez ? String(chez) : '';
+    }
 
     const close = () => modal.remove();
     modal.querySelector('[data-cp-close]').onclick = close;
@@ -74,6 +85,16 @@
       try {
         const installeChez = Number(structureSelect.value) || null;
         const fields = { N_OPE: nOpe, installe_chez: installeChez };
+        if (existing) {
+          await updateRecord(existing.id, fields);
+          const saved = { ...existing, N_OPE: nOpe, installe_chez: installeChez };
+          if (global.CoreState?.setTable) {
+            global.CoreState.setTable('Lignes_OPE', rows('Lignes_OPE').map(row => String(row.id) === String(existing.id) ? saved : row));
+          }
+          close();
+          if (typeof onSaved === 'function') onSaved(saved);
+          return;
+        }
         const result = await addRecord(fields);
         const current = rows('Lignes_OPE');
         let id = extractAddedRecordId(result);
@@ -95,7 +116,7 @@
         close();
       } catch (e) {
         button.disabled = false;
-        error.textContent = `Création impossible : ${e?.message || 'erreur inconnue'}`;
+        error.textContent = `${existing ? 'Enregistrement' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
       }
     };
 
@@ -103,5 +124,20 @@
     return modal;
   }
 
+  function openCreateOpeModal(initialName = '', originInput) {
+    return openOpeModal({ initialName, originInput });
+  }
+
+  // Ouvre la ligne OPE `ligneId` en modification ; `onSaved(ligne)` est appelé une fois enregistrée.
+  function openEditOpeModal(ligneId, onSaved) {
+    const existing = global.CoreUtils.findById(rows('Lignes_OPE'), ligneId);
+    if (!existing) {
+      global.CoreUtils.showToast('Ligne OPE introuvable', true);
+      return null;
+    }
+    return openOpeModal({ existing, onSaved });
+  }
+
   global.openCreateOpeModal = openCreateOpeModal;
+  global.openEditOpeModal = openEditOpeModal;
 }(window));

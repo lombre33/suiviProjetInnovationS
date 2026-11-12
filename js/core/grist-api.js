@@ -69,6 +69,9 @@
   let columnDescriptions = null;
   // Types de colonnes ({tableId: {colId: 'Ref:Instances'…}}), lus avec les descriptions (mêmes métadonnées, aucun appel de plus).
   let columnTypeMap = null;
+  // Options d'affichage brutes (widgetOptions, JSON) des colonnes Choice / ChoiceList, lues avec les descriptions :
+  // ensureChoices() sait ainsi sans aller-retour si la liste de choix d'une colonne est à jour.
+  let choiceOptionsMap = null;
   // Schéma connu du document : {tableId: Set(colId)}, rempli par loadColumnDescriptions()
   // (mêmes métadonnées, une seule lecture) puis tenu à jour par ensureTable/ensureColumns.
   // Connaissance POSITIVE seulement : une table/colonne présente ici existe, l'absence ne
@@ -173,6 +176,7 @@
         tables.id.forEach((ref, i) => tableIdByRef.set(ref, tables.tableId[i]));
         const byTable = {};
         const typeMap = {};
+        const choiceMap = {};
         const schema = new Map();
         tableIdByRef.forEach(tableId => schema.set(tableId, new Set(['id'])));
         cols.id.forEach((ref, i) => {
@@ -180,6 +184,7 @@
           if (tableId) {
             schema.get(tableId).add(cols.colId[i]);
             if (cols.type && cols.type[i]) (typeMap[tableId] = typeMap[tableId] || {})[cols.colId[i]] = String(cols.type[i]);
+            if (cols.widgetOptions && /^Choice/.test(String(cols.type && cols.type[i]))) (choiceMap[tableId] = choiceMap[tableId] || {})[cols.colId[i]] = String(cols.widgetOptions[i] || '');
           }
           const description = cols.description ? cols.description[i] : '';
           if (!tableId || !description) return;
@@ -188,13 +193,44 @@
         });
         columnDescriptions = byTable;
         columnTypeMap = typeMap;
+        choiceOptionsMap = choiceMap;
         knownSchema.clear();
         schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
         console.warn('Chargement des descriptions de colonnes a échoué :', err.message);
         columnDescriptions = {};
         columnTypeMap = null;
+        choiceOptionsMap = null;
         knownSchema.clear();
+      }
+    },
+    // Met la liste de choix d'une colonne Choice existante à jour (libellé d'étape renommé) : remplace `choices`
+    // dans ses options d'affichage et garde le reste (couleurs…). Aucun appel quand la liste est déjà la bonne ou
+    // que la colonne n'est pas connue du schéma lu au démarrage (illisible, ou créée depuis avec les bons choix).
+    // Au mieux, comme la description des colonnes : un échec (droits) laisse la liste telle quelle.
+    async ensureChoices(tableId, colId, choices) {
+      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      const raw = choiceOptionsMap && choiceOptionsMap[tableId] ? choiceOptionsMap[tableId][colId] : undefined;
+      if (raw === undefined) return false;
+      let options = {};
+      try { options = raw ? JSON.parse(raw) : {}; } catch (err) { options = {}; }
+      const current = Array.isArray(options.choices) ? options.choices : [];
+      if (current.length === choices.length && current.every((choice, i) => choice === choices[i])) return false;
+      try {
+        const [tables, cols] = await Promise.all([
+          gristInstance.docApi.fetchTable('_grist_Tables'),
+          gristInstance.docApi.fetchTable('_grist_Tables_column')
+        ]);
+        const tableRef = tables.id[tables.tableId.indexOf(tableId)];
+        const at = cols.id.findIndex((ref, i) => cols.parentId[i] === tableRef && cols.colId[i] === colId);
+        if (at === -1) return false;
+        const next = JSON.stringify({ ...options, choices: choices.slice() });
+        await gristInstance.docApi.applyUserActions([['UpdateRecord', '_grist_Tables_column', cols.id[at], { widgetOptions: next }]]);
+        choiceOptionsMap[tableId][colId] = next;
+        return true;
+      } catch (err) {
+        console.warn(`Liste de choix de ${tableId}.${colId} non mise à jour :`, err.message);
+        return false;
       }
     },
     // '' quand le schéma n'a pas (encore) été chargé, que la table/colonne est

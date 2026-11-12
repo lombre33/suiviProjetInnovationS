@@ -30,10 +30,10 @@
   describe('Installation des fonds — un volet vide démarre replié', function () {
     it('un volet sans aucun projet est replié dès le premier rendu ; un volet non vide reste déplié', async function () {
       await loadFixtureState();
-      const emptyPanel = panelIn('install-col-diese', 'En attente ouverture'); // aucun projet DIESE n'est à cette étape
-      assertTrue(!!emptyPanel, 'le volet "En attente ouverture" doit exister côté DIESE');
+      const emptyPanel = panelIn('install-col-diese', 'En attente DR'); // aucun projet DIESE n'est à cette étape
+      assertTrue(!!emptyPanel, 'le volet "En attente DR" doit exister côté DIESE');
       assertTrue(emptyPanel.classList.contains('is-collapsed'), 'un volet vide doit démarrer replié');
-      const filledPanel = panelIn('install-col-non_classe', 'En attente ouverture');
+      const filledPanel = panelIn('install-col-non_classe', 'En attente DR');
       assertFalse(filledPanel.classList.contains('is-collapsed'), 'un volet avec des projets ne doit pas démarrer replié');
     });
   });
@@ -50,8 +50,8 @@
     it('un projet sans ligne OPE apparaît dans la 3e colonne (jamais exclu), à la 1re étape par défaut', async function () {
       await loadFixtureState();
       ['CONVENTIX', 'FINANCX', 'COURSIX', 'INCONNUX', 'SIGNEX'].forEach(acr => {
-        assertTrue(!!cardByAcronym(panelIn('install-col-non_classe', 'En attente ouverture'), acr),
-          `${acr} (sans ligne OPE, Statut_installation_fonds vide) doit être dans "Sans ligne OPE" / "En attente ouverture"`);
+        assertTrue(!!cardByAcronym(panelIn('install-col-non_classe', 'En attente DR'), acr),
+          `${acr} (sans ligne OPE, Statut_installation_fonds vide) doit être dans "Sans ligne OPE" / "En attente DR"`);
       });
     });
 
@@ -64,7 +64,7 @@
       assertEqual(window.InstallationLogic.sideForProject(notify), 'diese');
       assertEqual(window.InstallationLogic.stageIndex(innovx), 1);
       assertDeepEqual(window.InstallationLogic.STAGES, [
-        '1) En attente ouverture', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer'
+        '1) En attente DR', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer'
       ]);
     });
   });
@@ -90,7 +90,7 @@
 
     it('sans ligne OPE, pastille sobre "Aucune ligne OPE" (jamais aucune pastille)', async function () {
       await loadFixtureState();
-      const card = cardByAcronym(panelIn('install-col-non_classe', 'En attente ouverture'), 'CONVENTIX');
+      const card = cardByAcronym(panelIn('install-col-non_classe', 'En attente DR'), 'CONVENTIX');
       assertFalse(!!card.querySelector('.install-chip-action'), 'Action_Ligne_OPE_a_faire vide => pas de pastille action');
       const opeChip = card.querySelector('.install-chip-ope');
       assertEqual(opeChip.textContent, 'Aucune ligne OPE');
@@ -236,11 +236,201 @@
 
       panelIn('install-col-ailleurs', 'Ouverture demandée à la DF').querySelector('[data-hide-install-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       assertFalse(!!panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'le volet masqué ne doit plus être dans le DOM');
-      const chip = document.getElementById('install-hidden-ailleurs').querySelector('[data-restore-install-panel]');
+      const chip = document.querySelector('#install-hidden-panels [data-restore-install-panel="ailleurs:1"]');
       assertTrue(!!chip && chip.textContent.includes('Ouverture demandée à la DF'), 'une puce "Ouverture demandée à la DF" doit apparaître');
       assertTrue(!!chip.querySelector('svg'), 'la puce de restauration doit afficher une icône (œil ouvert), pas un "+" textuel');
       chip.dispatchEvent(new MouseEvent('click', { bubbles: true })); // restore, reset pour les autres tests
       assertTrue(!!panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'le volet doit réapparaître après restauration');
+    });
+  });
+
+  describe('Installation des fonds — volets masqués : puces de restauration dans le bandeau de filtres (12/11/2026)', function () {
+    const chipLabels = () => Array.from(document.querySelectorAll('#install-hidden-panels [data-restore-install-panel]')).map(btn => btn.textContent);
+    const hide = (colId, label) => panelIn(colId, label).querySelector('[data-hide-install-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    it('une seule rangée de puces, dans le bandeau de filtres, pour les 3 colonnes ; plus aucune rangée par colonne', async function () {
+      await loadFixtureState();
+      const container = document.getElementById('install-hidden-panels');
+      assertTrue(!!container.closest('.install-filters'), 'les puces doivent se loger dans le bandeau de filtres existant, pas dans une nouvelle ligne');
+      assertTrue(container.hidden, 'sans volet masqué, la rangée est cachée');
+      ['diese', 'ailleurs', 'non_classe'].forEach(side =>
+        assertEqual(document.getElementById(`install-hidden-${side}`), null, `plus de rangée de puces dans la colonne ${side}`));
+    });
+
+    it('vue « Toutes » : la puce précise la colonne (« Ailleurs · Installé ») ; une colonne seule : l\'étape seule', async function () {
+      await loadFixtureState();
+      hide('install-col-diese', 'Installé');
+      hide('install-col-ailleurs', 'Ouverture demandée à la DF');
+      assertFalse(document.getElementById('install-hidden-panels').hidden, 'la rangée apparaît dès qu\'un volet est masqué');
+      assertDeepEqual(chipLabels(), ['DIESE · Installé', 'Ailleurs · Ouverture demandée à la DF'], 'colonnes dans l\'ordre de la page, avec leur nom');
+
+      fireMouse(document.querySelector('[data-install-tab="ailleurs"]'), 'click');
+      assertDeepEqual(chipLabels(), ['Ouverture demandée à la DF'], 'une seule colonne en vue : seules ses puces, sans préfixe');
+
+      // Nettoyage : tout réafficher pour ne pas polluer les tests suivants.
+      fireMouse(document.querySelector('[data-install-tab="all"]'), 'click');
+      document.querySelector('#install-hidden-panels [data-restore-install-panel="ailleurs:1"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assertTrue(!!panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'la puce restaure le volet');
+      document.querySelector('#install-hidden-panels [data-restore-install-panel="diese:2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assertTrue(document.getElementById('install-hidden-panels').hidden, 'plus aucun volet masqué : la rangée se cache de nouveau');
+    });
+  });
+
+  describe('Installation des fonds — menu d\'étape sur la carte (12/11/2026, en plus du glisser-déposer)', function () {
+    const statusSelect = (colId, label, acronym) => cardByAcronym(panelIn(colId, label), acronym).querySelector('[data-install-status]');
+
+    it('chaque carte a un menu des 5 étapes, sur l\'étape actuelle (statut vide = 1re étape)', async function () {
+      await loadFixtureState();
+      const innovx = statusSelect('install-col-ailleurs', 'Ouverture demandée à la DF', 'INNOVX');
+      assertDeepEqual(Array.from(innovx.options).map(option => option.textContent),
+        ['En attente DR', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer']);
+      assertEqual(innovx.value, '1');
+      assertEqual(statusSelect('install-col-non_classe', 'En attente DR', 'CONVENTIX').value, '0');
+    });
+
+    it('choisir une autre étape écrit le libellé Grist exact et déplace la carte aussitôt', async function () {
+      await loadFixtureState();
+      const select = statusSelect('install-col-ailleurs', 'Ouverture demandée à la DF', 'INNOVX');
+      select.value = '3';
+      fire(select, 'change');
+      await wait(0);
+      const writes = installWrites();
+      assertEqual(writes.length, 1, 'une seule écriture');
+      assertEqual(writes[0].fields.Statut_installation_fonds, '4) Reliquat à traiter', 'valeur Grist exacte, avec le préfixe "4) "');
+      assertTrue(!!cardByAcronym(panelIn('install-col-ailleurs', 'Reliquat à traiter'), 'INNOVX'), 'INNOVX doit être dans le nouveau volet');
+      assertFalse(!!cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX ne doit plus être dans l\'ancien volet');
+      assertEqual(statusSelect('install-col-ailleurs', 'Reliquat à traiter', 'INNOVX').value, '3', 'le menu de la carte déplacée montre la nouvelle étape');
+    });
+
+    it('un projet sans ligne OPE change d\'étape par le menu, dans sa propre colonne', async function () {
+      await loadFixtureState();
+      const select = statusSelect('install-col-non_classe', 'En attente DR', 'CONVENTIX');
+      select.value = '2';
+      fire(select, 'change');
+      await wait(0);
+      assertEqual(installWrites()[0].fields.Statut_installation_fonds, '3) Installé');
+      assertEqual(installWrites()[0].id, 12, 'CONVENTIX (id 12)');
+      assertTrue(!!cardByAcronym(panelIn('install-col-non_classe', 'Installé'), 'CONVENTIX'));
+    });
+
+    it('rechoisir l\'étape en cours n\'écrit rien', async function () {
+      await loadFixtureState();
+      const select = statusSelect('install-col-ailleurs', 'Ouverture demandée à la DF', 'INNOVX');
+      select.value = '1';
+      fire(select, 'change');
+      await wait(0);
+      assertEqual(installWrites().length, 0);
+    });
+
+    it('un échec d\'écriture ramène la carte et son menu à l\'étape enregistrée, et le dit', async function () {
+      await loadFixtureState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        const select = statusSelect('install-col-ailleurs', 'Ouverture demandée à la DF', 'INNOVX');
+        select.value = '3';
+        fire(select, 'change');
+        await wait(0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+      assertTrue(!!cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX doit rester à son étape');
+      assertEqual(statusSelect('install-col-ailleurs', 'Ouverture demandée à la DF', 'INNOVX').value, '1', 'le menu ne doit pas afficher une étape non enregistrée');
+      assertIncludes(document.getElementById('toast').textContent, 'boom');
+    });
+  });
+
+  describe('Installation des fonds — clic sur le nom de l\'OPE : modale de la ligne OPE (12/11/2026)', function () {
+    const opeModal = () => document.getElementById('cp-ope-modal');
+    const innovxCard = () => cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX');
+
+    it('la pastille OPE est un bouton qui ouvre la modale de cette ligne, pré-remplie', async function () {
+      await loadFixtureState();
+      const chip = innovxCard().querySelector('[data-open-ope]');
+      assertEqual(chip.tagName, 'BUTTON');
+      assertEqual(chip.dataset.openOpe, '1', 'Lignes_OPE#1');
+      fireMouse(chip, 'click');
+      assertTrue(!!opeModal(), 'la modale OPE doit s\'ouvrir');
+      assertEqual(opeModal().querySelector('h2').textContent, 'Modifier la ligne OPE');
+      assertEqual(opeModal().querySelector('#cpo-nope').value, 'OPE-2026-001');
+      assertEqual(opeModal().querySelector('#cpo-structure').value, '1', 'installée chez LAB1');
+    });
+
+    it('enregistrer met la carte à jour, et la change de colonne si la ligne est désormais installée chez DIESE', async function () {
+      await loadFixtureState();
+      fireMouse(innovxCard().querySelector('[data-open-ope]'), 'click');
+      setValue(opeModal().querySelector('#cpo-nope'), 'OPE-2026-001-bis');
+      opeModal().querySelector('#cpo-structure').value = '3';
+      await opeModal().querySelector('[data-cp-save]').onclick();
+
+      const call = window.__TEST_CALLS__.find(c => c.type === 'UpdateRecord' && c.table === 'Lignes_OPE');
+      assertTrue(!!call, 'doit écrire sur Lignes_OPE');
+      assertEqual(call.id, 1);
+      assertDeepEqual(call.fields, { N_OPE: 'OPE-2026-001-bis', installe_chez: 3 });
+      assertFalse(!!opeModal(), 'la modale se ferme');
+      assertFalse(!!cardByAcronym(panelIn('install-col-ailleurs', 'Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX quitte la colonne Ailleurs');
+      const moved = cardByAcronym(panelIn('install-col-diese', 'Ouverture demandée à la DF'), 'INNOVX');
+      assertTrue(!!moved, 'INNOVX passe dans la colonne DIESE, à la même étape');
+      assertEqual(moved.querySelector('.install-chip-ope').textContent, 'OPE n°OPE-2026-001-bis — chez DIESE');
+    });
+
+    it('annuler ne change rien', async function () {
+      await loadFixtureState();
+      fireMouse(innovxCard().querySelector('[data-open-ope]'), 'click');
+      setValue(opeModal().querySelector('#cpo-nope'), 'AUTRE');
+      opeModal().querySelector('[data-cp-cancel]').onclick();
+      assertFalse(!!opeModal());
+      assertEqual(window.__TEST_CALLS__.length, 0, 'aucun appel Grist');
+      assertEqual(innovxCard().querySelector('.install-chip-ope').textContent, 'OPE n°OPE-2026-001 — chez LAB1');
+    });
+
+    it('un projet sans ligne OPE n\'a pas de pastille à ouvrir', async function () {
+      await loadFixtureState();
+      const card = cardByAcronym(panelIn('install-col-non_classe', 'En attente DR'), 'CONVENTIX');
+      assertFalse(!!card.querySelector('[data-open-ope]'), 'rien à ouvrir sans ligne OPE');
+      assertEqual(card.querySelector('.install-chip-ope').tagName, 'SPAN');
+    });
+  });
+
+  describe('Installation des fonds — 1re étape renommée « En attente DR » (12/11/2026)', function () {
+    const OLD_CHOICES = ['1) En attente ouverture', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer'];
+
+    it('un projet resté sous l\'ancien libellé reste à la 1re étape, puis est réécrit dans Grist (une seule fois)', async function () {
+      await loadFixtureState();
+      const innovx = window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
+      innovx.Statut_installation_fonds = '1) En attente ouverture';
+      window.renderInstallation();
+      assertTrue(!!cardByAcronym(panelIn('install-col-ailleurs', 'En attente DR'), 'INNOVX'), 'même sans réécriture, INNOVX est rangé à la 1re étape');
+
+      await window.loadInstallationUserPreferences();
+
+      assertEqual(installWrites().length, 1, 'une seule écriture, pour ce seul projet');
+      assertEqual(installWrites()[0].id, 10);
+      assertEqual(installWrites()[0].fields.Statut_installation_fonds, '1) En attente DR');
+      assertEqual(innovx.Statut_installation_fonds, '1) En attente DR', 'données chargées à jour');
+
+      await window.loadInstallationUserPreferences();
+      assertEqual(installWrites().length, 1, 'plus rien à reprendre au chargement suivant');
+    });
+
+    it('la liste de choix de la colonne dans Grist est mise à jour (couleurs conservées), une seule fois', async function () {
+      window.__mockSetTable('_grist_Tables', { id: [1], tableId: ['Projets'] });
+      window.__mockSetTable('_grist_Tables_column', {
+        id: [5], parentId: [1], colId: ['Statut_installation_fonds'], type: ['Choice'], description: [''],
+        widgetOptions: [JSON.stringify({ choices: OLD_CHOICES, choiceOptions: { '3) Installé': { fillColor: '#00FF00' } } })]
+      });
+      await window.CoreGrist.loadColumnDescriptions();
+      await loadFixtureState();
+
+      await window.loadInstallationUserPreferences();
+
+      const metaWrites = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === '_grist_Tables_column');
+      assertEqual(metaWrites().length, 1, 'une écriture sur la métadonnée de la colonne');
+      assertEqual(metaWrites()[0].id, 5);
+      const options = JSON.parse(metaWrites()[0].fields.widgetOptions);
+      assertDeepEqual(options.choices, ['1) En attente DR', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer']);
+      assertEqual(options.choiceOptions['3) Installé'].fillColor, '#00FF00', 'les couleurs déjà choisies sont conservées');
+
+      await window.loadInstallationUserPreferences();
+      assertEqual(metaWrites().length, 1, 'liste déjà à jour : pas de nouvelle écriture');
     });
   });
 
@@ -301,8 +491,8 @@
 
       // Nettoyage : restaurer l'état par défaut pour ne pas polluer les tests suivants.
       panelIn('install-col-ailleurs', 'Ouverture demandée à la DF').querySelector('[data-toggle-install-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      document.getElementById('install-hidden-diese').querySelector('[data-restore-install-panel]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      fireMouse(document.querySelector('[data-install-tab="all"]'), 'click');
+      fireMouse(document.querySelector('[data-install-tab="all"]'), 'click'); // en vue « Ailleurs », la puce DIESE n'est pas affichée
+      document.querySelector('#install-hidden-panels [data-restore-install-panel="diese:2"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await wait(0);
     });
 

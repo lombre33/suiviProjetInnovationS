@@ -33,7 +33,7 @@ function buildSyntheticFixtures(sizes = {}) {
   const NOTIF_STAGES = ['1) Information projet saisies', '2) Notification_relecture', '3) Prette pour CTO', '4) complète',
     '5) envoyée pour signature VP', '6) Signée', '7) Transmise au porteur', '8) Archivee'];
   const CONV_STAGES = ['1) Convention en redaction', '2) Convention en relecture', '3) Convention en signature', '4) Convention signée de toutes les parties'];
-  const INSTALL_STAGES = ['1) En attente ouverture', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer', ''];
+  const INSTALL_STAGES = ['1) En attente DR', '2) Ouverture demandée à la DF', '3) Installé', '4) Reliquat à traiter', '5) Clôturer', ''];
   const MACRO = ['1) Information projet saisies', '2) Notification_relecture', '3) Prette pour CTO', '4) complète', '5) envoyée pour signature VP',
     '6) Signée', 'Finance_En Attente Gestionnaire', 'En cours', 'En cours', 'En cours', 'En retard', 'En attente statut Notifications'];
 

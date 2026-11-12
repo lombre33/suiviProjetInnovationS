@@ -35,6 +35,12 @@
 .install-drag-handle { position:absolute; top:10px; left:6px; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; color:var(--text-faint); cursor:grab; }
 .install-card:hover .install-drag-handle { color:var(--text-muted); }
 
+.install-card-head { display:flex; align-items:center; gap:8px; }
+.install-card-head .install-card-identity { flex:1; min-width:0; }
+.install-status-select { flex:none; max-width:215px; height:28px; padding:0 24px 0 9px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background-color:var(--surface); color:var(--text); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.install-status-select:hover { border-color:var(--accent); }
+.install-status-select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+
 .install-card-identity { appearance:none; border:0; background:transparent; padding:0; cursor:pointer; text-align:left; color:inherit; }
 .install-acronym { display:block; font-size:14px; font-weight:800; color:var(--text); }
 
@@ -44,6 +50,9 @@
 .install-chip-action.is-warn { background:var(--warning-soft); color:var(--warning); border-color:var(--warning-soft-border); }
 .install-chip-ope { background:var(--surface-sunken); color:var(--text-muted); border-color:var(--border-strong); }
 .install-chip-ope.is-muted { color:var(--text-faint); font-style:italic; font-weight:700; }
+button.install-chip-ope { appearance:none; font-family:inherit; cursor:pointer; }
+button.install-chip-ope:hover { background:var(--accent-soft); border-color:var(--accent-soft-border); color:var(--accent-hover); text-decoration:underline; }
+button.install-chip-ope:focus-visible { outline:none; box-shadow:0 0 0 3px var(--accent-soft); }
 
 .install-field-label { display:block; margin-bottom:3px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
 .install-comment textarea { display:block; width:100%; min-height:36px; padding:7px 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12.5px; resize:vertical; }

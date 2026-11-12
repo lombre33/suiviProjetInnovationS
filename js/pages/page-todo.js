@@ -56,9 +56,11 @@
   // tout (indexOf renvoie -1 sur une valeur imprévue), cet onglet reste vide
   // plutôt que de planter si la colonne venait à manquer.
   const INSTALL_STAGES = [
-    '1) En attente ouverture', '2) Ouverture demandée à la DF', '3) Installé',
+    '1) En attente DR', '2) Ouverture demandée à la DF', '3) Installé',
     '4) Reliquat à traiter', '5) Clôturer'
   ];
+  // Ancien libellé de la 1re étape (renommée le 12/11/2026), pas encore repris dans Grist chez un utilisateur sans droit d'écriture.
+  const INSTALL_LEGACY_STAGE_INDEX = { '1) En attente ouverture': 0 };
   const INSTALL_STATUS_FIELD = 'Statut_installation_fonds';
   // Tag "responsable" du next step (demande A.3 d'Antoine, posée sous
   // Conventions) : colonne confirmée le 03/11/2026 par le fil Page
@@ -152,7 +154,8 @@
       }).filter(Boolean);
     }
     return getProjects().map(project => {
-      const stageIdx = INSTALL_STAGES.indexOf(text(project[INSTALL_STATUS_FIELD]));
+      const status = text(project[INSTALL_STATUS_FIELD]);
+      const stageIdx = Object.prototype.hasOwnProperty.call(INSTALL_LEGACY_STAGE_INDEX, status) ? INSTALL_LEGACY_STAGE_INDEX[status] : INSTALL_STAGES.indexOf(status);
       if (stageIdx === -1) return null;
       const chezQui = installedAtLabel(project);
       const action = text(project.Action_Ligne_OPE_a_faire);

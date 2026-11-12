@@ -146,13 +146,22 @@
       await loadFixtureState(); // INNOVX = "2) Ouverture demandée à la DF", NOTIFY = "3) Installé" (fixtures.js)
       setTab('install');
       setView('all');
-      ['En attente ouverture', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer'].forEach(label => {
+      ['En attente DR', 'Ouverture demandée à la DF', 'Installé', 'Reliquat à traiter', 'Clôturer'].forEach(label => {
         assertTrue(!!panel(label), `le volet "${label}" doit exister`);
       });
       assertTrue(!!cardByAcronym(panel('Ouverture demandée à la DF'), 'INNOVX'), 'INNOVX doit apparaître dans le volet Ouverture demandée à la DF');
       assertTrue(!!cardByAcronym(panel('Installé'), 'NOTIFY'), 'NOTIFY doit apparaître dans le volet Installé');
-      assertTrue(!!panel('En attente ouverture').querySelector('.kanban-empty'), 'le volet En attente ouverture doit rester vide');
+      assertTrue(!!panel('En attente DR').querySelector('.kanban-empty'), 'le volet En attente DR doit rester vide');
       assertTrue(!!panel('Clôturer').querySelector('.kanban-empty'), 'le volet Clôturer doit rester vide');
+    });
+
+    it('un projet resté sous l\'ancien libellé « 1) En attente ouverture » (renommé « En attente DR » le 12/11/2026) reste dans la 1re étape', async function () {
+      await loadFixtureState();
+      project(10).Statut_installation_fonds = '1) En attente ouverture'; // INNOVX, valeur d'avant le renommage
+      setTab('install');
+      setView('all');
+      window.renderTodo();
+      assertTrue(!!cardByAcronym(panel('En attente DR'), 'INNOVX'), 'INNOVX doit rester visible, dans le volet En attente DR');
     });
 
     it('un projet avec Statut_installation_fonds renseigné affiche l\'action et "installé chez"', async function () {

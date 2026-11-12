@@ -10,7 +10,7 @@
  * Statut_installation_fonds (Choice sur Projets) est une colonne CRÉÉE par ce
  * module au premier lancement après livraison (ensureColumns ci-dessous) :
  * elle n'existe pas dans docs/grist_structure. Valeur vide/inconnue = 1re
- * étape ("En attente ouverture"), pas de ligne masquée en attendant que
+ * étape ("En attente DR"), pas de ligne masquée en attendant que
  * Statut_installation_fonds soit renseigné.
  */
 (function () {
@@ -21,13 +21,16 @@
   const DIESE_ACRONYM = 'DIESE';
 
   const STAGES = [
-    '1) En attente ouverture',
+    '1) En attente DR',
     '2) Ouverture demandée à la DF',
     '3) Installé',
     '4) Reliquat à traiter',
     '5) Clôturer'
   ];
   const STATUT_COLUMN = { id: 'Statut_installation_fonds', type: 'Choice', widgetOptions: JSON.stringify({ choices: STAGES }) };
+  // Ancien libellé de la 1re étape (renommée « En attente DR » le 12/11/2026) : repris au chargement
+  // (voir migrateLegacyStatus) pour que les projets déjà rangés dans ce volet y restent.
+  const LEGACY_STATUS = { '1) En attente ouverture': STAGES[0] };
 
   const SIDE_DEFS = [
     { key: 'diese', title: 'Lignes installées DIESE' },
@@ -110,10 +113,10 @@
   }
   function opeInfo(project) {
     const ligne = ligneOpeFor(project);
-    if (!ligne) return { label: 'Aucune ligne OPE', muted: true };
+    if (!ligne) return { id: null, label: 'Aucune ligne OPE', muted: true };
     const structure = structureFor(ligne);
     const structureLabel = structure ? text(structure.Acronyme || structure.Nom_Complet) : '';
-    return { label: `OPE n°${text(ligne.N_OPE)}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false };
+    return { id: ligne.id, label: `OPE n°${text(ligne.N_OPE)}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false };
   }
 
   // État d'affichage des volets (repliés/masqués) — purement local à la
@@ -261,7 +264,16 @@
       project.Statut_installation_fonds = nextValue;
       CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(nextValue)}`);
       render();
-    } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true);
+      render(); // le menu d'étape de la carte revient à l'étape réellement enregistrée
+    }
+  }
+
+  function stageSelect(project) {
+    const current = stageIndex(project);
+    return `<select class="install-status-select" data-install-status="${escape(project.id)}" title="Changer l'étape" aria-label="Étape de ${escape(project.Acronyme || project.Projet || 'ce projet')}">` +
+      STAGES.map((label, idx) => `<option value="${idx}"${idx === current ? ' selected' : ''}>${escape(stripOrdinal(label))}</option>`).join('') + `</select>`;
   }
 
   function installCard(project) {
@@ -270,10 +282,15 @@
     const commentHelp = window.HelpTooltip?.markup('Projets', 'Commentaire_ligne_OPE') || '';
     return `<div class="install-card" data-project-id="${escape(project.id)}">` +
       `<span class="install-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
+      `<div class="install-card-head">` +
       `<button type="button" class="install-card-identity" data-open-project="${escape(project.id)}"><span class="install-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
+      stageSelect(project) +
+      `</div>` +
       `<div class="install-badges">` +
       (action ? `<span class="install-chip install-chip-action${action.warn ? ' is-warn' : ''}">${escape(action.label)}</span>` : '') +
-      `<span class="install-chip install-chip-ope${ope.muted ? ' is-muted' : ''}">${escape(ope.label)}</span>` +
+      (ope.id != null
+        ? `<button type="button" class="install-chip install-chip-ope" data-open-ope="${escape(ope.id)}" title="Ouvrir la ligne OPE">${escape(ope.label)}</button>`
+        : `<span class="install-chip install-chip-ope${ope.muted ? ' is-muted' : ''}">${escape(ope.label)}</span>`) +
       `</div>` +
       `<label class="install-comment"><span class="install-field-label">Commentaire OPE/installation${commentHelp}</span>` +
       `<textarea data-install-comment="${escape(project.id)}" rows="2" placeholder="Commentaire…">${escape(project.Commentaire_ligne_OPE)}</textarea></label>` +
@@ -312,6 +329,14 @@
       if (project && window.ProjectModal?.open) window.ProjectModal.open(project);
       else if (window.openProject) window.openProject(btn.dataset.openProject);
     }));
+    root.querySelectorAll('[data-open-ope]').forEach(btn => btn.addEventListener('click', () => {
+      // Après enregistrement, le numéro ou la structure ont pu changer : la carte peut changer de colonne.
+      if (window.openEditOpeModal) window.openEditOpeModal(btn.dataset.openOpe, () => render());
+    }));
+    root.querySelectorAll('[data-install-status]').forEach(select => select.addEventListener('change', () => {
+      const project = projectById(select.dataset.installStatus);
+      if (project) moveInstall(project.id, sideForProject(project), Number(select.value));
+    }));
     root.querySelectorAll('[data-toggle-install-panel]').forEach(btn => btn.addEventListener('click', () => {
       const state = panelState[btn.dataset.toggleInstallPanel];
       if (state) state.collapsed = !state.collapsed;
@@ -336,13 +361,23 @@
     }));
   }
 
-  function renderHiddenPanelsFor(sideKey, panels) {
-    const container = document.getElementById(`install-hidden-${sideKey}`);
+  // Puces de restauration des volets masqués, dans le bandeau de filtres (une seule rangée pour les 3
+  // colonnes). Vue « Toutes » : la colonne précède l'étape (« Ailleurs · Installé »), sinon l'étape seule.
+  const SIDE_SHORT_LABELS = { diese: 'DIESE', ailleurs: 'Ailleurs', non_classe: 'Sans OPE' };
+  function renderHiddenPanels(panelsBySide) {
+    const container = document.getElementById('install-hidden-panels');
     if (!container) return;
-    const hiddenPanels = panels.filter(p => p.state.hidden);
-    container.hidden = hiddenPanels.length === 0;
-    container.innerHTML = hiddenPanels.length
-      ? `<span class="kanban-hidden-label">Masqués :</span>${hiddenPanels.map(p => `<button type="button" class="kanban-restore-chip" data-restore-install-panel="${escape(p.key)}" aria-label="Afficher le volet ${escape(p.label)}">${ICON_EYE}<span>${escape(p.label)}</span></button>`).join('')}`
+    const entries = [];
+    SIDE_DEFS.forEach(def => {
+      if (viewMode !== 'all' && viewMode !== def.key) return;
+      (panelsBySide[def.key] || []).filter(p => p.state.hidden).forEach(panel => entries.push({ def, panel }));
+    });
+    container.hidden = entries.length === 0;
+    container.innerHTML = entries.length
+      ? `<span class="kanban-hidden-label">Masqués :</span>${entries.map(({ def, panel }) => {
+        const chipLabel = viewMode === 'all' ? `${SIDE_SHORT_LABELS[def.key]} · ${panel.label}` : panel.label;
+        return `<button type="button" class="kanban-restore-chip" data-restore-install-panel="${escape(panel.key)}" aria-label="Afficher le volet ${escape(panel.label)} (${escape(def.title)})">${ICON_EYE}<span>${escape(chipLabel)}</span></button>`;
+      }).join('')}`
       : '';
     container.querySelectorAll('[data-restore-install-panel]').forEach(btn => btn.addEventListener('click', () => {
       const state = panelState[btn.dataset.restoreInstallPanel];
@@ -368,17 +403,18 @@
 
   function render() {
     if (!window.CoreState || !CoreState.getTable('Projets')) return;
+    const panelsBySide = {};
     SIDE_DEFS.forEach(def => {
       const root = document.getElementById(`install-col-${def.key}`);
       if (!root) return;
-      const panels = buildColumnPanels(def.key);
+      const panels = panelsBySide[def.key] = buildColumnPanels(def.key);
       const total = panels.reduce((sum, p) => sum + p.count, 0);
       root.innerHTML = panels.filter(p => !p.state.hidden).map(p => p.html).join('');
       wireRootEvents(root);
       const countEl = document.getElementById(`install-count-${def.key}`);
       if (countEl) countEl.textContent = `${total} projet(s)`;
-      renderHiddenPanelsFor(def.key, panels);
     });
+    renderHiddenPanels(panelsBySide);
     updateViewTabsUI();
     updateColumnVisibility();
   }
@@ -454,10 +490,27 @@
     if (search && row.Install_filtre_recherche) search.value = row.Install_filtre_recherche;
   }
 
+  // Projets restés sous l'ancien libellé de la 1re étape : valeur réécrite dans Grist (une seule écriture
+  // groupée) et dans les données déjà chargées. Au mieux : sans droit d'écriture, la page les range quand
+  // même à la 1re étape (valeur inconnue = 1re étape).
+  async function migrateLegacyStatus() {
+    const legacyOf = project => LEGACY_STATUS[text(project.Statut_installation_fonds)];
+    const stale = getProjects().filter(legacyOf);
+    if (!stale.length) return;
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions(stale.map(project => ['UpdateRecord', 'Projets', Number(project.id), { Statut_installation_fonds: legacyOf(project) }]));
+      stale.forEach(project => { project.Statut_installation_fonds = legacyOf(project); });
+    } catch (err) {
+      console.warn("Reprise de l'ancien libellé « En attente ouverture » a échoué :", err.message);
+    }
+  }
+
   async function loadInstallationUserPreferences() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
       await CoreGrist.ensureColumns('Projets', [STATUT_COLUMN]);
+      await CoreGrist.ensureChoices('Projets', STATUT_COLUMN.id, STAGES);
+      await migrateLegacyStatus();
       await CoreGrist.ensureTable(PREFS_TABLE, [EMAIL_TRIGGER_COLUMN, ...INSTALL_PREFS_COLUMNS]);
       await CoreGrist.ensureColumns(PREFS_TABLE, INSTALL_PREFS_COLUMNS);
       const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)

@@ -26,7 +26,7 @@ neuf noms. Les huit premiers correspondent exactement aux huit tables de
 | `Programmes` | programme d'un projet, filtre du Kanban (lecture) |
 | `Etablissements` | tutelle/employeur d'un poste, partenaires de convention (lecture) |
 | `Suivi_Instance` | instance rattachée à un projet, filtre du Kanban (lecture) |
-| `Lignes_OPE` | ligne OPE d'un projet (lecture) |
+| `Lignes_OPE` | ligne OPE d'un projet (lecture ; création depuis la modale projet, modification depuis la page Installation des fonds) |
 
 Le neuvième nom, `Etablissement` (au singulier), **n'existe pas dans le schéma**. Le
 chargement échoue silencieusement (`loadAllTables()` intercepte l'erreur et renvoie un
@@ -424,10 +424,27 @@ Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait
 `EcritureComptables` jusque-là, d'où le nom encore utilisé dans les entrées de
 `VERSION.md` antérieures à cette date.
 
-Lecture seule : `N_OPE` (Text), étiquette de la ligne OPE dans la modale projet.
-`totalCPConsomme`, `installe_chez` et la formule `N_OPE_LibelleOperation` ne sont pas
-lus par le widget — c'est la formule `Projets.Ligne_OPE_installe_chez` qui fournit la
-structure d'installation.
+`N_OPE` (Text) : étiquette de la ligne OPE dans la modale projet. `installe_chez`
+(Reference → `Structures`) : lue par la page Installation des fonds pour ranger un
+projet dans la colonne DIESE / Ailleurs. Ces deux colonnes sont les seules que le widget
+écrit : à la création (`AddRecord`, champ « Ligne OPE » de la modale projet) et à la
+modification (`UpdateRecord`, clic sur le nom de l'OPE d'une carte de la page Installation
+des fonds, 12/11/2026). `totalCPConsomme` et la formule `N_OPE_LibelleOperation` ne sont pas
+lues par le widget ; `Projets.Ligne_OPE_installe_chez` (formule) sert encore à l'onglet
+Installation de la page To Do.
+
+## Installation des fonds (12/11/2026)
+
+`Projets.Statut_installation_fonds` : Choice créée par le widget au premier lancement
+(`ensureColumns`), étapes `1) En attente DR`, `2) Ouverture demandée à la DF`,
+`3) Installé`, `4) Reliquat à traiter`, `5) Clôturer`. La 1re étape s'appelait
+`1) En attente ouverture` jusqu'au 12/11/2026 : au chargement, le widget réécrit cette
+ancienne valeur dans les projets (une écriture groupée) et remplace la liste de choix de
+la colonne (`CoreGrist.ensureChoices`, couleurs conservées) ; sans droit d'écriture, la
+page range ces projets à la 1re étape. Valeur vide ou inconnue = 1re étape. L'étape se
+change par glisser-déposer ou par le menu de la carte ; elle est indépendante de
+`Action_Ligne_OPE_a_faire` (affichée telle quelle sur la carte, y compris les valeurs que
+la modale projet ne propose pas, comme « ligne validée »).
 
 ## Dernière page ouverte (12/11/2026)
 
