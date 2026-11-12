@@ -258,7 +258,7 @@
     V.alerts = V.conds.filter(x => x.warn && !x.ok).map(x => x.text);
     if (!V.curDone && prevOpen.length) V.alerts.push('Étapes précédentes à valider : ' + prevOpen.join(', '));
     V.nDone = V.active.filter(x => V.valid(x.key)).length;
-    V.guestOrder = L.sortGuests(s.guests, S.prefs.invTri, g => personOf(m, g.personneId).name);
+    V.guestOrder = L.sortGuests(s.guests, S.prefs.invTri, g => personOf(m, g.personneId).name, g => personOf(m, g.personneId).gradeKind);
     V.firstStart = g => L.firstStartOf(V.schedAll, g.id);
     return V;
   }
@@ -384,7 +384,7 @@
     const all = V.active.map((x, i) => {
       const num = i + 1;
       if (x.key === 'odj') return thr('odj', num, 'Ordre du jour', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
-      if (x.key === 'invites') return thr('invites', num, 'Invités', plural(s.guests.length, 'invité', 'invités'), '', plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : ''));
+      if (x.key === 'invites') return thr('invites', num, 'Invités', plural(s.guests.length, 'invité', 'invités'), '', plural(nSpecial, 'spécifique', 'spécifiques') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : ''));
       if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites · ' + horOk + '/' + horTot + ' horaires', { pct: writtenPct });
       if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crPdf.length ? 'PDF exporté' : 'PDF à exporter', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
       if (x.key === 'crmail') return thr('crmail', num, 'Envoi du CR', s.mailCrLe ? L.fmtDate(s.mailCrLe) : 'À envoyer', s.mailCrLe ? '' : 'dim', plural(s.guests.length, 'destinataire', 'destinataires'));
@@ -425,9 +425,12 @@
 
   // Étiquette de personne : le nom court quand la place le permet, les initiales quand la ligne est étroite (voir css/instances.css,
   // @container pts) — le nom complet reste toujours dans l'infobulle.
+  // Classe de couleur d'une personne selon son grade (VP, directeur.trice d'établissement) : 'gvp' | 'gdir' | ''.
+  const gradeClass = person => (person.gradeKind ? 'g' + person.gradeKind : '');
+  const gradeLabel = person => (person.gradeKind === 'vp' ? 'VP' : (person.gradeKind === 'dir' ? 'Directeur.trice d\'établissement' : ''));
   const personTag = (m, pid, cls, titlePrefix, removeLabel, act, attrs) => {
-    const name = personOf(m, pid).name;
-    return '<span class="tag ' + cls + '" title="' + esc(titlePrefix + name) + '"><span class="nm">' + esc(L.shortName(name)) + '</span><span class="ini" aria-hidden="true">' + esc(L.initials(name)) + '</span>'
+    const person = personOf(m, pid), name = person.name;
+    return '<span class="tag ' + cls + '" title="' + esc(titlePrefix + name + (person.gradeKind ? ' — ' + gradeLabel(person) : '')) + '"><span class="nm">' + esc(L.shortName(name)) + '</span><span class="ini" aria-hidden="true">' + esc(L.initials(name)) + '</span>'
       + '<button type="button" aria-label="' + esc(removeLabel) + '" ' + da(act, attrs) + '>' + ic('x', 'xs') + '</button></span>';
   };
 
@@ -469,7 +472,7 @@
       + (presOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => '<button type="button" class="mi ' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'on' : '') + '" ' + da('pt-pres', { id: p.id, v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span><span class="mi-sub">' + (p.presentateurs.indexOf(pp.id) >= 0 ? 'présente' : '') + '</span></button>').join('') + (m.people.length ? '' : '<div class="mh">— Aucune personne —</div>') + '</div>' : '') + '</div></div>'
       // invités
       + '<div class="group g-inv"><span class="gic" title="Invités">' + ic('people', 's') + '</span>'
-      + guestChips.map(g => personTag(m, g.personneId, '', '', 'Retirer l\'invité du point', 'pt-inv', { id: p.id, v: g.personneId })).join('')
+      + guestChips.map(g => personTag(m, g.personneId, gradeClass(personOf(m, g.personneId)), '', 'Retirer l\'invité du point', 'pt-inv', { id: p.id, v: g.personneId })).join('')
       + '<div class="rel"><button type="button" class="addb ' + (invOpen ? 'on' : '') + '" title="Inviter sur ce point" aria-label="Inviter sur ce point" ' + da('menu', { v: 'inv:' + p.id }) + '>' + ic('plus', 'xs') + '</button>'
       + (invOpen ? '<div class="menu" style="min-width:300px">' + filterInput('Rechercher une personne…') + m.people.map(pp => {
         const g = s.guests.find(x => x.personneId === pp.id), on = g && p.invites.indexOf(g.id) >= 0;
@@ -543,7 +546,7 @@
     const nSpecial = s.guests.filter(g => g.origine === 'point').length, nNo = s.guests.filter(g => g.reponse === 'excuse').length;
     const addable = m.people.filter(pp => !s.guests.some(g => g.personneId === pp.id));
     const endTxt = L.hhmm(V.endMin);
-    let h = '<div class="toolbar"><span class="total">' + plural(s.guests.length, 'invité', 'invités') + ' · ' + plural(nSpecial, 'spécial', 'spéciaux') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : '') + '</span><span class="sp"></span>'
+    let h = '<div class="toolbar"><span class="total">' + plural(s.guests.length, 'invité', 'invités') + ' · ' + plural(nSpecial, 'spécifique', 'spécifiques') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : '') + '</span><span class="sp"></span>'
       + '<div class="rel"><button type="button" class="rbtn primary" title="Ajouter une personne" aria-label="Ajouter une personne" ' + da('menu', { v: 'addGuest' }) + '>' + ic('peopleAdd') + '</button>'
       + (isOpen('addGuest') ? '<div class="menu right" style="min-width:320px">' + filterInput('Rechercher une personne…') + addable.map(pp => '<button type="button" class="mi" ' + da('g-add', { v: pp.id }) + ftAttr(pp.search) + '><span class="mi-main"><span>' + esc(pp.name) + '</span><span class="mi-sub">' + esc(L.cut(pp.poste, 44)) + '</span></span></button>').join('') + (addable.length ? '' : '<div class="mh">— Tout l\'annuaire est invité —</div>') + '</div>' : '') + '</div></div>';
     // Membres de la composition de l'instance qui ne sont pas (encore) invités à cette séance : un bouton les ajoute.
@@ -569,7 +572,8 @@
         return '<div class="rel"><button type="button" class="tp ' + (value ? '' : 'empty') + '" ' + da('menu', { v: key }) + ' aria-label="' + field + '">' + (value || '--:--') + '</button>' + (isOpen(key) ? timeMenu(key, value, 'g-' + scope, g.id, V.startMin, V.endMin, true) : '') + '</div>';
       };
       // Une ligne d'invité tient TOUJOURS sur une seule ligne : nom et poste côte à côte (le poste se tronque, texte complet au survol), sujets en rang.
-      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag' : '') + '"><div class="pcell" title="' + esc(person.name + (person.poste ? ' — ' + person.poste : '')) + '"><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + '<span class="pn">' + esc(person.name) + '</span></div><div class="psub">' + esc(person.poste) + '</div></div>'
+      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag ' : '') + gradeClass(person) + '"><div class="pcell" title="' + esc(person.name + (person.poste ? ' — ' + person.poste : '') + (person.gradeKind ? ' (' + gradeLabel(person) + ')' : '')) + '"><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + '<span class="pn">' + esc(person.name) + '</span>'
+        + (person.gradeKind ? '<span class="gbadge ' + gradeClass(person) + '">' + (person.gradeKind === 'vp' ? 'VP' : 'Dir.') + '</span>' : '') + '</div><div class="psub">' + esc(person.poste) + '</div></div>'
         + '<div class="group sjrow" title="' + esc(sujets.map(sj => sj.time + ' · ' + sj.title).join('\n')) + '">' + sujets.map(sj => '<span class="tag plain sj ' + (sj.warn ? 'warn' : '') + '" title="' + esc(sj.title) + '">' + sj.time + ' · ' + esc(sj.label) + '</span>').join('') + '</div>'
         + '<div><button type="button" class="ib ' + (g.ecritLe ? 'on' : '') + '" title="' + esc(ecritTip) + '" aria-label="' + esc(ecritTip) + '" ' + da('g-ecrit', { id: g.id }) + '>' + ic('mail') + '</button></div>'
         + '<div><button type="button" class="ib ' + (hs === 'stale' ? 'warn' : (hs === 'sent' ? 'on' : '')) + '" title="' + esc(horTip) + '" aria-label="' + esc(horTip) + '" ' + (hs === 'none' ? 'disabled ' : '') + da('g-hor', { id: g.id }) + '>' + ic('clock') + '</button></div>'

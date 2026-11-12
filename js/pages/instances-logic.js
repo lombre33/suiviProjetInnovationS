@@ -388,8 +388,24 @@
   // À égalité, nom de A à Z (quel que soit le sens).
   const GUEST_TRI = /^(nom|reponse|appel):(asc|desc)$/;
   const GUEST_RANK = { reponse: { viendra: 0, attente: 1, excuse: 2 }, appel: { present: 0, '': 1, absent: 2 } };
-  function sortGuests(guests, tri, nameOf) {
-    const base = guests.map((g, i) => ({ g, i })).sort((a, b) => (a.g.origine === b.g.origine ? a.i - b.i : (a.g.origine === 'point' ? -1 : 1)));
+  // Grade du poste (Postes2.grade, saisi par Antoine le 12/11/2026 : VP, Directeur.trice etablissement, Agent, Direction service,
+  // assitant.e) → 'vp' | 'dir' | '' : seuls les VP et les directeur.trice.s d'établissement sont mis en couleur dans les séances.
+  function gradeKind(grade) {
+    const n = normName(grade);
+    if (!n) return '';
+    if (/^vp\b|\bvice president\b/.test(n)) return 'vp';
+    if (/^directeur\b.*\betablissement\b/.test(n)) return 'dir';
+    return '';
+  }
+  // Invités : d'abord ceux ajoutés sur un point (« spécifiques »), et parmi eux les VP, puis les directeur.trice.s d'établissement ;
+  // `kindOf(guest)` donne 'vp' | 'dir' | ''. Un tri choisi par clic sur un en-tête reprend ensuite la main.
+  function sortGuests(guests, tri, nameOf, kindOf) {
+    const kindRank = g => { const k = kindOf ? kindOf(g) : ''; return k === 'vp' ? 0 : (k === 'dir' ? 1 : 2); };
+    const base = guests.map((g, i) => ({ g, i })).sort((a, b) => {
+      if (a.g.origine !== b.g.origine) return a.g.origine === 'point' ? -1 : 1;
+      if (a.g.origine === 'point' && kindRank(a.g) !== kindRank(b.g)) return kindRank(a.g) - kindRank(b.g);
+      return a.i - b.i;
+    });
     const m = GUEST_TRI.exec(tri || '');
     if (!m) return base.map(x => x.g);
     const key = m[1], sign = m[2] === 'desc' ? -1 : 1;
@@ -411,7 +427,7 @@
   const matchesSearch = (hay, query) => String(query || '').split(' ').every(word => !word || String(hay).indexOf(word) >= 0);
 
   const api = {
-    findCompositionTable, detectComposition, matchesSearch, sortGuests, nextGuestTri, GUEST_TRI,
+    findCompositionTable, detectComposition, matchesSearch, gradeKind, sortGuests, nextGuestTri, GUEST_TRI,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,

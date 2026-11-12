@@ -197,8 +197,9 @@
 
   // env = { annuaire, postes, projets, notifications } : tables déjà chargées par le widget (CoreState).
   function buildModel(raw, env) {
-    const postesById = new Map((env.postes || []).map(p => [p.id, text(p.Nom_du_poste).replace(/\s+/g, ' ').trim()]));
-    const people = (env.annuaire || []).map(a => { const name = personName(a), poste = postesById.get(refId(a.Poste2)) || '', email = text(a.Email); return { id: a.id, name, poste, email, search: [name, [a.Prenom, a.NOM].map(text).join(' '), poste, email].join(' ') }; })
+    // grade : colonne « grade » de Postes2 (VP, Directeur.trice etablissement, Agent…) ; seuls VP et directeur d'établissement ressortent
+    const postesById = new Map((env.postes || []).map(p => [p.id, { nom: text(p.Nom_du_poste).replace(/\s+/g, ' ').trim(), grade: text(p.grade != null ? p.grade : p.Grade).trim() }]));
+    const people = (env.annuaire || []).map(a => { const name = personName(a), post = postesById.get(refId(a.Poste2)) || { nom: '', grade: '' }, poste = post.nom, email = text(a.Email); return { id: a.id, name, poste, grade: post.grade, gradeKind: L.gradeKind(post.grade), email, search: [name, [a.Prenom, a.NOM].map(text).join(' '), poste, email].join(' ') }; })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     const peopleById = {}; people.forEach(p => { peopleById[p.id] = p; });
     const notifByProject = {};

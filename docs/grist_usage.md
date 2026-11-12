@@ -158,6 +158,9 @@ fiche Personne.
 | `Employeur_tutelle` | Reference → `Etablissements` | ✓ | ✓ |
 | `Nom_du_poste` | Formule | ✓ | — |
 | `ID2` | Formule | ✓ | — |
+| `grade` | Choice (VP, Directeur.trice etablissement, Agent, Direction service, assitant.e) | ✓ (page Instances) | — |
+
+`grade` (ajoutée par Antoine le 12/11/2026) n'est lue que par la page Instances : voir « Grade du poste » plus bas.
 
 `Nom_du_poste` est relu depuis Grist après enregistrement ; le widget n'en recalcule un
 aperçu localement (`calculatedPosteName()`) que tant que l'enregistrement n'a pas eu
@@ -342,6 +345,17 @@ seulement. Glisser-déposer : moitié haute d'une ligne = avant, moitié basse =
 l'indique) ; une zone « Déposer ici pour mettre en dernier » apparaît en bas de la liste pendant le
 glissement (aucune place perdue sinon) ; déposer sur un sous-point place le point après son point.
 Code : `onEnter`, `addPoint`, `dropTarget`, `movePoint` (`page-instances.js`).
+
+**Grade du poste (12/11/2026).** `Postes2.grade` (lu seulement ; la fiche Poste ne l'écrit pas) :
+`L.gradeKind` ne retient que « VP » (aussi « vice-président ») et « Directeur.trice etablissement »
+(accents, casse et ponctuation ignorés) ; Agent, Direction service et assitant.e n'ont aucune couleur.
+Un VP ressort en magenta plein (étiquette d'invité sur un point, ligne et pastille « VP » dans l'étape
+Invités), un.e directeur.trice d'établissement en bleu-vert (pastille « Dir. »). Parmi les invités
+**spécifiques** (ceux ajoutés sur un point ; ex-« spéciaux », renommés), les VP passent en premier, puis
+les directeur.trice.s d'établissement ; un tri choisi par clic sur un en-tête reprend ensuite la main.
+Sans colonne `grade` (ou sans valeur), rien n'est coloré. Code : `gradeKind`, `sortGuests`
+(`instances-logic.js`), `buildModel` (`instances-data.js`), `gradeClass` (`page-instances.js`), fin de
+`css/instances.css`.
 
 ## Lignes_OPE
 

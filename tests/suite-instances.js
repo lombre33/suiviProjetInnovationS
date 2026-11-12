@@ -81,6 +81,7 @@
     tables.Annuaire.push({ id: 3, NOM: 'Petit', Prenom: 'Chloé', nom_et_Prenom: 'Chloé Petit', Email: 'chloe@example.org', Poste2: 0 });
     tables.Annuaire.push({ id: 4, NOM: 'Roy', Prenom: 'Dana', nom_et_Prenom: 'Dana Roy', Email: '', Poste2: 0 });
     (opts.people || []).forEach(person => tables.Annuaire.push(person));
+    if (opts.tables) opts.tables(tables);
     Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
     const data = dataset();
     if (opts.rows) opts.rows(data);
@@ -293,6 +294,23 @@
       assertTrue(cond([{ id: 1, titre: 'A', duree: 0, invites: [], projets: [], subs: [sub(11, 10), sub(12, 5)] }]).find(c => /titre et une durée/.test(c.text)).ok, 'durée venue des sous-points');
       assertFalse(cond([{ id: 1, titre: 'A', duree: 0, invites: [], projets: [], subs: [sub(11, 10), sub(12, 0)] }]).find(c => /titre et une durée/.test(c.text)).ok, 'un sous-point vide : le point reste à 0');
       assertFalse(cond([{ id: 1, titre: 'A', duree: 15, invites: [], projets: [], subs: [sub(11, 10), sub(12, 10), sub(13, 0)] }]).find(c => /sous-points durent plus/.test(c.text)).ok, 'alerte de dépassement');
+    });
+
+    it('grade du poste : seuls VP et directeur.trice d\'établissement ressortent ; les invités spécifiques passent par VP puis directeur.trice', function () {
+      assertEqual(L.gradeKind('VP'), 'vp');
+      assertEqual(L.gradeKind(' vp '), 'vp');
+      assertEqual(L.gradeKind('Vice-président recherche'), 'vp');
+      assertEqual(L.gradeKind('Directeur.trice etablissement'), 'dir');
+      assertEqual(L.gradeKind('Directeur.trice établissement'), 'dir', 'accents ignorés');
+      ['Agent', 'Direction service', 'assitant.e', '', null, undefined, 'Directeur de service'].forEach(g => assertEqual(L.gradeKind(g), '', 'pas de couleur : ' + g));
+      const guests = [
+        { id: 1, origine: 'permanent', k: 'vp' }, { id: 2, origine: 'point', k: '' }, { id: 3, origine: 'point', k: 'dir' },
+        { id: 4, origine: 'point', k: 'vp' }, { id: 5, origine: 'point', k: '' }, { id: 6, origine: 'permanent', k: '' }
+      ];
+      const name = g => 'P' + g.id, kind = g => g.k;
+      assertDeepEqual(L.sortGuests(guests, '', name, kind).map(g => g.id), [4, 3, 2, 5, 1, 6], 'spécifiques d\'abord : VP, directeur.trice, autres (ordre d\'origine) ; puis les permanents inchangés');
+      assertDeepEqual(L.sortGuests(guests, '', name).map(g => g.id), [2, 3, 4, 5, 1, 6], 'sans grade connu : comme avant');
+      assertDeepEqual(L.sortGuests(guests, 'nom:desc', name, kind).map(g => g.id), [6, 5, 4, 3, 2, 1], 'un tri choisi par clic reprend la main');
     });
 
     it('horaire de passage : aucun / à envoyer / envoyé / modifié depuis l\'envoi', function () {
@@ -2233,6 +2251,43 @@
       click('crm-today');
       assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).Mail_CR_le, gd(TODAY));
       assertIncludes(text('.in-panel .in-stt'), 'Envoyé le 09/11/2026');
+    });
+
+    it('VP et directeur.trice d\'établissement (colonne grade de Postes2) : en couleur sur les points et dans les invités, VP en premier parmi les invités spécifiques', async function () {
+      await setup({
+        tables: t => {
+          t.Postes2.push({ id: 7, Nom_du_poste: 'Vice-président recherche', grade: 'VP' }, { id: 8, Nom_du_poste: 'Directrice d\'établissement', grade: 'Directeur.trice etablissement' });
+          t.Postes2.find(p => p.id === 1).grade = 'Agent';
+          t.Annuaire.find(a => a.id === 3).Poste2 = 7;
+          t.Annuaire.find(a => a.id === 4).Poste2 = 8;
+        },
+        rows: d => {
+          d.Instance_Invites.find(g => g.id === 2).Origine = 'Ajouté sur un point';
+          d.Instance_Invites.push({ id: 5, Seance: 2, Personne: 4, Origine: 'Ajouté sur un point', Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Reponse: 'À confirmer', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' });
+        }
+      });
+      step('invites');
+      const row = name => qa('.in-grow:not(.in-head)').find(r => r.querySelector('.in-pname').textContent.includes(name));
+      const names = qa('.in-grow:not(.in-head) .in-pname .in-pn').map(e => e.textContent.trim());
+      assertDeepEqual(names, ['Chloé Petit', 'Dana Roy', 'Bob Durand', 'Alice Martin'], 'spécifiques : VP, directrice d\'établissement, autre ; puis les permanents');
+      assertTrue(row('Chloé').classList.contains('in-gvp'), 'ligne du VP en couleur');
+      assertEqual(row('Chloé').querySelector('.in-gbadge').textContent, 'VP');
+      assertTrue(row('Dana').classList.contains('in-gdir'));
+      assertEqual(row('Dana').querySelector('.in-gbadge').textContent, 'Dir.');
+      assertFalse(!!row('Bob').querySelector('.in-gbadge'), 'pas de grade connu : pas de couleur');
+      assertFalse(!!row('Alice').querySelector('.in-gbadge'), 'Agent : pas de couleur');
+      assertIncludes(text('.in-toolbar .in-total'), '3 spécifiques');
+      step('odj');
+      const tag = point(2).querySelector('.in-g-inv .in-tag.in-gvp');
+      assertTrue(!!tag, 'l\'étiquette du VP invité sur le point est en couleur');
+      assertIncludes(tag.title, 'VP');
+      assertEqual(point(2).querySelectorAll('.in-g-inv .in-tag').length, 2, 'Alice (Agent) reste sans couleur');
+      await withLayout(async () => {
+        await setup({ tables: t => { t.Postes2.push({ id: 7, Nom_du_poste: 'Vice-président', grade: 'VP' }); t.Annuaire.find(a => a.id === 3).Poste2 = 7; } });
+        step('odj');
+        const bg = getComputedStyle(point(2).querySelector('.in-g-inv .in-tag.in-gvp')).backgroundColor;
+        assertEqual(bg, 'rgb(181, 23, 158)', 'VP : magenta plein');
+      });
     });
 
     it('notifications liées : statut par projet (Grist + Export_VP), jamais de lecture de PDF_signe', async function () {
