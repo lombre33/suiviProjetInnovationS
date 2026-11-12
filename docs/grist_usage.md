@@ -241,7 +241,7 @@ références sont écrites en identifiants (`['L', …]` pour les RefList) ; les
 Le bouton « Mettre à disposition du VP » n'est jamais automatique : il demande confirmation puis
 écrit `Export_VP` ; il **ne modifie pas** `Notifications.notifications_Statut`, et le widget
 n'ouvre jamais `PDF_signe`. Préférences par utilisateur dans `Preferences_Widget` :
-`Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue`, `Inst_odj_vue` (`timing` par défaut
+`Inst_instance`, `Inst_seances` (JSON), `Inst_etape`, `Inst_vue_ensemble` (variante de la vue d'ensemble, `C` par défaut ; l'ancienne colonne `Inst_vue` n'est plus lue), `Inst_odj_vue` (`timing` par défaut
 ou `type` : affichage de l'ordre du jour), `Inst_cadre` (JSON : `bandeau`, `cr`, `plein`, `hauteur` — voir
 ci-dessous). Les deux dernières colonnes sont ajoutées à la table existante par `ensureColumns`.
 
@@ -394,6 +394,16 @@ défaut de l'instance (`Instances.Invites_permanents` + composition) l'ajoute au
 point (`Instance_Points.Invites`). Une personne déjà invitée sur la séance (ajoutée ailleurs) est seulement reliée au
 point, sans seconde fiche. Retirer un présentateur ne le retire PAS des invités (il peut être invité sans présenter) ;
 le rechoisir ne recrée rien. Le menu « Présenté par » affiche « ajout aux invités » sous les personnes concernées.
+
+**Vue d'ensemble : rail complet par défaut (12/11/2026).** Le fil de jalons de la vue d'ensemble montre par défaut
+les 6 étapes (variante C « Rail complet », choix retenu dans `Preferences_Widget.Inst_vue_ensemble`) ; les variantes A
+(fil horizontal) et B (fil vertical) restent proposées et omettent les jalons 1 et 2 (déjà en tuiles). Jalons :
+**1 · ODJ validé** (étape Ordre du jour : points, durée, conflits), **2 · Présence invités confirmée** (étape Invités :
+`réponses reçues/invités`, viendra · excusés · à confirmer ; la validation reste manuelle), **3 · Mail d'invitation**
+(date d'envoi, invitations écrites), puis le jalon **Timing envoyé aux invités** (sans numéro, horloge : horaires de
+passage envoyés/à envoyer d'après `Instance_Invites.Passage_envoye_*`, « à renvoyer » quand l'horaire a changé ; un clic
+ouvre l'étape Invités où se trouvent les boutons d'envoi), puis 4 · Compte rendu, 5 · Envoi du CR, 6 · Notifications.
+L'étape Invités signale (alerte non bloquante) les invités qui n'ont pas encore répondu.
 
 ## Lignes_OPE
 

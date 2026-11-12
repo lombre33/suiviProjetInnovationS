@@ -277,9 +277,11 @@
       ];
     }
     if (key === 'invites') {
+      const nAsk = guests.filter(g => g.reponse !== 'viendra' && g.reponse !== 'excuse').length;
       return [
         { ok: guests.length > 0, text: 'Au moins un invité' },
-        { warn: true, chip: true, ok: nconf === 0, text: plural(nconf, 'point où un invité est indisponible', 'points où un invité est indisponible') }
+        { warn: true, chip: true, ok: nconf === 0, text: plural(nconf, 'point où un invité est indisponible', 'points où un invité est indisponible') },
+        { warn: true, ok: nAsk === 0, text: plural(nAsk, 'invité n\'a pas encore répondu', 'invités n\'ont pas encore répondu') }
       ];
     }
     if (key === 'invitation') {

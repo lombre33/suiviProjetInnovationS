@@ -43,7 +43,7 @@
     col('Mail_CR_le', 'Date', { description: "Date d'envoi du mail du compte rendu. Une date renseignée vaut validation de l'étape « Envoi du compte rendu »." })
   ];
   const PREFS_COLUMNS = [
-    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text')
+    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue_ensemble', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text')
   ];
 
   // --- Tables propres à la page (ordre = ordre de création : les références doivent exister) ---

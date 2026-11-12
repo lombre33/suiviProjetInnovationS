@@ -492,7 +492,7 @@
     it('Comité innovation : « Envoi du CR » et « Notifications » grisées en haut, absentes de la frise, compteur sur 4 étapes', async function () {
       await setup({ noPrefs: true });
       await window.loadInstancesUserPreferences();
-      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'macro', Inst_vue: 'C', Inst_seances: '{}' }]]);
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'macro', Inst_seances: '{}' }]]);
       window.InstancesPage._reset();
       await window.loadInstancesUserPreferences();
       await window.InstancesPage.open();
@@ -504,12 +504,12 @@
       assertIncludes(off[0].title, 'non suivie par cette instance');
       assertDeepEqual(qa('.in-chip:not(.in-off):not(.in-macro)').map(c => c.textContent.replace(/\s+/g, ' ').trim().replace(/^[\d]+\s*/, '')), ['ODJ', 'Invités', 'Invitation', 'CR'], 'les puces actives sont numérotées de 1 à 4');
       assertEqual(text('.in-chip.in-macro'), '0/4');
-      assertEqual(qa('.in-thread .in-ms').length, 4, 'variante C : la frise ne compte que les 4 étapes suivies');
-      assertDeepEqual(qa('.in-thread .in-msl').map(e => e.textContent.trim()), ['Ordre du jour', 'Invités', "Mail d'invitation", 'Compte rendu']);
+      assertEqual(qa('.in-thread .in-ms').length, 5, 'rail complet par défaut : les 4 étapes suivies + le jalon « Timing envoyé »');
+      assertDeepEqual(qa('.in-thread .in-msl').map(e => e.textContent.trim()), ['ODJ validé', 'Présence invités confirmée', "Mail d'invitation", 'Timing envoyé aux invités', 'Compte rendu']);
       assertFalse(root().textContent.includes('Notifications liées'));
     });
 
-    it('vue d\'ensemble : 4 carrés, tuiles ODJ et invités, fil de 4 jalons (variante A) ou 6 (variante C), choix retenu', async function () {
+    it('vue d\'ensemble : 4 carrés, tuiles ODJ et invités, rail complet par défaut (7 jalons : étapes 1 à 6 + timing), variante A à 5 jalons, choix retenu', async function () {
       await setup();
       const kpis = qa('.in-ksq').map(k => k.textContent.replace(/\s+/g, ' ').trim());
       assertEqual(kpis.length, 4);
@@ -519,11 +519,69 @@
       assertIncludes(kpis[1], 'horaires de passage 1/2');
       assertEqual(qa('.in-tile').length, 2);
       assertIncludes(text('.in-tile .in-alert-pill'), '1', 'le conflit de Chloé alerte sur la tuile ODJ');
-      assertEqual(qa('.in-thread .in-ms').length, 4);
-      click('vue', { v: 'C' });
-      assertEqual(qa('.in-thread .in-ms').length, 6);
-      assertTrue(!!q('.in-dash.in-vc'));
-      await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_vue === 'C', 'variante enregistrée');
+      assertTrue(!!q('.in-dash.in-vc'), 'le rail complet est la vue par défaut');
+      assertEqual(qa('.in-thread .in-ms').length, 7, 'étapes 1 à 6 + « Timing envoyé aux invités »');
+      assertDeepEqual(qa('.in-thread .in-msn').map(e => e.textContent.trim()).filter(Boolean), ['1', '2', '3', '4', '5', '6'], 'les numéros restent ceux des étapes (le jalon timing n\'en porte pas)');
+      click('vue', { v: 'A' });
+      assertEqual(qa('.in-thread .in-ms').length, 5, 'variante A : sans ODJ ni invités (tuiles), avec le timing');
+      assertTrue(!q('.in-dash.in-vc'));
+      await waitFor(() => (lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_vue_ensemble === 'A', 'variante enregistrée');
+    });
+
+    it('rail : les jalons 1 et 2 s\'appellent « ODJ validé » et « Présence invités confirmée », avec leur état et leurs compteurs', async function () {
+      await setup();
+      const ms = key => qa('.in-thread .in-ms').find(b => b.getAttribute('data-v') === key || b.dataset.v === key);
+      const rail = () => qa('.in-thread .in-ms').map(b => ({ t: b.querySelector('.in-msl').textContent.trim(), v: b.querySelector('.in-msv').textContent.trim(), sub: b.querySelector('.in-mss').textContent.trim(), done: b.classList.contains('in-done') }));
+      let r = rail();
+      assertEqual(r[0].t, 'ODJ validé');
+      assertFalse(r[0].done, 'ODJ pas encore validé');
+      assertIncludes(r[0].v, '3 points');
+      assertEqual(r[1].t, 'Présence invités confirmée');
+      assertEqual(r[1].v, '1/3 réponses', 'Alice a répondu (viendra) ; Bob et Chloé restent à confirmer');
+      assertIncludes(r[1].sub, '1 viendra');
+      assertIncludes(r[1].sub, '2 à confirmer');
+      assertFalse(r[1].done);
+      // un jalon d'étape ouvre toujours son étape
+      click('step', { v: 'invites' });
+      assertIncludes(text('.in-panel h2'), 'Invités');
+      assertTrue(qa('.in-alert-pill').some(p => /pas encore répondu/.test(p.title)), 'l\'étape Invités signale les invités sans réponse (alerte non bloquante)');
+      // Souple : les réponses manquantes n'empêchent pas de valider
+      assertFalse(q('[data-act="validate"]').disabled, 'on peut valider la présence même si des réponses manquent');
+      click('validate');
+      await waitFor(() => calls('AddRecord', 'Instance_Validations').length === 1, 'étape Invités validée');
+      click('step', { v: 'macro' });
+      r = rail();
+      assertTrue(r[1].done, 'Présence invités confirmée validée');
+    });
+
+    it('rail : jalon « Timing envoyé aux invités » (horaires de passage), sans numéro, qui ouvre l\'étape Invités', async function () {
+      await setup();
+      const timing = () => qa('.in-thread .in-ms').find(b => /Timing envoyé/.test(b.textContent));
+      assertTrue(!!timing(), 'le jalon est dans le rail');
+      assertEqual(timing().querySelector('.in-msn').textContent.trim(), '', 'pas de numéro : ce n\'est pas une étape');
+      assertTrue(!!timing().querySelector('.in-msn svg'), 'une horloge à la place du numéro');
+      assertEqual(timing().querySelector('.in-msv').textContent.trim(), '1/2 envoyés', 'Alice est la seule à avoir son horaire à jour (Chloé : horaire modifié ou envoyé à une autre heure)');
+      assertFalse(timing().classList.contains('in-done'));
+      assertEqual(timing().getAttribute('data-act'), 'step');
+      assertEqual(timing().dataset.v, 'invites', 'le clic ouvre l\'étape où se trouvent les boutons horaires');
+      click('step', { v: 'invites' });
+      assertIncludes(text('.in-panel h2'), 'Invités');
+    });
+
+    it('rail : le jalon timing passe au vert quand tous les horaires de passage sont envoyés, et signale ceux à renvoyer', async function () {
+      await setup({ rows: d => { d.Instance_Invites.find(g => g.id === 3).Passage_envoye_heure = '09:00'; } }); // Chloé : horaire envoyé, puis l'ordre du jour a changé
+      const timing = () => qa('.in-thread .in-ms').find(b => /Timing envoyé/.test(b.textContent));
+      assertEqual(timing().querySelector('.in-msv').textContent.trim(), '0/2 envoyés');
+      assertIncludes(timing().querySelector('.in-mss').textContent, '1 à renvoyer');
+      assertTrue(!!timing().querySelector('.in-wdot'), 'pastille d\'alerte : un horaire est à renvoyer');
+      click('step', { v: 'invites' });
+      click('g-hor', { id: 1 });
+      click('g-hor', { id: 3 });
+      await waitFor(() => calls('UpdateRecord', 'Instance_Invites').filter(c => 'Passage_envoye_le' in c.fields).length === 2, 'horaires envoyés');
+      click('step', { v: 'macro' });
+      assertEqual(timing().querySelector('.in-msv').textContent.trim(), '2/2 envoyés');
+      assertTrue(timing().classList.contains('in-done'), 'tous les horaires sont envoyés : jalon fait');
+      assertFalse(!!timing().querySelector('.in-wdot'));
     });
 
     it('changer de séance ouvre la vue d\'ensemble de cette séance et retient le choix par utilisateur', async function () {
@@ -561,7 +619,7 @@
     it('les préférences enregistrées sont rejouées : instance Comité innovation, étape et vue', async function () {
       await setup({ noPrefs: true });
       await window.loadInstancesUserPreferences();
-      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'invites', Inst_vue: 'B', Inst_seances: '{}' }]]);
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_instance: '2', Inst_etape: 'invites', Inst_vue_ensemble: 'B', Inst_seances: '{}' }]]);
       window.InstancesPage._reset();
       await window.loadInstancesUserPreferences();
       await window.InstancesPage.open();

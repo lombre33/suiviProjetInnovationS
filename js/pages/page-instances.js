@@ -33,6 +33,9 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const MODAL_MENUS = ['relpick', 'permpick', 'dur', 'cfgtime'];
   const VARIANTS = ['A', 'B', 'C'];
+  // Vue d'ensemble : le rail complet (variante C : les étapes 1 à 6 dans le fil) est la vue par défaut (Antoine, 12/11/2026). Le choix est retenu
+  // dans Inst_vue_ensemble (l'ancienne colonne Inst_vue gardait « A » par simple défaut : elle n'est plus lue).
+  const DEFAULT_VUE = 'C';
   // Gagner de la place pour GFS (étape Compte rendu) : bandeau replié, relecture repliée, « plein cadre » (en-tête de l'appli et
   // panneaux masqués, GFS sur toute la hauteur) et hauteur de GFS. Retenu par utilisateur (Preferences_Widget.Inst_cadre, JSON).
   const HAUTEURS = ['ajustee', 'haute', 'tres-haute'];
@@ -57,7 +60,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false, subs: {} }
   };
 
@@ -178,7 +181,7 @@
       S.prefs.instanceId = Number(row.Inst_instance) || null;
       try { const map = JSON.parse(text(row.Inst_seances) || '{}'); S.prefs.seances = map && typeof map === 'object' ? map : {}; } catch (err) { S.prefs.seances = {}; }
       if (text(row.Inst_etape)) S.prefs.etape = text(row.Inst_etape);
-      if (VARIANTS.indexOf(text(row.Inst_vue)) >= 0) S.prefs.vue = text(row.Inst_vue);
+      if (VARIANTS.indexOf(text(row.Inst_vue_ensemble)) >= 0) S.prefs.vue = text(row.Inst_vue_ensemble);
       if (ODJ_VUES.indexOf(text(row.Inst_odj_vue)) >= 0) S.prefs.odjVue = text(row.Inst_odj_vue);
       S.prefs.cadre = parseCadre(text(row.Inst_cadre));
       S.prefs.invTri = L.GUEST_TRI.test(text(row.Inst_tri_invites)) ? text(row.Inst_tri_invites) : '';
@@ -191,7 +194,7 @@
     try {
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
-        Inst_etape: S.prefs.etape, Inst_vue: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri
+        Inst_etape: S.prefs.etape, Inst_vue_ensemble: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -388,16 +391,27 @@
     };
     const all = V.active.map((x, i) => {
       const num = i + 1;
-      if (x.key === 'odj') return thr('odj', num, 'Ordre du jour', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
-      if (x.key === 'invites') return thr('invites', num, 'Invités', plural(s.guests.length, 'invité', 'invités'), '', plural(nSpecial, 'spécifique', 'spécifiques') + (nNo ? ' · ' + plural(nNo, 'excusé', 'excusés') : ''));
-      if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites · ' + horOk + '/' + horTot + ' horaires', { pct: writtenPct });
+      // Jalons nommés par ce qu'ils attestent (Antoine, 12/11/2026) : « ODJ validé », « Présence invités confirmée », « Timing envoyé aux invités » ;
+      // le numéro et l'ouverture au clic restent ceux de l'étape (ordre du jour, invités, mail d'invitation).
+      if (x.key === 'odj') return thr('odj', num, 'ODJ validé', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
+      if (x.key === 'invites') return thr('invites', num, 'Présence invités confirmée', s.guests.length ? (nYes + nNo) + '/' + s.guests.length + ' réponses' : 'Aucun invité', s.guests.length ? '' : 'dim', s.guests.length ? plural(nYes, 'viendra', 'viendront') + ' · ' + plural(nNo, 'excusé', 'excusés') + (nAsk ? ' · ' + nAsk + ' à confirmer' : '') : '', { warn: nAsk > 0 && s.guests.length > 0 });
+      if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites', { pct: writtenPct });
       if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crPdf.length ? 'PDF exporté' : 'PDF à exporter', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
       if (x.key === 'crmail') return thr('crmail', num, 'Envoi du CR', s.mailCrLe ? L.fmtDate(s.mailCrLe) : 'À envoyer', s.mailCrLe ? '' : 'dim', plural(s.guests.length, 'destinataire', 'destinataires'));
       return thr('notifs', num, 'Notifications', projIds.length ? toSend.length + ' à mettre à dispo' : 'Aucun projet', projIds.length ? '' : 'dim', nWait + ' en attente · ' + plural(nSigned, 'signée', 'signées'), projIds.length ? { pct: Math.round(100 * nSigned / projIds.length) + '%' } : {});
     });
+    // « Timing envoyé aux invités » : jalon sans étape propre (les horaires de passage s'envoient dans l'étape Invités, colonne horloge) ;
+    // placé juste après le mail d'invitation. Fait quand TOUS les horaires à envoyer l'ont été (et aucun n'est à renvoyer après un changement).
+    const timingAt = all.findIndex(x => x.key === 'invitation');
+    if (timingAt >= 0) {
+      const nStale = s.guests.filter(g => L.horaireState(g, V.firstStart(g)) === 'stale').length;
+      const timingDone = horTot > 0 && horOk === horTot;
+      all.splice(timingAt + 1, 0, { key: 'timing', go: V.active.some(x => x.key === 'invites') ? 'invites' : 'invitation', num: '', icon: 'clock', title: 'Timing envoyé aux invités', done: timingDone, cls: timingDone ? 'done' : 'todo', warn: nStale > 0,
+        value: horTot ? horOk + '/' + horTot + ' envoyés' : 'Aucun horaire', valueCls: horTot ? '' : 'dim', sub: nStale ? plural(nStale, 'à renvoyer (horaire modifié)', 'à renvoyer (horaire modifié)') : (horTot && timingDone ? 'Tous les horaires de passage' : 'Horaires de passage'), pct: horTot ? Math.round(100 * horOk / horTot) + '%' : '' });
+    }
     const items = vue === 'C' ? all : all.filter(x => x.key !== 'odj' && x.key !== 'invites');
     if (items.length) {
-      h += '<div class="thread" role="list" aria-label="Progression de la séance">' + items.map(mi => '<button type="button" role="listitem" class="ms ' + mi.cls + '" ' + da('step', { v: mi.key }) + '><span class="msn">' + (mi.done ? ic('check', 'xs') : mi.num) + '</span><span class="msb"><span class="msl">' + esc(mi.title) + (mi.warn ? '<span class="wdot"></span>' : '') + '</span><span class="msv ' + mi.valueCls + '">' + esc(mi.value) + '</span><span class="mss">' + esc(mi.sub) + '</span>'
+      h += '<div class="thread" role="list" aria-label="Progression de la séance">' + items.map(mi => '<button type="button" role="listitem" class="ms ' + mi.cls + (mi.icon ? ' sub' : '') + '" ' + da('step', { v: mi.go || mi.key }) + '><span class="msn">' + (mi.done ? ic('check', 'xs') : (mi.icon ? ic(mi.icon, 'xs') : mi.num)) + '</span><span class="msb"><span class="msl">' + esc(mi.title) + (mi.warn ? '<span class="wdot"></span>' : '') + '</span><span class="msv ' + mi.valueCls + '">' + esc(mi.value) + '</span><span class="mss">' + esc(mi.sub) + '</span>'
         + (mi.pct ? '<span class="bar"><i style="width:' + mi.pct + '"></i></span>' : '') + (mi.tags && mi.tags.length ? '<span class="cols2">' + mi.tags.map(t => '<span class="tag plain ' + t.cls + '">' + esc(t.name) + '</span>').join('') + '</span>' : '') + '</span></button>').join('') + '</div>';
     }
     return h + '</div>';
@@ -1455,7 +1469,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: 'A', odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {} };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {} };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }
