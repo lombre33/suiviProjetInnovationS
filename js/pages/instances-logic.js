@@ -183,10 +183,6 @@
     return { top, all };
   }
   const allPoints = s => (s.points || []).reduce((list, p) => list.concat([p], p.subs || []), []);
-  function timeBand(startMin, seanceStartMin) {
-    const hours = Math.floor((Number(startMin) || 0) / 60) - Math.floor((Number(seanceStartMin) || 0) / 60);
-    return (((hours % 4) + 4) % 4) + 1;
-  }
   // Ordre du jour, vue « par type de décision » : tous les points, groupés d'abord pour validation, puis discussion, puis
   // information (l'ordre de passage est conservé dans chaque groupe). Jamais un filtre : un groupe vide n'est simplement pas listé.
   const NATURE_ORDER = ['validation', 'discussion', 'information'];
@@ -419,7 +415,7 @@
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,
-    schedule, scheduleWithSubs, allPoints, dureeOf, subsAllFilled, subsTotal, timeBand, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
+    schedule, scheduleWithSubs, allPoints, dureeOf, subsAllFilled, subsTotal, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
     isValid, validatedInfo, stepConditions
   };
   root.InstancesLogic = api;

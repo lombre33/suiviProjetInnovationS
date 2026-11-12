@@ -175,14 +175,10 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-pt .in-ini{display:none}
 @container pts (min-width:1561px){.in-pt>.in-pgroups{min-width:440px}}
 @container pts (max-width:1560px){.in-pt .in-nm{display:none}.in-pt .in-ini{display:inline}}
-/* Couleurs : par heure de la séance (vue Timing, 4 teintes qui reviennent) ou par type de décision (vue Par type). */
-.in-pt.in-b1{--tone:#2f6fed;--tone-s:#f6f9ff}
-.in-pt.in-b2{--tone:#0e8f8a;--tone-s:#f3fbfa}
-.in-pt.in-b3{--tone:#7a4fd6;--tone-s:#f9f6ff}
-.in-pt.in-b4{--tone:#98a2b3;--tone-s:#f7f8fa}
-.in-pt.in-t-validation{--tone:var(--accent);--tone-s:#f6f9ff}
-.in-pt.in-t-discussion{--tone:var(--viol);--tone-s:#f9f6ff}
-.in-pt.in-t-information{--tone:#98a2b3;--tone-s:#f7f8fa}
+/* Couleurs (Antoine 12/11 : pas de couleur par heure) : seuls les points pour validation et pour discussion sont mis en valeur ;
+   l'information garde la couleur par défaut. Même couleur dans les deux vues (Timing et Par type). */
+.in-pt.in-t-validation{--tone:var(--accent);--tone-s:#eef4ff}
+.in-pt.in-t-discussion{--tone:var(--viol);--tone-s:#f5f0ff}
 .in-pt.in-flag{--tone:var(--warn-sb);--tone-s:var(--warn-s)}
 .in-grph{display:flex;align-items:center;gap:8px;margin:10px 2px 2px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 .in-grph:first-child{margin-top:0}
@@ -192,7 +188,12 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-tag .in-ini{font-size:11px;letter-spacing:.02em}
 .in-pt.in-flag{background:var(--warn-s);border-color:var(--warn-sb)}
 .in-pt.in-dragging{opacity:.45}
-.in-pt.in-drop{box-shadow:0 -3px 0 0 var(--accent)}
+.in-pt.in-drop,.in-drop{box-shadow:0 -3px 0 0 var(--accent)}
+.in-drop-after{box-shadow:0 3px 0 0 var(--accent)}
+.in-pts>.in-dropend{grid-column:1/-1;height:0;margin-top:-5px;box-sizing:border-box;border-radius:12px}
+.in-pts.in-dragon>.in-dropend{height:40px;margin-top:0;border:2px dashed var(--border2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11.5px;font-weight:700}
+.in-pts.in-dragon>.in-dropend::before{content:"Déposer ici pour mettre en dernier"}
+.in-pts>.in-dropend.in-drop-after{border-color:var(--accent);background:var(--accent-s);color:var(--accent-h);box-shadow:none}
 .in-grip{display:inline-flex;align-items:center}
 .in-gripbtn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:30px;cursor:grab;border-radius:6px;color:var(--muted)}
 .in-gripbtn:hover{background:var(--sunken);color:var(--text)}

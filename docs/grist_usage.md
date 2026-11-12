@@ -278,8 +278,9 @@ panneaux (GFS = hauteur de l'écran moins une barre de 46 px ; Échap ou le bout
 cadre ne s'applique que sur l'étape Compte rendu et tant que la page Instances est affichée ; l'iframe
 de GFS n'est jamais recréée.
 
-**Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage, une teinte par heure de la séance
-(4 teintes qui reviennent). Vue *Par type* : tous les points (jamais un filtre), regroupés pour
+**Ordre du jour (10/11/2026).** Vue *Timing* : ordre de passage. Couleurs (12/11/2026, plus de
+couleur par heure) : seuls les points pour validation (bleu) et pour discussion (violet) sont mis en
+valeur, l'information garde la couleur par défaut, dans les deux vues. Vue *Par type* : tous les points (jamais un filtre), regroupés pour
 validation, puis discussion, puis information ; l'ordre de passage n'est pas modifiable dans cette vue.
 Le titre d'un point s'affiche toujours en entier (zone de texte qui grandit, dans sa propre colonne :
 c'est lui qui prend des lignes, jamais le reste) et **prend tout l'espace libre**. **Un point tient
@@ -331,6 +332,16 @@ nature de son point ; le curseur arrive dans son titre. Supprimer un point qui e
 confirmation et emporte ses sous-points. Les invités (sujets, premier horaire de passage), les conflits
 de disponibilité et les notifications liées comptent aussi les sous-points. Code : `L.dureeOf`,
 `L.scheduleWithSubs` (`instances-logic.js`), `pointBlockHtml` (`page-instances.js`), fin de `css/instances.css`.
+
+**Ordre du jour : clavier et glisser-déposer (12/11/2026).** Dans le titre d'un point, **Entrée**
+enregistre le titre et ajoute un point juste après (un sous-point sous le même point si l'on édite un
+sous-point ; rangs suivants décalés dans la même écriture), le curseur arrive dans le nouveau titre ;
+rien si le titre est encore vide (pas de lignes vides en rafale). **Maj+Entrée** ou **Ctrl/Cmd+Entrée** :
+retour à la ligne (comme GFS et publipostage+). Dans les autres champs (durée…), Entrée enregistre
+seulement. Glisser-déposer : moitié haute d'une ligne = avant, moitié basse = après (le trait de dépôt
+l'indique) ; une zone « Déposer ici pour mettre en dernier » apparaît en bas de la liste pendant le
+glissement (aucune place perdue sinon) ; déposer sur un sous-point place le point après son point.
+Code : `onEnter`, `addPoint`, `dropTarget`, `movePoint` (`page-instances.js`).
 
 ## Lignes_OPE
 

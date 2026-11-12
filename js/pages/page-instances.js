@@ -433,7 +433,7 @@
 
   // Une ligne de l'ordre du jour. `i` = rang dans l'ordre de passage ; `typeView` : la liste est triée par type (ordre de passage
   // non modifiable ici), les contrôles de déplacement sont donc verrouillés.
-  // Sous-point (`row.sub`) : même ligne, mêmes propriétés ; `par` = ligne du point parent (sa teinte), `n` = nombre de lignes sœurs.
+  // Sous-point (`row.sub`) : même ligne, mêmes propriétés ; `par` = ligne du point parent, `n` = nombre de lignes sœurs.
   function pointRowHtml(V, row, i, typeView, n, par) {
     const { s, m } = V;
     const p = row.p, msgs = V.conf[p.id] || [], isSub = !!row.sub, locked = typeView && !isSub;
@@ -441,7 +441,7 @@
     const guestChips = p.invites.map(gid => s.guests.find(x => x.id === gid)).filter(Boolean);
     const projOpen = isOpen('proj:' + p.id), invOpen = isOpen('inv:' + p.id), presOpen = isOpen('pres:' + p.id), lkOpen = isOpen('lien:' + p.id);
     const lkHas = p.lienType === 'gfs' ? !!m.gfsByIdent[p.lien] : !!p.lien;
-    const tone = (typeView ? 't-' + (par || row).p.nature : 'b' + L.timeBand((par || row).start, V.startMin)) + (isSub ? ' sub' : '');
+    const tone = 't-' + p.nature + (isSub ? ' sub' : ''); // couleur de mise en valeur : validation et discussion ; information = couleur par défaut
     const lockTip = 'Passez en vue Timing pour changer l\'ordre de passage';
     const subCount = isSub ? 0 : (row.subRows || []).length, subsOpen = !isSub && !!S.ui.subs[p.id];
     const foldTip = subCount ? (subsOpen ? 'Replier' : 'Déplier') + ' les sous-points (' + subCount + ')' + (row.subOver ? ' — ils durent ' + L.durTxt(row.subOver) + ' de plus que le point' : '') : 'Ajouter des sous-points à ce point';
@@ -506,7 +506,7 @@
     return h;
   }
 
-  // Vue de l'ordre du jour : « timing » (par défaut : ordre de passage, une teinte par heure) ou « type » (tous les points,
+  // Vue de l'ordre du jour : « timing » (par défaut : ordre de passage) ou « type » (tous les points,
   // groupés pour validation, puis discussion, puis information). Choix retenu par utilisateur (Preferences_Widget.Inst_odj_vue).
   const NATURE_GROUP_LABEL = { validation: 'Pour validation', discussion: 'Pour discussion', information: 'Pour information' };
   function odjHtml(V) {
@@ -514,7 +514,7 @@
     const typeView = S.prefs.odjVue === 'type';
     let h = '<div class="toolbar"><span class="total ' + (V.over ? 'over' : '') + '">' + plural(s.points.length, 'point', 'points') + ' · ' + L.durTxt(V.lastEnd - V.startMin) + ' · fin ' + L.hhmm(V.lastEnd)
       + '</span><div class="seg" role="group" aria-label="Affichage de l\'ordre du jour">'
-      + '<button type="button" class="' + (typeView ? '' : 'on') + '" title="Dans l\'ordre de passage, une couleur par heure" ' + da('odj-vue', { v: 'timing' }) + '>' + ic('clock', 's') + 'Timing</button>'
+      + '<button type="button" class="' + (typeView ? '' : 'on') + '" title="Dans l\'ordre de passage" ' + da('odj-vue', { v: 'timing' }) + '>' + ic('clock', 's') + 'Timing</button>'
       + '<button type="button" class="' + (typeView ? 'on' : '') + '" title="Tous les points, d\'abord pour validation, puis discussion, puis information" ' + da('odj-vue', { v: 'type' }) + '>' + ic('list', 's') + 'Par type</button></div>'
       + '<span class="sp"></span><button type="button" class="rbtn primary" title="Ajouter un point" aria-label="Ajouter un point" ' + da('pt-add') + '>' + ic('plus') + '</button></div>';
     if (!s.points.length) h += '<div class="empty">Aucun point</div>';
@@ -526,6 +526,7 @@
       });
     } else {
       V.sched.forEach((row, i) => { h += pointBlockHtml(V, row, i, false); });
+      if (V.sched.length > 1) h += '<div class="dropend" aria-hidden="true"></div>'; // zone de dépôt « tout en bas » (visible pendant un glissement)
     }
     return h + '</div>';
   }
@@ -1007,12 +1008,15 @@
     const byId = {}; L.allPoints(V.s).forEach(p => { byId[p.id] = p; });
     return ids.map((id, i) => (byId[id].ordre !== i + 1 ? upd('Instance_Points', id, { Ordre: i + 1 }) : null)).filter(Boolean);
   }
-  function movePoint(V, fromId, toId) {
-    const ids = siblingsOf(V, fromId).map(p => p.id);
-    const i = ids.indexOf(Number(fromId)), j = ids.indexOf(Number(toId));
-    if (i < 0 || j < 0 || i === j) return;
-    ids.splice(j, 0, ids.splice(i, 1)[0]);
-    write(pointsOrderOps(V, ids));
+  // Déplace un point (ou un sous-point parmi ses frères) avant / après `toId`, ou tout à la fin si `toId` est null.
+  function movePoint(V, fromId, toId, after) {
+    const ids = siblingsOf(V, fromId).map(p => p.id), from = Number(fromId);
+    if (ids.indexOf(from) < 0) return;
+    const next = ids.filter(id => id !== from);
+    if (toId == null) next.push(from);
+    else { const j = next.indexOf(Number(toId)); if (j < 0) return; next.splice(after ? j + 1 : j, 0, from); }
+    if (next.every((id, k) => id === ids[k])) return;
+    write(pointsOrderOps(V, next));
   }
   function shiftPoint(V, id, d) {
     const ids = siblingsOf(V, id).map(p => p.id);
@@ -1026,6 +1030,24 @@
     const el = rootEl() && rootEl().querySelector(sel);
     if (el) { el.focus(); return; }
     if ((tries || 0) < 15) setTimeout(() => focusWhenThere(sel, (tries || 0) + 1), 60);
+  }
+  // Valeurs d'un point neuf ; un sous-point neuf a une durée vide (le point garde la sienne) et la nature de son point.
+  const newPointFields = (V, par) => Object.assign({ Seance: V.s.id, Titre: '', Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' },
+    par ? { Parent: par.id, Nature: C.nature[par.nature] || C.nature.discussion, Duree_min: 0 } : { Nature: C.nature.discussion, Duree_min: 15 });
+  // Ajoute un point (un sous-point sous `par`) : à la fin, ou juste après `afterId` (touche Entrée dans un titre) ; les rangs des frères
+  // suivants sont décalés dans la même écriture. Le curseur arrive ensuite dans le titre du nouveau point. Une seule ajout à la fois.
+  async function addPoint(V, par, afterId) {
+    if (S.adding) return;
+    S.adding = true;
+    try {
+      const sibs = par ? (par.subs || []) : V.s.points;
+      const idx = afterId == null ? sibs.length - 1 : sibs.findIndex(q => q.id === Number(afterId));
+      const ops = [];
+      sibs.forEach((q, k) => { const want = k <= idx ? k + 1 : k + 2; if (q.ordre !== want) ops.push(upd('Instance_Points', q.id, { Ordre: want })); });
+      ops.push(addOp('Instance_Points', Object.assign(newPointFields(V, par), { Ordre: idx + 2 })));
+      const [newId] = await write(ops);
+      if (newId) focusWhenThere('.in-pt[data-pt="' + newId + '"] .in-ptitle'); // saisie fluide
+    } finally { S.adding = false; }
   }
   // Supprime un point ; ses sous-points partent avec lui (et les invités qui n'étaient là que pour eux).
   function deletePoint(V, p) {
@@ -1132,7 +1154,7 @@
     'validate': (el, V) => validateStep(V),
     'reopen': (el, V) => reopenStep(V),
     // ordre du jour
-    'pt-add': (el, V) => write([addOp('Instance_Points', { Seance: V.s.id, Ordre: V.s.points.reduce((n, p) => Math.max(n, p.ordre), 0) + 1, Titre: '', Nature: C.nature.discussion, Duree_min: 15, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' })]),
+    'pt-add': (el, V) => addPoint(V, null),
     'pt-del': (el, V) => {
       const p = pointOf(V, el.dataset.id); if (!p) return;
       if ((p.subs || []).length) { S.ui.menu = 'ptdel:' + p.id; S.ui.subs[p.id] = true; render(); return; } // confirmation : les sous-points partent avec lui
@@ -1141,13 +1163,10 @@
     'pt-del-ok': (el, V) => { const p = pointOf(V, el.dataset.id); S.ui.menu = null; if (p) deletePoint(V, p); else render(); },
     // sous-points
     'sub-toggle': (el) => { const id = Number(el.dataset.id); S.ui.menu = null; S.ui.subs[id] = !S.ui.subs[id]; render(); },
-    'sub-add': async (el, V) => {
+    'sub-add': (el, V) => {
       const par = pointOf(V, el.dataset.id); if (!par || par.parent) return;
-      const subs = par.subs || [];
       S.ui.subs[par.id] = true;
-      const [newId] = await write([addOp('Instance_Points', { Seance: V.s.id, Parent: par.id, Ordre: subs.reduce((n, q) => Math.max(n, q.ordre), 0) + 1, Titre: '', Nature: C.nature[par.nature] || C.nature.discussion, Duree_min: 0, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' })]);
-      // saisie fluide : le curseur arrive directement dans le titre du nouveau sous-point
-      if (newId) focusWhenThere('.in-pt[data-pt="' + newId + '"] .in-ptitle');
+      addPoint(V, par);
     },
     'pt-up': (el, V) => shiftPoint(V, el.dataset.id, -1),
     'pt-down': (el, V) => shiftPoint(V, el.dataset.id, 1),
@@ -1291,7 +1310,29 @@
       else if (pleinActive()) { S.prefs.cadre.plein = false; render(); savePrefs(); }
     } else if (e.target.matches && e.target.matches('input[data-filter]') && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
       menuKeyNav(e, e.target);
-    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) { e.preventDefault(); e.target.blur(); }
+    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) {
+      onEnter(e);
+    }
+  }
+  // Touche Entrée dans un champ de saisie. Zone de texte (titre d'un point) : Maj+Entrée ou Ctrl/Cmd+Entrée = retour à la ligne (comme dans
+  // GFS et publipostage+) ; Entrée seule = enregistre le titre et ajoute un nouveau point juste après (un sous-point si on édite un
+  // sous-point) avec le curseur dedans — rien si le titre est encore vide (pas de lignes vides en rafale). Autres champs : Entrée enregistre.
+  function onEnter(e) {
+    if (e.isComposing) return; // validation d'une saisie accentuée / IME : ce n'est pas un « Entrée »
+    const t = e.target, isTitle = t.tagName === 'TEXTAREA' && t.dataset.chg === 'pt-titre';
+    if (t.tagName === 'TEXTAREA' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      if (e.shiftKey) return; // natif : retour à la ligne
+      e.preventDefault();
+      t.setRangeText('\n', t.selectionStart, t.selectionEnd, 'end'); // Ctrl/Cmd+Entrée : pas natif, on l'insère
+      t.dispatchEvent(new Event('input', { bubbles: true })); // la zone regrandit
+      return;
+    }
+    e.preventDefault();
+    if (!isTitle) { t.blur(); return; }
+    if (!t.value.trim()) return;
+    const V = currentView(), id = Number(t.dataset.id);
+    t.blur(); // enregistre le titre (change)
+    if (V && V.s && pointOf(V, id)) addPoint(V, parentOf(V, id) || null, id);
   }
   // Glisser-déposer des points : on ne re-rend qu'au dépôt (re-rendre pendant le glissement l'annule).
   function onDragStart(e) {
@@ -1299,21 +1340,43 @@
     S.drag = Number(grip.dataset.drag);
     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(S.drag)); const row = grip.closest('.in-pt'); if (row) e.dataTransfer.setDragImage(row, 20, 20); } catch (err) { /* navigateur sans dataTransfer */ }
     const row = grip.closest('.in-pt'); if (row) row.classList.add('in-dragging');
+    const list = rootEl().querySelector('.in-pts'); if (list) list.classList.add('in-dragon'); // la zone « tout en bas » apparaît
   }
-  function clearDrag() { S.drag = null; rootEl().querySelectorAll('.in-dragging,.in-drop').forEach(el => el.classList.remove('in-dragging', 'in-drop')); }
+  function clearDrag() { S.drag = null; rootEl().querySelectorAll('.in-dragging,.in-drop,.in-drop-after,.in-dragon').forEach(el => el.classList.remove('in-dragging', 'in-drop', 'in-drop-after', 'in-dragon')); }
+  // Dernier élément du bloc d'un point : le point, puis ses sous-points et sa ligne d'ajout.
+  const lastOfBlock = row => { let el = row; while (el.nextElementSibling && (el.nextElementSibling.classList.contains('in-sub') || el.nextElementSibling.classList.contains('in-subbar'))) el = el.nextElementSibling; return el; };
+  // Où tomberait le point glissé : { id, after, el } (el = l'élément à surligner) ; id null = tout en bas. Moitié haute d'une ligne : avant ;
+  // moitié basse : après (sous ses sous-points) ; sur un sous-point : après son point ; la zone du bas et le vide sous la dernière ligne : à la fin.
+  function dropTarget(e) {
+    const t = e.target; if (!t || !t.closest) return null;
+    const row = t.closest('.in-pt[data-pt]');
+    if (row) {
+      if (row.dataset.sub) return { id: Number(row.dataset.sub), after: true, el: lastOfBlock(row.parentNode.querySelector('.in-pt[data-pt="' + row.dataset.sub + '"]') || row) };
+      const r = row.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+      return { id: Number(row.dataset.pt), after, el: after ? lastOfBlock(row) : row };
+    }
+    const end = t.closest('.in-dropend');
+    if (end) return { id: null, after: true, el: end };
+    const pts = t.closest('.in-pts');
+    if (pts && t === pts) { // le vide d'une marge de la liste : seulement sous la dernière ligne
+      const zone = pts.querySelector('.in-dropend'), last = zone && zone.previousElementSibling;
+      if (zone && last && e.clientY >= last.getBoundingClientRect().bottom) return { id: null, after: true, el: zone };
+    }
+    return null;
+  }
   function onDragOver(e) {
     if (S.drag == null) return;
-    const row = e.target.closest && e.target.closest('.in-pt[data-pt]:not(.in-sub)'); if (!row) return;
+    const to = dropTarget(e); if (!to) return;
     e.preventDefault();
-    rootEl().querySelectorAll('.in-drop').forEach(el => { if (el !== row) el.classList.remove('in-drop'); });
-    if (Number(row.dataset.pt) !== S.drag) row.classList.add('in-drop');
+    rootEl().querySelectorAll('.in-drop,.in-drop-after').forEach(el => el.classList.remove('in-drop', 'in-drop-after'));
+    if (to.id !== S.drag) to.el.classList.add(to.after ? 'in-drop-after' : 'in-drop');
   }
   function onDrop(e) {
     if (S.drag == null) return;
-    const row = e.target.closest && e.target.closest('.in-pt[data-pt]:not(.in-sub)'); if (!row) return;
+    const to = dropTarget(e); if (!to) return;
     e.preventDefault();
     const from = S.drag; clearDrag();
-    const V = currentView(); if (V && V.s && from !== Number(row.dataset.pt)) movePoint(V, from, row.dataset.pt);
+    const V = currentView(); if (V && V.s && from !== to.id) movePoint(V, from, to.id, to.after);
   }
 
   let wired = false;

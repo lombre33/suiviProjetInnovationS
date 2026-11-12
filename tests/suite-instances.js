@@ -893,6 +893,131 @@
       });
     });
 
+    // ---- Clavier dans le titre d'un point (Antoine 12/11) : Entrée ajoute un point ; Maj/Ctrl+Entrée = retour à la ligne ----
+    const typeInto = (el, value) => { el.focus(); el.select(); document.execCommand('insertText', false, value); };
+    const keyEnter = (el, mods) => { const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, mods || {})); el.dispatchEvent(ev); return ev; };
+
+    it('Entrée dans le titre d\'un point : enregistre le titre et ajoute un nouveau point juste après (rangs suivants décalés), curseur dans son titre', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        const ta = point(1).querySelector('.in-ptitle');
+        typeInto(ta, 'Approbation (modifiée)'); // vraie saisie : le navigateur déclenche « change » quand le champ perd le focus
+        const ev = keyEnter(ta);
+        assertTrue(ev.defaultPrevented, 'pas de retour à la ligne');
+        assertEqual(lastFields('UpdateRecord', 'Instance_Points', 1).Titre, 'Approbation (modifiée)', 'le titre est enregistré');
+        const added = await waitCall('AddRecord', 'Instance_Points');
+        assertEqual(added.Ordre, 2, 'juste après le point 1');
+        assertEqual(added.Duree_min, 15);
+        assertFalse('Parent' in added && added.Parent, 'un point, pas un sous-point');
+        assertDeepEqual(calls('UpdateRecord', 'Instance_Points').filter(c => c.fields.Ordre != null).map(c => [c.id, c.fields.Ordre]).sort((a, b) => a[0] - b[0]), [[2, 3], [3, 4]], 'les points suivants descendent d\'un rang');
+        await waitFor(() => qa('.in-pt').length === 4, 'nouveau point affiché');
+        assertEqual(qa('.in-pt .in-ptitle')[1].value, '', 'il est juste après le premier');
+        await waitFor(() => document.activeElement === qa('.in-pt .in-ptitle')[1], 'le curseur est dans le titre du nouveau point');
+        // Entrée dans ce titre encore vide : pas de ligne vide en rafale
+        const before = calls('AddRecord', 'Instance_Points').length;
+        keyEnter(document.activeElement);
+        await new Promise(r => setTimeout(r, 120));
+        assertEqual(calls('AddRecord', 'Instance_Points').length, before, 'titre vide : rien n\'est ajouté');
+      });
+    });
+
+    it('Entrée dans le titre d\'un sous-point : ajoute un sous-point juste après, sous le même point', async function () {
+      await withLayout(async () => {
+        await setup({ rows: SUBS_ROWS });
+        step('odj');
+        click('sub-toggle', { id: 3 });
+        const ta = point(21).querySelector('.in-ptitle');
+        ta.focus();
+        keyEnter(ta);
+        const added = await waitCall('AddRecord', 'Instance_Points');
+        assertEqual(added.Parent, 3, 'même point parent');
+        assertEqual(added.Ordre, 2, 'juste après le sous-point 21');
+        assertEqual(added.Duree_min, 0, 'durée vide : le point garde la sienne');
+        assertDeepEqual(calls('UpdateRecord', 'Instance_Points').filter(c => c.fields.Ordre != null).map(c => [c.id, c.fields.Ordre]), [[22, 3]], 'seul le sous-point suivant est décalé, jamais les points');
+        await waitFor(() => qa('.in-pt.in-sub').length === 3, 'sous-point ajouté');
+        await waitFor(() => document.activeElement && document.activeElement.closest('.in-pt.in-sub') && document.activeElement.value === '' && document.activeElement.closest('.in-pt').dataset.pt !== '22', 'curseur dans le nouveau sous-point');
+      });
+    });
+
+    it('Maj+Entrée ou Ctrl+Entrée dans le titre : retour à la ligne, rien n\'est ajouté ; les autres champs enregistrent avec Entrée', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        const ta = point(2).querySelector('.in-ptitle');
+        ta.focus(); ta.value = 'AB'; ta.setSelectionRange(1, 1);
+        const shift = keyEnter(ta, { shiftKey: true });
+        assertFalse(shift.defaultPrevented, 'Maj+Entrée : retour à la ligne natif du navigateur');
+        const ctrl = keyEnter(ta, { ctrlKey: true });
+        assertTrue(ctrl.defaultPrevented);
+        assertEqual(ta.value, 'A\nB', 'Ctrl+Entrée insère un retour à la ligne à l\'endroit du curseur');
+        keyEnter(ta, { metaKey: true });
+        assertEqual(ta.value, 'A\n\nB', 'Cmd+Entrée aussi');
+        await new Promise(r => setTimeout(r, 120));
+        assertEqual(calls('AddRecord', 'Instance_Points').length, 0, 'aucun ajout');
+        assertTrue(document.activeElement === ta, 'on reste dans le titre');
+        // dans un champ d'une seule ligne (durée) : Entrée enregistre, n'ajoute rien
+        const dur = point(2).querySelector('.in-pdur input');
+        typeInto(dur, '45');
+        keyEnter(dur);
+        assertEqual(lastFields('UpdateRecord', 'Instance_Points', 2).Duree_min, 45);
+        await new Promise(r => setTimeout(r, 120));
+        assertEqual(calls('AddRecord', 'Instance_Points').length, 0, 'Entrée dans la durée n\'ajoute pas de point');
+      });
+    });
+
+    // ---- Glisser-déposer : on peut aussi descendre un point tout en bas (Antoine 12/11) ----
+    const dragTo = (fromId, target, clientY, drop) => {
+      const dt = new DataTransfer();
+      point(fromId).querySelector('[data-drag]').dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientY }));
+      if (drop) target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientY }));
+    };
+    const orderWrites = () => calls('UpdateRecord', 'Instance_Points').filter(c => c.fields.Ordre != null).map(c => [c.id, c.fields.Ordre]).sort((a, b) => a[0] - b[0]);
+    const lower = el => { const r = el.getBoundingClientRect(); return r.top + r.height * 0.8; };
+    const upper = el => { const r = el.getBoundingClientRect(); return r.top + r.height * 0.2; };
+
+    it('glisser-déposer : un point se dépose SOUS le dernier (moitié basse de la dernière ligne), le trait de dépôt indique où', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('odj');
+        dragTo(1, point(3), lower(point(3)), false);
+        assertTrue(point(3).classList.contains('in-drop-after'), 'trait sous la ligne');
+        assertFalse(point(3).classList.contains('in-drop'));
+        point(3).dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer(), clientY: upper(point(3)) }));
+        assertTrue(point(3).classList.contains('in-drop') && !point(3).classList.contains('in-drop-after'), 'moitié haute : trait au-dessus');
+        point(3).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer(), clientY: lower(point(3)) }));
+        assertDeepEqual(orderWrites(), [[1, 3], [2, 1], [3, 2]], 'le point 1 passe en dernier');
+        await waitFor(() => qa('.in-pt .in-ptitle')[2].value === 'Approbation du compte rendu', 'point 1 en dernier à l\'écran');
+        assertEqual(qa('.in-dragging,.in-drop,.in-drop-after,.in-dragon').length, 0, 'plus de marque de glissement');
+      });
+    });
+
+    it('glisser-déposer : la zone « tout en bas » apparaît pendant le glissement et met le point en dernier ; sur un sous-point : après son point', async function () {
+      await withLayout(async () => {
+        await setup({ rows: SUBS_ROWS });
+        step('odj');
+        const zone = q('.in-dropend');
+        assertTrue(!!zone, 'zone de dépôt en fin de liste');
+        assertTrue(zone.getBoundingClientRect().height < 2, 'invisible hors glissement (aucune place perdue)');
+        dragTo(1, zone, 0, false);
+        assertTrue(q('.in-pts').classList.contains('in-dragon'));
+        assertTrue(zone.getBoundingClientRect().height >= 30, 'la zone s\'agrandit pendant le glissement');
+        assertTrue(zone.classList.contains('in-drop-after'), 'et se surligne quand on est dessus');
+        zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer(), clientY: 0 }));
+        assertDeepEqual(orderWrites(), [[1, 3], [2, 1], [3, 2]], 'tout en bas');
+        assertFalse(q('.in-pts').classList.contains('in-dragon'));
+        // sur un sous-point (ouvert) : le point glissé se place après son point, jamais au milieu de ses sous-points
+        window.__TEST_CALLS__.length = 0;
+        await setup({ rows: SUBS_ROWS });
+        step('odj');
+        click('sub-toggle', { id: 3 });
+        dragTo(1, point(21), upper(point(21)), true);
+        assertDeepEqual(orderWrites(), [[1, 3], [2, 1], [3, 2]], 'après le point 3 (et ses sous-points)');
+        await waitFor(() => qa('.in-pt:not(.in-sub) .in-ptitle')[2].value === 'Approbation du compte rendu', 'point 1 après le point 3');
+      });
+    });
+
     it('glisser-déposer : le point déposé prend la place de la cible (une seule écriture groupée)', async function () {
       await setup();
       step('odj');
@@ -955,21 +1080,25 @@
       assertIncludes(qa('.in-mpres').pop().title, 'Présenté par Alice Martin, Bob Durand');
     });
 
-    it('couleurs : en vue Timing (par défaut), chaque heure de la séance a sa teinte ; les points d\'une même heure partagent la leur', async function () {
-      await setup();
+    it('couleurs : plus de couleur par heure ; validation et discussion sont mises en valeur, l\'information garde la couleur par défaut (vue Timing par défaut)', async function () {
+      await setup({ rows: d => { d.Instance_Points.push({ id: 5, Seance: 2, Ordre: 4, Titre: 'Point d\'information', Nature: 'Information', Duree_min: 10, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' }); } });
       step('odj');
-      const band = id => (point(id).className.match(/in-b(\d)/) || [])[1];
-      assertEqual(band(1), '1', '09:30');
-      assertEqual(band(2), '1', '09:40 : même heure que le premier point');
-      assertEqual(band(3), '2', '10:10 : l\'heure suivante');
-      assertTrue(qa('.in-pt').every(r => !/in-t-/.test(r.className)), 'pas de couleur de type en vue Timing');
-      assertDeepEqual(qa('.in-pt').map(r => r.dataset.pt), ['1', '2', '3'], 'ordre de passage');
+      assertTrue(qa('.in-pt').every(r => !/in-b\d/.test(r.className)), 'aucune teinte d\'heure');
+      assertEqual(L.timeBand, undefined, 'la règle de l\'heure n\'existe plus');
+      assertTrue(point(1).classList.contains('in-t-validation') && point(3).classList.contains('in-t-validation'));
+      assertTrue(point(2).classList.contains('in-t-discussion'));
+      assertDeepEqual(qa('.in-pt').map(r => r.dataset.pt), ['1', '2', '3', '5'], 'ordre de passage');
       assertTrue(q('.in-toolbar .in-seg button.in-on').textContent.indexOf('Timing') >= 0, 'Timing est la vue par défaut');
       assertEqual(qa('.in-grph').length, 0, 'pas de titres de groupe en vue Timing');
-      assertEqual(L.timeBand(9 * 60 + 30, 9 * 60 + 30), 1);
-      assertEqual(L.timeBand(10 * 60, 9 * 60 + 30), 2);
-      assertEqual(L.timeBand(12 * 60 + 10, 9 * 60 + 30), 4);
-      assertEqual(L.timeBand(13 * 60, 9 * 60 + 30), 1, 'les teintes reviennent après quatre heures');
+      // couleurs réelles (CSS chargé) : le dernier point commence à 10:35, il garde la couleur de sa nature, pas celle de son heure
+      await withLayout(async () => {
+        await setup({ rows: d => { d.Instance_Points.push({ id: 5, Seance: 2, Ordre: 4, Titre: 'Point d\'information', Nature: 'Information', Duree_min: 10, Projets: ['L'], Invites: ['L'], Presentateurs: ['L'], Lien_type: '', Lien: '' }); } });
+        step('odj');
+        const tone = id => getComputedStyle(point(id)).getPropertyValue('--tone').trim();
+        assertEqual(tone(1), tone(3), 'deux points pour validation : même couleur, à des heures différentes');
+        assertTrue(tone(1) !== tone(2), 'validation et discussion se distinguent');
+        assertEqual(tone(5), '', 'l\'information n\'a pas de couleur de mise en valeur');
+      });
     });
 
     it('vue « par type de décision » : tous les points, pour validation puis discussion puis information — un tri, pas un filtre', async function () {
@@ -982,7 +1111,7 @@
       assertEqual(point(1).classList.contains('in-t-validation'), true);
       assertEqual(point(2).classList.contains('in-t-discussion'), true);
       assertEqual(point(5).classList.contains('in-t-information'), true);
-      assertTrue(qa('.in-pt').every(r => !/in-b\d/.test(r.className)), 'les teintes d\'heure laissent la place à celles du type');
+      assertTrue(qa('.in-pt').every(r => !/in-b\d/.test(r.className)), 'aucune teinte d\'heure');
       assertEqual(text('.in-pt[data-pt="3"] .in-ptime'), '10:10–10:35', 'les horaires restent ceux de l\'ordre de passage');
       assertEqual(text('.in-toolbar .in-total'), '4 points · 1 h 15 · fin 10:45');
       assertTrue(q('.in-toolbar .in-seg button.in-on').textContent.indexOf('Par type') >= 0);
