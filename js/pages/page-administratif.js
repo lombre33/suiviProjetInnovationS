@@ -400,7 +400,9 @@
     // repliés/masqués : liste séparée par des virgules.
     { id: 'Admin_filtre_programme', type: 'Text' },
     { id: 'Admin_filtre_instance', type: 'Text' },
-    { id: 'Admin_filtre_recherche', type: 'Text' }
+    { id: 'Admin_filtre_recherche', type: 'Text' },
+    // Onglet affiché (notif / conv) : retenu depuis le 12/11/2026, pour retrouver « Conventions » après un rechargement.
+    { id: 'Admin_onglet_actif', type: 'Text' }
   ];
   let prefsRowId = null;
   const encodeIdxList = indices => indices.join(',');
@@ -1205,6 +1207,9 @@
         return;
       }
       prefsRowId = row.id;
+      // L'onglet est appliqué à part, AVANT le garde-fou ci-dessous : il ne compte pas comme « préférence de volets » (sinon un
+      // onglet seul enregistré ferait lire des listes vides comme « aucun volet replié », volets vides dépliés compris).
+      if (row.Admin_onglet_actif === 'notif' || row.Admin_onglet_actif === 'conv') activeTab = row.Admin_onglet_actif;
       const hasSavedPreferences = !!(text(row.Admin_notif_repliees) || text(row.Admin_notif_masquees) ||
         text(row.Admin_conv_repliees) || text(row.Admin_conv_masquees) ||
         text(row.Admin_filtre_programme) || text(row.Admin_filtre_instance) || text(row.Admin_filtre_recherche));
@@ -1269,6 +1274,16 @@
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
     } catch (err) {
       console.warn('Enregistrement des préférences Administratif a échoué :', err.message);
+    }
+  }
+  // Changement d'onglet : seul l'onglet est écrit. Une sauvegarde complète figerait au passage l'état par défaut des volets (un volet
+  // vide au moment du clic resterait replié même une fois rempli) alors que l'utilisateur n'y a pas touché.
+  async function saveActiveTab() {
+    if (!prefsRowId || !window.CoreGrist?.gristInstance) return;
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, { Admin_onglet_actif: activeTab }]]);
+    } catch (err) {
+      console.warn("Enregistrement de l'onglet Administratif a échoué :", err.message);
     }
   }
   // Frappe dans la recherche : écriture différée (une seule, après la dernière lettre) plutôt qu'à chaque touche.
@@ -1429,6 +1444,7 @@
       activeTab = btn.dataset.adminTab;
       closePopover();
       switchTab();
+      saveActiveTab();
     }));
   }
 

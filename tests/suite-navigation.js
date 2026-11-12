@@ -302,4 +302,95 @@
       } finally { api.applyUserActions = original; restore(); }
     });
   });
+
+  // Le sous-menu (onglet, étape) de chaque page est retrouvé avec la page. Instances (étape, vue, instance) est couverte par
+  // tests/suite-instances.js ; To Do et Installation ont leurs propres tests de relecture, ici on vérifie l'ensemble par le démarrage.
+  describe('Sous-menus retrouvés avec la page (Administratif, To Do, Installation des fonds)', function () {
+    const adminTab = key => document.querySelector(`[data-admin-tab="${key}"]`);
+    const adminTabWrites = () => window.__TEST_CALLS__.filter(call => call.type === 'UpdateRecord' && call.table === 'Preferences_Widget' && call.fields && 'Admin_onglet_actif' in call.fields);
+    const collapsedNotif = () => document.querySelectorAll('#admin-col-notif .admin-panel.is-collapsed').length;
+    async function setPrefs(fields) {
+      const id = Number(localStorage.getItem('suiviProjetInnovationS:prefsRowId'));
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', id, fields]]);
+    }
+
+    it('Administratif : l\'onglet Conventions est retenu (seul, sans écrire les volets) puis retrouvé après un rechargement', async function () {
+      const restore = prepare();
+      try {
+        await app().initializeApp();
+        app().showView('view-administratif');
+        fire(adminTab('conv'), 'click');
+        await waitFor(() => adminTabWrites().length === 1, 'onglet écrit dans Grist');
+        assertDeepEqual(Object.keys(adminTabWrites()[0].fields), ['Admin_onglet_actif'], 'seul l\'onglet est écrit : les volets gardent leur état par défaut');
+        assertEqual(adminTabWrites()[0].fields.Admin_onglet_actif, 'conv');
+        await waitFor(() => readMirror().pending === false, 'page Administratif confirmée');
+        // Retour sur Notifications en mémoire, puis Grist remis comme à la fermeture : le rechargement doit tout lire de Grist.
+        fire(adminTab('notif'), 'click');
+        await waitFor(() => adminTabWrites().length === 2, 'retour sur Notifications écrit');
+        await setPrefs({ Admin_onglet_actif: 'conv' });
+        await reload();
+        await app().initializeApp();
+        assertDeepEqual(visibleIds(), ['view-administratif']);
+        assertTrue(adminTab('conv').classList.contains('is-active'), 'onglet Conventions actif');
+        assertEqual(adminTab('conv').getAttribute('aria-selected'), 'true');
+        assertFalse(adminTab('notif').classList.contains('is-active'));
+        assertFalse(document.querySelector('[data-admin-panel="conv"]').classList.contains('is-hidden'), 'volets Conventions affichés');
+        assertTrue(document.querySelector('[data-admin-panel="notif"]').classList.contains('is-hidden'), 'volets Notifications masqués');
+      } finally { fire(adminTab('notif'), 'click'); restore(); }
+    });
+
+    it('Administratif : un onglet seul enregistré ne change pas l\'état par défaut des volets (les vides restent repliés)', async function () {
+      const restore = prepare();
+      try {
+        await app().initializeApp();
+        app().showView('view-administratif');
+        const before = collapsedNotif();
+        assertTrue(before > 0, 'précondition : des volets vides sont repliés par défaut');
+        await setPrefs({ Admin_onglet_actif: 'conv' });
+        await reload();
+        await app().initializeApp();
+        assertTrue(adminTab('conv').classList.contains('is-active'));
+        assertEqual(collapsedNotif(), before, 'aucun volet déplié du seul fait d\'avoir retenu l\'onglet');
+      } finally { fire(adminTab('notif'), 'click'); restore(); }
+    });
+
+    it('Administratif : un onglet enregistré inconnu est ignoré (on reste sur Notifications)', async function () {
+      const restore = prepare();
+      try {
+        await app().initializeApp();
+        app().showView('view-administratif');
+        await setPrefs({ Admin_onglet_actif: 'inexistant' });
+        await reload();
+        await app().initializeApp();
+        assertTrue(adminTab('notif').classList.contains('is-active'));
+        assertFalse(adminTab('conv').classList.contains('is-active'));
+      } finally { restore(); }
+    });
+
+    it('To Do et Installation des fonds : page, onglet et vue enregistrés reviennent ensemble au démarrage', async function () {
+      const restore = prepare();
+      try {
+        await app().initializeApp();
+        await setPrefs({ Todo_onglet_actif: 'conv', Todo_vue: 'all', Install_vue: 'diese' });
+        app().showView('view-todo');
+        await waitFor(() => readMirror().view === 'view-todo' && readMirror().pending === false, 'To Do confirmée');
+        await reload();
+        await app().initializeApp();
+        assertDeepEqual(visibleIds(), ['view-todo']);
+        assertTrue(document.querySelector('[data-todo-tab="conv"]').classList.contains('is-active'), 'onglet Conventions de la To Do');
+        assertEqual(document.getElementById('todo-view-select').value, 'all', 'vue « toute l\'équipe »');
+        app().showView('view-installation-fonds');
+        assertTrue(document.querySelector('[data-install-tab="diese"]').classList.contains('is-active'), 'colonne DIESE de l\'Installation');
+        await waitFor(() => readMirror().view === 'view-installation-fonds' && readMirror().pending === false, 'Installation confirmée');
+        await reload();
+        await app().initializeApp();
+        assertDeepEqual(visibleIds(), ['view-installation-fonds']);
+        assertTrue(document.querySelector('[data-install-tab="diese"]').classList.contains('is-active'), 'toujours la colonne DIESE après un nouveau rechargement');
+      } finally {
+        document.getElementById('todo-reset')?.click(); // onglet et vue remis à zéro pour les suites suivantes (état en mémoire de la page)
+        document.querySelector('[data-install-tab="all"]')?.click();
+        restore();
+      }
+    });
+  });
 })();

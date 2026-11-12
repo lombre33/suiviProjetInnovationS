@@ -1683,7 +1683,8 @@
       const after = await window.CoreGrist.getTable('Preferences_Widget');
       assertTrue('Admin_notif_repliees' in after[0], 'la colonne Admin_notif_repliees doit avoir été ajoutée');
       const addColumnCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget');
-      assertEqual(addColumnCalls.length, 7, 'les 4 colonnes Admin_notif/conv_repliees/masquees et les 3 colonnes de filtres doivent être ajoutées');
+      assertEqual(addColumnCalls.length, 8, 'les 4 colonnes Admin_notif/conv_repliees/masquees, les 3 colonnes de filtres et l\'onglet actif doivent être ajoutés');
+      assertTrue(addColumnCalls.some(c => c.colId === 'Admin_onglet_actif'), 'colonne Admin_onglet_actif créée');
       const addTableCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
       assertEqual(addTableCalls.length, 1, 'la table ne doit pas être recréée, seulement complétée');
     });

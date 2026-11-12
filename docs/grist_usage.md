@@ -424,6 +424,10 @@ repartait toujours sur le Kanban. Code : `js/app.js` (section « Dernière page 
   depuis la Rédaction, on retrouve Administratif. Une valeur inconnue (page supprimée, texte illisible) est ignorée : Kanban.
 - **Instances** : page retrouvée = `InstancesPage.open()` appelé au démarrage (elle ne chargeait ses données qu'au clic sur
   la barre). L'instance affichée est déjà retenue séparément (`Inst_instance`).
+- **Sous-menus** (12/11/2026) : chaque page retrouve aussi son onglet / son étape — Administratif : Notifications ou
+  Conventions (`Admin_onglet_actif`, auto-créée, seul l'onglet est écrit au clic ; avant ce jour il n'était pas retenu) ;
+  To Do : onglet et vue (`Todo_onglet_actif`, `Todo_vue`) ; Installation des fonds : colonne (`Install_vue`) ; Instances :
+  instance, séance, étape (ODJ, Invités, CR…) et vue (`Inst_*`). Non retenu : l'affichage tableau / cartes d'Administratif.
 - Limite connue : comme les autres préférences, la ligne est propre à un navigateur (id de ligne en cache) ; vider les
   données du site fait repartir sur le Kanban.
 
