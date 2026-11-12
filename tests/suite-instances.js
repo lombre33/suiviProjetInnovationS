@@ -2430,6 +2430,34 @@
       assertFalse(!!q('.in-compo'));
     });
 
+    it('durée de l\'instance : tous les quarts d\'heure (1 h 45 pour un CTO) ; une durée déjà enregistrée hors liste reste proposée', async function () {
+      assertTrue(L.DUREES.indexOf(105) >= 0 && L.DUREES.indexOf(135) >= 0 && L.DUREES.indexOf(75) >= 0, 'les quarts d\'heure y sont');
+      assertTrue(L.DUREES.every(d => d % 15 === 0), 'au quart d\'heure');
+      [60, 90, 120, 150, 180, 210, 240, 300, 360, 480].forEach(d => assertTrue(L.DUREES.indexOf(d) >= 0, 'les anciennes durées restent : ' + d));
+      await setup();
+      click('settings-open');
+      click('menu', { v: 'dur' });
+      assertEqual(text('.in-menu.in-tgrid [data-act="cfg-dur"][data-v="105"]'), '1 h 45');
+      assertTrue(qa('[data-act="cfg-dur"]').length >= 25, 'une case par quart d\'heure');
+      click('cfg-dur', { v: 105 });
+      assertEqual(lastFields('UpdateRecord', 'Instances', 1).Duree_min, 105);
+      await waitFor(() => /fin 11:15/.test(text('.in-dlg')), 'fin = 09:30 + 1 h 45');
+      // durée enregistrée hors des quarts d'heure (ex. 100 min) : toujours présente et cochée dans la liste
+      await setup({ rows: d => { d.Instances.find(i => i.id === 1).Duree_min = 100; } });
+      click('settings-open');
+      click('menu', { v: 'dur' });
+      assertTrue(!!q('[data-act="cfg-dur"][data-v="100"].in-on'), 'durée actuelle visible et cochée');
+    });
+
+    it('CTO : durée par défaut de 1 h 45 tant que la durée de l\'instance n\'est pas renseignée ; une durée enregistrée l\'emporte', async function () {
+      await setup({ rows: d => { d.Instances.find(i => i.id === 1).Duree_min = null; d.Instances.find(i => i.id === 2).Duree_min = null; } });
+      assertIncludes(text('.in-band .in-tp'), '→ 11:15', 'CTO : 09:30 + 1 h 45');
+      window.InstancesPage.state.prefs.instanceId = 2;
+      window.InstancesPage.render();
+      assertIncludes(text('.in-band .in-tp'), '→ 12:00', 'Comité innovation : 09:00 + 3 h par défaut, inchangé');
+      window.InstancesPage.state.prefs.instanceId = null;
+    });
+
     it('durée, heure habituelle : écrites sur Instances ; l\'heure de fin de la séance suit', async function () {
       await setup();
       click('settings-open');

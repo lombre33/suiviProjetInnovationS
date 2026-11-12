@@ -376,6 +376,12 @@ l'appel du jour) ; un invité qui change de réponse change donc de rang. Le tri
 en-tête (Personne, Réponse, Appel du jour) s'applique ensuite DANS chaque liste, jamais entre les deux.
 Code : `L.sortGuests`, `DEFAULT_REPONSE_RANK` (`instances-logic.js`), classes `gsec` (fin de `css/instances.css`).
 
+**Durée de l'instance (12/11/2026).** Le sélecteur de durée du paramétrage (`Instances.Duree_min`)
+propose tous les quarts d'heure de 30 min à 6 h, puis 7 h et 8 h (`L.DUREES` ; 1 h 45 pour un CTO) ;
+une durée déjà enregistrée hors de cette liste reste affichée et cochée. Tant que `Duree_min` est vide,
+« CTO Innovation » dure **1 h 45** (`INSTANCE_RULES[].duree`) et les autres instances 3 h ; une durée
+enregistrée l'emporte. Le sélecteur d'heure de début, lui, est déjà au quart d'heure.
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait

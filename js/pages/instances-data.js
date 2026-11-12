@@ -226,7 +226,7 @@
       const nom = instanceName(row), rule = L.instanceRule(nom);
       const cfg = {
         heureDebut: /^\d{1,2}:\d{2}$/.test(text(row.Heure_debut).trim()) ? text(row.Heure_debut).trim() : '09:30',
-        duree: Number(row.Duree_min) > 0 ? Number(row.Duree_min) : 180,
+        duree: Number(row.Duree_min) > 0 ? Number(row.Duree_min) : ((rule && rule.duree) || 180), // CTO : 1 h 45 par défaut
         // Paramétrage enregistré d'abord ; sinon les étapes propres au type d'instance (Comité innovation : sans envoi du CR ni notifications).
         steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),

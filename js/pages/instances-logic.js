@@ -30,7 +30,8 @@
   const normName = value => String(value == null ? '' : value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const INSTANCE_RULES = [
     // heures : les deux heures de début proposées d'un clic pour les séances du CTO (Antoine 12/11/2026), écrites dans Suivi_Instance.Heure
-    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice(), heures: ['09:00', '10:45'] },
+    // duree : durée par défaut tant que Instances.Duree_min est vide (un CTO dure 1 h 45)
+    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice(), heures: ['09:00', '10:45'], duree: 105 },
     { match: 'comite innovation', steps: ['odj', 'invites', 'invitation', 'cr'] }
   ];
   function instanceRule(name) {
@@ -74,6 +75,10 @@
     const total = Math.max(0, Math.round(n));
     return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
   }
+  // Durées proposées pour une instance : tous les quarts d'heure de 30 min à 6 h (1 h 45 pour un CTO), puis 7 h et 8 h.
+  const DUREES = [];
+  for (let d = 30; d <= 360; d += 15) DUREES.push(d);
+  DUREES.push(420, 480);
   function durTxt(n) {
     const h = Math.floor(n / 60), m = n % 60;
     if (!h) return m + ' min';
@@ -437,7 +442,7 @@
   const api = {
     findCompositionTable, detectComposition, matchesSearch, gradeKind, sortGuests, nextGuestTri, GUEST_TRI,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
-    toMin, hhmm, durTxt, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
+    toMin, hhmm, durTxt, DUREES, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,
     schedule, scheduleWithSubs, allPoints, dureeOf, subsAllFilled, subsTotal, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
     isValid, validatedInfo, stepConditions
