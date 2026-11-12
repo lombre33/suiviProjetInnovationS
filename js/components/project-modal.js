@@ -445,8 +445,25 @@
     opeWrap.appendChild(opeSelect);
     refs.Action_Ligne_OPE_a_faire = opeSelect;
     const opeChipsRow = opeWrap.querySelector('.cp-chip-row');
+    // Valeur de Grist hors OPE_OPTIONS (ex. « ligne validée ») : conservée comme option et puce
+    // supplémentaires, sinon le <select> se vide à l'ouverture et l'enregistrement effacerait l'action.
+    let opeExtraValue = '';
+    refs._setOpeAction = value => {
+      opeSelect.querySelectorAll('option[data-cp-extra]').forEach(o => o.remove());
+      opeExtraValue = value.trim() && !OPE_OPTIONS.some(o => o.value === value) ? value : '';
+      if (opeExtraValue) {
+        const extra = document.createElement('option');
+        extra.value = opeExtraValue;
+        extra.textContent = opeExtraValue;
+        extra.dataset.cpExtra = '1';
+        opeSelect.appendChild(extra);
+      }
+      opeSelect.value = value;
+    };
     const renderOpeChips = () => {
-      opeChipsRow.innerHTML = OPE_OPTIONS.filter(o => o.value).map(o => {
+      const chips = OPE_OPTIONS.filter(o => o.value);
+      if (opeExtraValue) chips.push({ value: opeExtraValue, label: opeExtraValue });
+      opeChipsRow.innerHTML = chips.map(o => {
         const variant = o.value === 'à determiner' ? ' warn' : '';
         return `<button type="button" class="cp-chip${variant}${o.value === opeSelect.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`;
       }).join('');
@@ -825,7 +842,7 @@
     Object.keys(refTables).forEach(k => setRef(refs[k], valueOf(record, [k]), refTables[k], ['nom_et_Prenom', 'Prenom', 'NOM', 'Nom', 'name', 'Acronyme', 'Nom_complet']));
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
     refs._refreshInstalleChez();
-    refs.Action_Ligne_OPE_a_faire.value = text(valueOf(record, ['Action_Ligne_OPE_a_faire']));
+    refs._setOpeAction(text(valueOf(record, ['Action_Ligne_OPE_a_faire'])));
 
     const conventionEnabled = valueOf(record, ['Convention_de_reversement']);
     const conventionCheck = m.querySelector('#cp-Convention_de_reversement');

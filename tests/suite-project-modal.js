@@ -225,6 +225,48 @@
       assertFalse(Array.from(select.options).some(option => option.value === 'Reporté à 2027'), 'l\'option ajoutée pour le projet précédent doit disparaître');
       assertEqual(select.options.length, 7, 'la liste fixe de 7 valeurs seulement');
     });
+
+    // Signalé par le fil Installation des fonds (12/11/2026) : le Grist d'Antoine contient des valeurs d'Action ligne
+    // OPE que la modale ne propose pas (ex. « ligne validée »). Le <select> se vidait à l'ouverture et le moindre
+    // enregistrement effaçait l'action dans Grist.
+    it('une Action ligne OPE hors liste (« ligne validée ») est conservée : puce affichée à l\'ouverture, réécrite telle quelle à l\'enregistrement', async function () {
+      const tables = await loadFixtureState();
+      const record = { ...tables.Projets.find(p => p.Acronyme === 'INNOVX'), Action_Ligne_OPE_a_faire: 'ligne validée' };
+      window.ProjectModal.open(record);
+      assertEqual(modalEl().querySelector('#cp-Action_Ligne_OPE_a_faire').value, 'ligne validée', 'l\'action doit rester sélectionnée');
+      const chip = modalEl().querySelector('.cp-chip-row [data-value="ligne validée"]');
+      assertTrue(!!chip && chip.classList.contains('active'), 'une puce active doit montrer la valeur inconnue');
+      setValue(modalEl().querySelector('#cp-comment'), 'Simple correction de commentaire');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertEqual(window.__TEST_CALLS__.length, 1);
+      assertEqual(window.__TEST_CALLS__[0].fields.Action_Ligne_OPE_a_faire, 'ligne validée', 'l\'action ne doit pas être effacée');
+    });
+
+    it('la puce d\'une Action ligne OPE hors liste peut être décochée puis recochée, et choisir une autre action la remplace', async function () {
+      const tables = await loadFixtureState();
+      const record = { ...tables.Projets.find(p => p.Acronyme === 'INNOVX'), Action_Ligne_OPE_a_faire: 'ligne validée' };
+      window.ProjectModal.open(record);
+      const select = modalEl().querySelector('#cp-Action_Ligne_OPE_a_faire');
+      const chip = () => modalEl().querySelector('.cp-chip-row [data-value="ligne validée"]');
+      chip().click();
+      assertEqual(select.value, '', 'cliquer la puce active la décoche');
+      assertTrue(!!chip(), 'la puce reste proposée pour pouvoir la recocher');
+      chip().click();
+      assertEqual(select.value, 'ligne validée');
+      modalEl().querySelector('.cp-chip-row [data-value="Prolongation de ligne"]').click();
+      assertEqual(select.value, 'Prolongation de ligne', 'choisir une autre action remplace la valeur hors liste');
+    });
+
+    it('l\'Action ligne OPE hors liste n\'est pas reportée sur le projet ouvert ensuite (création ou autre projet)', async function () {
+      const tables = await loadFixtureState();
+      const record = { ...tables.Projets.find(p => p.Acronyme === 'INNOVX'), Action_Ligne_OPE_a_faire: 'ligne validée' };
+      window.ProjectModal.open(record);
+      window.ProjectModal.open(); // création
+      const select = modalEl().querySelector('#cp-Action_Ligne_OPE_a_faire');
+      assertEqual(select.value, '', 'aucune action à la création');
+      assertEqual(select.options.length, 5, 'la liste fixe de 5 valeurs seulement');
+      assertFalse(!!modalEl().querySelector('.cp-chip-row [data-value="ligne validée"]'), 'la puce du projet précédent doit disparaître');
+    });
   });
 
   describe('Modale Projet — champs référence (Ligne_OPE, texte libre)', function () {
