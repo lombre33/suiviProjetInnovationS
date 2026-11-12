@@ -350,8 +350,8 @@ Code : `onEnter`, `addPoint`, `dropTarget`, `movePoint` (`page-instances.js`).
 **Grade du poste (12/11/2026).** `Postes2.grade` (lu seulement ; la fiche Poste ne l'écrit pas) :
 `L.gradeKind` ne retient que « VP » (aussi « vice-président ») et « Directeur.trice etablissement »
 (accents, casse et ponctuation ignorés) ; Agent, Direction service et assitant.e n'ont aucune couleur.
-Un VP ressort en magenta plein (étiquette d'invité sur un point, ligne et pastille « VP » dans l'étape
-Invités), un.e directeur.trice d'établissement en bleu-vert (pastille « Dir. »). Parmi les invités
+Un VP ressort en magenta plein (étiquette d'invité sur un point, pastille « VP » dans l'étape Invités ;
+pas de bandeau sur la ligne, Antoine 12/11), un.e directeur.trice d'établissement en bleu-vert (pastille « Dir. »). Parmi les invités
 **spécifiques** (ceux ajoutés sur un point ; ex-« spéciaux », renommés), les VP passent en premier, puis
 les directeur.trice.s d'établissement (voir « Deux listes d'invités » ci-dessous).
 Sans colonne `grade` (ou sans valeur), rien n'est coloré. Code : `gradeKind`, `sortGuests`
@@ -381,6 +381,12 @@ propose tous les quarts d'heure de 30 min à 6 h, puis 7 h et 8 h (`L.DUREES` ; 
 une durée déjà enregistrée hors de cette liste reste affichée et cochée. Tant que `Duree_min` est vide,
 « CTO Innovation » dure **1 h 45** (`INSTANCE_RULES[].duree`) et les autres instances 3 h ; une durée
 enregistrée l'emporte. Le sélecteur d'heure de début, lui, est déjà au quart d'heure.
+
+**Couleur des lignes d'invités (12/11/2026).** Dans l'étape Invités, la couleur d'une ligne suit la
+**présence prévue** (réponse à l'invitation) : fond vert = viendra, rouge = excusé, blanc par défaut
+(à confirmer). Un conflit de créneau reste signalé par une barre orange à gauche de la ligne et par
+les sujets orange, sans changer cette couleur. Le grade (VP, directeur.trice) ne colore plus la ligne :
+seulement sa pastille. Classes `rep-ok` / `rep-no` / `flag` (fin de `css/instances.css`).
 
 ## Lignes_OPE
 

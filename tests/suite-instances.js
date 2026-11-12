@@ -2307,9 +2307,9 @@
       const row = name => qa('.in-grow:not(.in-head)').find(r => r.querySelector('.in-pname').textContent.includes(name));
       const names = qa('.in-grow:not(.in-head) .in-pname .in-pn').map(e => e.textContent.trim());
       assertDeepEqual(names, ['Chloé Petit', 'Dana Roy', 'Bob Durand', 'Alice Martin'], 'spécifiques : VP, directrice d\'établissement, autre ; puis les permanents');
-      assertTrue(row('Chloé').classList.contains('in-gvp'), 'ligne du VP en couleur');
-      assertEqual(row('Chloé').querySelector('.in-gbadge').textContent, 'VP');
-      assertTrue(row('Dana').classList.contains('in-gdir'));
+      assertEqual(row('Chloé').querySelector('.in-gbadge').textContent, 'VP', 'le VP se reconnaît à sa pastille');
+      assertTrue(row('Chloé').querySelector('.in-gbadge').classList.contains('in-gvp'));
+      assertFalse(row('Chloé').classList.contains('in-gvp') || row('Dana').classList.contains('in-gdir'), 'pas de bandeau de couleur sur la ligne : elle suit la présence prévue');
       assertEqual(row('Dana').querySelector('.in-gbadge').textContent, 'Dir.');
       assertFalse(!!row('Bob').querySelector('.in-gbadge'), 'pas de grade connu : pas de couleur');
       assertFalse(!!row('Alice').querySelector('.in-gbadge'), 'Agent : pas de couleur');
@@ -2348,6 +2348,33 @@
       await setup({ rows: d => { d.Instance_Invites.find(g => g.id === 3).Origine = 'Liste permanente'; } });
       step('invites');
       assertEqual(qa('.in-gsec').length, 0, 'sans invité spécifique, la liste est simple');
+    });
+
+    it('étape Invités : la couleur de la ligne suit la présence prévue (vert = viendra, rouge = excusé, blanc par défaut), le VP n\'a que sa pastille', async function () {
+      await withLayout(async () => {
+        await setup({
+          tables: t => { t.Postes2.push({ id: 7, Nom_du_poste: 'Vice-président', grade: 'VP' }); t.Annuaire.find(a => a.id === 3).Poste2 = 7; },
+          rows: d => { d.Instance_Invites.find(g => g.id === 2).Reponse = 'Excusé(e)'; d.Instance_Invites.find(g => g.id === 3).Reponse = 'À confirmer'; }
+        });
+        step('invites');
+        const row = name => qa('.in-grow:not(.in-head)').find(r => r.querySelector('.in-pname').textContent.includes(name));
+        const bg = name => getComputedStyle(row(name)).backgroundColor;
+        const rgb = c => (String(c).match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const alice = rgb(bg('Alice')), bob = rgb(bg('Bob')), chloe = rgb(bg('Chloé'));
+        assertTrue(alice[1] > alice[0] + 5 && alice[1] > alice[2] - 1, 'Alice (viendra) : fond vert ' + alice);
+        assertTrue(bob[0] > bob[1] + 5 && bob[0] > bob[2] - 1, 'Bob (excusé) : fond rouge ' + bob);
+        assertTrue(chloe.length === 0 || bg('Chloé') === 'rgba(0, 0, 0, 0)' || chloe.every(v => v === 255), 'Chloé (à confirmer) : fond blanc, VP ou pas : ' + bg('Chloé'));
+        assertTrue(!!row('Chloé').querySelector('.in-gbadge.in-gvp'), 'le VP garde sa pastille');
+        assertEqual(getComputedStyle(row('Chloé')).boxShadow.indexOf('rgb(181, 23, 158)'), -1, 'pas de bandeau violet');
+        // le conflit de créneau de Chloé (09:30–09:50) reste signalé : barre orange, sans toucher à la couleur de présence
+        assertTrue(row('Chloé').classList.contains('in-flag'));
+        assertIncludes(getComputedStyle(row('Chloé')).boxShadow, 'rgb(224, 123, 0)', 'barre orange du conflit');
+        // changer la réponse recolore la ligne
+        click('g-rep', { id: 3, v: 'viendra' });
+        await waitFor(() => rgb(bg('Chloé'))[1] > rgb(bg('Chloé'))[0] + 5, 'Chloé passe au vert');
+        click('g-rep', { id: 3, v: 'attente' });
+        await waitFor(() => rgb(bg('Chloé')).every(v => v === 255) || bg('Chloé') === 'rgba(0, 0, 0, 0)', 'et revient au blanc');
+      });
     });
 
     it('notifications liées : statut par projet (Grist + Export_VP), jamais de lecture de PDF_signe', async function () {

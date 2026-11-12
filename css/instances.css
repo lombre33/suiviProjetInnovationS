@@ -266,7 +266,10 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-hsort.in-on{color:var(--accent-h)}
 .in-grow.in-head{background:var(--sunken);font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:6px 12px;border-radius:12px 12px 0 0}
 .in-grow:last-child{border-bottom:0}
-.in-grow.in-flag{background:var(--warn-s)}
+.in-grow.in-flag{box-shadow:inset 4px 0 0 #e07b00}
+/* La couleur d'une ligne d'invité suit la présence prévue (réponse) : vert = viendra, rouge = excusé, fond blanc par défaut */
+.in-grow.in-rep-ok{background:#e4f6ea}
+.in-grow.in-rep-no{background:#fde4e7}
 .in-pname{font-weight:800;font-size:13px;display:flex;align-items:center;gap:5px}
 .in-pname .in-ic{color:var(--viol)}
 .in-psub{font-size:11.5px;color:var(--muted);font-weight:600}
@@ -433,21 +436,14 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-pt.in-sub .in-ptime.in-pend{opacity:.55}
 .in-inp.in-derived:disabled{background:var(--sunken);color:var(--text);font-weight:800;opacity:1;border-color:transparent;cursor:default}
 
-/* Grade du poste (Postes2.grade, 12/11/2026) : les VP et les directeur.trice.s d'établissement ressortent en couleur, sur les points
-   (étiquette d'invité) et dans la liste des invités. VP : magenta plein ; directeur.trice : bleu-vert. Ni rouge, ni vert, ni orange
-   (réservés aux réponses et alertes), ni la couleur de validation/discussion. */
+/* Grade du poste (Postes2.grade, 12/11/2026) : les VP et les directeur.trice.s d'établissement ressortent en couleur sur les points
+   (étiquette d'invité) et par une pastille dans la liste des invités (pas de bandeau : la ligne suit la présence prévue). VP : magenta
+   plein ; directeur.trice : bleu-vert. Ni rouge, ni vert, ni orange (réservés aux réponses et alertes). */
 .in-tag.in-gvp{background:#b5179e;border-color:#b5179e;color:#fff}
 .in-tag.in-gdir{background:#e1f5f3;border-color:#0e8f8a;color:#0a6b67}
 .in-gbadge{flex:0 0 auto;display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.03em}
 .in-gbadge.in-gvp{background:#b5179e;color:#fff}
 .in-gbadge.in-gdir{background:#e1f5f3;color:#0a6b67;border:1px solid #0e8f8a}
-.in-grow.in-gvp{box-shadow:inset 4px 0 0 #b5179e}
-.in-grow.in-gvp:not(.in-flag){background:#fdf2fb}
-.in-grow.in-gdir{box-shadow:inset 4px 0 0 #0e8f8a}
-.in-grow.in-gdir:not(.in-flag){background:#f0faf9}
-.in-grow.in-gvp .in-pn{color:#8c1078}
-.in-grow.in-gdir .in-pn{color:#0a6b67}
-
 /* Heures de début proposées d'un clic dans le bandeau (CTO : 9h00 / 10h45) */
 .in-band .in-seg{align-self:center}
 
