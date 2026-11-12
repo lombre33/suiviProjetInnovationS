@@ -17,6 +17,8 @@
  * de la frise). Menu des séances : la prochaine et la dernière épinglées, puis « à venir » et « passées ».
  * Compte rendu : GFS intégré (pont Grist, comme publipostage+ dans la page Rédaction) pour le rédiger sur place ;
  * bouton « Télécharger le CR » sur Suivi_Instance.CR_PDF, le PDF exporté à la main depuis GFS une fois le texte relu.
+ * Mail d'invitation : le MÊME GFS (une seule iframe, jamais rechargée en passant d'une étape à l'autre) sous la carte de la date
+ * d'envoi, pour rédiger et envoyer le mail avec le modèle Publipostage+ de l'instance (Instances.Modele_invitation).
  *
  * Bouton « Mettre à disposition du VP » : jamais automatique, avec confirmation ; ne modifie PAS
  * Notifications.notifications_Statut ; le widget n'ouvre jamais Export_VP.PDF_signe (sécurité de la pièce signée
@@ -793,11 +795,14 @@
     syncCadre();
   }
 
-  // « Plein cadre » : seulement sur l'étape Compte rendu et tant que la page Instances est affichée. La classe de la page masque le
+  // « Plein cadre » : seulement sur les étapes Compte rendu et Mail d'invitation (celles qui portent GFS) et tant que la page Instances est affichée. La classe de la page masque le
   // bandeau et les panneaux ; celle de <body> masque l'en-tête de l'appli (marque + onglets) et ses marges (voir css/instances.css).
+  // Étapes qui portent GFS : le compte rendu et le mail d'invitation (même iframe, même « plein cadre »).
+  const GFS_STEPS = ['cr', 'invitation'];
+  const viewerStepOf = V => (V && V.s && GFS_STEPS.indexOf(V.view) >= 0 ? V.view : '');
   function pleinActive() {
     const V = S.view, view = document.getElementById('view-instances');
-    return !!(S.prefs.cadre.plein && S.loaded && V && V.s && V.view === 'cr' && view && !view.classList.contains('hidden'));
+    return !!(S.prefs.cadre.plein && S.loaded && viewerStepOf(V) && view && !view.classList.contains('hidden'));
   }
   function syncCadre() {
     const root = rootEl(); if (!root) return;
@@ -900,19 +905,21 @@
     el.textContent = gfsStatusLabel();
     el.classList.toggle('in-ok', viewer.gfs.phase === 'ready');
   }
-  // GFS (ou publipostage+ dedans) a écrit dans le document : la page ne relit QUE la colonne qui l'intéresse (CR_PDF : le PDF exporté),
-  // et seulement la table Suivi_Instance, avec un délai pour regrouper les écritures rapprochées. Avant, la moindre écriture de GFS
-  // dans Suivi_Instance (enregistrement automatique pendant la frappe, par exemple) relisait toutes les tables de la page.
-  const touchesCrPdf = actions => actions.some(a => {
+  // GFS (ou publipostage+ dedans) a écrit dans le document : la page ne relit QUE les colonnes qui l'intéressent (CR_PDF : le PDF exporté ;
+  // Mail_invitation_le / Mail_CR_le : la date d'envoi d'un mail, que publipostage+ peut renseigner après l'envoi), et seulement la table
+  // Suivi_Instance, avec un délai pour regrouper les écritures rapprochées. Avant, la moindre écriture de GFS dans Suivi_Instance
+  // (enregistrement automatique pendant la frappe, par exemple) relisait toutes les tables de la page.
+  const GFS_WATCHED_COLUMNS = [CR_PDF_COLUMN, 'Mail_invitation_le', 'Mail_CR_le'];
+  const touchesWatched = actions => actions.some(a => {
     if (!Array.isArray(a) || a[1] !== 'Suivi_Instance') return false;
     const fields = a[0] === 'AddRecord' ? a[3] : (a[0] === 'UpdateRecord' || a[0] === 'BulkUpdateRecord' || a[0] === 'BulkAddRecord' ? a[3] : null);
-    return !fields || typeof fields !== 'object' || Object.prototype.hasOwnProperty.call(fields, CR_PDF_COLUMN); // forme inconnue : on relit par prudence
+    return !fields || typeof fields !== 'object' || GFS_WATCHED_COLUMNS.some(col => Object.prototype.hasOwnProperty.call(fields, col)); // forme inconnue : on relit par prudence
   });
   async function reloadSeancesFromGrist() {
     try { S.raw.Suivi_Instance = await global.CoreGrist.getTable('Suivi_Instance'); rebuild(); render(); } catch (err) { console.warn('Rechargement des séances :', err.message); }
   }
   function onGfsWrite(actions) {
-    if (!Array.isArray(actions) || !touchesCrPdf(actions)) return;
+    if (!Array.isArray(actions) || !touchesWatched(actions)) return;
     clearTimeout(viewer.gfs.reloadTimer);
     viewer.gfs.reloadTimer = setTimeout(() => { viewer.gfs.reloadTimer = null; reloadSeancesFromGrist(); }, 1200);
   }
@@ -979,28 +986,40 @@
     const root = rootEl(); if (!root) return;
     const host = root.querySelector('[data-region="viewer"]'); if (!host) return;
     const V = S.view;
-    const show = !!(S.loaded && V && V.s && V.view === 'cr');
+    const vstep = viewerStepOf(V), inv = vstep === 'invitation';
+    const show = !!(S.loaded && vstep);
     host.hidden = !show; // masquée (pas détruite) hors de l'étape : GFS garde son état
     if (!show) {
       if (viewer.pdfKey) { viewer.pdfKey = ''; const pane = host.querySelector('[data-pane="pdf"]'); if (pane) pane.innerHTML = ''; }
       return;
     }
     if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"><div data-pane="gfs"></div><div data-pane="pdf" hidden></div></div></div>');
-    const edit = viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
+    // Mail d'invitation : toujours GFS (pas de PDF à afficher) ; Compte rendu : GFS ou PDF exporté selon le choix de la barre.
+    const edit = inv || viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
     host.firstChild.dataset.h = cadre.hauteur;
     const hLabel = { 'ajustee': '1×', 'haute': '1,5×', 'tres-haute': '2,5×' }[cadre.hauteur];
-    const c = crSummary(V);
-    host.querySelector('.in-vbar').innerHTML = withPrefix(
-      (plein ? '<span class="vname vsub"><strong>' + esc(V.inst.nom) + '</strong> · n°' + esc(V.s.num || '?') + ' · ' + esc(L.fmtDate(V.s.date) || 'sans date') + '</span>' : '')
+    const c = crSummary(V), sub = plein ? '<span class="vname vsub"><strong>' + esc(V.inst.nom) + '</strong> · n°' + esc(V.s.num || '?') + ' · ' + esc(L.fmtDate(V.s.date) || 'sans date') + '</span>' : '';
+    const status = '<span class="tag-soft ' + (viewer.gfs.phase === 'ready' ? 'ok' : '') + '" data-gfs-status>' + esc(gfsStatusLabel()) + '</span>';
+    // Barre du mail d'invitation : le modèle à ouvrir dans l'explorateur de GFS ; en plein cadre (le panneau est masqué), la date d'envoi et
+    // le compteur d'invitations écrites restent à portée.
+    const nWritten = V.s.guests.filter(g => g.ecritLe).length, modelName = V.cfg.modInvitation;
+    const invBar = sub + '<span class="vname">' + ic('mail', 's') + 'Mail d\'invitation dans GFS</span>'
+      + '<span class="tag-soft" data-inv-model title="' + esc(modelName ? 'Modèle à ouvrir dans l\'explorateur de GFS (Publipostage+, type e-mail)' : 'Choisissez le modèle dans le paramétrage de l\'instance') + '">' + esc(modelName ? 'Modèle : ' + modelName : 'Aucun modèle choisi') + '</span>' + status
+      + (plein ? '<span class="tag-soft ' + (V.s.guests.length && nWritten === V.s.guests.length ? 'ok' : '') + '">' + nWritten + '/' + V.s.guests.length + ' invitations écrites</span>' : '')
+      + '<span class="sp"></span>'
+      + (plein ? '<input type="date" class="dp" aria-label="Date d\'envoi du mail d\'invitation" value="' + esc(V.s.mailInvitationLe) + '" data-chg="inv-date">'
+        + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('inv-today') + '>' + ic('calCheck') + '</button>' : '');
+    const crBar = sub
       + '<div class="seg" role="group" aria-label="Affichage du compte rendu">'
       + '<button type="button" class="' + (edit ? 'on' : '') + '" ' + da('cr-mode', { v: 'edit' }) + '>' + ic('pencil', 's') + 'Rédiger dans GFS</button>'
       + '<button type="button" class="' + (edit ? '' : 'on') + '" ' + da('cr-mode', { v: 'pdf' }) + '>' + ic('fileLines', 's') + 'PDF exporté</button></div>'
-      + (edit ? '<span class="tag-soft ' + (viewer.gfs.phase === 'ready' ? 'ok' : '') + '" data-gfs-status>' + esc(gfsStatusLabel()) + '</span>'
-        : '<span class="vname">' + esc(hasPdf ? 'Compte rendu n°' + V.s.num + ' (PDF)' : 'Aucun PDF exporté') + '</span>')
+      + (edit ? status : '<span class="vname">' + esc(hasPdf ? 'Compte rendu n°' + V.s.num + ' (PDF)' : 'Aucun PDF exporté') + '</span>')
       + (plein ? '<span class="tag-soft ' + (c.v0 ? 'ok' : '') + '">' + (c.v0 ? 'V0 rédigée' : 'V0 à rédiger') + (c.total ? ' · ' + c.valid + '/' + c.total + ' validé' : '') + '</span>' : '')
-      + '<span class="sp"></span>'
-      + (!edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
-      + (plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
+      + '<span class="sp"></span>';
+    host.querySelector('.in-vbar').innerHTML = withPrefix(
+      (inv ? invBar : crBar)
+      + (!inv && !edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
+      + (!inv && plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
       + (!plein && edit ? '<button type="button" class="pillbtn ghost" title="Hauteur de GFS : ' + HAUTEUR_LABEL[cadre.hauteur] + '. Cliquer pour l\'agrandir : le défilement de la page déplie alors GFS" aria-label="Hauteur de GFS" ' + da('cr-hauteur') + '>' + ic('vexpand', 's') + 'Hauteur ' + hLabel + '</button>' : '')
       + '<button type="button" class="pillbtn ghost" title="' + (plein ? 'Revenir à la page complète (touche Échap)' : 'Plein cadre : masque l\'en-tête et les panneaux, GFS prend toute la hauteur') + '" aria-label="' + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '" aria-pressed="' + (plein ? 'true' : 'false') + '" ' + da('cr-plein') + '>' + ic(plein ? 'shrink' : 'expand', 's') + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '</button>');
     host.querySelector('[data-pane="gfs"]').hidden = !edit;

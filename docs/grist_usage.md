@@ -405,6 +405,19 @@ passage envoyés/à envoyer d'après `Instance_Invites.Passage_envoye_*`, « à 
 ouvre l'étape Invités où se trouvent les boutons d'envoi), puis 4 · Compte rendu, 5 · Envoi du CR, 6 · Notifications.
 L'étape Invités signale (alerte non bloquante) les invités qui n'ont pas encore répondu.
 
+**Mail d'invitation : GFS intégré (12/11/2026).** L'étape « Mail d'invitation » porte maintenant GFS sous la carte de
+la date d'envoi, comme l'étape Compte rendu : même pont Grist que publipostage+ dans la page Rédaction
+(`js/core/grist-bridge.js`), même iframe (une seule, jamais rechargée en passant du compte rendu à l'invitation et
+retour ; masquée, pas détruite, sur les autres étapes), enregistrement sélectionné = la ligne de la séance dans
+`Suivi_Instance` (publipostage+ y retrouve ses colonnes ; ses invités passent par « Tables liées » vers
+`Instance_Invites`). La barre indique le modèle à ouvrir dans l'explorateur de GFS (`Instances.Modele_invitation`,
+modèle de type e-mail) : le widget ne peut pas piloter l'explorateur de GFS, c'est la personne qui ouvre le modèle.
+Pas de bascule PDF (un mail n'a pas de PDF), mais « Hauteur » et « Plein cadre » comme pour le compte rendu ; en plein
+cadre (panneau masqué) la barre garde la date d'envoi (`Suivi_Instance.Mail_invitation_le`, qui valide l'étape),
+le bouton « Envoyé aujourd'hui » et le compteur d'invitations écrites. Quand GFS écrit dans `Suivi_Instance`, la page ne
+relit que si une des colonnes `CR_PDF`, `Mail_invitation_le` ou `Mail_CR_le` est touchée (publipostage+ peut renseigner
+la date d'envoi après l'envoi). Non validé dans un vrai Grist (le proxy de ce projet n'atteint pas GFS).
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait
