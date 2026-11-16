@@ -11,7 +11,14 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-root svg.in-ic.in-dots{stroke-width:3.4}
 .in-rel{position:relative;display:inline-flex}
 .in-band{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:7px 10px}
-.in-inst-badge{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:999px;background:var(--accent);color:#fff;font-weight:800;font-size:12.5px}
+/* Choix de l'instance : boutons radio (instances principales) + icône « Autres instances » ; l'instance choisie est le badge bleu. */
+.in-instsw{display:inline-flex;align-items:center;gap:2px;background:var(--sunken);border-radius:999px;padding:2px}
+.in-inst-badge,.in-inst-opt{display:inline-flex;align-items:center;height:28px;padding:0 12px;border:0;border-radius:999px;font:inherit;font-weight:800;font-size:12.5px;white-space:nowrap}
+.in-inst-badge{background:var(--accent);color:#fff;cursor:default}
+.in-inst-opt{background:transparent;color:var(--muted);cursor:pointer}
+.in-inst-opt:hover{color:var(--text);background:var(--surface)}
+.in-instsw .in-ibtn{width:28px;height:28px}
+.in-instsw .in-ibtn:hover,.in-instsw .in-ibtn.in-on{background:var(--surface);color:var(--text)}
 .in-sel,.in-tp{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
 .in-sel:hover,.in-tp:hover{border-color:var(--accent-sb);background:var(--accent-s)}
 .in-tp{height:26px;padding:0 10px;font-size:12px}
@@ -344,16 +351,6 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-wrap{display:flex;flex-direction:column;gap:12px}
 .in-loading{padding:40px;text-align:center;color:var(--muted);font-weight:600}
 
-/* Entrée « Instances » de la barre de navigation (hors .in-root : pas de variables locales) */
-.in-navdd{position:relative;display:inline-flex}
-.in-navmenu{position:absolute;top:calc(100% + 8px);right:0;min-width:220px;background:#fff;border:1px solid #e3e7ee;border-radius:14px;padding:5px;box-shadow:0 18px 40px -12px rgba(9,16,35,.35),0 2px 8px rgba(9,16,35,.1);z-index:200;display:flex;flex-direction:column}
-.in-navmenu[hidden]{display:none}
-.in-navitem{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:8px 11px;border:0;border-radius:9px;background:transparent;text-align:left;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:#1b2430}
-.in-navitem:hover{background:#eef1f6}
-.in-navitem.is-on{background:#2f6fed;color:#fff}
-.in-navsub{font-size:11px;color:#5d6779;font-weight:600}
-.in-navitem.is-on .in-navsub{color:#e8f0fe}
-.in-navmsg{padding:8px 11px;font-size:12px;color:#5d6779}
 /* Visionneuse du compte rendu (PDF GFS) */
 .in-vframe{display:block;width:100%;height:560px;border:0;background:#fff}
 .in-root{padding:12px 16px 28px}

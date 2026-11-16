@@ -234,7 +234,7 @@
         modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR),
         heuresChoix: rule && rule.heures ? rule.heures.slice() : [] // heures de début proposées d'un clic (CTO : 9h00 ou 10h45)
       };
-      return { id: row.id, nom, cfg, seances: [], known: !!rule };
+      return { id: row.id, nom, cfg, seances: [], known: !!rule, principal: !!(rule && rule.principal) };
     });
     // Seules les instances CTO Innovation et Comité innovation sont présentées (10/11/2026). Si aucune ne porte l'un de ces
     // noms (nom différent dans Grist), on garde tout plutôt que d'afficher une page vide : `filtered` le dit.
@@ -243,6 +243,10 @@
     // Les plus complètes d'abord (le CTO a toutes les étapes), puis par nom : même ordre que dans la maquette.
     const instances = (filtered ? known : everyInstance).slice().sort((a, b) => (b.cfg.steps.length - a.cfg.steps.length) || a.nom.localeCompare(b.nom, 'fr'));
     const instById = {}; instances.forEach(i => { instById[i.id] = i; });
+    // Boutons d'instance du bandeau : les instances principales (CTO Innovation, Comité innovation) ; les autres sont derrière l'icône
+    // « Autres instances ». Sans instance principale (noms différents dans Grist : on garde tout), les deux premières font les boutons.
+    const instancesMain = instances.some(i => i.principal) ? instances.filter(i => i.principal) : instances.slice(0, 2);
+    const instancesOthers = instances.filter(i => instancesMain.indexOf(i) < 0);
 
     const seanceById = {};
     (raw.Suivi_Instance || []).forEach(row => {
@@ -289,7 +293,7 @@
       seanceById[seance.id] = seance;
     });
     instances.forEach(inst => inst.seances.sort((a, b) => (a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id))));
-    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById, instancesFiltered: filtered, composition };
+    return { people, peopleById, projects, projectsById, lieux, lieuxById, gfs, gfsByIdent, instances, instById, seanceById, instancesFiltered: filtered, instancesMain, instancesOthers, composition };
   }
 
   global.InstancesData = {

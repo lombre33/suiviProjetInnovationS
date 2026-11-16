@@ -304,7 +304,7 @@ pleins. Couleurs dans la fin de `css/instances.css` (bloc « Étape Invités »)
 
 **Instances présentées (10/11/2026).** Seules les instances dont le nom (colonne `Instances` de la
 table `Instances`) est « CTO Innovation » ou « Comité innovation » (casse, accents et ponctuation
-ignorés, mots entiers) apparaissent dans le menu et dans la page ; leurs séances seules sont
+ignorés, mots entiers) apparaissent dans la page (boutons du bandeau) ; leurs séances seules sont
 chargées. Si aucune instance ne porte l'un de ces noms, tout est affiché plutôt qu'une page vide.
 Les règles sont dans `INSTANCE_RULES` (`js/pages/instances-logic.js`). Tant que
 `Instances.Etapes_actives` est vide, « Comité innovation » suit 4 étapes (ordre du jour, invités,
@@ -417,6 +417,16 @@ cadre (panneau masqué) la barre garde la date d'envoi (`Suivi_Instance.Mail_inv
 le bouton « Envoyé aujourd'hui » et le compteur d'invitations écrites. Quand GFS écrit dans `Suivi_Instance`, la page ne
 relit que si une des colonnes `CR_PDF`, `Mail_invitation_le` ou `Mail_CR_le` est touchée (publipostage+ peut renseigner
 la date d'envoi après l'envoi). Non validé dans un vrai Grist (le proxy de ce projet n'atteint pas GFS).
+
+**Choix de l'instance dans la page (16/11/2026).** Le menu déroulant « Instances » de la barre de navigation est
+supprimé : « Instances » est un simple bouton qui ouvre la page. Le choix d'instance est dans le bandeau de la page,
+à la place de l'ancien badge (même ligne, aucune place verticale en plus) : un bouton radio par **instance principale**
+(`principal: true` dans `INSTANCE_RULES` : CTO Innovation, Comité innovation), l'instance affichée en bleu, et une icône
+« ⋯ Autres instances » qui ouvre le menu des autres (vide pour l'instant : COPIL et COT seront ajoutées plus tard,
+en les déclarant dans `INSTANCE_RULES`). Une instance non principale choisie prend la place d'un bouton. Flèches
+gauche/droite = instance voisine (focus conservé). Sans aucune instance principale reconnue (noms différents dans
+Grist), les deux premières font les boutons. Le choix reste retenu par utilisateur (`Preferences_Widget.Inst_instance`).
+`tests/index.html` reproduit le bouton de la barre : à garder identique à `index.html`.
 
 ## Lignes_OPE
 

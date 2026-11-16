@@ -704,28 +704,95 @@
       }
     });
 
-    it('menu « Instances » de la barre de navigation : CTO Innovation et Comité innovation seulement, la page s\'ouvre sur l\'instance choisie', async function () {
+    it('barre de navigation : « Instances » est un simple bouton (plus de menu déroulant), il ouvre la page', async function () {
       window.InstancesPage._reset();
       window.InstancesPage._setToday(TODAY);
       const tables = await window.CoreGrist.loadAllTables();
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       const data = dataset();
       Object.keys(data).forEach(name => window.__mockSetTable(name, mk(data[name], data[name].length ? undefined : EMPTY_COLUMNS[name])));
-      const views = Array.from(document.querySelectorAll('.view'));
-      const hiddenBefore = views.map(v => v.classList.contains('hidden'));
-      try {
-        const menu = document.getElementById('instances-menu');
-        fireMouse(document.getElementById('btn-instances'), 'click');
-        await waitFor(() => !menu.hidden && menu.querySelectorAll('[data-inst]').length === 2, 'menu des instances');
-        assertDeepEqual(Array.from(menu.querySelectorAll('[data-inst]')).map(b => b.firstChild.textContent), ['CTO Innovation', 'Comité innovation'], 'COPIL n\'est pas proposée');
-        fireMouse(menu.querySelector('[data-inst="2"]'), 'click');
-        await waitFor(() => text('.in-inst-badge') === 'Comité innovation', 'instance Comité innovation affichée');
-        assertTrue(menu.hidden, 'le menu se referme');
-        assertFalse(document.getElementById('view-instances').classList.contains('hidden'), 'la vue Instances est affichée');
-      } finally {
-        views.forEach((v, i) => v.classList.toggle('hidden', hiddenBefore[i]));
-        document.getElementById('instances-menu').hidden = true;
-      }
+      const btn = document.getElementById('btn-instances');
+      assertTrue(!!btn, 'bouton « Instances » dans la barre');
+      assertFalse(btn.hasAttribute('aria-haspopup'), 'plus de menu déroulant');
+      assertFalse(btn.textContent.includes('▾'), 'plus de flèche de menu');
+      assertEqual(document.getElementById('instances-menu'), null, 'le menu de la barre n\'existe plus');
+      fireMouse(btn, 'click');
+      await waitFor(() => !!q('.in-instsw'), 'la page se charge au clic');
+      assertEqual(text('.in-inst-badge'), 'CTO Innovation');
+    });
+
+    it('bandeau : le choix d\'instance est dans la page, un bouton par instance principale (CTO Innovation, Comité innovation), l\'instance choisie en bleu', async function () {
+      await setup();
+      const group = q('.in-band .in-instsw');
+      assertTrue(!!group, 'les boutons d\'instance sont dans le bandeau (même ligne que l\'ancien badge)');
+      assertEqual(group.getAttribute('role'), 'radiogroup');
+      const radios = qa('.in-instsw [role="radio"]');
+      assertDeepEqual(radios.map(r => r.textContent.trim()), ['CTO Innovation', 'Comité innovation'], 'COPIL n\'est pas proposée pour l\'instant');
+      assertDeepEqual(radios.map(r => r.getAttribute('aria-checked')), ['true', 'false']);
+      assertTrue(radios[0].classList.contains('in-inst-badge'), 'l\'instance affichée est le badge bleu');
+      assertDeepEqual(radios.map(r => r.tabIndex), [0, -1], 'un seul arrêt de tabulation dans le groupe');
+      assertTrue(!!q('.in-instsw [data-act="menu"][data-v="inst"]'), 'icône « Autres instances »');
+      assertEqual(q('.in-instsw [data-act="menu"]').getAttribute('aria-label'), 'Autres instances');
+      // un clic sur l'autre bouton change d'instance (et la retient par utilisateur)
+      click('inst-pick', { id: 2 });
+      assertEqual(text('.in-inst-badge'), 'Comité innovation');
+      assertDeepEqual(qa('.in-instsw [role="radio"]').map(r => r.getAttribute('aria-checked')), ['false', 'true']);
+      assertEqual(qa('.in-chip.in-off').length, 2, 'les étapes du Comité : Envoi du CR et Notifications grisées');
+      await waitFor(() => String((lastFields('UpdateRecord', 'Preferences_Widget') || {}).Inst_instance) === '2', 'instance retenue');
+      click('inst-pick', { id: 1 });
+      assertEqual(text('.in-inst-badge'), 'CTO Innovation');
+      assertEqual(qa('.in-chip.in-off').length, 0);
+    });
+
+    it('bandeau : les flèches gauche/droite passent d\'une instance à l\'autre (boutons radio) et gardent le focus', async function () {
+      await withLayout(async () => { // page affichée : un bouton d'une page masquée ne prend pas le focus
+        await setup();
+        const on = () => q('.in-instsw [aria-checked="true"]');
+        on().focus();
+        fireKey(on(), 'ArrowRight');
+        assertEqual(text('.in-inst-badge'), 'Comité innovation');
+        assertTrue(document.activeElement === on(), 'le focus suit l\'instance choisie');
+        fireKey(on(), 'ArrowRight');
+        assertEqual(text('.in-inst-badge'), 'CTO Innovation', 'en boucle');
+        assertTrue(document.activeElement === on());
+        fireKey(on(), 'ArrowLeft');
+        assertEqual(text('.in-inst-badge'), 'Comité innovation');
+      });
+    });
+
+    it('bandeau : l\'icône « Autres instances » ouvre un menu (vide pour l\'instant : COPIL et COT viendront), Échap le referme', async function () {
+      await setup();
+      assertEqual(qa('[data-inst-menu]').length, 0);
+      click('menu', { v: 'inst' });
+      assertTrue(!!q('[data-inst-menu]'), 'menu ouvert');
+      assertIncludes(text('[data-inst-menu]'), 'COPIL et COT viendront plus tard');
+      assertEqual(q('.in-instsw [data-act="menu"]').getAttribute('aria-expanded'), 'true');
+      fireKey(q('.in-instsw [data-act="menu"]'), 'Escape');
+      assertEqual(qa('[data-inst-menu]').length, 0, 'Échap referme le menu');
+    });
+
+    it('bandeau : sans instance principale reconnue, les deux premières font les boutons et les suivantes sont derrière l\'icône ; la choisie prend la place d\'un bouton', async function () {
+      await setup({ rows: d => { d.Instances[0].Instances = 'CTO'; d.Instances[1].Instances = 'COT'; } });
+      assertDeepEqual(qa('.in-instsw [role="radio"]').map(r => r.textContent.trim()), ['COPIL', 'COT'], 'les deux premières (ordre alphabétique)');
+      click('menu', { v: 'inst' });
+      assertDeepEqual(qa('[data-inst-menu] .in-mi').map(b => b.firstChild.textContent), ['CTO']);
+      click('inst-pick', { id: 1 }); // « CTO », hors des deux boutons
+      assertEqual(text('.in-inst-badge'), 'CTO');
+      assertEqual(qa('.in-instsw [role="radio"]').length, 3, 'l\'instance choisie s\'ajoute aux deux boutons');
+      assertEqual(qa('[data-inst-menu]').length, 0, 'le menu se referme');
+    });
+
+    it('bandeau sans séance : le choix d\'instance reste disponible', async function () {
+      await setup({ rows: d => { d.Suivi_Instance = d.Suivi_Instance.filter(r => r.Instance !== 2); } });
+      click('inst-pick', { id: 2 });
+      assertIncludes(text('.in-band'), 'Aucune séance pour cette instance');
+      assertEqual(text('.in-inst-badge'), 'Comité innovation');
+      assertEqual(qa('.in-instsw [role="radio"]').length, 2);
+      click('inst-pick', { id: 1 }); // et on peut revenir à l'autre instance, bandeau sans séance compris
+      assertEqual(text('.in-inst-badge'), 'CTO Innovation');
+      click('inst-pick', { id: 2 });
+      click('menu', { v: 'inst' });
+      assertTrue(!!q('[data-inst-menu]'), 'l\'icône « Autres instances » répond aussi sans séance');
     });
 
     it('table Instances introuvable : message clair plutôt qu\'une page vide', async function () {

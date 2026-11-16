@@ -31,8 +31,9 @@
   const INSTANCE_RULES = [
     // heures : les deux heures de début proposées d'un clic pour les séances du CTO (Antoine 12/11/2026), écrites dans Suivi_Instance.Heure
     // duree : durée par défaut tant que Instances.Duree_min est vide (un CTO dure 1 h 45)
-    { match: 'cto innovation', steps: ALL_STEP_KEYS.slice(), heures: ['09:00', '10:45'], duree: 105 },
-    { match: 'comite innovation', steps: ['odj', 'invites', 'invitation', 'cr'] }
+    // principal : instance proposée d'un clic (boutons CTO / Comité) dans le bandeau de la page ; les autres (COPIL, COT, plus tard) sont derrière l'icône « Autres instances »
+    { match: 'cto innovation', principal: true, steps: ALL_STEP_KEYS.slice(), heures: ['09:00', '10:45'], duree: 105 },
+    { match: 'comite innovation', principal: true, steps: ['odj', 'invites', 'invitation', 'cr'] }
   ];
   function instanceRule(name) {
     const padded = ' ' + normName(name) + ' ';

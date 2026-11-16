@@ -71,7 +71,7 @@
   // ---------------------------------------------------------------------------------------------
   const SVG = {
     expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>', shrink: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>', vexpand: '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/>',
-    chevron: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>', plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12l5 5L20 7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    more: '<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', chevron: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>', plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12l5 5L20 7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     macro: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
     sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
@@ -150,7 +150,7 @@
         console.error('Page Instances :', err);
       } finally {
         S.loading = null;
-        render(); renderNavMenu();
+        render();
       }
     })();
     return S.loading;
@@ -295,10 +295,27 @@
     if (g.past.length) h += '<div class="mh">Passées</div>' + g.past.map(se => item(se)).join('');
     return h + '<div class="mi-sep"></div><button type="button" class="mi" ' + da('seance-new') + '><span>Nouvelle séance</span>' + ic('plus', 's') + '</button></div>';
   }
+  // Choix de l'instance dans le bandeau (Antoine, 16/11/2026) : un bouton par instance principale (CTO Innovation, Comité innovation), l'instance
+  // choisie en bleu, et une icône « Autres instances » (COPIL, COT, plus tard) ; une autre instance choisie prend la place d'un bouton. Même ligne
+  // que l'ancien badge : aucune place verticale de plus. Groupe de boutons radio : flèches gauche/droite pour passer de l'un à l'autre.
+  function instSwitchHtml(V) {
+    const { m, inst } = V;
+    const shown = m.instancesMain.concat(m.instancesOthers.indexOf(inst) >= 0 ? [inst] : []);
+    let h = '<div class="instsw" role="radiogroup" aria-label="Instance">' + shown.map(i => i.id === inst.id
+      ? '<button type="button" role="radio" aria-checked="true" class="inst-badge" data-instopt tabindex="0" title="Instance affichée">' + esc(i.nom) + '</button>'
+      : '<button type="button" role="radio" aria-checked="false" class="inst-opt" data-instopt tabindex="-1" ' + da('inst-pick', { id: i.id }) + '>' + esc(i.nom) + '</button>').join('');
+    h += '<div class="rel"><button type="button" class="ibtn instmore' + (isOpen('inst') ? ' on' : '') + '" title="Autres instances" aria-label="Autres instances" aria-haspopup="menu" aria-expanded="' + (isOpen('inst') ? 'true' : 'false') + '" ' + da('menu', { v: 'inst' }) + '>' + ic('more') + '</button>';
+    if (isOpen('inst')) {
+      h += '<div class="menu" data-inst-menu style="min-width:230px">' + (m.instancesOthers.length
+        ? m.instancesOthers.map(i => '<button type="button" class="mi ' + (i.id === inst.id ? 'on' : '') + '" ' + da('inst-pick', { id: i.id }) + '><span>' + esc(i.nom) + '</span><span class="mi-sub">' + i.cfg.steps.length + ' étapes</span></button>').join('')
+        : '<div class="mh" style="text-transform:none;letter-spacing:0;font-weight:600;line-height:1.4;padding:8px 11px">Pas d\'autre instance pour l\'instant : COPIL et COT viendront plus tard</div>') + '</div>';
+    }
+    return h + '</div></div>';
+  }
   function bandHtml(V) {
     const { m, inst, s } = V;
     const fold = !!(s && S.prefs.cadre.bandeau);
-    let h = '<section class="band' + (fold ? ' fold' : '') + '" aria-label="Séance et étapes"><span class="inst-badge">' + esc(inst.nom) + '</span>';
+    let h = '<section class="band' + (fold ? ' fold' : '') + '" aria-label="Séance et étapes">' + instSwitchHtml(V);
     if (!s) {
       return h + '<span class="muted">Aucune séance pour cette instance.</span><span class="sp"></span><button type="button" class="pillbtn" ' + da('seance-new') + '>' + ic('plus', 's') + 'Nouvelle séance</button>'
         + '<button type="button" class="rbtn ghost" title="Paramétrage de l\'instance" aria-label="Paramétrage de l\'instance" ' + da('settings-open') + '>' + ic('sliders') + '</button></section>';
@@ -1028,20 +1045,6 @@
     if (edit) ensureGfs(V); else renderPdfPane(V, pdfPane);
   }
 
-  // --- Menu « Instances » de la barre de navigation (une entrée par instance) ---
-  function renderNavMenu() {
-    const menu = document.getElementById('instances-menu'); if (!menu) return;
-    if (!S.loaded) { menu.innerHTML = '<span class="in-navmsg">' + esc(S.error ? 'Indisponible' : 'Chargement…') + '</span>'; return; }
-    const cur = currentInstance();
-    menu.innerHTML = S.model.instances.map(i => '<button type="button" class="in-navitem' + (cur && cur.id === i.id ? ' is-on' : '') + '" data-inst="' + i.id + '"><span>' + esc(i.nom) + '</span><span class="in-navsub">' + i.cfg.steps.length + ' étapes</span></button>').join('')
-      || '<span class="in-navmsg">Aucune instance</span>';
-  }
-  function showInstancesView() {
-    if (typeof global.showView === 'function') global.showView('view-instances');
-    else { document.querySelectorAll('.view').forEach(v => v.classList.add('hidden')); document.getElementById('view-instances')?.classList.remove('hidden'); }
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-instances'));
-  }
-
   // ---------------------------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------------------------
@@ -1211,6 +1214,7 @@
     'step': (el) => setStep(el.dataset.v),
     'vue': (el) => { S.prefs.vue = el.dataset.v; render(); savePrefs(); },
     'odj-vue': (el) => { if (ODJ_VUES.indexOf(el.dataset.v) < 0) return; S.prefs.odjVue = el.dataset.v; render(); savePrefs(); },
+    'inst-pick': el => { const id = Number(el.dataset.id); S.ui.menu = null; if (S.prefs.instanceId !== id) { S.prefs.instanceId = id; render(); savePrefs(); } else render(); },
     'seance-pick': (el, V) => { S.prefs.seances[V.inst.id] = Number(el.dataset.id); S.prefs.etape = 'macro'; S.ui.menu = null; render(); savePrefs(); },
     'seance-new': (el, V) => newSeance(V),
     'time-pick': (el, V) => {
@@ -1331,7 +1335,7 @@
     const handler = CLICK[el.dataset.act]; if (!handler) return;
     const V = currentView(); if (!V || !V.inst) return;
     if (el.disabled) return;
-    if (V.s || el.dataset.act === 'seance-new' || el.dataset.act.indexOf('settings') === 0 || el.dataset.act.indexOf('cfg-') === 0 || el.dataset.act === 'menu-close') handler(el, V);
+    if (V.s || el.dataset.act === 'inst-pick' || (el.dataset.act === 'menu' && el.dataset.v === 'inst') || el.dataset.act === 'seance-new' || el.dataset.act.indexOf('settings') === 0 || el.dataset.act.indexOf('cfg-') === 0 || el.dataset.act === 'menu-close') handler(el, V);
   }
   function onChange(e) {
     const el = e.target.closest('[data-chg]');
@@ -1379,6 +1383,12 @@
     if (e.key === 'Escape') {
       if (S.ui.menu) { S.ui.menu = null; render(); } else if (S.ui.settings) { S.ui.settings = false; render(); }
       else if (pleinActive()) { S.prefs.cadre.plein = false; render(); savePrefs(); }
+    } else if (e.target.matches && e.target.matches('[data-instopt]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.key) >= 0) {
+      // groupe de boutons radio : les flèches choisissent l'instance voisine (en boucle) et gardent le focus sur le bouton choisi
+      const radios = Array.from(e.target.closest('.in-instsw').querySelectorAll('[data-instopt]')), at = radios.indexOf(e.target);
+      const next = radios[(at + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + radios.length) % radios.length];
+      e.preventDefault();
+      if (next && next !== e.target) { next.click(); const on = rootEl().querySelector('.in-instsw [aria-checked="true"]'); if (on) on.focus(); }
     } else if (e.target.matches && e.target.matches('input[data-filter]') && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
       menuKeyNav(e, e.target);
     } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) {
@@ -1467,23 +1477,16 @@
     root.addEventListener('dragend', clearDrag);
     let resizeTimer = null;
     global.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(autosizeTitles, 120); });
-    const btn = document.getElementById('btn-instances'), menu = document.getElementById('instances-menu');
-    if (btn && menu) {
-      btn.addEventListener('click', () => { menu.hidden = !menu.hidden; ensureLoaded(); renderNavMenu(); });
-      menu.addEventListener('click', e => {
-        const item = e.target.closest('[data-inst]'); if (!item) return;
-        S.prefs.instanceId = Number(item.dataset.inst); S.ui.menu = null; menu.hidden = true;
-        showInstancesView();
-        ensureLoaded().then(() => { render(); renderNavMenu(); savePrefs(); });
-      });
-      document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.in-navdd')) menu.hidden = true; });
-    }
+    // L'entrée « Instances » de la barre de navigation n'a plus de menu (le choix d'instance est dans le bandeau de la page) : un clic
+    // ouvre la page (js/app.js : data-view) et lance son chargement.
+    const btn = document.getElementById('btn-instances');
+    if (btn) btn.addEventListener('click', () => { ensureLoaded(); });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 
   global.loadInstancesUserPreferences = loadInstancesUserPreferences;
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
-  global.renderInstances = function () { if (S.loaded) { rebuild(); render(); renderNavMenu(); } };
+  global.renderInstances = function () { if (S.loaded) { rebuild(); render(); } };
   global.InstancesPage = {
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
