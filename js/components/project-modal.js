@@ -902,43 +902,14 @@
     ref.refreshAvatar?.();
   }
 
-  // Pièces jointes Grist (Attachments) : valeur brute ['L', id1, id2, ...] (ReferenceList
-  // vers la table système _grist_Attachments, cf. js/core/grist-bridge.js), 0 ou absente si
-  // aucun fichier. Même déballage que setRef() pour les ReferenceList classiques.
-  function attachmentIds(value) {
-    if (!Array.isArray(value)) return [];
-    return value.filter(v => v !== 'L' && Number.isFinite(Number(v)) && Number(v) > 0).map(Number);
-  }
-
-  // Métadonnées des pièces jointes (nom de fichier), lues à la demande dans la table
-  // système _grist_Attachments — jamais chargée par CoreGrist.loadAllTables(), qui ne
-  // couvre que les tables métier. Pas de mise en cache : la modale n'ouvre ce champ
-  // qu'occasionnellement, et une table toujours à jour évite un cache à invalider
-  // quand des pièces jointes sont ajoutées/retirées côté Grist pendant la session.
-  // Les deux champs (Notification, Convention) demandent cette table au même instant à chaque
-  // ouverture : une seule lecture est partagée entre appels simultanés (jamais conservée
-  // ensuite, la table reste donc toujours à jour à l'ouverture suivante).
-  let attachmentMetaInFlight = null;
-  function loadAttachmentMeta() {
-    if (attachmentMetaInFlight) return attachmentMetaInFlight;
-    const request = (async () => {
-      const api = global.CoreGrist?.gristInstance;
-      const meta = new Map();
-      if (api) {
-        try {
-          const table = await api.docApi.fetchTable('_grist_Attachments');
-          (table.id || []).forEach((id, i) => meta.set(id, text(table.fileName?.[i])));
-        } catch (err) {
-          console.warn('Lecture des pièces jointes impossible :', err.message);
-        }
-      }
-      return meta;
-    })();
-    attachmentMetaInFlight = request;
-    const release = () => { if (attachmentMetaInFlight === request) attachmentMetaInFlight = null; };
-    request.then(release, release);
-    return request;
-  }
+  // Pièces jointes Grist (Attachments) : valeur brute ['L', id1, id2, ...] (ReferenceList vers
+  // la table système _grist_Attachments, cf. js/core/grist-bridge.js), 0 ou absente si aucun
+  // fichier. Déballage des numéros et lecture des noms de fichier partagés avec la page
+  // Administratif : js/core/attachments.js. Les deux champs (Notification, Convention) demandent
+  // _grist_Attachments au même instant à chaque ouverture : une seule lecture est partagée
+  // entre appels simultanés, jamais conservée ensuite (la table reste toujours à jour).
+  const attachmentIds = value => global.CoreAttachments.ids(value);
+  const loadAttachmentMeta = () => global.CoreAttachments.loadMeta();
 
   // Affiche dans `container` un lien de visualisation/téléchargement par pièce jointe
   // (nom réel si connu, sinon "Pièce jointe #id"), ou "Aucun fichier." si la colonne est

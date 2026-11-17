@@ -124,6 +124,18 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .admin-link-input { box-sizing:border-box; width:220px; height:30px; padding:0 10px; border:1px solid var(--accent); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:12px; box-shadow:0 0 0 3px var(--accent-soft); }
 .admin-link-input:focus { outline:none; }
 
+/* Convention en PDF (17/11/2026) : à partir de « en signature », cette cellule prend la place du lien — mêmes
+   dimensions (30 px de haut), aucune ligne en plus. Le nom du PDF s'abrège avec des points de suspension. */
+.admin-file-cell { display:flex; align-items:center; gap:2px; flex:none; max-width:100%; }
+.admin-file { position:relative; display:inline-flex; align-items:center; gap:2px; min-width:0; }
+.admin-file-name { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; gap:5px; min-width:0; max-width:96px; height:28px; padding:0 8px; border-radius:var(--radius-sm); background:var(--accent-soft); color:var(--accent-hover); font-size:11px; font-weight:700; cursor:pointer; }
+.mode-cards .admin-file-name { max-width:220px; }
+.admin-file-name span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.admin-file-name svg { flex:none; }
+.admin-file-name:hover { background:var(--accent-soft-border, #c7dbfd); }
+.admin-file-name:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.admin-file-busy { padding:0 8px; font-size:11px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
+
 .admin-signed-cell { display:flex; align-items:center; gap:10px; flex:none; }
 .mode-cards .admin-signed-cell { flex-wrap:wrap; }
 
@@ -159,10 +171,10 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .admin-avatar-add { border:1px dashed var(--border-strong); background:transparent; color:var(--text-muted); }
 .admin-avatar-more { border-color:var(--border-strong); background:var(--surface-sunken); color:var(--text-muted); }
 .admin-avatar-add:hover, .admin-avatar-more:hover { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); }
-.admin-avatar-add:focus-visible, .admin-avatar-more:focus-visible, .admin-tag-x:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-.admin-tag-x { position:absolute; top:-6px; right:-6px; z-index:1; display:flex; align-items:center; justify-content:center; width:16px; height:16px; padding:0; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text-muted); font-size:11px; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(9,16,35,.18); opacity:0; transition:opacity .12s ease, background .12s ease, color .12s ease; }
-.admin-tag:hover .admin-tag-x, .admin-tag-x:focus-visible { opacity:1; }
-.admin-tag-x:hover { background:var(--danger); border-color:var(--danger); color:#fff; }
+.admin-avatar-add:focus-visible, .admin-avatar-more:focus-visible, .admin-tag-x:focus-visible, .admin-file-x:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.admin-tag-x, .admin-file-x { position:absolute; top:-6px; right:-6px; z-index:1; display:flex; align-items:center; justify-content:center; width:16px; height:16px; padding:0; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text-muted); font-size:11px; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(9,16,35,.18); opacity:0; transition:opacity .12s ease, background .12s ease, color .12s ease; }
+.admin-tag:hover .admin-tag-x, .admin-tag-x:focus-visible, .admin-file:hover .admin-file-x, .admin-file-x:focus-visible { opacity:1; }
+.admin-tag-x:hover, .admin-file-x:hover { background:var(--danger); border-color:var(--danger); color:#fff; }
 
 .admin-transmit { display:inline-flex; align-items:center; gap:2px; }
 .admin-transmit .admin-field-label { margin:0 4px 0 0; white-space:nowrap; }

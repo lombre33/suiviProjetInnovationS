@@ -166,6 +166,8 @@
     if (global.CoreState && typeof global.CoreState.clearState === 'function') {
       global.CoreState.clearState();
     }
+    // Noms de pièces jointes et jeton d'accès mémorisés (js/core/attachments.js) : propres à chaque test.
+    if (global.CoreAttachments && typeof global.CoreAttachments.resetCaches === 'function') global.CoreAttachments.resetCaches();
     // CoreGrist caches its ready() promise/instance module-privately; give tests a
     // fresh handshake each time by re-running ready() (idempotent: sets the same
     // window.grist as gristInstance again).

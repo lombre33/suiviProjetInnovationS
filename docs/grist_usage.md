@@ -125,7 +125,7 @@ maintenues dans `project-modal.js` et ne sont pas validées contre Grist.
 | `Total_2026` | Formule | alias `Budget` construit par `mapProjects()` |
 | `Montant_annuel_charge_attribue` | Numeric | repli de cet alias `Budget` |
 | `Description_rapide_projet` | Text | vue projet de secours (`app.js`) |
-| `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » |
+| `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » ; liste de fichiers de la fiche projet. **Écrite** (hors fiche projet) par l'onglet Conventions de la page Administratif : section 9 des écarts |
 
 `mapProjects()` lit aussi `project.Progression`, colonne qui **n'existe dans aucune des
 huit tables** : l'alias `Progression` vaut donc toujours `0`. Il n'est utilisé nulle part
@@ -657,6 +657,25 @@ Quatre colonnes **Date** sont créées par le widget au premier lancement qui su
 
 Comme pour les autres colonnes de cet onglet, une colonne déjà présente dans `Projets` ou `Notifications`
 n'est pas recréée ; si le schéma n'est pas modifiable, le message de démarrage les liste.
+
+### 9. Onglet Conventions : la convention en PDF, pièce jointe (17 novembre 2026)
+
+À partir de l'étape **« en signature »** (étapes 3 et 4, anciens libellés compris), la cellule du lien
+(`Lien_convention`) devient la colonne pièce jointe `Projets.Convention_de_reversement_le_cas_echeant`
+(Attachments, déjà dans l'export) : même place sur la carte, aucune ligne en plus. Avant (rédaction,
+relecture), le lien reste, puisque c'est le Word partagé pour la relecture. Un lien déjà saisi reste
+ouvrable à l'étape de signature (petite icône), rien n'est caché.
+
+Dans la cellule : le nom du PDF (clic = affichage dans un nouvel onglet, `?inline=1`), une icône de
+téléchargement (téléchargement forcé par Grist), une croix au survol pour **retirer le fichier de la
+cellule** (il reste dans les pièces jointes du document), et un trombone pour **joindre** un PDF.
+Téléverser = `POST {baseUrl}/attachments?auth=<jeton>` (champ multipart `upload`, droit d'édition requis),
+puis écriture `['L', …numéros]` sur la ligne de `Projets` — la liste lue après l'envoi, donc les fichiers
+déjà là sont conservés. Seuls les PDF sont acceptés (type ou extension). Le jeton est `readOnly:false` :
+un jeton `readOnly:true` est plafonné au rôle Lecteur et ne peut ni lire une pièce jointe réservée aux
+éditeurs ni en envoyer une. Code partagé avec la fiche projet : `js/core/attachments.js`
+(`CoreAttachments`) ; les noms de fichier (`_grist_Attachments`) ne sont relus que pour un numéro inconnu.
+Colonne `Lien_convention` et fiche projet inchangées.
 
 ### Divergences sans effet
 

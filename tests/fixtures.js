@@ -179,6 +179,9 @@
       next_step: ['', '', '', '', '', '', ''],
       Transmise_signee_au_porteur_le: [null, null, null, null, null, null, null],
       Lien_convention: ['', '', '', '', '', '', ''],
+      // Convention en PDF (17/11/2026) : colonne Attachments de Projets (docs/grist_structure), vide partout par défaut ;
+      // les tests y posent ['L', numéros de _grist_Attachments].
+      Convention_de_reversement_le_cas_echeant: [null, null, null, null, null, null, null],
       // Ajoutées le 03/11/2026 : date papier (la date e-mail est Transmise_signee_au_porteur_le),
       // responsables du next step (RefList vers Annuaire) ; convention_Date_derniere_modification
       // (« Dernière action ») existait déjà dans Projets (docs/grist_structure).

@@ -39,6 +39,13 @@
   // qui les porte (Projets ou Notifications) est déduite des colonnes chargées.
   const NEXT_STEP_FIELD = 'next_step';
   const LINK_FIELD = 'Lien_convention';
+  // Convention en PDF (demande du 17/11/2026) : colonne Attachments de Projets, déjà documentée
+  // (docs/grist_structure) et déjà listée, en lecture seule, dans la fiche projet. À partir de
+  // l'étape « en signature », la cellule du lien devient la pièce jointe : le document envoyé à
+  // la signature se téléverse, s'affiche et se télécharge ici. Avant (rédaction, relecture), le
+  // lien reste : c'est le Word qu'on partage pour la relecture.
+  const FILE_FIELD = 'Convention_de_reversement_le_cas_echeant';
+  const FILE_FROM_STAGE = 2; // index de « 3) Convention en signature » dans CONV_STAGES
   // Transmission de la convention signée au porteur (demande du 03/11/2026) : deux dates,
   // une par canal, sous une seule phrase « Transmise au porteur le » + deux icônes.
   // La colonne historique (date unique du 29/09/2026) devient la date d'e-mail ; la
@@ -127,6 +134,9 @@
   const ICON_EXTERNAL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
   const ICON_LINK_EDIT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7 21l-4 1 1-4z"></path></svg>';
   const ICON_LINK_ADD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+  const ICON_ATTACH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
+  const ICON_PDF = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 2.5 14 8 19 8"></polyline></svg>';
+  const ICON_DOWNLOAD = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
   const ICON_MAIL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"></rect><polyline points="3 7 12 13.5 21 7"></polyline></svg>';
   const ICON_PAPER = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 2.5 14 8 19 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>';
   // Une icône par sous-étape de l'UB (fichier, œil, coche cerclée, avion en papier), 11 px.
@@ -978,6 +988,147 @@
       `<button type="button" class="admin-icon-btn${href ? '' : ' is-empty'}" data-edit-link="${id}" title="${editLabel}" aria-label="${editLabel}">${href ? ICON_LINK_EDIT : ICON_LINK_ADD}</button></div>`;
   }
 
+  // ── Convention en PDF : pièce jointe (colonne Attachments) ──────────────────────────────
+  // À partir de « en signature », la cellule du lien devient la pièce jointe : le nom du PDF
+  // (clic = affichage dans un nouvel onglet), une icône de téléchargement, une croix au survol
+  // pour le retirer de la cellule, et un trombone pour en téléverser un autre. Même emplacement
+  // que le lien, donc aucune hauteur en plus. Un lien saisi avant le passage en signature reste
+  // accessible (icône d'ouverture) : rien n'est caché.
+  const uploading = new Set(); // projets dont un envoi est en cours (un seul à la fois par projet)
+  // Sélecteur de fichier unique pour toute la page, posé sur <body> : les cellules sont réécrites à
+  // chaque rendu, un champ posé dans l'une d'elles perdrait son événement « change » si elle l'était
+  // pendant que la boîte de dialogue du système est ouverte.
+  let fileInputEl = null;
+  let pendingUploadId = null;
+  const usesFile = project => convStageIndex(project) >= FILE_FROM_STAGE;
+  const filesOf = project => CoreAttachments.ids(readField(project, FILE_FIELD));
+  const fileLocation = project => ({ tableId: homeRowFor(project, FILE_FIELD).table, colId: FILE_FIELD, rowId: project.id });
+  const fileLabel = fileId => CoreAttachments.nameOf(fileId) || `Pièce jointe #${fileId}`;
+  const isPdf = file => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+
+  function fileCell(project) {
+    const id = escape(project.id);
+    const files = filesOf(project);
+    const busy = uploading.has(String(project.id));
+    const legacy = safeLink(readField(project, LINK_FIELD));
+    const help = window.HelpTooltip?.markup(homeRowFor(project, FILE_FIELD).table, FILE_FIELD) || '';
+    const items = files.map(fileId => {
+      const key = `${id}:${fileId}`;
+      const name = escape(fileLabel(fileId));
+      return `<span class="admin-file">` +
+        `<button type="button" class="admin-file-name" data-open-file="${key}" title="Afficher la convention (${name})" aria-label="Afficher ${name}">${ICON_PDF}<span>${name}</span></button>` +
+        `<button type="button" class="admin-icon-btn" data-download-file="${key}" title="Télécharger la convention" aria-label="Télécharger ${name}">${ICON_DOWNLOAD}</button>` +
+        `<button type="button" class="admin-file-x" data-detach-file="${key}" title="Retirer de la cellule" aria-label="Retirer ${name}">×</button></span>`;
+    }).join('');
+    const addLabel = files.length ? 'Ajouter un autre PDF' : 'Joindre la convention (PDF)';
+    return `<div class="admin-file-cell" data-file-cell="${id}">` +
+      (legacy ? `<a class="admin-icon-btn" href="${escape(legacy)}" target="_blank" rel="noopener noreferrer" title="Ouvrir le lien saisi avant la signature" aria-label="Ouvrir le lien de la convention">${ICON_EXTERNAL}</a>` : '') +
+      items +
+      (busy
+        ? '<span class="admin-file-busy" role="status">Envoi…</span>'
+        : `<button type="button" class="admin-icon-btn${files.length ? '' : ' is-empty'}" data-upload-file="${id}" title="${addLabel}" aria-label="${addLabel}">${ICON_ATTACH}</button>`) +
+      help + `</div>`;
+  }
+  // Étape de la convention → cellule du lien (avant la signature) ou de la pièce jointe (après).
+  const conventionDocCell = project => usesFile(project) ? fileCell(project) : linkCell(project);
+
+  const findFileCell = projectId => Array.from(document.querySelectorAll('#admin-col-conv [data-file-cell]')).find(cell => cell.dataset.fileCell === String(projectId));
+  // Seule la cellule est réécrite (jamais tout l'arbre), comme pour le lien ; `focus` rend le focus au
+  // trombone quand l'action venait du clavier et que le bouton cliqué a disparu avec l'ancien rendu.
+  function refreshFileCell(project, focus) {
+    const cell = findFileCell(project.id);
+    if (!cell) return;
+    cell.outerHTML = fileCell(project);
+    if (!focus) return;
+    const target = findFileCell(project.id)?.querySelector('[data-upload-file]');
+    if (target) target.focus();
+  }
+  // Noms de fichier inconnus (première ouverture, pièce jointe ajoutée dans Grist) : une lecture de
+  // _grist_Attachments pour tous, puis seules les cellules concernées sont réécrites. Rien n'est lu
+  // quand aucune carte n'a de fichier ou que tous les noms sont déjà connus.
+  function hydrateFileNames(projects) {
+    const wanted = projects.flatMap(filesOf);
+    if (!wanted.length) return;
+    CoreAttachments.ensureNames(wanted).then(loaded => {
+      if (loaded) projects.forEach(project => refreshFileCell(project));
+    }).catch(() => { /* noms illisibles : « Pièce jointe #n » reste affiché */ });
+  }
+
+  function ensureFileInput() {
+    if (fileInputEl && fileInputEl.isConnected) return fileInputEl;
+    fileInputEl = document.createElement('input');
+    fileInputEl.type = 'file';
+    fileInputEl.accept = '.pdf,application/pdf';
+    fileInputEl.hidden = true;
+    fileInputEl.setAttribute('data-admin-file-input', '');
+    fileInputEl.addEventListener('change', () => {
+      const file = fileInputEl.files && fileInputEl.files[0];
+      const project = pendingUploadId != null ? projectById(pendingUploadId) : null;
+      pendingUploadId = null;
+      fileInputEl.value = ''; // permet de rechoisir le même fichier ensuite
+      if (file && project) uploadConventionFile(project, file);
+    });
+    document.body.appendChild(fileInputEl);
+    return fileInputEl;
+  }
+  function pickConventionFile(project) {
+    if (uploading.has(String(project.id))) return;
+    pendingUploadId = String(project.id);
+    ensureFileInput().click();
+  }
+
+  // Envoie le PDF dans le document, PUIS l'ajoute à la cellule (liste lue après l'envoi : un autre
+  // ajout survenu entre-temps n'est pas écrasé). Si l'écriture de la cellule échoue, le fichier
+  // envoyé reste dans le document sans être rattaché à rien (Grist le purge à l'occasion).
+  async function uploadConventionFile(project, file) {
+    if (!isPdf(file)) { CoreUtils.showToast('Seuls les fichiers PDF sont acceptés', true); return; }
+    const key = String(project.id);
+    if (uploading.has(key)) return;
+    uploading.add(key);
+    refreshFileCell(project);
+    let added = false;
+    try {
+      const created = await CoreAttachments.upload(file);
+      CoreAttachments.rememberName(created[0], file.name);
+      await writeProjectColumn(project, FILE_FIELD, CoreAttachments.encode([...filesOf(project), ...created]));
+      added = true;
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'envoi de la convention (${err.message})`, true);
+    }
+    uploading.delete(key);
+    refreshFileCell(project, 'upload');
+    if (added) CoreUtils.showToast(`Convention « ${file.name} » ajoutée`);
+  }
+
+  // Retire le fichier de la cellule, pas du document : il reste dans les pièces jointes de Grist
+  // (supprimable à la main), donc rien d'irrécupérable.
+  async function detachConventionFile(project, fileId) {
+    const name = fileLabel(fileId);
+    const saving = writeProjectColumn(project, FILE_FIELD, CoreAttachments.encode(filesOf(project).filter(id => id !== fileId))).then(() => true, err => {
+      CoreUtils.showToast(`Échec du retrait de la convention (${err.message})`, true);
+      return false;
+    });
+    refreshFileCell(project, 'upload'); // valeur locale déjà posée : affichage immédiat
+    if (await saving) CoreUtils.showToast(`« ${name} » retiré de la cellule (le fichier reste dans le document)`);
+    else refreshFileCell(project); // écriture refusée : retour à l'état précédent
+  }
+
+  // Clic sur une action de la cellule PDF (ouvrir, télécharger, retirer, joindre).
+  function onFileAction(button) {
+    const data = button.dataset;
+    if (data.uploadFile !== undefined) {
+      const project = projectById(data.uploadFile);
+      if (project) pickConventionFile(project);
+      return;
+    }
+    const [projectId, rawFileId] = String(data.openFile ?? data.downloadFile ?? data.detachFile).split(':');
+    const project = projectById(projectId);
+    const fileId = Number(rawFileId);
+    if (!project || !filesOf(project).includes(fileId)) return;
+    if (data.detachFile !== undefined) detachConventionFile(project, fileId);
+    else CoreAttachments.open(fileId, fileLocation(project), { inline: data.openFile !== undefined });
+  }
+
   // Responsables du next step : pastilles d'initiales (nom complet en infobulle), une croix
   // au survol pour retirer, et un bouton pour en ajouter depuis l'Annuaire. Au-delà de 3,
   // les suivants se replient en « +N » (même popover) pour ne pas allonger la ligne.
@@ -1035,7 +1186,7 @@
       `<div class="admin-partners">${partners.map(p => partnerCell(project, p)).join('')}</div>` +
       `<div class="admin-notes"><div class="admin-notes-line">${commentBlock(project)}${lastActionBlock(project)}</div>` +
       `<div class="admin-notes-line admin-notes-next">${nextStepBlock(project)}${tagsCell(project)}</div></div>` +
-      linkCell(project) +
+      conventionDocCell(project) +
       (isLast ? signedCell(project) : '') +
       `</div>`;
   }
@@ -1121,6 +1272,7 @@
     lastPanels = { notif: notifPanels, conv: convPanels };
     renderHiddenPanels(activeTab === 'notif' ? notifPanels : convPanels);
     syncPopover();
+    hydrateFileNames(convByStage.slice(FILE_FROM_STAGE).flat());
   }
   // Volets du dernier rendu : render() construit les DEUX onglets, changer d'onglet n'a donc qu'à
   // basculer l'affichage (avant : tout reconstruire, ~100 ms pour 300 projets).
@@ -1367,6 +1519,8 @@
         if (owner) setResponsables(owner, taggedIds(owner).filter(id => String(id) !== personId));
         return;
       }
+      const fileBtn = closest(event, '[data-open-file], [data-download-file], [data-detach-file], [data-upload-file]');
+      if (fileBtn) { onFileAction(fileBtn); return; }
       const btn = closest(event, '[data-edit-link]');
       const project = btn && projectById(btn.dataset.editLink);
       if (project) openLinkEditor(project);
