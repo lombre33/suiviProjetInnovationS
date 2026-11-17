@@ -759,6 +759,27 @@ contre une réponse simulée « comme Grist » (CSP sandbox + `attachment`) : l'
 sans téléchargement. Si le navigateur est réglé pour télécharger les PDF au lieu de les ouvrir, il les
 téléchargera quand même.
 
+### 11. Onglet Conventions : « Dernière action » mise à jour automatiquement (17 novembre 2026)
+
+`Projets.convention_Date_derniere_modification` (colonne **Date de données**, déjà dans l'export) se met à
+la date du jour à chaque modification faite **depuis une carte de l'onglet Conventions** : glisser-déposer
+d'étape, clic sur une pastille de statut de signature, date de transmission (e-mail ou papier), date d'une
+sous-étape de l'UB, commentaire libre, next step, responsables du next step, lien, ajout ou retrait du PDF.
+La date part dans la **même `UpdateRecord`** que la modification (un seul aller-retour, jamais l'une sans
+l'autre) ; elle est écrite à minuit UTC comme les autres colonnes Date.
+
+Le champ reste **modifiable à la main** (clic, calendrier, saisie, vidage) : une saisie manuelle s'écrit seule
+et n'est jamais remplacée par la date du jour sur le coup ; la modification suivante la remet, elle, à
+aujourd'hui (c'est la définition d'une « dernière » action). Rien n'est ajouté à l'écriture quand la date vaut
+déjà aujourd'hui, quand la colonne est absente de `Projets`, ou quand c'est une **colonne formule** (le widget
+n'écrit jamais une colonne calculée : il faut alors une colonne de données, ou laisser la formule faire).
+
+Hors périmètre, volontairement : les cartes **Notifications** (même commentaire, mais la colonne dit « dernière
+action sur la convention »), la modale projet et les autres pages. Alternative côté document, si on veut
+la date à jour pour **toute** modification de la ligne (y compris dans Grist ou depuis la modale projet) : une
+**formule déclencheur** sur la colonne (« Appliquer lors des modifications de : tout champ », formule `TODAY()`),
+à régler dans Grist (intitulés exacts à vérifier dans la version utilisée) ; le widget continue de fonctionner, mais la date posée par Grist dépend alors de ce réglage.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies

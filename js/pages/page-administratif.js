@@ -56,7 +56,8 @@
   // ['L', id, …]. Nom convenu avec le fil « To Do », qui lit cette colonne.
   const NEXT_STEP_RESP_FIELD = 'next_step_responsable';
   // « Dernière action » : colonne Date qui existait déjà dans Projets
-  // (docs/grist_structure), jamais utilisée jusqu'ici par le widget.
+  // (docs/grist_structure). Posée automatiquement à chaque modification faite depuis une carte
+  // de l'onglet Conventions (lastActionStamp), modifiable à la main au clic.
   const LAST_ACTION_FIELD = 'convention_Date_derniere_modification';
   // Sous-étapes du statut de l'UB uniquement (demande du 10/11/2026, variante « pastilles
   // sous le statut » de la maquette) : selon le statut de signature de l'UB, une ou deux
@@ -265,9 +266,44 @@
     });
     if (failure) throw failure;
   }
-  function writeProjectColumn(project, column, value) {
+  // « Dernière action » automatique (demande du 17/11/2026) : toute écriture faite depuis une carte de
+  // l'onglet Conventions (étape, statuts de signature, dates, commentaire, next step, responsables,
+  // lien, PDF) pose aussi la date du jour dans `convention_Date_derniere_modification`, dans la MÊME
+  // UpdateRecord (un seul aller-retour : jamais une date sans sa modification, ni l'inverse).
+  // Le champ reste modifiable à la main : une saisie manuelle n'est jamais écrasée par sa propre
+  // écriture (`fields` la contient déjà, ou c'est elle qu'on écrit), et la modification suivante la
+  // remet à la date du jour. Rien n'est ajouté quand la colonne manque dans Projets, est une colonne
+  // formule (le widget n'en écrit jamais) ou vaut déjà aujourd'hui (pas d'écriture inutile). Les
+  // cartes Notifications et la modale projet n'y touchent pas : la colonne dit « dernière action sur
+  // la convention ».
+  function lastActionStamp(project, fields = {}) {
+    if (LAST_ACTION_FIELD in fields || !(LAST_ACTION_FIELD in project)) return {};
+    if (window.CoreGrist?.isFormulaColumn?.('Projets', LAST_ACTION_FIELD)) return {};
+    const today = todayIso();
+    if (CoreUtils.gristDateToInput(project[LAST_ACTION_FIELD]) === today) return {};
+    return { [LAST_ACTION_FIELD]: Math.floor(Date.parse(`${today}T00:00:00Z`) / 1000) };
+  }
+  // Le champ de la carte suit la valeur locale, en place (jamais outerHTML : la cible d'un clic en
+  // cours serait détachée). Un champ que l'on est en train de saisir n'est pas touché.
+  function syncLastActionInput(project) {
+    const iso = CoreUtils.gristDateToInput(project[LAST_ACTION_FIELD]);
+    document.querySelectorAll('#admin-col-conv [data-lastaction-project]').forEach(input => {
+      if (input.dataset.lastactionProject === String(project.id) && input !== document.activeElement && input.value !== iso) input.value = iso;
+    });
+  }
+  async function writeProjectColumn(project, column, value) {
     const { table, row } = homeRowFor(project, column);
-    return optimisticWrite(table, row, { [column]: value });
+    const stamp = lastActionStamp(project, { [column]: value });
+    if (table === 'Projets') {
+      const writing = optimisticWrite(table, row, { [column]: value, ...stamp });
+      syncLastActionInput(project); // valeur locale déjà posée : le champ suit tout de suite
+      try { await writing; } catch (err) { syncLastActionInput(project); throw err; } // refus : retour à l'état précédent
+      return;
+    }
+    // Colonne d'origine dans Notifications : la date reste dans Projets, deux écritures.
+    await optimisticWrite(table, row, { [column]: value });
+    if (!(LAST_ACTION_FIELD in stamp)) return;
+    try { await optimisticWrite('Projets', project, stamp); } finally { syncLastActionInput(project); }
   }
   // Seuls http(s) sont ouvrables : une valeur saisie directement dans Grist
   // (ex. "javascript:...") ne doit jamais devenir un href cliquable.
@@ -552,9 +588,10 @@
     if (!project || !(targetIdx >= 0 && targetIdx < CONV_STAGES.length)) return;
     if (convStageIndex(project) === targetIdx) return;
     const nextValue = CONV_STAGES[targetIdx];
+    const fields = { Conventions_statut: nextValue, ...lastActionStamp(project, { Conventions_statut: nextValue }) };
     try {
-      await writeFields('Projets', project.id, { Conventions_statut: nextValue });
-      setProjectField(project.id, 'Conventions_statut', nextValue);
+      await writeFields('Projets', project.id, fields);
+      Object.entries(fields).forEach(([name, value]) => setProjectField(project.id, name, value));
       CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(nextValue)}`);
       render();
     } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
@@ -963,6 +1000,7 @@
     else if (stored !== -1 && after < before) target = Math.min(stored, after);
     const fields = { [fieldName]: PARTNER_STATUSES[nextIdx] };
     if (target !== stored) fields.Conventions_statut = CONV_STAGES[target];
+    Object.assign(fields, lastActionStamp(project, fields));
     // Valeurs locales posées tout de suite (écriture optimiste) : un second clic sur une
     // autre pastille avant la réponse de Grist part des statuts à jour — sinon la
     // transition « tous signés » passerait inaperçue et la carte resterait mal rangée.
@@ -979,10 +1017,20 @@
 
   // Renvoie true quand la valeur est enregistrée : l'appelant s'en sert pour repartir de la valeur
   // enregistrée (voir wireTextareaSave).
-  async function saveComment(projectId, value) {
+  // `fromConv` : le commentaire est modifié depuis une carte Conventions (le même champ s'édite aussi
+  // sur les cartes Notifications, qui ne touchent pas à la « Dernière action » de la convention).
+  // Écriture optimiste : la valeur locale de la date est posée avant l'envoi, donc un clic aussitôt
+  // après sur le champ voisin (« Dernière action ») part de la date à jour, et sa saisie manuelle,
+  // écrite après, l'emporte.
+  async function saveComment(projectId, value, fromConv) {
+    const project = projectById(projectId);
     try {
-      await writeFields('Projets', projectId, { comentaire_general_Suivi_projet: value });
-      setProjectField(projectId, 'comentaire_general_Suivi_projet', value);
+      if (!project) throw new Error('projet introuvable');
+      const fields = { comentaire_general_Suivi_projet: value };
+      if (fromConv) Object.assign(fields, lastActionStamp(project, fields));
+      const writing = optimisticWrite('Projets', project, fields);
+      if (fromConv) syncLastActionInput(project);
+      try { await writing; } catch (err) { if (fromConv) syncLastActionInput(project); throw err; }
       return true;
     } catch (err) {
       CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true);
@@ -1257,7 +1305,7 @@
   function lastActionBlock(project) {
     const help = window.HelpTooltip?.markup(homeRowFor(project, LAST_ACTION_FIELD).table, LAST_ACTION_FIELD) || '';
     return `<label class="admin-lastaction"><span class="admin-field-label">Dernière action${help}</span>` +
-      `<input type="date" data-lastaction-project="${escape(project.id)}" value="${escape(CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)))}"></label>`;
+      `<input type="date" data-lastaction-project="${escape(project.id)}" title="Mise à jour automatiquement à chaque modification de cette carte ; modifiable à la main" value="${escape(CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)))}"></label>`;
   }
 
   // Une icône par canal : grise tant qu'aucune date n'est saisie, bleue + date une fois fait.
@@ -1367,7 +1415,8 @@
         const project = projectById(projectId);
         if (project) cyclePartner(project, fieldName);
       }));
-      root.querySelectorAll('[data-comment-project]').forEach(textarea => wireTextareaSave(textarea, value => saveComment(textarea.dataset.commentProject, value)));
+      const fromConv = root === convRoot;
+      root.querySelectorAll('[data-comment-project]').forEach(textarea => wireTextareaSave(textarea, value => saveComment(textarea.dataset.commentProject, value, fromConv)));
     });
 
     lastPanels = { notif: notifPanels, conv: convPanels };

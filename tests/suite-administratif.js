@@ -1301,7 +1301,10 @@
       assertEqual(writes.length, 1);
       assertEqual(writes[0].table, 'Projets');
       assertEqual(String(writes[0].id), projectIdOf(btn));
-      assertDeepEqual(writes[0].fields, { convention_UB_v1_le: epochOf('2026-11-05') }, 'seule la colonne de la sous-étape est écrite');
+      // + « Dernière action » automatique (date du jour, tests/suite-administratif-derniere-action.js)
+      const { convention_Date_derniere_modification: lastAction, ...stepFields } = writes[0].fields;
+      assertDeepEqual(stepFields, { convention_UB_v1_le: epochOf('2026-11-05') }, 'seule la colonne de la sous-étape est écrite (hors « Dernière action »)');
+      assertTrue(lastAction > 0, 'la date du jour part dans la même écriture');
       assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && ('convention_statut_UB' in c.fields || 'Conventions_statut' in c.fields)).length, 0, 'le statut et l\'étape ne bougent pas');
       assertFalse(!!popoverEl(), 'le popover se referme une fois la date enregistrée');
       const after = stepBtn(anyCard('CONVENTIX'), 'v1');
