@@ -1122,9 +1122,9 @@
       `</div>`;
   }
 
-  function nextStepBlock(project) {
-    const help = window.HelpTooltip?.markup(homeRowFor(project, NEXT_STEP_FIELD).table, NEXT_STEP_FIELD) || '';
-    return `<label class="admin-comment admin-nextstep"><span class="admin-field-label">Next step${help}</span>` +
+  function nextStepBlock(project, headed) {
+    const help = headed ? '' : window.HelpTooltip?.markup(homeRowFor(project, NEXT_STEP_FIELD).table, NEXT_STEP_FIELD) || '';
+    return `<label class="admin-comment admin-nextstep">${headed ? '<span class="visually-hidden">Next step</span>' : `<span class="admin-field-label">Next step${help}</span>`}` +
       `<textarea data-nextstep-project="${escape(project.id)}" rows="${viewMode === 'rows' ? 1 : 2}" placeholder="Prochaine étape à suivre…">${escape(readField(project, NEXT_STEP_FIELD))}</textarea></label>`;
   }
 
@@ -1153,6 +1153,7 @@
   // pendant que la boîte de dialogue du système est ouverte.
   let fileInputEl = null;
   let pendingUploadId = null;
+  const FILES_SHOWN_IN_ROWS = 1;
   const usesFile = project => convStageIndex(project) >= FILE_FROM_STAGE;
   const filesOf = project => CoreAttachments.ids(readField(project, FILE_FIELD));
   const fileLocation = project => ({ tableId: homeRowFor(project, FILE_FIELD).table, colId: FILE_FIELD, rowId: project.id });
@@ -1164,8 +1165,10 @@
     const files = filesOf(project);
     const busy = uploading.has(String(project.id));
     const legacy = safeLink(readField(project, LINK_FIELD));
-    const help = window.HelpTooltip?.markup(homeRowFor(project, FILE_FIELD).table, FILE_FIELD) || '';
-    const items = files.map(fileId => {
+    const rows = viewMode === 'rows'; // vue lignes : colonne de largeur fixe → un PDF visible, les autres derrière « +N »
+    const help = rows ? '' : window.HelpTooltip?.markup(homeRowFor(project, FILE_FIELD).table, FILE_FIELD) || '';
+    const shown = rows ? files.slice(0, FILES_SHOWN_IN_ROWS) : files;
+    const items = shown.map(fileId => {
       const key = `${id}:${fileId}`;
       const name = escape(fileLabel(fileId));
       return `<span class="admin-file">` +
@@ -1174,9 +1177,13 @@
         `<button type="button" class="admin-file-x" data-detach-file="${key}" title="Retirer de la cellule" aria-label="Retirer ${name}">×</button></span>`;
     }).join('');
     const addLabel = files.length ? 'Ajouter un autre PDF' : 'Joindre la convention (PDF)';
+    const hidden = files.length - shown.length;
+    const more = hidden > 0
+      ? `<button type="button" class="admin-more" data-pop-anchor="files:${id}" aria-haspopup="dialog" title="${hidden === 1 ? '1 autre pièce jointe' : `${hidden} autres pièces jointes`}" aria-label="${hidden === 1 ? '1 autre pièce jointe' : `${hidden} autres pièces jointes`} : afficher la liste">+${hidden}</button>`
+      : '';
     return `<div class="admin-file-cell" data-file-cell="${id}">` +
       (legacy ? `<a class="admin-icon-btn" href="${escape(legacy)}" target="_blank" rel="noopener noreferrer" title="Ouvrir le lien saisi avant la signature" aria-label="Ouvrir le lien de la convention">${ICON_EXTERNAL}</a>` : '') +
-      items +
+      items + more +
       (busy
         ? '<span class="admin-file-busy" role="status">Envoi…</span>'
         : `<button type="button" class="admin-icon-btn${files.length ? '' : ' is-empty'}" data-upload-file="${id}" title="${addLabel}" aria-label="${addLabel}">${ICON_ATTACH}</button>`) +
@@ -1283,15 +1290,39 @@
     else CoreAttachments.open(fileId, fileLocation(project)); // télécharger : fichier enregistré sous son vrai nom
   }
 
+  // « +N » des pièces jointes (vue lignes) : liste de TOUTES les pièces de la cellule, avec afficher / télécharger / retirer.
+  function openFilesPopover(anchor, project) {
+    const rows = filesOf(project).map(fileId => {
+      const key = `${escape(project.id)}:${fileId}`;
+      const name = escape(fileLabel(fileId));
+      return `<div class="admin-pop-file">` +
+        `<button type="button" class="admin-pop-file-name" data-open-file="${key}" title="Afficher la convention (${name})" aria-label="Afficher ${name}">${ICON_PDF}<span>${name}</span></button>` +
+        `<button type="button" class="admin-icon-btn" data-download-file="${key}" title="Télécharger la convention" aria-label="Télécharger ${name}">${ICON_DOWNLOAD}</button>` +
+        `<button type="button" class="admin-icon-btn admin-pop-file-x" data-detach-file="${key}" title="Retirer de la cellule" aria-label="Retirer ${name}">×</button></div>`;
+    }).join('');
+    const html = `<div class="admin-pop-files">${rows || '<p class="admin-pop-empty">Aucune pièce jointe.</p>'}</div>`;
+    openPopover(anchor, `files:${project.id}`, 'Pièces jointes de la convention', html, el => {
+      el.addEventListener('click', event => {
+        const btn = closestFrom(event.target, '[data-open-file], [data-download-file], [data-detach-file]');
+        if (!btn) return;
+        if (btn.dataset.detachFile !== undefined) closePopover(); // la cellule est réécrite : la liste ne serait plus à jour
+        onFileAction(btn);
+      });
+    });
+  }
+
   // Responsables du next step : pastilles d'initiales (nom complet en infobulle), une croix
   // au survol pour retirer, et un bouton pour en ajouter depuis l'Annuaire. Au-delà de 3,
-  // les suivants se replient en « +N » (même popover) pour ne pas allonger la ligne.
-  const MAX_TAG_AVATARS = 3;
+  // les suivants se replient en « +N » (même popover) pour ne pas allonger la ligne. En vue
+  // lignes la colonne est de largeur fixe (4 boutons au plus : 3 pastilles + « ajouter », ou
+  // 2 pastilles + « +N » + « ajouter ») ; en vue cartes, 3 pastilles puis « +N ».
+  const TAGS_MAX_PLAIN = 3;
+  const visibleTagCount = total => total <= TAGS_MAX_PLAIN ? total : (viewMode === 'rows' ? 2 : TAGS_MAX_PLAIN);
   function tagsCell(project) {
     const id = escape(project.id);
     const ids = taggedIds(project);
-    const shown = ids.slice(0, MAX_TAG_AVATARS);
-    const rest = ids.slice(MAX_TAG_AVATARS);
+    const shown = ids.slice(0, visibleTagCount(ids.length));
+    const rest = ids.slice(shown.length);
     const tags = shown.map(pid => {
       const name = personName(pid);
       return `<span class="admin-tag" data-person="${escape(pid)}" title="${escape(name)}">` +
@@ -1307,9 +1338,11 @@
     return `<div class="admin-tags" data-tags-cell="${id}">${tags}${more}${add}</div>`;
   }
 
-  function lastActionBlock(project) {
-    const help = window.HelpTooltip?.markup(homeRowFor(project, LAST_ACTION_FIELD).table, LAST_ACTION_FIELD) || '';
-    return `<label class="admin-lastaction"><span class="admin-field-label">Dernière action${help}</span>` +
+  // `headed` : le libellé (et sa bulle ?) est écrit une seule fois dans le bandeau du volet (vue lignes des
+  // Conventions) ; la carte ne le garde que pour les lecteurs d'écran.
+  function lastActionBlock(project, headed) {
+    const help = headed ? '' : window.HelpTooltip?.markup(homeRowFor(project, LAST_ACTION_FIELD).table, LAST_ACTION_FIELD) || '';
+    return `<label class="admin-lastaction">${headed ? '<span class="visually-hidden">Dernière action</span>' : `<span class="admin-field-label">Dernière action${help}</span>`}` +
       `<input type="date" data-lastaction-project="${escape(project.id)}" title="Mise à jour automatiquement à chaque modification de cette carte ; modifiable à la main" value="${escape(CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)))}"></label>`;
   }
 
@@ -1324,22 +1357,24 @@
 
   // Dernière étape uniquement : badge + « Transmise au porteur le » suivi des icônes e-mail et papier.
   function signedCell(project) {
-    const help = window.HelpTooltip?.markup(homeRowFor(project, TRANSMISE_MAIL_FIELD).table, TRANSMISE_MAIL_FIELD) || '';
+    const rows = viewMode === 'rows'; // vue lignes : colonne de largeur fixe, le libellé reste pour les lecteurs d'écran + infobulle
+    const help = rows ? '' : window.HelpTooltip?.markup(homeRowFor(project, TRANSMISE_MAIL_FIELD).table, TRANSMISE_MAIL_FIELD) || '';
     return `<div class="admin-signed-cell" data-transmit-cell="${escape(project.id)}"><span class="admin-done-badge">Signée</span>` +
-      `<span class="admin-transmit"><span class="admin-field-label">Transmise au porteur le${help}</span>` +
+      `<span class="admin-transmit"${rows ? ' title="Transmise au porteur le"' : ''}>${rows ? '<span class="visually-hidden">Transmise au porteur le</span>' : `<span class="admin-field-label">Transmise au porteur le${help}</span>`}` +
       `${transmitButton(project, 'mail')}${transmitButton(project, 'paper')}</span></div>`;
   }
 
   function convCard(project) {
     const isLast = convStageIndex(project) === CONV_STAGES.length - 1;
     const partners = partnersFor(project);
+    const headed = viewMode === 'rows'; // les libellés « Next step » / « Dernière action » sont dans le bandeau du volet
     return `<div class="admin-card admin-card-conv" data-project-id="${escape(project.id)}">` +
       `<span class="admin-drag-handle" draggable="true" data-drag-project="${escape(project.id)}" title="Glisser vers une autre étape">${ICON_GRIP}</span>` +
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span>${startDateChip(project, 'conv', isLast)}</button>` +
       `<div class="admin-partners">${partners.map(p => partnerCell(project, p)).join('')}</div>` +
-      `<div class="admin-notes"><div class="admin-notes-line">${commentBlock(project)}${lastActionBlock(project)}</div>` +
-      `<div class="admin-notes-line admin-notes-next">${nextStepBlock(project)}${tagsCell(project)}</div></div>` +
+      `<div class="admin-notes"><div class="admin-notes-line">${commentBlock(project)}${lastActionBlock(project, headed)}</div>` +
+      `<div class="admin-notes-line admin-notes-next">${nextStepBlock(project, headed)}${tagsCell(project)}</div></div>` +
       conventionDocCell(project) +
       (isLast ? signedCell(project) : '') +
       `</div>`;
@@ -1349,6 +1384,14 @@
   // volets d'un même côté (notifications_Statut sur Notifications, Conventions_statut
   // sur Projets), donc une bulle d'aide unique par en-tête de volet.
   const STAGE_COLUMN = { notif: { table: 'Notifications', col: 'notifications_Statut' }, conv: { table: 'Projets', col: 'Conventions_statut' } };
+  // En-têtes de colonnes du volet Conventions (vue lignes) : ces libellés, avec leur bulle ?, sont écrits une seule
+  // fois ici et non plus dans chaque carte. Posés dans le bandeau existant, au-dessus des colonnes de la grille des
+  // cartes (mêmes variables --cv-* dans css/administratif.css) : aucune hauteur en plus.
+  function conventionColumnHeads(sample) {
+    const helpOf = column => window.HelpTooltip?.markup(homeRowFor(sample, column).table, column) || '';
+    return `<span class="admin-colhead admin-colhead-text">Commentaire · Next step${helpOf(NEXT_STEP_FIELD)}</span>` +
+      `<span class="admin-colhead admin-colhead-last">Dernière action${helpOf(LAST_ACTION_FIELD)}</span>`;
+  }
   function buildPanels(side, stages, projectsByStage, cardFn) {
     const stageHelp = window.HelpTooltip?.markup(STAGE_COLUMN[side].table, STAGE_COLUMN[side].col) || '';
     return stages.map((stageLabel, idx) => {
@@ -1357,13 +1400,14 @@
       const key = panelKey(side, idx);
       const collapsedCls = state.collapsed ? ' is-collapsed' : '';
       const label = stripOrdinal(stageLabel);
+      const heads = side === 'conv' && viewMode === 'rows' && items.length ? conventionColumnHeads(items[0]) : '';
       return { key, idx, label, collapsedCls, count: items.length, state,
         html: `<section class="admin-panel${collapsedCls}"${side === 'conv' ? ` data-drop-panel="${escape(key)}"` : ''} aria-labelledby="admin-panel-${escape(key)}">` +
-          `<header class="admin-panel-header"><h4 id="admin-panel-${escape(key)}">${escape(label)}${stageHelp}</h4>` +
-          `<span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
+          `<header class="admin-panel-header${heads ? ' has-colheads' : ''}"><h4 id="admin-panel-${escape(key)}">${escape(label)}${stageHelp}</h4>${heads}` +
+          `<div class="admin-panel-tools"><span class="kanban-count">${items.length}</span><div class="kanban-column-actions">` +
           `<button type="button" class="kanban-icon-btn" data-toggle-panel="${escape(key)}" aria-expanded="${!state.collapsed}" aria-label="${state.collapsed ? 'Déplier' : 'Replier'} le volet ${escape(label)}">${ICON_CHEVRON}</button>` +
           `<button type="button" class="kanban-icon-btn" data-hide-panel="${escape(key)}" aria-label="Masquer le volet ${escape(label)}">${ICON_EYE_OFF}</button>` +
-          `</div></header><div class="admin-panel-body mode-${viewMode}">${items.length ? items.map(cardFn).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>` };
+          `</div></div></header><div class="admin-panel-body mode-${viewMode}">${items.length ? items.map(cardFn).join('') : '<p class="kanban-empty">Aucun projet</p>'}</div></section>` };
     });
   }
 
@@ -1664,6 +1708,7 @@
         const owner = projectById(projectId);
         if (!owner) return;
         if (kind === 'people') openPeoplePopover(anchor, owner);
+        else if (kind === 'files') openFilesPopover(anchor, owner);
         else if (kind === 'visa-mail') startVisaMail(anchor, owner);
         else if (TRANSMIT_KINDS[kind]) openDatePopover(anchor, owner, kind, transmitSpec(kind));
         else if (STEP_BY_KIND[kind]) openDatePopover(anchor, owner, kind, stepSpec(STEP_BY_KIND[kind]));

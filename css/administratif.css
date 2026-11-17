@@ -230,6 +230,77 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .admin-pop-empty { margin:6px 8px; font-size:12px; color:var(--text-muted); }
 
 
+/* ── Conventions, vue lignes (17/11/2026) : structure stable d'une carte à l'autre ─────────────────────────────────────
+   Variante B de la maquette « Cartes Conventions » (choisie par Antoine) : la carte est une grille à colonnes de LARGEUR FIXE
+   (seule la colonne des textes s'adapte). Avant, la pièce jointe (lien, 1 ou plusieurs PDF) et les pastilles de responsables
+   prenaient la place de leur contenu : le commentaire changeait de largeur d'une carte à l'autre et la ligne passait en
+   dessous quand tout ne tenait plus. Désormais : un seul PDF visible puis « +N » (liste dans un popover), 3 pastilles de
+   responsables ou 2 + « +N », les libellés « Commentaire · Next step » et « Dernière action » écrits UNE fois dans le bandeau du
+   volet (--cv-* partagés avec la grille des cartes), « Transmise au porteur le » en infobulle. Réservé à #admin-col-conv :
+   Notifications et To Do gardent leur mise en page. Vue cartes inchangée. */
+#admin-col-conv { --cv-grip:18px; --cv-id:176px; --cv-st:250px; --cv-last:128px; --cv-doc:188px; --cv-gap:10px; }
+@media (max-width:1248px) { #admin-col-conv { --cv-id:150px; --cv-st:226px; --cv-last:120px; --cv-doc:164px; } }
+.admin-panel-tools { display:contents; }
+
+#admin-col-conv .mode-rows .admin-card-conv {
+  display:grid; align-items:center; column-gap:var(--cv-gap); row-gap:4px; min-height:85px;
+  grid-template-columns:var(--cv-grip) var(--cv-id) var(--cv-st) minmax(0,1fr) var(--cv-last) var(--cv-doc);
+  grid-template-areas:"grip id st cmt last doc" "grip id st nxt tags sig";
+}
+#admin-col-conv .mode-rows .admin-notes, #admin-col-conv .mode-rows .admin-notes-line { display:contents; }
+#admin-col-conv .mode-rows .admin-drag-handle { grid-area:grip; align-self:stretch; width:auto; }
+#admin-col-conv .mode-rows .admin-card-identity { grid-area:id; flex:none; min-width:0; }
+#admin-col-conv .mode-rows .admin-partners { grid-area:st; min-width:0; }
+#admin-col-conv .mode-rows .admin-notes .admin-comment:not(.admin-nextstep) { grid-area:cmt; flex:none; min-width:0; }
+#admin-col-conv .mode-rows .admin-notes .admin-nextstep { grid-area:nxt; flex:none; min-width:0; }
+#admin-col-conv .mode-rows .admin-nextstep textarea { width:100%; }
+#admin-col-conv .mode-rows .admin-lastaction { grid-area:last; display:block; min-width:0; }
+#admin-col-conv .mode-rows .admin-lastaction input { width:100%; }
+#admin-col-conv .mode-rows .admin-tags { grid-area:tags; min-width:0; }
+#admin-col-conv .mode-rows .admin-link-cell, #admin-col-conv .mode-rows .admin-file-cell { grid-area:doc; width:100%; min-width:0; max-width:none; justify-content:flex-end; }
+#admin-col-conv .mode-rows .admin-signed-cell { grid-area:sig; width:100%; justify-content:flex-end; gap:6px; }
+
+/* Statuts : l'UB à gauche (avec ses sous-étapes), les autres établissements empilés à droite. */
+#admin-col-conv .mode-rows .admin-partners { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); column-gap:8px; row-gap:5px; align-content:center; align-items:start; }
+#admin-col-conv .mode-rows .admin-partner-col { width:auto; min-width:0; }
+#admin-col-conv .mode-rows .admin-partner-col:first-child { grid-column:1; grid-row:1 / span 6; }
+#admin-col-conv .mode-rows .admin-partner-col:not(:first-child) { grid-column:2; }
+
+/* Pièces jointes : un PDF visible (le nom s'abrège), « +N » pour les autres ; le trombone et le crayon du lien restent
+   TOUJOURS au bord droit de la colonne. */
+#admin-col-conv .mode-rows .admin-file-cell .admin-file { flex:1 1 auto; min-width:0; }
+#admin-col-conv .mode-rows .admin-file-cell .admin-file-name { max-width:none; flex:1 1 auto; min-width:0; }
+#admin-col-conv .mode-rows .admin-file-cell .admin-icon-btn, #admin-col-conv .mode-rows .admin-link-cell .admin-icon-btn { flex:none; width:28px; }
+.admin-more { all:unset; box-sizing:border-box; flex:none; display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:24px; padding:0 6px; border:1px solid var(--border-strong); border-radius:999px; background:var(--surface-sunken); color:var(--text-muted); font-size:10.5px; font-weight:800; cursor:pointer; }
+.admin-more:hover { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); }
+.admin-more:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.admin-pop-files { display:flex; flex-direction:column; gap:2px; width:300px; max-width:100%; }
+.admin-pop-file { display:flex; align-items:center; gap:2px; }
+.admin-pop-file-name { all:unset; box-sizing:border-box; flex:1 1 auto; min-width:0; display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 8px; border-radius:var(--radius-sm); color:var(--accent-hover); font-size:12px; font-weight:700; cursor:pointer; }
+.admin-pop-file-name:hover { background:var(--accent-soft); }
+.admin-pop-file-name:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.admin-pop-file-name svg { flex:none; }
+.admin-pop-file-name span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.admin-pop-file-x { font-size:16px; line-height:1; }
+.admin-pop-file-x:hover { background:var(--danger-soft); color:var(--danger); }
+
+/* Cellule « Signée » dans la colonne des pièces (2e ligne) : badge + deux icônes de transmission, sans libellé. */
+#admin-col-conv .mode-rows .admin-transmit { gap:0; }
+#admin-col-conv .mode-rows .admin-done-badge { padding:0 8px; height:22px; font-size:10.5px; }
+#admin-col-conv .mode-rows .admin-transmit-btn { padding:0 5px; gap:4px; }
+#admin-col-conv .mode-rows .admin-transmit-date { font-size:10.5px; }
+
+/* Bandeau du volet : en-têtes des colonnes de texte, alignés sur la grille des cartes (mêmes colonnes, mêmes écarts ;
+   23 px = marge du corps du volet 10 + bordure 1 + marge de la carte 12). Les icônes du volet restent au bord droit. */
+#admin-col-conv .admin-panel-header.has-colheads { display:grid; align-items:center; column-gap:var(--cv-gap); padding:10px 23px;
+  grid-template-columns:calc(var(--cv-grip) + var(--cv-id) + var(--cv-st) + 2 * var(--cv-gap)) minmax(0, 1fr) var(--cv-last) var(--cv-doc); }
+#admin-col-conv .has-colheads h4 { grid-column:1; grid-row:1; min-width:0; }
+#admin-col-conv .has-colheads .admin-colhead { grid-row:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+#admin-col-conv .has-colheads .admin-colhead-text { grid-column:2; }
+#admin-col-conv .has-colheads .admin-colhead-last { grid-column:3; }
+#admin-col-conv .has-colheads .admin-panel-tools { grid-column:4; grid-row:1; display:flex; align-items:center; gap:8px; justify-self:end; }
+#admin-col-conv .admin-panel.is-collapsed .admin-colhead { display:none; }
+
 /* Perf : les cartes hors de l'écran ne sont ni stylées ni mises en page tant qu'on ne les approche pas (content-visibility:auto) —
    la bascule vers Administratif / To Do et le changement d'onglet passent de ~120 ms à une poignée. Hauteurs estimées « auto » :
    le navigateur retient la vraie hauteur d'une carte dès qu'il l'a vue. Les popovers et bulles d'aide sont posés dans <body> (jamais
@@ -237,6 +308,6 @@ a.admin-icon-btn { color:var(--accent-hover); }
 /* Hauteurs de repli : hauteur mesurée (Notifications / Conventions, lignes / cartes) MOINS le padding et la bordure — contain-intrinsic-size
    donne la taille du contenu, le padding et la bordure s'y ajoutent. La barre de défilement ne saute donc pas à l'approche des cartes. */
 .mode-rows .admin-card:not(.todo-card) { content-visibility:auto; contain-intrinsic-size:auto 40px; }
-.mode-rows .admin-card-conv:not(.todo-card) { contain-intrinsic-size:auto 69px; }
+.mode-rows .admin-card-conv:not(.todo-card) { contain-intrinsic-size:auto 68px; }
 .mode-cards .admin-card:not(.todo-card) { content-visibility:auto; contain-intrinsic-size:auto 225px; }
 .mode-cards .admin-card-conv:not(.todo-card) { contain-intrinsic-size:auto 442px; }
