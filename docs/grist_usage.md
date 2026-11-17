@@ -767,6 +767,14 @@ rendu au nom du fichier. Pas de texte sélectionnable ni de lien actif. Diagnost
 dans la fenêtre (et dans la console) ; « Télécharger » reste le recours. Mesuré avec un vrai PDF de 12 pages :
 fenêtre en ~0,1 s, première page en ~0,3 s (en local).
 
+**Fiche projet (même jour).** Les noms de pièces jointes de la fiche (« Notification signée », « Convention de
+reversement (pièce jointe) », onglet Général) s'ouvrent aussi dans cette visionneuse : un écouteur par
+conteneur (`wireAttachmentViewer`, `js/components/project-modal.js`) intercepte le clic sur `a.cp-attachment-link`.
+Le lien garde son `href` Grist : Ctrl/Cmd/Maj/clic milieu, un fichier dont l'extension n'est pas `.pdf`, ou une
+visionneuse absente retombent sur le comportement du navigateur (onglet / téléchargement). Un fichier sans nom
+connu (« Pièce jointe #n ») passe par la visionneuse, qui dit si ce n'est pas un PDF. La cellule
+(`tableId/colId/rowId`) est relue à chaque ouverture de la fiche (la fiche est réutilisée d'un projet à l'autre).
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies
