@@ -736,7 +736,7 @@ n'est pas ouvert). Code : `js/pages/visa-mail.js` (logique) et `js/pages/page-ad
 relecture), le lien reste, puisque c'est le Word partagé pour la relecture. Un lien déjà saisi reste
 ouvrable à l'étape de signature (petite icône), rien n'est caché.
 
-Dans la cellule : le nom du PDF (clic = **affichage** dans un nouvel onglet, voir ci-dessous), une icône de
+Dans la cellule : le nom du PDF (clic = **affichage** dans la visionneuse du widget, voir ci-dessous), une icône de
 téléchargement (téléchargement forcé par Grist, sous le vrai nom du fichier), une croix au survol pour **retirer le fichier de la
 cellule** (il reste dans les pièces jointes du document), et un trombone pour **joindre** un PDF.
 Téléverser = `POST {baseUrl}/attachments?auth=<jeton>` (champ multipart `upload`, droit d'édition requis),
@@ -747,45 +747,25 @@ un jeton `readOnly:true` est plafonné au rôle Lecteur et ne peut ni lire une p
 (`CoreAttachments`) ; les noms de fichier (`_grist_Attachments`) ne sont relus que pour un numéro inconnu.
 Colonne `Lien_convention` et fiche projet inchangées.
 
-**Afficher plutôt que télécharger.** Une adresse `…/attachments/<n>/download` de Grist ne s'affiche pas dans
-le navigateur : sa réponse porte `Content-Security-Policy: sandbox` (que la visionneuse de PDF refuse) et,
-selon la version, un téléchargement forcé — même avec `?inline=1`. Le clic sur le nom lit donc le fichier avec
-le jeton (l'API répond `Access-Control-Allow-Origin: *` aux origines non Grist, sans cookie : `credentials:'omit'`)
-et l'ouvre depuis une adresse locale `blob:` de type `application/pdf`, dans la fenêtre ouverte au moment du
-clic. Seul un contenu qui commence par `%PDF-` est ouvert ainsi (jamais un autre type de fichier depuis une
-adresse de ce site) ; sinon, ou si la lecture échoue, repli sur l'adresse de Grist en `inline`. L'adresse
-`blob:` est gardée pour les clics suivants (8 fichiers au plus). Vérifié dans Chromium avec visionneuse PDF
-contre une réponse simulée « comme Grist » (CSP sandbox + `attachment`) : l'onglet s'ouvre sur le `blob:`,
-sans téléchargement. Si le navigateur est réglé pour télécharger les PDF au lieu de les ouvrir, il les
-téléchargera quand même.
-
-### 11. Cartes Conventions et Notifications : « Dernière action » mise à jour automatiquement (17 novembre 2026)
-
-`Projets.convention_Date_derniere_modification` (colonne **Date de données**, déjà dans l'export) se met à
-la date du jour à chaque modification faite **depuis une carte Conventions ou Notifications** de la page
-Administratif. C'est une seule date par projet, affichée (« Dernière action ») sur les deux types de cartes.
-
-- **Cartes Conventions** : glisser-déposer d'étape, clic sur une pastille de statut de signature, date de
-  transmission (e-mail ou papier), date d'une sous-étape de l'UB, commentaire libre, next step, responsables du
-  next step, lien, ajout ou retrait du PDF.
-- **Cartes Notifications** : bouton « Suivant → » (changement d'étape) et commentaire libre. Le bouton « Rédiger »
-  ouvre seulement la page Rédaction : il ne date rien.
-
-La date part dans la **même écriture** que la modification (un seul aller-retour, jamais l'une sans l'autre) ;
-pour « Suivant → », c'est un seul `applyUserActions` à deux actions (`Notifications` puis `Projets`). Elle est
-écrite à minuit UTC comme les autres colonnes Date.
-
-Le champ reste **modifiable à la main** (clic, calendrier, saisie, vidage) : une saisie manuelle s'écrit seule
-et n'est jamais remplacée par la date du jour sur le coup ; la modification suivante la remet, elle, à
-aujourd'hui (c'est la définition d'une « dernière » action). Rien n'est ajouté à l'écriture quand la date vaut
-déjà aujourd'hui, quand la colonne est absente de `Projets`, ou quand c'est une **colonne formule** (le widget
-n'écrit jamais une colonne calculée : il faut alors une colonne de données, ou laisser la formule faire).
-
-Hors périmètre, volontairement : la modale projet et les autres pages (Kanban, To Do, Installation des fonds,
-Instances…). Alternative côté document, si on veut la date à jour pour **toute** modification de la ligne (y
-compris dans Grist ou depuis la modale projet) : une **formule déclencheur** sur la colonne (« Appliquer lors des
-modifications de : tout champ », formule `TODAY()`), à régler dans Grist (intitulés exacts à vérifier dans la
-version utilisée) ; le widget continue de fonctionner, mais la date posée par Grist dépend alors de ce réglage.
+**Afficher plutôt que télécharger : visionneuse intégrée au widget.** Une adresse `…/attachments/<n>/download`
+de Grist ne s'affiche pas dans le navigateur (`Content-Security-Policy: sandbox`, téléchargement forcé selon
+la version, même avec `?inline=1`) ; un `blob:` ouvert dans un nouvel onglet est lui aussi téléchargé quand
+le navigateur — ou une règle du poste — est réglé pour télécharger les PDF (cas constaté chez Antoine le
+17/11). Le clic sur le nom ouvre donc **une fenêtre du widget** (`js/components/pdf-viewer.js`,
+`PdfViewer.open`), sans nouvel onglet : le fichier est lu avec le jeton (`CoreAttachments.fetchBytes`, l'API
+répond `Access-Control-Allow-Origin: *` aux origines non Grist, sans cookie : `credentials:'omit'`) et dessiné
+par pdf.js, **déjà embarqué** pour l'outil de signature (`signature/vendor/pdfjs`, aucune bibliothèque de
+plus). L'API des widgets Grist n'expose pas l'aperçu des pièces jointes de Grist, et GFS est trop lourd.
+Pensée pour être légère et immédiate : la fenêtre s'ouvre aussitôt (« Chargement du PDF… »), pdf.js se charge
+pendant la lecture du fichier et n'est jamais chargé au démarrage ; la première page est dessinée dès que
+possible, les autres sont demandées à l'approche de l'écran (marge de 900 px) et libérées en s'en éloignant
+(un PDF de 60 pages ne garde que 2 ou 3 toiles) ; au repos, une fois qu'une carte a un fichier, le module et
+le worker (1,4 Mo) sont préchargés (`PdfViewer.preload`, une seule fois). Zoom −/+ (40 à 300 %), « Télécharger »
+(adresse Grist, fichier enregistré sous son vrai nom), Échap / croix / clic hors fenêtre pour fermer, focus
+rendu au nom du fichier. Pas de texte sélectionnable ni de lien actif. Diagnostic : une lecture refusée
+(403/404 = règle d'accès, réseau), un contenu qui n'est pas un PDF ou un PDF illisible affichent leur cause
+dans la fenêtre (et dans la console) ; « Télécharger » reste le recours. Mesuré avec un vrai PDF de 12 pages :
+fenêtre en ~0,1 s, première page en ~0,3 s (en local).
 
 ### Divergences sans effet
 

@@ -1153,6 +1153,7 @@
   // pendant que la boîte de dialogue du système est ouverte.
   let fileInputEl = null;
   let pendingUploadId = null;
+  let viewerPreloadTimer = null;
   const usesFile = project => convStageIndex(project) >= FILE_FROM_STAGE;
   const filesOf = project => CoreAttachments.ids(readField(project, FILE_FIELD));
   const fileLocation = project => ({ tableId: homeRowFor(project, FILE_FIELD).table, colId: FILE_FIELD, rowId: project.id });
@@ -1202,6 +1203,9 @@
   function hydrateFileNames(projects) {
     const wanted = projects.flatMap(filesOf);
     if (!wanted.length) return;
+    // Un PDF peut être ouvert : on prépare la visionneuse au repos (une seule fois), pour que le premier clic soit aussi
+    // rapide que les suivants.
+    if (!viewerPreloadTimer && window.PdfViewer) viewerPreloadTimer = setTimeout(() => window.PdfViewer.preload(), 1500);
     CoreAttachments.ensureNames(wanted).then(loaded => {
       if (loaded) projects.forEach(project => refreshFileCell(project));
     }).catch(() => { /* noms illisibles : « Pièce jointe #n » reste affiché */ });
@@ -1266,6 +1270,16 @@
     else refreshFileCell(project); // écriture refusée : retour à l'état précédent
   }
 
+  // Affiche le PDF dans la visionneuse du widget (pas de nouvel onglet : le navigateur, ou une règle du poste,
+  // téléchargerait le fichier au lieu de l'afficher). Le fichier est lu avec le jeton ; « Télécharger » reste dans
+  // la visionneuse. Sans visionneuse (fichier non chargé), repli sur le téléchargement.
+  function viewConventionFile(project, fileId, opener) {
+    const cell = fileLocation(project);
+    const download = () => CoreAttachments.open(fileId, cell);
+    if (!window.PdfViewer) { download(); return; }
+    window.PdfViewer.open({ title: fileLabel(fileId), load: () => CoreAttachments.fetchBytes(fileId, cell), onDownload: download, opener });
+  }
+
   // Clic sur une action de la cellule PDF (ouvrir, télécharger, retirer, joindre).
   function onFileAction(button) {
     const data = button.dataset;
@@ -1279,7 +1293,7 @@
     const fileId = Number(rawFileId);
     if (!project || !filesOf(project).includes(fileId)) return;
     if (data.detachFile !== undefined) detachConventionFile(project, fileId);
-    else if (data.openFile !== undefined) CoreAttachments.view(fileId, fileLocation(project)); // afficher : visionneuse PDF du navigateur
+    else if (data.openFile !== undefined) viewConventionFile(project, fileId, button); // afficher : visionneuse du widget
     else CoreAttachments.open(fileId, fileLocation(project)); // télécharger : fichier enregistré sous son vrai nom
   }
 

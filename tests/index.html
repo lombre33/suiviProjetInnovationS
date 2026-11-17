@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>suiviProjetInnovationS — tests de non-régression</title>
+<link rel="stylesheet" href="../css/pdf-viewer.css">
 <style>
   body { font: 14px/1.4 monospace; padding: 16px; }
   #test-results .pass { color: #0a7a2f; }
@@ -238,7 +239,10 @@
     await loadScript('../js/core/grist-api.js');
     await loadScript('../js/core/attachments.js');
     await loadScript('../js/core/grist-bridge.js');
+    // Dossier du widget pour js/components/pdf-viewer.js : pdf.js (signature/vendor/pdfjs) est chargé à la demande.
+    window.SUIVI_ROOT = location.origin + '/';
     await loadScript('../js/components/help-tooltip.js');
+    await loadScript('../js/components/pdf-viewer.js');
     await loadScript('../js/components/project-modal.js');
     await loadScript('../js/components/poste-modal.js');
     await loadScript('../js/components/person-modal.js');
