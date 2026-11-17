@@ -72,6 +72,9 @@
   // Options d'affichage brutes (widgetOptions, JSON) des colonnes Choice / ChoiceList, lues avec les descriptions :
   // ensureChoices() sait ainsi sans aller-retour si la liste de choix d'une colonne est à jour.
   let choiceOptionsMap = null;
+  // Colonnes calculées (formule non vide, hors colonne « vide » d'un Grist neuf dont isFormula est vrai sans formule) :
+  // {tableId: {colId: true}}, lues avec les descriptions. Le widget lit ces colonnes mais ne les écrit jamais.
+  let formulaMap = null;
   // Schéma connu du document : {tableId: Set(colId)}, rempli par loadColumnDescriptions()
   // (mêmes métadonnées, une seule lecture) puis tenu à jour par ensureTable/ensureColumns.
   // Connaissance POSITIVE seulement : une table/colonne présente ici existe, l'absence ne
@@ -177,6 +180,7 @@
         const byTable = {};
         const typeMap = {};
         const choiceMap = {};
+        const formulas = {};
         const schema = new Map();
         tableIdByRef.forEach(tableId => schema.set(tableId, new Set(['id'])));
         cols.id.forEach((ref, i) => {
@@ -185,6 +189,7 @@
             schema.get(tableId).add(cols.colId[i]);
             if (cols.type && cols.type[i]) (typeMap[tableId] = typeMap[tableId] || {})[cols.colId[i]] = String(cols.type[i]);
             if (cols.widgetOptions && /^Choice/.test(String(cols.type && cols.type[i]))) (choiceMap[tableId] = choiceMap[tableId] || {})[cols.colId[i]] = String(cols.widgetOptions[i] || '');
+            if (cols.isFormula && cols.isFormula[i] && cols.formula && String(cols.formula[i] || '').trim()) (formulas[tableId] = formulas[tableId] || {})[cols.colId[i]] = true;
           }
           const description = cols.description ? cols.description[i] : '';
           if (!tableId || !description) return;
@@ -194,6 +199,7 @@
         columnDescriptions = byTable;
         columnTypeMap = typeMap;
         choiceOptionsMap = choiceMap;
+        formulaMap = formulas;
         knownSchema.clear();
         schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
@@ -201,6 +207,7 @@
         columnDescriptions = {};
         columnTypeMap = null;
         choiceOptionsMap = null;
+        formulaMap = null;
         knownSchema.clear();
       }
     },
@@ -238,6 +245,13 @@
     // d'exception : c'est ce qui décide d'afficher ou non l'icône d'aide.
     // Types des colonnes d'une table ({colId: 'Ref:Instances'…}) ou null quand les métadonnées n'ont pas pu être lues.
     columnTypes(tableId) { return (columnTypeMap && columnTypeMap[tableId]) || null; },
+    // true seulement quand la colonne est connue comme calculée (formule) ; false quand elle ne l'est pas ou que les métadonnées n'ont pas pu être lues.
+    isFormulaColumn(tableId, colId) { return !!(formulaMap && formulaMap[tableId] && formulaMap[tableId][colId]); },
+    // Choix proposés par une colonne Choice (liste vide quand elle est inconnue, illisible ou sans choix).
+    columnChoices(tableId, colId) {
+      const raw = choiceOptionsMap && choiceOptionsMap[tableId] ? choiceOptionsMap[tableId][colId] : '';
+      try { const choices = raw ? JSON.parse(raw).choices : []; return Array.isArray(choices) ? choices.map(String) : []; } catch (err) { return []; }
+    },
     getColumnDescription(tableId, colId) {
       return (columnDescriptions && columnDescriptions[tableId] && columnDescriptions[tableId][colId]) || '';
     },

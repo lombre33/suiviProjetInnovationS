@@ -159,6 +159,29 @@
 .cp-row-total { background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-weight:800; white-space:nowrap; }
 .cp-budget-notice { margin:12px 0 0; padding:9px 12px; border:1px solid var(--accent-soft-border,#c7dbfd); border-radius:var(--radius-sm,7px); background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:12.5px; font-weight:600; }
 
+/* Co-financements : volet replié de l'onglet Budget (<details>), une seule ligne tant qu'il est fermé ; le résumé
+   (Idex, Recette RNA Premat-mat, commentaire) reste lisible replié. */
+.cp-cofin { margin-top:14px; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-sm,7px); background:var(--surface,#fff); }
+.cp-cofin > summary { display:flex; align-items:center; gap:10px; padding:9px 12px; cursor:pointer; list-style:none; font-size:12.5px; font-weight:700; color:var(--text-muted,#667085); }
+.cp-cofin > summary::-webkit-details-marker { display:none; }
+.cp-cofin > summary::before { content:''; flex:none; width:6px; height:6px; margin:0 3px 2px 1px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(-45deg); transition:transform .15s ease; }
+.cp-cofin[open] > summary::before { transform:rotate(45deg); margin-bottom:4px; }
+.cp-cofin > summary:hover { color:var(--text,#1b2430); }
+.cp-cofin > summary:focus-visible { outline:2px solid var(--accent-soft-border,#c7dbfd); outline-offset:-2px; border-radius:var(--radius-sm,7px); }
+.cp-cofin-title { flex:none; }
+.cp-cofin-sum { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent-hover,#2558c4); font-weight:600; }
+.cp-cofin-sum:empty { display:none; }
+.cp-cofin-body { padding:4px 12px 12px; }
+/* Libellé en ligne : l'icône « ? » (bouton frère du <label>) reste sur la même ligne au lieu de tomber dessous (place verticale). */
+.cp-cofin .cp-field > label { display:inline-block; }
+.cp-cofin-control { min-height:36px; }
+.cp-cofin-switch { align-items:center!important; height:36px; }
+.cp-cofin-switch .cp-switch { margin-top:0; }
+.cp-cofin-switch .cp-switch input { height:100%; padding:0; border:0; }
+.cp-cofin-state { font-size:13px; font-weight:600; color:var(--text,#1b2430); }
+.cp-cofin-note { margin:6px 0 0; font-size:11.5px; color:var(--text-faint,#98a2b3); }
+.cp-cofin-off .cp-cofin-note { margin:0; padding-top:9px; }
+
 .cp-readonly { background:var(--surface-sunken,#eef1f6)!important; color:var(--text-muted,#667085)!important; cursor:not-allowed; }
 
 .cp-attachments { display:flex; flex-direction:column; gap:4px; min-height:36px; }

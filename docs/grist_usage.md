@@ -97,6 +97,15 @@ reste alors utilisable, simplement sans bulles d'aide.
 | `c2026_M10_Fonctionnement`, `c2026_M20_Investissement`, `c2026_M30_Personnel` | Numeric | |
 | `c2027_…`, `c2028_…` (mêmes trois suffixes) | Numeric | |
 | `c2029_M10_Fonctionnement`, `c2029_M20_Investissement`, `c2029_M30_Personnel` | **Formule** | voir écart 1 ci-dessous |
+| `Part_Idex`, `Part_recette_RNA_PREMAT_MAT` | au choix d'Antoine (Bool attendu) | volet « Co-financements » de l'onglet Budget, ajoutées à la main le 17/11/2026 (absentes de l'export ci-dessus) ; le champ suit le type lu dans les métadonnées, voir ci-dessous |
+| `Commentaire_budget` | Text | même volet |
+
+**Co-financements** (`Part_Idex`, `Part_recette_RNA_PREMAT_MAT`, `Commentaire_budget`) : le type de ces
+colonnes n'est pas imposé, la modale s'y adapte (`Bool` : interrupteur Oui/Non ; `Numeric`/`Int` : montant ;
+`Choice` : liste de choix de Grist ; `Text` : texte). Une colonne absente de `Projets` n'est jamais écrite (le champ
+l'indique, et le volet disparaît si les trois manquent) ; une colonne calculée (formule) ou d'un autre type reste en
+lecture seule ; une colonne encore « vide » (type `Any`, sans valeur) n'est écrite qu'une fois le champ modifié, pour ne
+pas figer son type par un simple enregistrement.
 
 L'export ne publie pas la liste des valeurs des colonnes `Choice` ; les listes proposées
 par l'interface (`TYPE_OPTIONS`, `OPE_OPTIONS`, statuts opérationnels) sont donc
