@@ -184,16 +184,19 @@
       assertFalse(!!moreBtn('CONVENTIX'));
     });
 
-    it('depuis le popover « +N » : afficher un PDF l\'ouvre, le télécharger l\'envoie vers l\'adresse Grist, la croix retire seulement ce fichier et ferme la liste', async function () {
+    it('depuis le popover « +N » : afficher un PDF caché l\'ouvre dans la visionneuse, la croix retire seulement ce fichier et ferme la liste', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501, 502] }, attachments });
       await waitFor(() => names('CONVENTIX')[0] === 'Convention_ACME.pdf', 'noms de fichier');
-      const open = stubOpen(), blobs = stubBlobs();
-      const rest = stubFetch(() => new Response('%PDF-1.7 contenu'));
+      const rest = stubFetch(async () => new Response(await makePdf(1)));
       try {
         moreBtn('CONVENTIX').click();
         popover().querySelectorAll('[data-open-file]')[1].click(); // le deuxième PDF, caché dans la cellule
-        await waitFor(() => openedAt(open) === 'blob:test/1', 'fenêtre dirigée vers le PDF');
+        assertTrue(!!viewer(), 'visionneuse ouverte');
+        assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Convention_ACME_signee.pdf', 'c\'est bien le 2e fichier');
+        await waitFor(() => rest.log.length === 1, 'fichier lu');
         assertEqual(rest.log[0].url, SERVER_URL(502), 'c\'est bien le fichier 502 qui est lu');
+        closeViewer();
+        if (!popover()) moreBtn('CONVENTIX').click();
         clearToast();
         popover().querySelectorAll('[data-detach-file]')[1].click();
         await wait(10);
@@ -201,7 +204,7 @@
         assertDeepEqual(writes()[0].fields[FILE_COLUMN], ['L', 501]);
         assertDeepEqual(names('CONVENTIX'), ['Convention_ACME.pdf']);
         assertFalse(!!moreBtn('CONVENTIX'), 'plus rien derrière « +N »');
-      } finally { rest.restore(); blobs.restore(); open.restore(); }
+      } finally { closeViewer(); rest.restore(); }
     });
 
     it('une pièce jointe dont le nom est introuvable s\'affiche « Pièce jointe #n » sans planter', async function () {
