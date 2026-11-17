@@ -437,6 +437,16 @@ gauche/droite = instance voisine (focus conservé). Sans aucune instance princip
 Grist), les deux premières font les boutons. Le choix reste retenu par utilisateur (`Preferences_Widget.Inst_instance`).
 `tests/index.html` reproduit le bouton de la barre : à garder identique à `index.html`.
 
+**Étape Invités : la réponse disparaît après l'appel (17/11/2026).** La colonne « Réponse » (À confirmer / Viendra /
+Excusé) n'a plus d'objet une fois l'appel du jour fait : elle disparaît **pour la personne** dont `Instance_Invites.Appel`
+est renseigné (case vide, grille alignée), et **toute la colonne** disparaît quand l'appel est fait pour tout le monde
+(la grille perd une colonne). La réponse reste lisible au survol des boutons d'appel (« avait répondu : viendra ») et un
+**œil** dans l'en-tête « Appel du jour » (visible dès qu'un appel est fait) la réaffiche pour tous, puis la recache
+(état de session, non retenu). Effacer un appel (re-clic) ramène la réponse de la personne et la colonne. Conséquences :
+la couleur de la ligne suit la présence constatée une fois l'appel fait (présent vert, absent rouge ; avant : la
+réponse) ; un tri par réponse enregistré ne s'applique pas tant que la colonne est masquée ; l'appel vaut réponse pour
+l'alerte « n'ont pas encore répondu » de l'étape et pour le jalon « Présence invités confirmée » (« x/y confirmés »).
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait

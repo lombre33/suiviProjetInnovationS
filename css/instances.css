@@ -261,6 +261,13 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-grow{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(80px,1fr) 34px 34px 104px 200px minmax(90px,170px) 96px 28px;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--border)}
 @container gw (max-width:940px){.in-grow{grid-template-columns:minmax(120px,1.4fr) minmax(60px,1fr) 32px 32px 104px 190px minmax(70px,130px) 90px 26px;gap:6px;padding:7px 8px}}
 @container gw (max-width:830px){.in-grow{min-width:800px}}
+/* Colonne « Réponse » masquée (appel fait pour tout le monde, 17/11/2026) : une colonne de moins, et la ligne tient dans moins de largeur. */
+.in-gwrap.in-norep .in-grow{grid-template-columns:minmax(150px,1.4fr) minmax(80px,1fr) 34px 34px 200px minmax(90px,170px) 96px 28px}
+@container gw (max-width:940px){.in-gwrap.in-norep .in-grow{grid-template-columns:minmax(120px,1.4fr) minmax(60px,1fr) 32px 32px 190px minmax(70px,130px) 90px 26px}}
+@container gw (max-width:830px){.in-gwrap.in-norep .in-grow{min-width:690px}}
+.in-grow.in-head .in-hcall{white-space:nowrap;overflow:visible}
+.in-hrep{width:22px;height:22px;margin-left:2px;vertical-align:middle}
+.in-hrep.in-on{color:var(--accent-h);background:var(--surface)}
 .in-pcell{display:flex;align-items:baseline;gap:8px;min-width:0}
 .in-pcell .in-pname{flex:0 1 auto;min-width:0}
 .in-pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -275,7 +282,7 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-grow.in-head{background:var(--sunken);font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:6px 12px;border-radius:12px 12px 0 0}
 .in-grow:last-child{border-bottom:0}
 .in-grow.in-flag{box-shadow:inset 4px 0 0 #e07b00}
-/* La couleur d'une ligne d'invité suit la présence prévue (réponse) : vert = viendra, rouge = excusé, fond blanc par défaut */
+/* La couleur d'une ligne d'invité suit la présence prévue (réponse) : vert = viendra, rouge = excusé, fond blanc par défaut ; appel fait : présent = vert, absent = rouge */
 .in-grow.in-rep-ok{background:#e4f6ea}
 .in-grow.in-rep-no{background:#fde4e7}
 .in-pname{font-weight:800;font-size:13px;display:flex;align-items:center;gap:5px}

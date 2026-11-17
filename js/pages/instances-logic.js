@@ -260,6 +260,14 @@
     return 'Validé le ' + fmtDate(v.le) + (by ? ' par ' + by : '');
   }
   // Une condition : { ok, text, warn?, chip? }. `warn` = alerte non bloquante ; sans `warn`, la condition bloque la validation.
+  // Présence connue : l'invité a répondu à l'invitation (viendra / excusé) OU son appel du jour est fait.
+  const hasAnswered = g => g.reponse === 'viendra' || g.reponse === 'excuse' || !!g.appel;
+  // Colonne « Réponse » de l'étape Invités (Antoine, 17/11/2026) : sans objet une fois l'appel fait. Masquée pour la personne dont l'appel est
+  // renseigné, et pour tout le monde quand l'appel est fait pour tous ; `forced` (bouton œil de l'en-tête) la remet pour tous.
+  function repVisibility(guests, forced) {
+    const allCalled = guests.length > 0 && guests.every(g => !!g.appel);
+    return { column: !!forced || !allCalled, cell: g => !!forced || !g.appel };
+  }
   function stepConditions(key, ctx) {
     const { seance, cfg, sched, conflicts, guests, relectures } = ctx;
     const nconf = Object.keys(conflicts).length;
@@ -278,7 +286,7 @@
       ];
     }
     if (key === 'invites') {
-      const nAsk = guests.filter(g => g.reponse !== 'viendra' && g.reponse !== 'excuse').length;
+      const nAsk = guests.filter(g => !hasAnswered(g)).length;
       return [
         { ok: guests.length > 0, text: 'Au moins un invité' },
         { warn: true, chip: true, ok: nconf === 0, text: plural(nconf, 'point où un invité est indisponible', 'points où un invité est indisponible') },
@@ -443,7 +451,7 @@
   const matchesSearch = (hay, query) => String(query || '').split(' ').every(word => !word || String(hay).indexOf(word) >= 0);
 
   const api = {
-    findCompositionTable, detectComposition, matchesSearch, gradeKind, sortGuests, nextGuestTri, GUEST_TRI,
+    findCompositionTable, detectComposition, matchesSearch, gradeKind, sortGuests, nextGuestTri, GUEST_TRI, hasAnswered, repVisibility,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, DUREES, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
     notifNum, stripOrdinal, shortName, initials, cut,

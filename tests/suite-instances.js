@@ -537,7 +537,7 @@
       assertFalse(r[0].done, 'ODJ pas encore validé');
       assertIncludes(r[0].v, '3 points');
       assertEqual(r[1].t, 'Présence invités confirmée');
-      assertEqual(r[1].v, '1/3 réponses', 'Alice a répondu (viendra) ; Bob et Chloé restent à confirmer');
+      assertEqual(r[1].v, '1/3 confirmés', 'Alice a répondu (viendra) ; Bob et Chloé restent à confirmer');
       assertIncludes(r[1].sub, '1 viendra');
       assertIncludes(r[1].sub, '2 à confirmer');
       assertFalse(r[1].done);
@@ -2045,6 +2045,127 @@
       assertEqual(calls('RemoveRecord', 'Instance_Invites')[before].id, 1);
       assertEqual(calls('UpdateRecord', 'Instances').length, 0, 'la liste permanente de l\'instance (Invites_permanents) n\'est pas touchée');
     });
+
+    // Colonne « Réponse » (Antoine, 17/11/2026) : sans objet une fois l'appel fait.
+    const repGroup = name => row(name).querySelector('.in-seg-i[aria-label="Réponse à l\'invitation"]');
+    const callAll = async ids => {
+      ids.forEach(id => click('g-appel', { id, v: 'present' }));
+      await waitFor(() => calls('UpdateRecord', 'Instance_Invites').filter(c => 'Appel' in c.fields).length >= ids.length, 'appels écrits');
+    };
+
+    it('réponse à l\'invitation : logique — masquée pour la personne appelée, et pour tous quand l\'appel est fait pour tout le monde (l\'œil la remet)', function () {
+      const g = (reponse, appel) => ({ reponse, appel });
+      assertTrue(L.hasAnswered(g('viendra', '')) && L.hasAnswered(g('excuse', '')), 'répondu à l\'invitation');
+      assertFalse(L.hasAnswered(g('attente', '')));
+      assertTrue(L.hasAnswered(g('attente', 'present')) && L.hasAnswered(g('attente', 'absent')), 'l\'appel fait connaître la présence');
+      const none = L.repVisibility([g('viendra', ''), g('attente', '')], false);
+      assertTrue(none.column && none.cell(g('viendra', '')), 'aucun appel : tout est affiché');
+      const some = L.repVisibility([g('viendra', 'present'), g('attente', '')], false);
+      assertTrue(some.column, 'la colonne reste tant qu\'une personne n\'est pas appelée');
+      assertFalse(some.cell(g('viendra', 'present')), 'mais pas pour la personne appelée');
+      assertTrue(some.cell(g('attente', '')));
+      const all = L.repVisibility([g('viendra', 'present'), g('attente', 'absent')], false);
+      assertFalse(all.column, 'tout le monde est appelé : la colonne disparaît');
+      assertTrue(L.repVisibility([g('viendra', 'present')], true).column, 'forcée par l\'œil');
+      assertTrue(L.repVisibility([g('viendra', 'present')], true).cell(g('viendra', 'present')));
+      assertTrue(L.repVisibility([], false).column, 'sans invité : colonne affichée');
+    });
+
+    it('réponse à l\'invitation : sans appel, tout est visible ; l\'appel d\'une personne efface SA réponse seulement (lisible au survol de l\'appel)', async function () {
+      await setup();
+      step('invites');
+      assertEqual(qa('.in-grow:not(.in-head) .in-seg-i[aria-label="Réponse à l\'invitation"]').length, 3, 'une réponse par invité');
+      assertTrue(qa('.in-grow.in-head .in-hsort').some(b => b.textContent.trim() === 'Réponse'), 'en-tête « Réponse »');
+      assertEqual(qa('.in-hrep').length, 0, 'pas d\'œil tant qu\'aucun appel n\'est fait (rien n\'est masqué)');
+      click('g-appel', { id: 2, v: 'present' }); // Bob (à confirmer) est appelé
+      await waitFor(() => !repGroup('Bob'), 'réponse de Bob masquée');
+      assertTrue(!!repGroup('Alice') && !!repGroup('Chloé'), 'les autres gardent leur réponse');
+      assertTrue(qa('.in-grow.in-head .in-hsort').some(b => b.textContent.trim() === 'Réponse'), 'la colonne reste tant que tout le monde n\'est pas appelé');
+      assertEqual(row('Bob').children.length, qa('.in-grow.in-head > div').length, 'la grille reste alignée : une case vide à la place de la réponse');
+      assertTrue(!!row('Bob').querySelector('.in-repgone'));
+      assertIncludes(row('Bob').querySelector('.in-seg-i[aria-label="Appel du jour"] button').title, 'avait répondu : à confirmer', 'la réponse reste lisible au survol de l\'appel');
+      assertEqual(row('Bob').querySelector('.in-seg-i[aria-label="Appel du jour"] button').getAttribute('aria-label'), 'Présent(e)', 'le nom accessible du bouton ne change pas');
+      assertTrue(!!q('.in-hrep'), 'l\'œil apparaît : quelque chose est masqué');
+      // effacer l'appel (re-clic) ramène la réponse
+      click('g-appel', { id: 2, v: 'present' });
+      await waitFor(() => !!repGroup('Bob'), 'réponse de Bob de retour');
+      assertEqual(qa('.in-hrep').length, 0);
+    });
+
+    it('réponse à l\'invitation : quand l\'appel est fait pour tout le monde, la colonne disparaît ; l\'œil de « Appel du jour » la remet, puis la recache', async function () {
+      await withLayout(async () => {
+        await setup();
+        step('invites');
+        const cols = r => getComputedStyle(r).gridTemplateColumns.split(' ').length;
+        q('.in-gwrap').style.width = '1232px';
+        await settleResize();
+        const before = cols(q('.in-grow.in-head'));
+        await callAll([1, 2, 3]);
+        await waitFor(() => !q('.in-grow:not(.in-head) .in-seg-i[aria-label="Réponse à l\'invitation"]'), 'toutes les réponses masquées');
+        assertTrue(q('.in-gwrap').classList.contains('in-norep'), 'colonne retirée');
+        assertFalse(qa('.in-grow.in-head .in-hsort').some(b => b.textContent.trim() === 'Réponse'), 'plus d\'en-tête « Réponse »');
+        q('.in-gwrap').style.width = '1232px';
+        await settleResize();
+        assertEqual(cols(q('.in-grow.in-head')), before - 1, 'une colonne de moins dans la grille');
+        assertEqual(cols(row('Alice')), before - 1);
+        qa('.in-grow:not(.in-head)').forEach(r => assertEqual(r.children.length, before - 1, 'une case de moins par ligne'));
+        assertTrue(q('.in-grow:not(.in-head)').getBoundingClientRect().height < 70, 'les lignes tiennent toujours sur une seule ligne');
+        // l'œil de l'en-tête « Appel du jour » : réponses de retour pour tous, puis masquées de nouveau
+        assertEqual(q('.in-hrep').getAttribute('aria-pressed'), 'false');
+        click('rep-show');
+        assertFalse(q('.in-gwrap').classList.contains('in-norep'), 'colonne affichée par l\'œil');
+        assertEqual(qa('.in-grow:not(.in-head) .in-seg-i[aria-label="Réponse à l\'invitation"]').length, 3, 'les trois réponses sont de retour');
+        assertTrue(qa('.in-grow.in-head .in-hsort').some(b => b.textContent.trim() === 'Réponse'));
+        assertEqual(q('.in-hrep').getAttribute('aria-pressed'), 'true');
+        click('rep-show');
+        assertTrue(q('.in-gwrap').classList.contains('in-norep'), 'masquée de nouveau');
+        // un seul appel effacé : la colonne revient d'elle-même (et l'œil n'est plus forcé)
+        click('g-appel', { id: 1, v: 'present' });
+        await waitFor(() => !q('.in-gwrap').classList.contains('in-norep'), 'colonne de retour');
+        assertTrue(!!repGroup('Alice') && !repGroup('Bob'), 'Alice (appel effacé) retrouve sa réponse, Bob et Chloé restent appelés');
+      });
+    });
+
+    it('réponse à l\'invitation : une fois l\'appel fait, la couleur de la ligne suit la présence constatée (présent vert, absent rouge) ; sans appel elle suit la réponse', async function () {
+      await setup();
+      step('invites');
+      assertTrue(row('Alice').classList.contains('in-rep-ok'), 'Alice a répondu viendra : vert');
+      assertFalse(row('Bob').classList.contains('in-rep-ok') || row('Bob').classList.contains('in-rep-no'), 'Bob à confirmer : blanc');
+      click('g-appel', { id: 1, v: 'absent' }); // Alice avait dit viendra, elle est absente
+      click('g-appel', { id: 2, v: 'present' }); // Bob n'avait pas répondu, il est là
+      await waitFor(() => row('Bob').classList.contains('in-rep-ok'), 'Bob présent : vert');
+      assertTrue(row('Alice').classList.contains('in-rep-no'), 'Alice absente : rouge malgré sa réponse « viendra »');
+    });
+
+    it('réponse à l\'invitation : un tri par réponse ne s\'applique pas tant que la colonne est masquée ; il revient avec elle', async function () {
+      await setup();
+      await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_tri_invites: 'reponse:desc' }]]);
+      window.InstancesPage._reset();
+      await window.loadInstancesUserPreferences();
+      await window.InstancesPage.open();
+      step('invites');
+      const shown = () => qa('.in-grow:not(.in-head) .in-pn').map(n => n.textContent.trim());
+      const sorted = shown();
+      await callAll([1, 2, 3]);
+      await waitFor(() => q('.in-gwrap').classList.contains('in-norep'), 'colonne masquée');
+      assertDeepEqual(shown(), ['Chloé Petit', 'Alice Martin', 'Bob Durand'], 'colonne invisible : ordre par défaut (spécifiques d\'abord, puis l\'ordre d\'origine)');
+      click('rep-show');
+      assertDeepEqual(shown(), sorted, 'colonne affichée : le tri par réponse enregistré s\'applique de nouveau');
+    });
+
+    it('réponse à l\'invitation : l\'appel vaut réponse pour l\'alerte « n\'ont pas encore répondu » et le jalon « Présence invités confirmée »', async function () {
+      await setup();
+      step('invites');
+      assertTrue(qa('.in-alert-pill').some(p => /2 invités n'ont pas encore répondu/.test(p.title)), '2 invités sans réponse ni appel');
+      click('g-appel', { id: 2, v: 'present' });
+      click('g-appel', { id: 3, v: 'absent' });
+      await waitFor(() => !qa('.in-alert-pill').some(p => /pas encore répondu/.test(p.title)), 'plus d\'alerte : tout le monde a répondu ou été appelé');
+      step('macro');
+      const ms = qa('.in-thread .in-ms').find(b => /Présence invités confirmée/.test(b.textContent));
+      assertEqual(ms.querySelector('.in-msv').textContent.trim(), '3/3 confirmés');
+      assertFalse(ms.textContent.includes('à confirmer'), 'plus personne à confirmer');
+    });
+
   });
 
   // -------------------------------------------------------------------------------------------------
