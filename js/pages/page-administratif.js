@@ -147,6 +147,7 @@
     visa: stepSvg('<circle cx="12" cy="12" r="9"></circle><path d="M8 12.5l2.7 2.7L16 9.8"></path>'),
     parapheur: stepSvg('<path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path>')
   };
+  const STEP_MAIL_ICON = stepSvg('<rect x="2.5" y="4.5" width="19" height="15" rx="2"></rect><polyline points="3 7 12 13.5 21 7"></polyline>');
   const ICON_USER_PLUS ='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><line x1="19" y1="7" x2="19" y2="13"></line><line x1="16" y1="10" x2="22" y2="10"></line></svg>';
   const ICON_VIEW_ROWS ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>';
 
@@ -412,8 +413,13 @@
     { id: 'Admin_filtre_instance', type: 'Text' },
     { id: 'Admin_filtre_recherche', type: 'Text' },
     // Onglet affiché (notif / conv) : retenu depuis le 12/11/2026, pour retrouver « Conventions » après un rechargement.
-    { id: 'Admin_onglet_actif', type: 'Text' }
+    { id: 'Admin_onglet_actif', type: 'Text' },
+    // Mail « Demande de visa » (sous-étape Visa de l'UB) : nom du modèle e-mail de Publipostage+ retenu, et messagerie
+    // de la personne (« zimbra », sinon standard). Écrits à part (saveVisaMailPrefs), jamais avec les volets et les filtres.
+    { id: 'Mail_visa_modele', type: 'Text' },
+    { id: 'Mail_visa_client', type: 'Text' }
   ];
+  let visaMailPrefs = { model: '', client: '' };
   let prefsRowId = null;
   const encodeIdxList = indices => indices.join(',');
   const decodeIdxList = value => text(value).split(',').map(s => s.trim()).filter(Boolean).map(Number);
@@ -720,7 +726,7 @@
   };
   const stepSpec = step => ({
     column: step.column, label: step.label, aria: `Date : ${step.label}`, errorLabel: `de la date « ${step.label} »`, refresh: refreshStepsCell,
-    help: true
+    help: true, visaMail: step.key === 'visa'
   });
   const STEP_BY_KIND = Object.fromEntries(UB_STEP_LIST.map(step => [`step-${step.key}`, step]));
   function openDatePopover(anchor, project, kind, spec) {
@@ -730,7 +736,8 @@
     const html = `<div class="admin-pop-date"><span class="admin-field-label">${escape(spec.label)}${help}</span>` +
       `<input type="date" class="admin-pop-date-input" value="${escape(iso)}" aria-label="${escape(spec.aria)}">` +
       `<div class="admin-pop-actions"><button type="button" class="admin-pop-btn" data-pop-today>Aujourd'hui</button>` +
-      `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div></div>`;
+      `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div>` +
+      `${spec.visaMail && window.VisaMail ? '<button type="button" class="admin-pop-link" data-pop-visa-settings>Mail de demande de visa : choisir le modèle…</button>' : ''}</div>`;
     openPopover(anchor, `${kind}:${project.id}`, spec.aria, html, el => {
       const input = el.querySelector('input');
       let typed = false, pending = null;
@@ -766,7 +773,94 @@
       el.querySelector('[data-pop-today]').addEventListener('click', () => commit(todayIso()));
       const clear = el.querySelector('[data-pop-clear]');
       if (clear) clear.addEventListener('click', () => commit(''));
+      const visaSettings = el.querySelector('[data-pop-visa-settings]');
+      if (visaSettings) visaSettings.addEventListener('click', () => {
+        closePopover();
+        const mailAnchor = anchorFor(`visa-mail:${project.id}`);
+        if (mailAnchor) openVisaMailPopover(mailAnchor, project);
+      });
       input.focus({ preventScroll: true });
+    });
+  }
+
+  // ── Mail « Demande de visa » (js/pages/visa-mail.js) ──
+  // Une enveloppe sur la ligne de la sous-étape « Visa » de l'UB ouvre un brouillon rempli (destinataires, objet, corps) dans
+  // la messagerie, d'après un modèle e-mail de Publipostage+ (GFS n'est pas ouvert). Le modèle et la messagerie (Standard /
+  // Zimbra) sont retenus par utilisateur (Preferences_Widget.Mail_visa_modele / Mail_visa_client). Sans modèle retenu, ou si le
+  // brouillon appelle une vérification (variable sans valeur, lien trop long…), un popover le dit avant d'ouvrir quoi que ce soit.
+  async function saveVisaMailPrefs(patch) {
+    visaMailPrefs = { ...visaMailPrefs, ...patch };
+    if (!prefsRowId || !window.CoreGrist?.gristInstance) return; // pas de ligne de préférences : valable pour la session seulement
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId,
+        { Mail_visa_modele: visaMailPrefs.model, Mail_visa_client: visaMailPrefs.client }]]);
+    } catch (err) {
+      CoreUtils.showToast(`Échec de l'enregistrement du réglage du mail (${err.message})`, true);
+    }
+  }
+  const visaMailErrorText = err => err.code === 'models-table-missing'
+    ? "Aucun modèle de mail : la table Publipostage_Modeles n'existe pas dans ce document."
+    : `Mail de demande de visa impossible (${err.message})`;
+  let visaMailBusy = false;
+  async function startVisaMail(anchor, project) {
+    if (!window.VisaMail) return;
+    // Même bouton = interrupteur, comme les autres ancres du popover.
+    if (popover.el && popover.key === `visa-mail:${project.id}`) { closePopover(true); return; }
+    closePopover();
+    if (!visaMailPrefs.model) { openVisaMailPopover(anchor, project); return; }
+    await runVisaMail(anchor, project, { stopOnIssues: true });
+  }
+  async function runVisaMail(anchor, project, { stopOnIssues }) {
+    if (visaMailBusy) return;
+    if (popover.el && popover.key === `visa-mail:${project.id}`) closePopover();
+    visaMailBusy = true;
+    const busyButton = anchorFor(`visa-mail:${project.id}`);
+    if (busyButton) busyButton.classList.add('is-busy');
+    try {
+      const draft = await VisaMail.prepare({ project, modelName: visaMailPrefs.model, client: visaMailPrefs.client, now: nowFn });
+      if (stopOnIssues && draft.issues.length) { openVisaMailPopover(anchorFor(`visa-mail:${project.id}`) || anchor, project, { draft }); return; }
+      VisaMail.openLink(draft.url);
+      CoreUtils.showToast(`Brouillon de demande de visa ouvert pour ${text(project.Acronyme) || text(project.Projet)}`);
+    } catch (err) {
+      if (err.code === 'model-missing') openVisaMailPopover(anchorFor(`visa-mail:${project.id}`) || anchor, project, { missing: visaMailPrefs.model });
+      else CoreUtils.showToast(visaMailErrorText(err), true);
+    } finally {
+      visaMailBusy = false;
+      document.querySelectorAll('.admin-step-mail.is-busy').forEach(el => el.classList.remove('is-busy'));
+    }
+  }
+  function openVisaMailPopover(anchor, project, { draft = null, missing = '' } = {}) {
+    const notice = draft
+      ? `<ul class="admin-pop-notice" role="alert">${draft.issues.map(issue => `<li>${escape(VisaMail.issueText(issue))}</li>`).join('')}</ul>`
+      : (missing ? `<p class="admin-pop-notice" role="alert">Le modèle « ${escape(missing)} » n'existe plus parmi les modèles e-mail : choisissez-en un autre.</p>` : '');
+    const html = `<div class="admin-pop-visa"><span class="admin-field-label">Mail de demande de visa</span>${notice}` +
+      `<label class="admin-pop-field"><span>Modèle e-mail (Publipostage+)</span>` +
+      `<select class="admin-pop-select" data-visa-model aria-label="Modèle du mail de demande de visa" disabled><option>Chargement des modèles…</option></select></label>` +
+      `<label class="admin-pop-inline"><input type="checkbox" data-visa-zimbra${visaMailPrefs.client === 'zimbra' ? ' checked' : ''}> Ma messagerie est Zimbra</label>` +
+      `<div class="admin-pop-actions"><button type="button" class="admin-pop-btn is-primary" data-visa-open disabled>${draft ? 'Ouvrir quand même' : 'Ouvrir le mail'}</button></div></div>`;
+    openPopover(anchor, `visa-mail:${project.id}`, 'Mail de demande de visa', html, el => {
+      const select = el.querySelector('[data-visa-model]');
+      const open = el.querySelector('[data-visa-open]');
+      const zimbra = el.querySelector('[data-visa-zimbra]');
+      const sync = () => { open.disabled = !visaMailPrefs.model; };
+      VisaMail.listEmailModels().then(models => {
+        if (popover.el !== el) return;
+        const chosen = visaMailPrefs.model;
+        select.innerHTML = `<option value="">— Choisir un modèle —</option>` +
+          models.map(model => `<option value="${escape(model.name)}"${model.name === chosen ? ' selected' : ''}>${escape(model.name)}</option>`).join('');
+        select.disabled = false;
+        if (!models.length) select.options[0].textContent = 'Aucun modèle de type e-mail dans Publipostage+';
+        sync();
+      }, err => {
+        if (popover.el !== el) return;
+        select.innerHTML = '<option value="">Modèles illisibles</option>';
+        el.querySelector('.admin-field-label').insertAdjacentHTML('afterend', `<p class="admin-pop-notice" role="alert">${escape(visaMailErrorText(err))}</p>`);
+      });
+      select.addEventListener('change', () => { saveVisaMailPrefs({ model: select.value }); sync(); });
+      zimbra.addEventListener('change', () => saveVisaMailPrefs({ client: zimbra.checked ? 'zimbra' : '' }));
+      open.addEventListener('click', () => runVisaMail(anchor, project, { stopOnIssues: false }));
+      sync();
+      select.focus({ preventScroll: true });
     });
   }
 
@@ -927,6 +1021,10 @@
     const ub = partnersFor(project).find(partner => partner.field === UB_STATUS_FIELD);
     return ub ? UB_STEPS[ub.statusIndex] || null : null;
   }
+  const visaMailButton = project => {
+    const label = `Préparer le mail de demande de visa pour ${text(project.Acronyme) || 'ce projet'}`;
+    return `<button type="button" class="admin-step-mail" data-pop-anchor="visa-mail:${escape(project.id)}" aria-haspopup="dialog" title="Préparer le mail de demande de visa" aria-label="${escape(label)}">${STEP_MAIL_ICON}</button>`;
+  };
   function stepsCell(project) {
     const phase = ubStepsFor(project);
     if (!phase) return '';
@@ -935,8 +1033,10 @@
       phase.steps.map(step => {
         const iso = CoreUtils.gristDateToInput(readField(project, step.column));
         const state = iso ? `${step.label} le ${frDate(iso)}` : `${step.label} : pas encore fait`;
-        return `<button type="button" class="admin-step${iso ? ' is-set' : ''}" data-pop-anchor="step-${step.key}:${id}" aria-haspopup="dialog" title="${escape(state)}" aria-label="${escape(`UB — ${state} — cliquer pour modifier`)}">` +
+        const pill = `<button type="button" class="admin-step${iso ? ' is-set' : ''}" data-pop-anchor="step-${step.key}:${id}" aria-haspopup="dialog" title="${escape(state)}" aria-label="${escape(`UB — ${state} — cliquer pour modifier`)}">` +
           `${STEP_ICONS[step.key]}<span class="admin-step-label">${escape(step.short)}</span>${iso ? `<span class="admin-step-date">${escape(frDate(iso).slice(0, 5))}</span>` : ''}</button>`;
+        // Le mail de demande de visa : une enveloppe sur la même ligne que la pastille « Visa », pas de ligne en plus.
+        return step.key === 'visa' && window.VisaMail ? `<div class="admin-step-row">${pill}${visaMailButton(project)}</div>` : pill;
       }).join('') + '</div>';
   }
   const partnerCell = (project, partner) =>
@@ -1356,9 +1456,11 @@
         CoreGrist.invalidateTable(PREFS_TABLE); // la ligne vient d'être ajoutée : la prochaine lecture partagée doit la contenir
         prefsRowId = CoreUtils.extractAddedRecordId(result);
         setCachedPrefsRowId(prefsRowId);
+        visaMailPrefs = { model: '', client: '' };
         return;
       }
       prefsRowId = row.id;
+      visaMailPrefs = { model: text(row.Mail_visa_modele).trim(), client: text(row.Mail_visa_client).trim() };
       // L'onglet est appliqué à part, AVANT le garde-fou ci-dessous : il ne compte pas comme « préférence de volets » (sinon un
       // onglet seul enregistré ferait lire des listes vides comme « aucun volet replié », volets vides dépliés compris).
       if (row.Admin_onglet_actif === 'notif' || row.Admin_onglet_actif === 'conv') activeTab = row.Admin_onglet_actif;
@@ -1508,6 +1610,7 @@
         const owner = projectById(projectId);
         if (!owner) return;
         if (kind === 'people') openPeoplePopover(anchor, owner);
+        else if (kind === 'visa-mail') startVisaMail(anchor, owner);
         else if (TRANSMIT_KINDS[kind]) openDatePopover(anchor, owner, kind, transmitSpec(kind));
         else if (STEP_BY_KIND[kind]) openDatePopover(anchor, owner, kind, stepSpec(STEP_BY_KIND[kind]));
         return;

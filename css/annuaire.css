@@ -1,0 +1,142 @@
+/* Page Annuaire (Personnes / Postes) — maquette validée le 17/11/2026.
+   Réutilise .project-filters, .admin-tabs, .filter-combo / .combo-list, .kanban-count, .btn et .help-icon ;
+   ce fichier ne couvre que ce qui n'existe pas déjà. Les couleurs d'employeur viennent de --hue (teinte
+   calculée sur le libellé, comme les avatars de la page Administratif). */
+
+/* Police de la page : celle de la maquette (le widget n'impose pas de taille de base) */
+#view-annuaire, .annu-drawer { font-size:13.5px; }
+
+/* Bandeau : une seule ligne (économie de place verticale) — champs étroits, libellés courts (Employeur, Structure, Type) */
+.annu-filters { gap:6px; padding:10px 12px; margin:0 0 12px; }
+.annu-filters input { min-width:0; }
+.annu-filters .filter-search input { width:156px; min-width:0; }
+.annu-filters .filter-combo input { width:104px; padding:0 8px; text-overflow:ellipsis; cursor:pointer; }
+.annu-filters .filter-combo[hidden], .annu-seg[hidden] { display:none; }
+.annu-filters .filter-combo .combo-list { min-width:210px; right:auto; }
+.annu-filters .filter-combo.is-active input { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
+.annu-filters .admin-tab { display:inline-flex; align-items:center; gap:6px; padding:0 12px; }
+.annu-spacer { flex:1 1 0; min-width:0; }
+.annu-check { display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:#3d4757; font:inherit; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.annu-check:hover { background:var(--surface-sunken); }
+.annu-check.is-on { background:var(--warning-soft); border-color:var(--warning-soft-border); color:#8a4108; }
+.annu-reset { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); cursor:pointer; }
+.annu-reset:hover { background:var(--surface-sunken); color:var(--text); }
+.annu-reset[hidden] { display:none; }
+.annu-seg { display:flex; background:var(--surface-sunken); border-radius:999px; padding:3px; }
+.annu-seg button { display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 9px; border:0; border-radius:999px; background:transparent; color:var(--text-muted); cursor:pointer; }
+.annu-seg button:hover { color:var(--text); }
+.annu-seg button.is-on { background:var(--surface); color:var(--accent-hover); box-shadow:var(--shadow-card); }
+
+/* Tableau (liste à plat ou groupes par structure) */
+.annu-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); }
+.annu-head, .annu-row { display:grid; grid-template-columns:minmax(190px,2.1fr) minmax(170px,2fr) minmax(110px,1.3fr) minmax(90px,1fr) minmax(110px,1.1fr) minmax(170px,1.9fr) 54px 66px; gap:12px; align-items:center; padding:0 16px; }
+.annu-head { height:38px; border-bottom:1px solid var(--border); font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); }
+.annu-head.is-flat { height:30px; border-bottom:0; margin-top:2px; }
+.annu-th { border:0; background:transparent; padding:0; font:inherit; font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); cursor:pointer; text-align:left; }
+.annu-th:hover { color:var(--text); }
+.annu-head .help-icon { text-transform:none; }
+.annu-row { position:relative; min-height:54px; padding-top:7px; padding-bottom:7px; border-bottom:1px solid var(--surface-sunken); }
+.annu-row:last-child { border-bottom:0; border-radius:0 0 15px 15px; }
+.annu-row:hover { background:#f7f9fc; }
+.annu-row.is-sel { background:var(--accent-soft); }
+.annu-who { display:flex; align-items:center; gap:10px; min-width:0; }
+.annu-av { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; border-radius:50%; border:1px solid hsl(var(--hue, 215) 62% 80%); background:hsl(var(--hue, 215) 80% 93%); color:hsl(var(--hue, 215) 55% 27%); font-size:11.5px; font-weight:800; }
+.annu-av.is-none, .annu-pill.is-none { --hue:215; border-color:var(--border); background:var(--surface-sunken); color:#3d4757; }
+.annu-av.is-lg { width:52px; height:52px; font-size:17px; }
+.annu-name { border:0; background:transparent; padding:0; font:inherit; font-size:13.5px; font-weight:800; color:var(--text); text-align:left; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+.annu-name::after { content:''; position:absolute; inset:0; }
+.annu-star { color:var(--warning); font-size:12px; margin-left:5px; }
+.annu-t1 { display:block; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.annu-t2 { display:block; font-size:11.5px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.annu-t2.is-warn, .annu-warn-t { color:#8a4108; font-weight:700; }
+.annu-pill { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:999px; background:hsl(var(--hue, 215) 80% 93%); color:hsl(var(--hue, 215) 55% 27%); font-size:11px; font-weight:700; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.annu-pill.is-type { background:var(--accent-soft); color:var(--accent-hover); }
+.annu-pill.is-plain { background:var(--surface-sunken); color:#3d4757; }
+.annu-pill.is-warn { background:var(--warning-soft); color:#8a4108; }
+.annu-pills { display:flex; gap:4px; flex-wrap:wrap; }
+.annu-contact { display:flex; align-items:center; gap:4px; min-width:0; }
+.annu-ell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.annu-muted { color:var(--text-muted); }
+.annu-icon { position:relative; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); cursor:pointer; }
+.annu-icon:hover { background:var(--surface-sunken); color:var(--text); }
+.annu-icon.is-sm { width:24px; height:24px; }
+.annu-acts { display:flex; align-items:center; justify-content:flex-end; gap:2px; }
+.annu-alert { position:relative; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; padding:0; border:1px solid var(--warning-soft-border); border-radius:50%; background:var(--warning-soft); color:#8a4108; font-size:12px; font-weight:800; cursor:help; }
+.annu-nproj { font-weight:800; color:#3d4757; }
+.annu-empty { padding:34px 16px; text-align:center; color:var(--text-muted); font-weight:600; }
+.annu-link { position:relative; z-index:2; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-hover); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; text-align:left; }
+.annu-link:hover { color:var(--text); }
+
+/* Perf (même règle que les cartes des autres pages, docs/performance.md) : les lignes et cartes hors de l'écran ne sont pas mises
+   en page avant d'être approchées. Tailles de repli = hauteur du contenu (padding et bordure s'y ajoutent). Rien ne déborde d'une
+   ligne : la bulle d'aide, la fiche et les modales vivent dans <body>. */
+.annu-row { content-visibility:auto; contain-intrinsic-size:auto 40px; }
+.annu-pc { content-visibility:auto; contain-intrinsic-size:auto 128px; }
+
+/* Par structure */
+.annu-group { margin-top:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); }
+.annu-group:first-of-type { margin-top:0; }
+.annu-ghead { display:flex; align-items:center; gap:10px; width:100%; border:0; background:transparent; padding:12px 16px; text-align:left; border-radius:var(--radius-lg); font:inherit; cursor:pointer; }
+.annu-ghead:hover { background:#f7f9fc; }
+.annu-gn { font-weight:800; font-size:14px; color:var(--text); }
+.annu-gs { flex:1; min-width:0; color:var(--text-muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.annu-chev { display:inline-flex; color:var(--text-muted); transition:transform .15s; }
+.annu-chev.is-open { transform:rotate(90deg); }
+.annu-group .annu-row:first-of-type { border-top:1px solid var(--surface-sunken); }
+
+/* Cartes */
+.annu-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr)); gap:12px; }
+.annu-pc { position:relative; display:flex; flex-direction:column; gap:9px; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); }
+.annu-pc:hover { border-color:var(--border-strong); box-shadow:0 6px 16px -8px rgba(20,28,46,.25); }
+.annu-pc.is-sel { border-color:var(--accent); background:#f5f8ff; }
+.annu-pc-top { display:flex; align-items:center; gap:10px; }
+.annu-pc-foot { display:flex; align-items:center; gap:6px; margin-top:auto; padding-top:9px; border-top:1px solid var(--surface-sunken); font-size:12px; }
+
+/* Postes */
+.annu-head.is-postes, .annu-row.is-postes { grid-template-columns:minmax(200px,2.2fr) minmax(120px,1.3fr) minmax(90px,1fr) minmax(170px,1.6fr) minmax(150px,1.4fr) 40px; }
+
+/* Fiche latérale (hors de la vue : au-dessus de la page, sous les modales qui s'ouvrent depuis elle) */
+.annu-scrim { position:fixed; inset:0; z-index:40; border:0; padding:0; background:rgba(20,28,46,.28); cursor:default; }
+.annu-drawer { position:fixed; top:0; right:0; bottom:0; z-index:50; display:flex; flex-direction:column; width:min(470px,100%); background:var(--surface); color:var(--text); box-shadow:-18px 0 40px -12px rgba(9,16,35,.35); animation:annuSlide .18s ease; }
+@keyframes annuSlide { from { transform:translateX(24px); opacity:0; } to { transform:none; opacity:1; } }
+.annu-dhead { display:flex; align-items:center; gap:14px; padding:18px 20px 12px; }
+.annu-dtitle { flex:1; min-width:0; }
+.annu-dtitle h2 { margin:0; font-size:18px; font-weight:800; }
+.annu-dtitle p { margin:2px 0 0; color:var(--text-muted); font-size:12.5px; }
+.annu-x { width:32px; height:32px; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); font-size:22px; line-height:1; cursor:pointer; }
+.annu-x:hover { background:var(--surface-sunken); color:var(--text); }
+.annu-dacts { display:flex; gap:8px; padding:0 20px 12px; border-bottom:1px solid var(--surface-sunken); }
+.annu-dacts .btn { text-decoration:none; }
+.annu-dbody { flex:1; overflow:auto; padding:0 20px 28px; }
+.annu-sec { padding:16px 0; border-bottom:1px solid var(--surface-sunken); }
+.annu-sec:last-child { border-bottom:0; }
+.annu-sec h3 { display:flex; align-items:center; margin:0 0 11px; font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
+.annu-kv { display:flex; align-items:center; gap:10px; min-height:30px; font-size:13.5px; }
+.annu-kv .k { flex:none; width:132px; font-size:12px; font-weight:700; color:var(--text-muted); }
+.annu-kv .v { display:flex; align-items:center; gap:4px; min-width:0; font-weight:600; }
+.annu-tree { display:flex; flex-direction:column; gap:7px; }
+.annu-lvl { display:flex; align-items:center; gap:8px; font-size:13.5px; }
+.annu-elb { flex:none; width:13px; height:14px; margin-top:-10px; }
+.annu-elb.is-on { border-left:2px solid var(--border-strong); border-bottom:2px solid var(--border-strong); border-bottom-left-radius:6px; }
+.annu-lvl .k { flex:none; width:76px; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+.annu-lvl .v { font-weight:700; }
+.annu-pg { display:flex; align-items:flex-start; gap:10px; margin-bottom:9px; font-size:13.5px; }
+.annu-pg .k { flex:none; width:132px; padding-top:4px; font-size:12px; font-weight:700; color:var(--text-muted); }
+.annu-pg .k b { margin-left:4px; color:var(--text); }
+.annu-chips { display:flex; gap:6px; flex-wrap:wrap; }
+.annu-pj { border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); padding:3px 9px; font:inherit; font-size:11.5px; font-weight:800; color:var(--text); cursor:pointer; }
+.annu-pj:hover { border-color:var(--accent); color:var(--accent-hover); }
+.annu-warnbox { background:#fff8ee; margin:0 -20px; padding:16px 20px; }
+.annu-iss { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 0; font-size:13.5px; font-weight:600; color:#6e3606; }
+
+@media (max-width:1040px) {
+  .annu-head, .annu-row { grid-template-columns:minmax(170px,2fr) minmax(150px,2fr) minmax(100px,1.2fr) 54px 66px; }
+  .annu-head .c-etab, .annu-head .c-type, .annu-head .c-contact, .annu-row .c-etab, .annu-row .c-type, .annu-row .c-contact { display:none; }
+  .annu-head.is-postes, .annu-row.is-postes { grid-template-columns:minmax(170px,2fr) minmax(100px,1.2fr) minmax(150px,1.6fr) 40px; }
+  .annu-head.is-postes .d-etab, .annu-head.is-postes .d-contrat, .annu-row.is-postes .d-etab, .annu-row.is-postes .d-contrat { display:none; }
+}
+@media (max-width:700px) {
+  .annu-head, .annu-row { grid-template-columns:minmax(150px,1fr) 54px 66px; }
+  .annu-head .c-poste, .annu-head .c-struct, .annu-row .c-poste, .annu-row .c-struct { display:none; }
+  .annu-filters .filter-search input, .annu-filters .filter-combo input { width:100%; }
+}

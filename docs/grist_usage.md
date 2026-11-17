@@ -125,7 +125,7 @@ maintenues dans `project-modal.js` et ne sont pas validées contre Grist.
 | `Total_2026` | Formule | alias `Budget` construit par `mapProjects()` |
 | `Montant_annuel_charge_attribue` | Numeric | repli de cet alias `Budget` |
 | `Description_rapide_projet` | Text | vue projet de secours (`app.js`) |
-| `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » ; liste de fichiers de la fiche projet. **Écrite** (hors fiche projet) par l'onglet Conventions de la page Administratif : section 9 des écarts |
+| `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » ; liste de fichiers de la fiche projet. **Écrite** (hors fiche projet) par l'onglet Conventions de la page Administratif : section 10 des écarts |
 
 `mapProjects()` lit aussi `project.Progression`, colonne qui **n'existe dans aucune des
 huit tables** : l'alias `Progression` vaut donc toujours `0`. Il n'est utilisé nulle part
@@ -147,12 +147,19 @@ restent gérées uniquement dans Grist.
 | `Telephone` | Text | ✓ | ✓ |
 | `Poste2` | Reference → `Postes2` | ✓ | ✓ |
 | `nom_et_Prenom` | Formule | ✓ | — |
+| `Type` | ChoiceList (BIATSS, C, EC, Doctorant.e, Fonction) | ✓ (page Annuaire) | — |
+| `Communaute_metier` | ChoiceList | ✓ (page Annuaire) | — |
+| `Accompagnateur_de_l_innovation_` | Bool | ✓ (page Annuaire) | — |
+| `email_Assitant_e_le_cas_echeant` | Reference → `Annuaire` | ✓ (page Annuaire) | — |
+| `Poste_secondaire` | Reference → `Postes2` | ✓ (page Annuaire) | — |
+| `Matricule_le_cas_echeant_` | Text | ✓ (page Annuaire) | — |
 
 `nom_et_Prenom` est l'étiquette privilégiée partout (Kanban, champs de recherche de
 personne) ; `Prenom` + `NOM` ne servent que de repli quand la formule est vide.
-`Poste_secondaire`, `Type`, `Communaute_metier` et les autres colonnes de l'`Annuaire`
-ne sont pas touchées par le widget, contrairement à ce qu'annonçait le brief de
-`docs/SPEC.mdd` pour `Poste_secondaire`.
+Les colonnes `Poste_secondaire`, `Type`, `Communaute_metier`, `Accompagnateur_de_l_innovation_`,
+`email_Assitant_e_le_cas_echeant` et `Matricule_le_cas_echeant_` ne sont que **lues** (page Annuaire, 17/11/2026) :
+aucune modale ne les écrit, contrairement à ce qu'annonçait le brief de `docs/SPEC.mdd` pour `Poste_secondaire`.
+Les autres colonnes de l'`Annuaire` ne sont pas touchées.
 
 ## Postes2
 
@@ -167,7 +174,10 @@ fiche Personne.
 | `Employeur_tutelle` | Reference → `Etablissements` | ✓ | ✓ |
 | `Nom_du_poste` | Formule | ✓ | — |
 | `ID2` | Formule | ✓ | — |
-| `grade` | Choice (VP, Directeur.trice etablissement, Agent, Direction service, assitant.e) | ✓ (page Instances) | — |
+| `grade` | Choice (VP, Directeur.trice etablissement, Agent, Direction service, assitant.e, DU) | ✓ (pages Instances et Annuaire) | — |
+| `type_de_contrat` | Choice | ✓ (page Annuaire) | — |
+| `Date_de_fin` | Date | ✓ (page Annuaire) | — |
+| `Type_de_poste` | Choice | ✓ (page Annuaire) | — |
 
 `grade` (ajoutée par Antoine le 12/11/2026) n'est lue que par la page Instances : voir « Grade du poste » plus bas.
 
@@ -492,10 +502,47 @@ Page en **frise de jalons**, deux zones empilées : **Création** puis **Prolong
   Les anciennes colonnes des volets (`Install_vue`, `Install_repliees`, `Install_masquees`) ne sont plus lues.
 - Un clic sur « Convention » ouvre la modale projet sur l'onglet Convention (`ProjectModal.open(record, {tab:'conventions'})`).
 
+## Page Annuaire (17/11/2026)
+
+Septième bouton de la barre. Deux onglets dans un bandeau d'une seule ligne : **Personnes** et **Postes** (le nombre est affiché,
+« filtrées/total » quand un filtre est actif). **V1 en lecture seule** : aucun champ n'est écrit par la page ; créer et modifier
+passent par les modales Personne et Poste existantes (`openCreatePersonModal` / `openEditPersonModal`, `openCreatePosteModal` /
+`openEditPosteModal`), inchangées. Code : `js/pages/page-annuaire.js`, `css/annuaire.css`, tests `tests/suite-annuaire.js`.
+
+- **Personnes** : trois présentations (liste, par structure avec groupes repliables, cartes). Colonnes de la liste : Nom (★ =
+  accompagnateur de l'innovation), Poste, Structure (+ direction), Employeur, Type, Contact (+ copier l'e-mail), Projets, alerte,
+  modifier. En-têtes Nom / Structure / Employeur triables. Un clic sur le nom ouvre la **fiche latérale** (coordonnées, assistant·e,
+  matricule, schéma Tutelle > Direction > Structure > Poste, poste secondaire, contrat, employeur, projets par rôle, étiquettes,
+  alertes) ; Échap, la croix ou le voile la ferment, changer de page aussi.
+- **Chaîne de rattachement** : poste = `Annuaire.Poste2` ; structure = `Postes2.Structure2` ; direction =
+  `Structures.Directon_Structure_mere` ; tutelle = `Structures.Etablissement_Tutuelle_gestionaire` ; **employeur** =
+  `Postes2.Employeur_tutelle` (peut différer de la tutelle de la structure : chercheur CNRS dans une structure UB). À confirmer par
+  Antoine : « Employeur » = employeur du poste.
+- **Projets d'une personne** : `Porteur_1/2/3`, `VP_porteur_signataire_notif` (VP porteur), `Accompagnateur`. Comptés une seule fois
+  (porteuse **et** accompagnatrice d'un même projet = 1). Chaque puce de la fiche ouvre la modale projet
+  (`ProjectModal.open(ligne du projet)`) ; la fiche reste dessous.
+- **À vérifier** (bouton + compteur) : personnes — nom en doublon, e-mail en doublon (accents et casse ignorés), e-mail manquant,
+  aucun poste ; la fiche relie vers l'autre fiche du doublon. Postes — vacant (aucune personne en poste principal **ou**
+  secondaire) ou contrat qui se termine dans moins de 90 jours (déjà terminé compris, `Postes2.Date_de_fin`).
+- **Filtre Type** : les choix sont lus dans Grist (`CoreGrist.columnChoices('Annuaire', 'Type')`, ordre de Grist), complétés par
+  les valeurs présentes dans les données ; jamais une liste en dur. Valeurs réelles (17/11/2026) : BIATSS, C, EC, Doctorant.e,
+  Fonction. Le filtre Type n'existe que sur l'onglet Personnes ; employeur et structure (listes à sélection multiple, choix =
+  valeurs des postes) servent aux deux onglets.
+- **Préférences** (`Preferences_Widget`, 9 colonnes `Annu_*` auto-créées) : `Annu_onglet`, `Annu_vue`, `Annu_recherche`,
+  `Annu_filtre_employeur`, `Annu_filtre_structure`, `Annu_filtre_type` (listes via `CoreUtils.encodeList/decodeList` : un libellé
+  peut contenir une virgule), `Annu_a_verifier` (`1` ou vide), `Annu_tri` (`clé:sens`, ex. `nom:1`), `Annu_repliees` (groupes
+  repliés). Recherche écrite une seule fois après la frappe (600 ms, ou à la mise en arrière-plan de la page).
+- **Mise à jour après une modale** : les modales Personne et Poste envoient l'évènement `directory-changed` (`{table, id, created}`)
+  après l'enregistrement ; la page relit `Annuaire` et `Postes2` dans Grist (le nom calculé `nom_et_Prenom` et le nom de poste
+  sont des formules), redessine, et ouvre la fiche d'une personne créée depuis la page. Les autres pages profitent de la relecture.
+- **Bulles d'aide** : en-têtes de colonnes et libellés de la fiche (`HelpTooltip.markup`) pour les colonnes qui ont une
+  Description dans Grist ; aucune icône sinon.
+- Pas dans la V1 : photos (`Annuaire.photos`), `Actions_PUI`, suppression de personne, champs d'étiquettes éditables.
+
 ## Dernière page ouverte (12/11/2026)
 
 Le widget revient sur la dernière page ouverte (Projets, Administratif, Installation des fonds, Suivi opérationnel, To Do,
-Instances) après un rechargement (Ctrl+Maj+R), une fermeture/réouverture ou un changement de page dans Grist. Avant, il
+Instances, Annuaire) après un rechargement (Ctrl+Maj+R), une fermeture/réouverture ou un changement de page dans Grist. Avant, il
 repartait toujours sur le Kanban. Code : `js/app.js` (section « Dernière page ouverte »).
 
 - **Où** : colonne `Preferences_Widget.Page_courante` (Text, auto-créée avec `CoreGrist.ensureColumns`, aucune écriture
@@ -658,7 +705,30 @@ Quatre colonnes **Date** sont créées par le widget au premier lancement qui su
 Comme pour les autres colonnes de cet onglet, une colonne déjà présente dans `Projets` ou `Notifications`
 n'est pas recréée ; si le schéma n'est pas modifiable, le message de démarrage les liste.
 
-### 9. Onglet Conventions : la convention en PDF, pièce jointe (17 novembre 2026)
+### 9. Onglet Conventions : mail « Demande de visa » (17 novembre 2026)
+
+Sur la ligne de la sous-étape *Demande de visa* (statut de l'UB « en cours de signature »), une petite enveloppe
+ouvre un brouillon rempli dans la messagerie (`mailto:`), d'après un **modèle e-mail de Publipostage+** (GFS
+n'est pas ouvert). Code : `js/pages/visa-mail.js` (logique) et `js/pages/page-administratif.js` (bouton, fenêtre).
+
+- **Lecture seule** : tables `Publipostage_Modeles` (lignes `TypeModele = email` : `Nom`, `Contenu`, `Objet`,
+  `Destinataires`, `Cc`, `Cci`) et `Publipostage_LiensTables` (règles de liaison). Rien n'y est écrit ; elles ne sont
+  lues qu'au clic (aucun appel de plus au démarrage).
+- **Modèle retenu par utilisateur** : `Preferences_Widget.Mail_visa_modele` (nom du modèle, pas un identifiant ;
+  même principe que `Instances.Modele_invitation`) et `Mail_visa_client` (`zimbra` ou vide), colonnes auto-créées.
+  Sans modèle retenu, le premier clic ouvre le choix ; le lien « Mail de demande de visa » de la fenêtre de date de
+  *Visa* permet de le changer.
+- **Contexte de résolution** : la ligne `Notifications` du projet, puis la ligne `Projets`. Les variables suivent
+  Publipostage+ : colonne affichée des références, listes, rebonds `Réf.Colonne`, règles de liaison, dates / nombres /
+  booléens, texte avant / après.
+- **Limites du mailto** : texte brut (la mise en forme saute), aucune pièce jointe, lien de 2 000 caractères au
+  plus. Les conditions, boucles et calculs de Publipostage+ ne sont **pas** rejoués : le widget le signale. Toute
+  variable sans valeur, adresse invalide, absence de destinataire ou lien trop long est dite dans une fenêtre avant
+  l'ouverture (« Ouvrir quand même » reste possible). Option « Ma messagerie est Zimbra » : mêmes contournements
+  que Publipostage+.
+- Rien n'est écrit dans `Projets` à l'envoi ; la date de *Visa* reste saisie à la main.
+
+### 10. Onglet Conventions : la convention en PDF, pièce jointe (17 novembre 2026)
 
 À partir de l'étape **« en signature »** (étapes 3 et 4, anciens libellés compris), la cellule du lien
 (`Lien_convention`) devient la colonne pièce jointe `Projets.Convention_de_reversement_le_cas_echeant`

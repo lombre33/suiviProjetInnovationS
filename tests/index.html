@@ -20,6 +20,7 @@
   <div id="toast" class="toast hidden"></div>
   <nav class="nav"><button id="btn-projects" class="nav-btn active" data-view="view-projects">Projets</button><button class="nav-btn" data-view="view-administratif">Administratif</button><button class="nav-btn" data-view="view-installation-fonds">Installation des fonds</button><button class="nav-btn" data-view="view-todo">To Do</button></nav>
   <button id="btn-instances" class="nav-btn" data-view="view-instances">Instances</button>
+  <button class="nav-btn" data-view="view-annuaire">Annuaire</button>
   <section id="view-instances" class="view hidden" aria-label="Instances"><div id="instances-root" class="in-root"></div></section>
   <div id="error-container" class="error-container hidden">
     <div class="error-message"><span id="error-text"></span><button id="error-close" class="error-close">&times;</button></div>
@@ -113,6 +114,97 @@
     <p id="todo-identify-notice" class="todo-identify-notice" hidden><span id="todo-identify-text"></span> <select id="todo-me-select" class="todo-view-select" aria-label="Qui êtes-vous ?"></select></p>
     <div id="todo-panels" class="admin-panels"></div>
   </section>
+
+  <section id="view-annuaire" class="view hidden" aria-label="Annuaire">
+<div class="project-filters annu-filters" role="search" aria-label="Filtres de l'Annuaire">
+<div class="admin-tabs" role="tablist" aria-label="Personnes ou postes">
+<button type="button" class="admin-tab is-active" data-annu-tab="pers" role="tab" aria-selected="true">Personnes <span id="annu-count-pers" class="kanban-count">
+</span>
+</button>
+<button type="button" class="admin-tab" data-annu-tab="postes" role="tab" aria-selected="false">Postes <span id="annu-count-postes" class="kanban-count">
+</span>
+</button>
+</div>
+<label class="filter-search">
+<span class="visually-hidden">Recherche</span>
+<input id="annu-search" type="search" placeholder="Nom, e-mail, poste" autocomplete="off">
+</label>
+<label class="filter-combo">
+<span class="visually-hidden">Employeur</span>
+<input id="annu-filter-employeur" type="search" placeholder="Employeur" autocomplete="off" role="combobox" aria-controls="annu-filter-employeur-list" aria-autocomplete="list">
+<span id="annu-filter-employeur-list" class="combo-list" role="listbox" hidden>
+</span>
+</label>
+<label class="filter-combo">
+<span class="visually-hidden">Structure</span>
+<input id="annu-filter-structure" type="search" placeholder="Structure" autocomplete="off" role="combobox" aria-controls="annu-filter-structure-list" aria-autocomplete="list">
+<span id="annu-filter-structure-list" class="combo-list" role="listbox" hidden>
+</span>
+</label>
+<label class="filter-combo">
+<span class="visually-hidden">Type</span>
+<input id="annu-filter-type" type="search" placeholder="Type" autocomplete="off" role="combobox" aria-controls="annu-filter-type-list" aria-autocomplete="list">
+<span id="annu-filter-type-list" class="combo-list" role="listbox" hidden>
+</span>
+</label>
+<button type="button" id="annu-check" class="annu-check" aria-pressed="false">
+<span aria-hidden="true">⚠</span> À vérifier <span id="annu-check-count" class="kanban-count">
+</span>
+</button>
+<button type="button" id="annu-reset" class="annu-reset" aria-label="Réinitialiser les filtres" title="Réinitialiser les filtres" hidden>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M3 12a9 9 0 1 0 3-6.7">
+</path>
+<path d="M3 4v5h5">
+</path>
+</svg>
+</button>
+<span class="annu-spacer">
+</span>
+<div id="annu-views" class="annu-seg" role="group" aria-label="Présentation">
+<button type="button" data-annu-view="liste" class="is-on" aria-pressed="true" aria-label="Liste" title="Liste">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M8 6h13">
+</path>
+<path d="M8 12h13">
+</path>
+<path d="M8 18h13">
+</path>
+<path d="M3 6h.01">
+</path>
+<path d="M3 12h.01">
+</path>
+<path d="M3 18h.01">
+</path>
+</svg>
+</button>
+<button type="button" data-annu-view="structure" aria-pressed="false" aria-label="Par structure" title="Par structure">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="3" y="3" width="18" height="7" rx="2">
+</rect>
+<rect x="3" y="14" width="18" height="7" rx="2">
+</rect>
+</svg>
+</button>
+<button type="button" data-annu-view="cartes" aria-pressed="false" aria-label="Cartes" title="Cartes">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="3" y="3" width="7" height="7" rx="1.5">
+</rect>
+<rect x="14" y="3" width="7" height="7" rx="1.5">
+</rect>
+<rect x="3" y="14" width="7" height="7" rx="1.5">
+</rect>
+<rect x="14" y="14" width="7" height="7" rx="1.5">
+</rect>
+</svg>
+</button>
+</div>
+<button type="button" id="annu-new" class="btn btn-primary">+ Nouvelle personne</button>
+</div>
+<div id="annu-content" aria-live="polite">
+</div>
+</section>
+  <div id="annu-drawer-root"></div>
 </div>
 
 <div id="test-results"><p>Exécution des tests…</p></div>
@@ -152,6 +244,7 @@
     await loadScript('../js/components/person-modal.js');
     await loadScript('../js/components/ope-modal.js');
     await loadScript('../js/pages/page-projets.js');
+    await loadScript('../js/pages/visa-mail.js');
     await loadScript('../js/pages/page-administratif.js');
     await loadScript('../js/pages/page-installation.js');
     await loadScript('../js/pages/page-todo.js');
@@ -160,6 +253,7 @@
     await loadScript('../js/pages/instances-logic.js');
     await loadScript('../js/pages/instances-data.js');
     await loadScript('../js/pages/page-instances.js');
+    await loadScript('../js/pages/page-annuaire.js');
     window.__SUIVI_SKIP_AUTOINIT__ = true;
     await loadScript('../js/app.js');
 
@@ -185,6 +279,7 @@
     await loadScript('suite-ope-modal.js');
     await loadScript('suite-administratif.js');
     await loadScript('suite-administratif-convention-pdf.js');
+    await loadScript('suite-visa-mail.js');
     await loadScript('suite-installation.js');
     await loadScript('suite-installation-filtres.js');
     await loadScript('suite-todo.js');
@@ -196,6 +291,7 @@
     await loadScript('suite-signature.js');
     await loadScript('suite-instances.js');
     await loadScript('suite-instances-complements.js');
+    await loadScript('suite-annuaire.js');
     await loadScript('suite-performance.js');
     await loadScript('suite-navigation.js');
     await loadScript('suite-utils.js');

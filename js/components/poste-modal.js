@@ -293,6 +293,8 @@
         ? current.map(row => Number(row.id) === Number(id) ? updated : row)
         : [...current, updated]);
     }
+    // La page Annuaire relit la table des postes (nom de poste calculé par Grist) et se redessine.
+    global.dispatchEvent(new CustomEvent('directory-changed', { detail: { table: 'Postes2', id: Number(id), created: mode !== 'edit' } }));
     return updated;
   }
 

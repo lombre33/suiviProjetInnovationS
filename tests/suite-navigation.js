@@ -11,7 +11,7 @@
   'use strict';
 
   const MIRROR_KEY = 'suiviProjetInnovationS:lastView';
-  const VIEWS = ['view-projects', 'view-administratif', 'view-installation-fonds', 'view-todo', 'view-instances'];
+  const VIEWS = ['view-projects', 'view-administratif', 'view-installation-fonds', 'view-todo', 'view-instances', 'view-annuaire'];
   const app = () => window.SuiviApp;
   const byId = id => document.getElementById(id);
   const isHidden = id => byId(id).classList.contains('hidden');
@@ -120,6 +120,22 @@
         assertFalse(app().staleViews.has('view-todo'));
         assertEqual(pageWrites().length, 1, 'le démarrage n\'écrit rien de plus : une seule écriture, celle du clic');
       } finally { restore(); }
+    });
+
+    it('l\'Annuaire (17/11/2026) est retrouvé au rechargement : bouton actif, personnes déjà affichées', async function () {
+      const restore = prepare();
+      try {
+        await app().initializeApp();
+        app().showView('view-annuaire');
+        await waitFor(() => readMirror().pending === false, 'page confirmée dans Grist');
+        assertEqual(await gristPage(), 'view-annuaire', 'une page ajoutée à la barre est retenue sans rien de plus');
+        await reload();
+        await app().initializeApp();
+        assertDeepEqual(visibleIds(), ['view-annuaire'], 'Annuaire réaffichée');
+        assertDeepEqual(activeNav(), ['view-annuaire']);
+        assertTrue(document.querySelectorAll('#annu-content [data-person]').length > 0, 'Annuaire rendue au démarrage');
+        assertFalse(app().staleViews.has('view-annuaire'));
+      } finally { restore(); window.AnnuaireTesting.resetState(); }
     });
 
     it('la page retenue s\'affiche avant même la fin du chargement (pas d\'éclair du Kanban)', async function () {
