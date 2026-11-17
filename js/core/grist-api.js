@@ -87,6 +87,23 @@
   // lisaient chacune la table Preferences_Widget en entier (9 lectures au total).
   const sharedFetches = new Map();
   let sharedWindowOpen = false;
+  // Toute lecture de table passe par là : durée de chaque lecture notée pour le panneau « Diagnostic de chargement » (js/core/perf-trace.js).
+  function fetchRaw(name) {
+    const read = () => gristInstance.docApi.fetchTable(name);
+    const promise = global.PerfTrace ? global.PerfTrace.track('lecture : ' + name, read, global.PerfTrace.cellsOfTable) : read();
+    return promise.then(data => { learnColumns(name, data); return data; }, err => { seenColumns.delete(name); throw err; }); // une lecture en échec (table absente) efface ce qu'on croyait savoir
+  }
+  // Une table lue existe et a ces colonnes : connaissance positive, tenue À PART du schéma (knownSchema, que knownColumns() expose tel quel :
+  // « null » quand les métadonnées sont illisibles). Sert seulement à ensureTable / ensureColumns : aucune requête pour une table déjà lue,
+  // sans attendre la lecture (plus lourde) des métadonnées _grist_Tables_column.
+  const seenColumns = new Map();
+  function learnColumns(name, data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data) || name.indexOf('_grist_') === 0) return;
+    const seen = seenColumns.get(name) || new Set(['id']);
+    Object.keys(data).forEach(col => seen.add(col));
+    seenColumns.set(name, seen);
+  }
+  const columnsOf = tableId => knownSchema.get(tableId) || seenColumns.get(tableId);
   const CoreGrist = {
     get gristInstance() { return gristInstance; },
     ready(timeoutMs = 10000) {
@@ -97,7 +114,7 @@
           await new Promise(resolve => setTimeout(resolve, 50));
         }
         if (!window.grist) throw new Error(`Grist API non disponible après ${timeoutMs} ms`);
-        await window.grist.ready({ requiredAccess: 'full' });
+        await (global.PerfTrace ? global.PerfTrace.track('grist.ready (accès au document)', () => window.grist.ready({ requiredAccess: 'full' })) : window.grist.ready({ requiredAccess: 'full' }));
         gristInstance = window.grist;
         return gristInstance;
       })();
@@ -111,14 +128,14 @@
       if (options && options.shared && sharedWindowOpen) {
         let pending = sharedFetches.get(name);
         if (!pending) {
-          pending = gristInstance.docApi.fetchTable(name).then(toRecords);
+          pending = fetchRaw(name).then(toRecords);
           sharedFetches.set(name, pending);
           // Un échec n'est pas mémorisé (ex. table pas encore créée) : l'appelant suivant relit.
           pending.catch(() => { if (sharedFetches.get(name) === pending) sharedFetches.delete(name); });
         }
         return pending;
       }
-      const data = await gristInstance.docApi.fetchTable(name);
+      const data = await fetchRaw(name);
       return toRecords(data);
     },
     openSharedWindow() { sharedWindowOpen = true; },
@@ -132,11 +149,12 @@
     knownTableIds() { return Array.from(knownSchema.keys()); },
     async ensureTable(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
-      if (knownSchema.has(tableId)) return false;
+      if (columnsOf(tableId)) return false;
       const existing = await gristInstance.docApi.listTables();
       if (existing.includes(tableId)) return false;
       await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns]]);
       knownSchema.set(tableId, new Set(['id', ...columns.map(col => col.id)]));
+      seenColumns.delete(tableId);
       sharedFetches.delete(tableId);
       return true;
     },
@@ -149,18 +167,19 @@
     // jamais la création des colonnes.
     async ensureColumns(tableId, columns) {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
-      const known = knownSchema.get(tableId);
+      const known = columnsOf(tableId);
       if (known && columns.every(col => known.has(col.id))) return false;
       const existing = await gristInstance.docApi.fetchTable(tableId);
       const existingIds = new Set(Object.keys(existing));
       const missing = columns.filter(col => !existingIds.has(col.id));
-      if (!missing.length) { knownSchema.set(tableId, existingIds); return false; }
+      if (!missing.length) { knownSchema.set(tableId, existingIds); seenColumns.delete(tableId); return false; }
       await gristInstance.docApi.applyUserActions(missing.map(col => {
         const { id, description, ...colInfo } = col;
         return ['AddColumn', tableId, id, colInfo];
       }));
       missing.forEach(col => existingIds.add(col.id));
       knownSchema.set(tableId, existingIds);
+      seenColumns.delete(tableId);
       sharedFetches.delete(tableId);
       await describeColumns(tableId, missing);
       return true;
@@ -172,10 +191,7 @@
     async loadColumnDescriptions() {
       if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
       try {
-        const [tables, cols] = await Promise.all([
-          gristInstance.docApi.fetchTable('_grist_Tables'),
-          gristInstance.docApi.fetchTable('_grist_Tables_column')
-        ]);
+        const [tables, cols] = await Promise.all([fetchRaw('_grist_Tables'), fetchRaw('_grist_Tables_column')]);
         const tableIdByRef = new Map();
         tables.id.forEach((ref, i) => tableIdByRef.set(ref, tables.tableId[i]));
         const byTable = {};
@@ -201,7 +217,7 @@
         columnTypeMap = typeMap;
         choiceOptionsMap = choiceMap;
         formulaMap = formulas;
-        knownSchema.clear();
+        knownSchema.clear(); seenColumns.clear(); // le schéma lu fait foi
         schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
         console.warn('Chargement des descriptions de colonnes a échoué :', err.message);
@@ -209,7 +225,7 @@
         columnTypeMap = null;
         choiceOptionsMap = null;
         formulaMap = null;
-        knownSchema.clear();
+        knownSchema.clear(); seenColumns.clear(); // schéma illisible : retour aux vérifications d'origine
       }
     },
     // Met la liste de choix d'une colonne Choice existante à jour (libellé d'étape renommé) : remplace `choices`
@@ -256,14 +272,32 @@
     getColumnDescription(tableId, colId) {
       return (columnDescriptions && columnDescriptions[tableId] && columnDescriptions[tableId][colId]) || '';
     },
+    // Lit toutes les tables du widget en parallèle (une seule vague de requêtes) mais rend la main en deux temps :
+    //  - `critical` : seulement les tables demandées (par défaut aucune), dès qu'elles sont lues ;
+    //  - `all` : toutes, quand les autres le sont aussi.
+    // `Projets` est complétée (alias d'affichage) une seule fois, avec `Annuaire` : lister les deux ensemble dans `critical`.
+    loadAllTablesStaged(criticalNames) {
+      const reads = {};
+      TABLE_NAMES.forEach(name => {
+        reads[name] = this.getTable(name).catch(err => { console.warn(`Table ${name} failed:`, err.message); return []; });
+      });
+      const settle = async names => {
+        const rows = await Promise.all(names.map(name => reads[name]));
+        return Object.fromEntries(names.map((name, i) => [name, rows[i]]));
+      };
+      let projects = null;
+      const complete = tables => {
+        if (!tables.Projets) return tables;
+        if (!projects) projects = mapProjects(tables.Projets, tables.Annuaire || []);
+        return Object.assign({}, tables, { Projets: projects });
+      };
+      const first = (criticalNames || []).filter(name => TABLE_NAMES.includes(name));
+      const critical = settle(first).then(complete);
+      const all = Promise.all([critical, settle(TABLE_NAMES.filter(name => !first.includes(name)))]).then(([a, b]) => complete(Object.assign({}, a, b)));
+      return { critical, all };
+    },
     async loadAllTables() {
-      const entries = await Promise.all(TABLE_NAMES.map(async name => {
-        try { return [name, await this.getTable(name)]; }
-        catch (err) { console.warn(`Table ${name} failed:`, err.message); return [name, []]; }
-      }));
-      const result = Object.fromEntries(entries);
-      result.Projets = mapProjects(result.Projets || [], result.Annuaire || []);
-      return result;
+      return this.loadAllTablesStaged([]).all;
     }
   };
   global.CoreGrist = CoreGrist;

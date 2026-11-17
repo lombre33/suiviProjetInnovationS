@@ -15,7 +15,7 @@
  *    et le temps de blocage du fil principal (longtasks) ;
  *  - le coût de chaque interaction (frappe dans la recherche, changement de page…).
  *
- * Usage : node tests/perf/bench.js [--rtt=80] [--label=nom] [--out=fichier.json] [--runs=3] [--start=view-projects] [--fonts-ms=0] [--profile]
+ * Usage : node tests/perf/bench.js [--rtt=80] [--label=nom] [--out=fichier.json] [--runs=3] [--start=view-projects] [--fonts-ms=0] [--profile] [--serial]
  * Non lancé par la CI (run-headless.js ne lit que tests/index.html). Playwright est
  * résolu comme dans tests/run-headless.js.
  */
@@ -43,6 +43,8 @@ const START_VIEW = arg('start', 'view-projects');
 const FONTS_MS = Number(arg('fonts-ms', 0));
 // --profile : pour chaque interaction, ventile le temps (script / calcul des styles / mise en page) d'après les compteurs de Chromium.
 const PROFILE = process.argv.includes('--profile');
+// --serial : le serveur Grist traite les lectures l'une après l'autre (au lieu de les mener en parallèle).
+const SERIAL = process.argv.includes('--serial');
 
 function resolvePlaywright() {
   for (const candidate of ['playwright', '/opt/node22/lib/node_modules/playwright']) {
@@ -58,7 +60,8 @@ function buildMockScript(fixtures) {
 window.__FIXTURES__ = ${JSON.stringify(fixtures)};
 ${mock}
 (function () {
-  var cfg = { rtt: ${RTT_MS}, perKCell: ${MS_PER_1000_CELLS} };
+  var cfg = { rtt: ${RTT_MS}, perKCell: ${MS_PER_1000_CELLS}, serial: ${SERIAL} };
+  var chain = Promise.resolve();
   var calls = window.__BENCH_CALLS__ = [];
   var api = window.grist.docApi;
   var cellsOf = function (t) { var n = 0; if (t) for (var k in t) n += t[k].length; return n; };
@@ -68,12 +71,17 @@ ${mock}
       var args = arguments;
       var entry = { m: name, arg: typeof args[0] === 'string' ? args[0] : (Array.isArray(args[0]) ? args[0].map(function (a) { return a[0] + ':' + a[1]; }).join(',') : ''), start: performance.now() };
       calls.push(entry);
-      var result = await original.apply(api, args);
-      var cells = name === 'fetchTable' ? cellsOf(result) : 0;
-      entry.cells = cells;
-      await new Promise(function (r) { setTimeout(r, cfg.rtt + cells / 1000 * cfg.perKCell); });
-      entry.end = performance.now();
-      return result;
+      // --serial : le serveur traite les appels l'un après l'autre (hypothèse à vérifier dans le vrai Grist avec le panneau de diagnostic).
+      var release, previous = chain;
+      if (cfg.serial) { chain = new Promise(function (r) { release = r; }); await previous; }
+      try {
+        var result = await original.apply(api, args);
+        var cells = name === 'fetchTable' ? cellsOf(result) : 0;
+        entry.cells = cells;
+        await new Promise(function (r) { setTimeout(r, cfg.rtt + cells / 1000 * cfg.perKCell); });
+        entry.end = performance.now();
+        return result;
+      } finally { if (release) release(); }
     };
   });
 })();

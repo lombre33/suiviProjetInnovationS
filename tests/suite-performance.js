@@ -472,24 +472,24 @@
       assertTrue(/animation:[^;]*\.4s\s+both/.test(rule), 'apparition retardée de 0,4 s, invisible pendant le délai');
     });
 
-    it('le démarrage le retire une fois la première page affichée', async function () {
+    it('le démarrage le masque une fois la première page affichée', async function () {
       const restore = prepareViews(), idle = holdIdleCallbacks();
       const pill = document.createElement('div'); pill.id = 'app-loading'; document.body.appendChild(pill);
       try {
         await window.SuiviApp.initializeApp();
-        assertEqual(document.getElementById('app-loading'), null, 'indicateur retiré');
+        assertTrue(pill.hidden, 'indicateur masqué');
       } finally { pill.remove(); idle.restore(); restore(); }
     });
 
-    it('il est aussi retiré quand l\'initialisation échoue (sinon il resterait affiché à côté du message d\'erreur)', async function () {
+    it('il est aussi masqué quand l\'initialisation échoue (sinon il resterait affiché à côté du message d\'erreur)', async function () {
       const restore = prepareViews(), idle = holdIdleCallbacks();
       const pill = document.createElement('div'); pill.id = 'app-loading'; document.body.appendChild(pill);
-      const original = window.CoreGrist.loadAllTables;
-      window.CoreGrist.loadAllTables = async () => { throw new Error('panne simulée'); };
+      const original = window.CoreGrist.loadAllTablesStaged;
+      window.CoreGrist.loadAllTablesStaged = () => { throw new Error('panne simulée'); };
       try {
         await window.SuiviApp.initializeApp();
-        assertEqual(document.getElementById('app-loading'), null, 'indicateur retiré malgré l\'échec');
-      } finally { window.CoreGrist.loadAllTables = original; pill.remove(); idle.restore(); restore(); }
+        assertTrue(pill.hidden, 'indicateur masqué malgré l\'échec');
+      } finally { window.CoreGrist.loadAllTablesStaged = original; pill.remove(); idle.restore(); restore(); }
     });
   });
 
@@ -582,6 +582,231 @@
         assertEqual(raw.Composition.length, 0, 'composition vide');
         assertTrue(Array.isArray(raw.Instances) && Array.isArray(raw.Suivi_Instance), 'les autres tables sont chargées');
       } finally { Object.assign(grist, original); }
+    });
+  });
+
+  describe('Diagnostic de chargement — jalons du démarrage', function () {
+    it('le démarrage note ses jalons dans l\'ordre, jusqu\'à « première page affichée », et écrit le rapport dans la console', async function () {
+      const restore = prepareViews(), idle = holdIdleCallbacks();
+      const infos = [], originalInfo = console.info;
+      console.info = (...args) => { infos.push(args.join(' ')); };
+      try {
+        window.PerfTrace._reset();
+        await window.SuiviApp.initializeApp();
+        const names = window.PerfTrace.marks().map(m => m.name);
+        const wanted = ['initialisation démarrée', 'grist.ready terminé', 'Projets, Annuaire et préférences lus', 'Kanban affiché', 'toutes les tables et le schéma lus', 'colonnes Administratif vérifiées', 'préférences des pages chargées', 'première page affichée'];
+        let last = -1;
+        wanted.forEach(label => {
+          const at = names.findIndex(name => name.startsWith(label));
+          assertTrue(at > last, `jalon « ${label} » absent ou dans le désordre (vu : ${names.join(' | ')})`);
+          last = at;
+        });
+        const labels = window.PerfTrace.calls().map(c => c.label);
+        assertTrue(labels.includes('lecture : Projets') && labels.includes('lecture : Preferences_Widget'), `lectures notées : ${labels.join(', ')}`);
+        assertTrue(infos.some(line => line.includes('Diagnostic de chargement')), 'rapport écrit dans la console');
+      } finally { console.info = originalInfo; idle.restore(); restore(); }
+    });
+  });
+
+  // ── Démarrage en deux temps : le Kanban s'affiche avant la lecture des autres tables ─────────────────────────
+  describe('Démarrage en deux temps (js/app.js) — Kanban d\'abord, le reste ensuite', function () {
+    const CRITICAL = ['Projets', 'Annuaire', 'Preferences_Widget'];
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const waitUntil = async (test, label) => { const end = Date.now() + 4000; while (!test()) { if (Date.now() > end) throw new Error('délai dépassé : ' + label); await wait(5); } };
+    // Les tables autres que celles du Kanban arrivent en retard (150 ms) : le serveur les traite après les premières.
+    function delayRest(delay) {
+      const api = window.grist.docApi, original = api.fetchTable;
+      api.fetchTable = function (name) {
+        const result = original.call(api, name);
+        return CRITICAL.includes(name) || name.startsWith('_grist_') ? result : result.then(data => wait(delay).then(() => data));
+      };
+      return () => { api.fetchTable = original; };
+    }
+    // Premier lancement fait une fois (création des tables, colonnes et ligne de préférences) ; chaque test repart ensuite d'un
+    // écran vide et d'un état vide, comme à l'ouverture du widget.
+    function emptyScreen() {
+      ['admin-col-notif', 'admin-col-conv', 'todo-panels', 'install-col-diese', 'install-col-ailleurs', 'install-col-non_classe', 'projects-kanban']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+      window.SuiviApp.staleViews.clear();
+      window.SuiviApp.cancelIdleRenders();
+      document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
+      document.getElementById('view-projects').classList.remove('hidden');
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.id === 'btn-projects'));
+      window.CoreState.clearState();
+    }
+    async function prepared(run) {
+      const restore = prepareViews(), idle = holdIdleCallbacks();
+      const pill = document.createElement('div'); pill.id = 'app-loading'; pill.textContent = 'Chargement des données…'; document.body.appendChild(pill);
+      try {
+        await window.SuiviApp.initializeApp();
+        emptyScreen(); pill.hidden = false; pill.textContent = 'Chargement des données…';
+        await run(pill);
+      } finally { pill.remove(); idle.restore(); restore(); }
+    }
+
+    it('le Kanban est rendu dès que Projets, Annuaire et préférences sont lus ; les autres tables arrivent après', async function () {
+      await prepared(async pill => {
+        const undelay = delayRest(150);
+        try {
+          const started = window.SuiviApp.initializeApp();
+          await waitUntil(() => cardCount('#projects-kanban .project-card') > 0, 'cartes du Kanban');
+          assertFalse(window.SuiviApp.isDataComplete(), 'le reste des tables est encore en cours de lecture');
+          assertEqual((window.CoreState.getTable('Postes2') || []).length, 0, 'Postes2 pas encore appliquée');
+          assertEqual((window.CoreState.getTable('Notifications') || []).length, 0, 'Notifications pas encore appliquée');
+          assertFalse(pill.hidden, 'l\'indicateur reste affiché tant que tout n\'est pas lu');
+          assertIncludes(pill.textContent, 'autres tables', 'il dit ce qui se charge encore');
+          await started;
+          assertTrue(window.SuiviApp.isDataComplete(), 'tout est lu');
+          assertTrue(pill.hidden, 'indicateur masqué');
+          assertTrue((window.CoreState.getTable('Postes2') || []).length > 0 && (window.CoreState.getTable('Notifications') || []).length > 0, 'toutes les tables appliquées');
+        } finally { undelay(); }
+      });
+    });
+
+    it('le Kanban affiché n\'est pas reconstruit une fois tout lu (mêmes cartes, mêmes données)', async function () {
+      await prepared(async () => {
+        const undelay = delayRest(80);
+        try {
+          const started = window.SuiviApp.initializeApp();
+          await waitUntil(() => cardCount('#projects-kanban .project-card') > 0, 'cartes du Kanban');
+          const card = document.querySelector('#projects-kanban .project-card');
+          const projects = window.CoreState.getTable('Projets');
+          await started;
+          assertTrue(card.isConnected && card === document.querySelector('#projects-kanban .project-card'), 'carte non reconstruite');
+          assertEqual(window.CoreState.getTable('Projets'), projects, 'mêmes projets (pas relus ni recopiés)');
+        } finally { undelay(); }
+      });
+    });
+
+    it('en attendant, les autres pages ne se construisent pas (elles seraient vides) : elles restent « à refaire » puis se rendent', async function () {
+      await prepared(async () => {
+        const undelay = delayRest(120);
+        try {
+          const started = window.SuiviApp.initializeApp();
+          await waitUntil(() => cardCount('#projects-kanban .project-card') > 0, 'cartes du Kanban');
+          window.SuiviApp.renderView('view-administratif');
+          assertTrue(window.SuiviApp.staleViews.has('view-administratif'), 'Administratif reste à refaire');
+          assertEqual(cardCount('#admin-col-notif .admin-card'), 0, 'rien de construit avec des tables absentes');
+          await started;
+          window.SuiviApp.renderView('view-administratif');
+          assertTrue(cardCount('#admin-col-notif .admin-card') > 0, 'rendue normalement une fois tout lu');
+        } finally { undelay(); }
+      });
+    });
+
+    it('en attendant, la navigation et l\'ouverture d\'une fiche sont mises de côté puis rejouées ; les filtres restent utilisables', async function () {
+      await prepared(async () => {
+        const undelay = delayRest(120);
+        const todoButton = document.querySelector('.nav-btn[data-view="view-todo"]');
+        try {
+          const started = window.SuiviApp.initializeApp();
+          await waitUntil(() => cardCount('#projects-kanban .project-card') > 0, 'cartes du Kanban');
+          todoButton.click();
+          assertTrue(document.getElementById('view-todo').classList.contains('hidden'), 'la page To Do ne s\'ouvre pas encore');
+          assertFalse(document.getElementById('view-projects').classList.contains('hidden'), 'le Kanban reste affiché');
+          assertIncludes(document.getElementById('app-loading').textContent, 'votre clic', 'le message explique l\'attente');
+          const filterClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+          document.getElementById('clear-filters').dispatchEvent(filterClick);
+          assertFalse(filterClick.defaultPrevented, 'le bouton Réinitialiser des filtres n\'est pas bloqué');
+          await started;
+          assertFalse(document.getElementById('view-todo').classList.contains('hidden'), 'le clic mis de côté est rejoué : To Do s\'ouvre');
+        } finally { undelay(); }
+      });
+    });
+
+    it('en cas d\'échec du démarrage, plus rien n\'est bloqué : les clics repassent', async function () {
+      await prepared(async () => {
+        const original = window.loadTodoUserPreferences;
+        window.loadTodoUserPreferences = async () => { throw new Error('panne simulée'); };
+        try {
+          await window.SuiviApp.initializeApp();
+          assertTrue(window.SuiviApp.isDataComplete(), 'déverrouillé malgré l\'échec');
+          const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+          document.querySelector('.nav-btn[data-view="view-projects"]').dispatchEvent(click);
+          assertFalse(click.defaultPrevented, 'plus aucun clic retenu');
+        } finally { window.loadTodoUserPreferences = original; }
+      });
+    });
+
+    it('une page retrouvée au rechargement qui n\'est pas le Kanban attend toutes les tables avant de s\'afficher (comportement d\'origine)', async function () {
+      await prepared(async () => {
+        const undelay = delayRest(120);
+        try {
+          window.localStorage.setItem('suiviProjetInnovationS:lastView', JSON.stringify({ view: 'view-administratif', pending: true }));
+          const started = window.SuiviApp.initializeApp();
+          await wait(60);
+          assertEqual(cardCount('#admin-col-notif .admin-card'), 0, 'rien tant que les tables ne sont pas toutes lues');
+          assertTrue(window.SuiviApp.isDataComplete(), 'aucun verrouillage : on attend, comme avant');
+          await started;
+          assertTrue(cardCount('#admin-col-notif .admin-card') > 0, 'Administratif affiché une fois tout lu');
+        } finally { undelay(); window.SuiviApp.resetLastView(); }
+      });
+    });
+  });
+
+  describe('CoreGrist — colonnes apprises des lectures (ensureTable / ensureColumns sans attendre le schéma)', function () {
+    async function withoutSchema() {
+      // Métadonnées illisibles dans le mock : le schéma connu est vide, seules les lectures renseignent ce qu'on sait.
+      await window.CoreGrist.loadColumnDescriptions();
+    }
+
+    it('une table déjà lue n\'est plus vérifiée : ensureTable / ensureColumns ne font aucun appel', async function () {
+      await withoutSchema();
+      assertEqual(window.CoreGrist.knownColumns('Programmes'), null, 'schéma de métadonnées toujours inconnu');
+      await window.CoreGrist.getTable('Programmes');
+      const spy = spyDocApi();
+      try {
+        assertFalse(await window.CoreGrist.ensureTable('Programmes', [{ id: 'Programme', type: 'Text' }]), 'table connue');
+        assertFalse(await window.CoreGrist.ensureColumns('Programmes', [{ id: 'Programme', type: 'Text' }]), 'colonne connue');
+        assertEqual(spy.calls.length, 0, `aucun appel attendu, vu : ${spy.calls.join(', ')}`);
+      } finally { spy.restore(); }
+    });
+
+    it('knownColumns reste null quand les métadonnées sont illisibles (les lectures n\'y changent rien)', async function () {
+      await withoutSchema();
+      await window.CoreGrist.getTable('Projets');
+      assertEqual(window.CoreGrist.knownColumns('Projets'), null);
+      assertEqual(window.CoreGrist.knownTableIds().length, 0);
+    });
+
+    it('une colonne absente de la table lue est bien créée (la connaissance est positive seulement)', async function () {
+      await withoutSchema();
+      await window.CoreGrist.getTable('Programmes');
+      const spy = spyDocApi();
+      try {
+        assertTrue(await window.CoreGrist.ensureColumns('Programmes', [{ id: 'Colonne_jamais_vue', type: 'Text' }]), 'colonne créée');
+        assertEqual(spy.count('apply:AddColumn:Programmes'), 1);
+      } finally { spy.restore(); }
+    });
+
+    it('une lecture en échec (table disparue) efface ce qu\'on croyait savoir : on revérifie auprès de Grist au lieu de la croire présente', async function () {
+      await withoutSchema();
+      await window.CoreGrist.getTable('Programmes');
+      const api = window.grist.docApi, original = api.fetchTable;
+      api.fetchTable = name => name === 'Programmes' ? Promise.reject(new Error('table disparue')) : original.call(api, name);
+      try { await window.CoreGrist.getTable('Programmes'); } catch (err) { /* attendu */ } finally { api.fetchTable = original; }
+      const spy = spyDocApi();
+      try {
+        await window.CoreGrist.ensureTable('Programmes', [{ id: 'Programme', type: 'Text' }]);
+        assertTrue(spy.count('listTables') >= 1, 'retour à la vérification auprès de Grist');
+      } finally { spy.restore(); }
+    });
+
+    it('loadAllTablesStaged : `critical` arrive avant `all`, les mêmes projets complétés une seule fois', async function () {
+      const staged = window.CoreGrist.loadAllTablesStaged(['Projets', 'Annuaire']);
+      const critical = await staged.critical;
+      assertTrue(Array.isArray(critical.Projets) && critical.Projets.length > 0 && critical.Projets[0].Nom !== undefined, 'projets complétés (alias d\'affichage)');
+      assertTrue(Array.isArray(critical.Annuaire), 'annuaire');
+      assertFalse('Postes2' in critical, 'les autres tables ne sont pas dans le premier temps');
+      const all = await staged.all;
+      assertEqual(all.Projets, critical.Projets, 'mêmes projets, pas recopiés');
+      assertTrue(['Postes2', 'Structures', 'Programmes', 'Etablissements', 'Suivi_Instance', 'Lignes_OPE', 'Notifications'].every(name => name in all), 'toutes les tables');
+    });
+
+    it('loadAllTables garde son comportement : toutes les tables, projets complétés', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      assertTrue(tables.Projets.length > 0 && tables.Projets[0].Nom !== undefined && tables.Projets[0].Statut !== undefined, 'alias d\'affichage');
+      assertTrue('Notifications' in tables && 'Annuaire' in tables);
     });
   });
 })();

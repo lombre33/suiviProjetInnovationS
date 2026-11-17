@@ -63,6 +63,12 @@ button,input,select,textarea { font:inherit; }
    Retiré par js/app.js dès que les données sont affichées (ou en cas d'échec). */
 .app-loading { position:fixed; left:20px; bottom:20px; z-index:300; padding:8px 14px; border-radius:999px; background:var(--text); color:#fff; font-size:12.5px; font-weight:700; box-shadow:0 6px 16px rgba(20,28,46,.25); pointer-events:none; animation:fadeIn .15s ease-out .4s both; }
 .toast { position:fixed; right:20px; bottom:20px; z-index:300; padding:12px 16px; border-radius:var(--radius-sm); background:var(--text); color:#fff; font-size:13.5px; font-weight:600; box-shadow:var(--shadow-float); }
+/* Panneau « Diagnostic de chargement » (js/core/perf-trace.js) : Alt+Maj+D ou double-clic sur la pastille « S ». */
+.perf-panel { position:fixed; right:16px; bottom:16px; z-index:2500; width:min(720px, calc(100vw - 32px)); max-height:min(80vh, 640px); display:flex; flex-direction:column; gap:8px; padding:12px; background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-md); box-shadow:0 14px 32px -8px rgba(9,16,35,.35); }
+.perf-panel-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.perf-panel-head strong { flex:1 1 auto; font-size:13.5px; color:var(--text); }
+.perf-panel-status { font-size:12px; color:var(--text-muted); }
+.perf-panel-text { flex:1 1 auto; box-sizing:border-box; width:100%; min-height:260px; padding:8px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-sunken); color:var(--text); font:12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre; overflow:auto; resize:vertical; }
 .toast.hidden { display:none; }
 .toast.error { background:var(--danger); }
 

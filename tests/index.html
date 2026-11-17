@@ -235,6 +235,7 @@
     // init would race with per-test setup — tests call window.SuiviApp.initializeApp()
     // (or CoreGrist.ready()/loadAllTables()) explicitly.
     await loadScript('../js/core/utils.js');
+    await loadScript('../js/core/perf-trace.js');
     await loadScript('../js/core/state.js');
     await loadScript('../js/core/grist-api.js');
     await loadScript('../js/core/attachments.js');
@@ -298,6 +299,7 @@
     await loadScript('suite-instances-complements.js');
     await loadScript('suite-annuaire.js');
     await loadScript('suite-performance.js');
+    await loadScript('suite-perf-trace.js');
     await loadScript('suite-navigation.js');
     await loadScript('suite-utils.js');
     await loadScript('suite-filtres-complements.js');

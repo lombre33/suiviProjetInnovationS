@@ -128,6 +128,48 @@ node tests/perf/bench.js --profile             # ventile chaque interaction : sc
 Chaque interaction donne `ms` (jusqu'à 2 images après l'action) et `settledMs` (jusqu'à la fin des animations en cours :
 ce que l'œil perçoit). Tests de non-régression : `tests/suite-performance.js` (sections « Ouverture » et « Navigation »).
 
+## Troisième vague — 17/11/2026 (le « Chargement des données… » de 2 à 3 s dans le vrai Grist)
+
+Le banc ne reproduit pas les 2 à 3 s d'Antoine : il fallait d'abord **savoir où elles passent**, puis afficher le Kanban sans
+attendre le reste.
+
+### Panneau « Diagnostic de chargement » (`js/core/perf-trace.js`)
+
+- Ouverture : **Alt+Maj+D** (cliquer d'abord dans le widget) ou **double-clic sur la pastille « S »** du bandeau ; le même rapport est écrit
+  dans la console du navigateur à la fin du démarrage. Bouton **Copier** : le rapport se colle dans la conversation.
+- Contenu : jalons (HTML reçu, scripts exécutés, `grist.ready`, Projets/Annuaire/préférences lus, Kanban affiché, tout lu,
+  première page affichée), durée de **chaque lecture Grist** (départ, durée, nombre de cellules), cumul comparé à la durée réelle
+  (cumul ≈ durée réelle : le serveur traite les lectures l'une après l'autre ; cumul ≫ durée réelle : en parallèle), téléchargement des
+  fichiers du widget (Resource Timing, servis par le cache ou non). **Aucune donnée de projet** : noms de tables, durées, tailles.
+- Nouveau jalon à ajouter = `PerfTrace.mark('…')` ; nouvelle lecture Grist hors `CoreGrist` = `PerfTrace.track(label, () => …)`.
+
+### Démarrage en deux temps (`js/app.js`, `CoreGrist.loadAllTablesStaged`)
+
+1. **Temps 1** : `Projets`, `Annuaire` et les préférences de l'utilisateur (lues en tête) → le Kanban s'affiche. Les 6 autres tables et le
+   schéma sont déjà demandés dans la même vague.
+2. **Temps 2** : tout le reste arrive ; les autres pages se construisent comme avant (celles restées « à refaire » le sont à l'ouverture).
+- Tant que le temps 2 n'est pas fini (`dataComplete` faux) : `renderView` ne construit que le Kanban (une autre page se ferait avec des tables
+  absentes) ; les clics sur la navigation, les cartes, « Nouveau projet » et `[data-open-project]` sont **mis de côté puis rejoués**
+  (garde en phase de capture) ; les filtres et le repli des colonnes restent utilisables. Message : « Chargement des autres tables… ».
+- Si la page retrouvée au rechargement n'est pas le Kanban, rien n'est verrouillé : on attend tout, comme avant.
+- Échec à n'importe quel moment : `finally` déverrouille et retire la garde.
+- Colonnes **apprises des lectures** (`seenColumns`, privé à `grist-api.js`) : `ensureTable` / `ensureColumns` n'ont plus besoin du schéma
+  des métadonnées pour savoir qu'une table lue existe et quelles colonnes elle a, donc plus d'appel avant le premier affichage.
+  **`knownColumns` / `knownTableIds` ne les voient pas** : ils restent `null` / vides quand les métadonnées sont illisibles (sinon on
+  créerait des colonnes déjà présentes). Une lecture en échec efface ce qu'on savait de la table.
+
+### Mesures du mock (`node tests/perf/bench.js --serial`)
+
+`--serial` simule un serveur qui traite les lectures l'une après l'autre (100 ms par appel) :
+
+| | avant | après |
+|---|---|---|
+| premières cartes du Kanban | 1500 ms | **551 ms** |
+| navigation utilisable | 1575 ms | 1589 ms (clics mis de côté jusque-là) |
+
+Avec un serveur qui traite tout **en parallèle** (le mock par défaut), le gain est nul (388 → 403 ms) : c'est le rapport du panneau de
+diagnostic qui dira dans quel cas on est dans le vrai Grist.
+
 ## Pistes restantes (non faites)
 
 - **Cache persistant des données entre deux ouvertures** (afficher tout de suite le dernier état connu, puis rafraîchir) :

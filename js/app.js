@@ -2,6 +2,9 @@
  * Main Application Module
  * Depends on: CoreUtils, CoreState, CoreGrist
  */
+// Jalons du panneau « Diagnostic de chargement » (js/core/perf-trace.js) ; sans effet si ce module est absent.
+const mark = name => window.PerfTrace?.mark(name);
+mark('app.js exécuté (tous les scripts du widget sont chargés)');
 function checkDependencies() { const deps = ['CoreUtils', 'CoreState', 'CoreGrist']; const missing = deps.filter(dep => !window[dep]); if (missing.length) { console.error('Missing core dependencies:', missing); return false; } return true; }
 // Les scripts sont déjà chargés (fin de <body>) : test immédiat, la minuterie ne sert que si ce n'était pas le cas.
 function waitForDependencies(timeout = 5000) { if (checkDependencies()) return Promise.resolve(true); return new Promise(resolve => { const start = Date.now(); const timer = setInterval(() => { if (checkDependencies()) { clearInterval(timer); resolve(true); } else if (Date.now() - start > timeout) { clearInterval(timer); resolve(false); } }, 100); }); }
@@ -21,14 +24,21 @@ const VIEW_RENDERERS = {
 };
 const staleViews = new Set();
 let idleRenderHandle = null;
-function renderView(viewId) { staleViews.delete(viewId); VIEW_RENDERERS[viewId]?.(); }
+// Tant que les tables autres que celles du Kanban sont en cours de lecture (démarrage en deux temps, voir initializeApp), aucune autre
+// page ne se construit : elle resterait vide ; elle est « à refaire » et rendue dès que tout est lu.
+let dataComplete = true;
+function renderView(viewId) {
+  if (!dataComplete && viewId !== 'view-projects') { staleViews.add(viewId); return; }
+  staleViews.delete(viewId); VIEW_RENDERERS[viewId]?.();
+}
 function ensureViewRendered(viewId) { if (staleViews.has(viewId)) renderView(viewId); }
 function visibleViewId() { const el = document.querySelector('.view:not(.hidden)'); return el ? el.id : null; }
 // `idle: false` : pas de pré-rendu pendant les temps morts, les pages « à refaire » le sont à leur ouverture.
-function renderAllViews({ idle = true } = {}) {
+// `skipRendered: true` : la page affichée vient d'être rendue avec ces mêmes données (démarrage en deux temps), inutile de la refaire.
+function renderAllViews({ idle = true, skipRendered = false } = {}) {
   const current = visibleViewId();
   Object.keys(VIEW_RENDERERS).forEach(viewId => {
-    if (viewId === current || (!current && viewId === 'view-projects')) renderView(viewId); else staleViews.add(viewId);
+    if (viewId === current || (!current && viewId === 'view-projects')) { if (!skipRendered) renderView(viewId); } else staleViews.add(viewId);
   });
   if (idle) scheduleIdleRenders();
 }
@@ -58,8 +68,38 @@ function observeViewVisibility() {
   }));
   document.querySelectorAll('.view').forEach(view => viewObserver.observe(view, { attributes: true, attributeFilter: ['class'] }));
 }
-// Indicateur « Chargement des données… » d'index.html : retiré dès que la première page est affichée, ou en cas d'échec.
-function hideLoadingIndicator() { document.getElementById('app-loading')?.remove(); }
+// Indicateur « Chargement des données… » d'index.html : masqué dès que la première page est prête, ou en cas d'échec.
+function hideLoadingIndicator() { const el = document.getElementById('app-loading'); if (el) el.hidden = true; }
+function showLoadingIndicator(text) { const el = document.getElementById('app-loading'); if (el) { if (text) el.textContent = text; el.hidden = false; } }
+
+// --- Démarrage en deux temps -------------------------------------------------------------------------------------
+// Le Kanban n'a besoin que de Projets et Annuaire : il s'affiche dès qu'elles sont lues, sans attendre les autres tables ni le schéma.
+// Le temps que le reste arrive, tout ce qui ouvrirait une autre page ou une fiche (barre de navigation, cartes, « Nouveau projet »)
+// est mis de côté — ces écrans ont besoin de tables encore absentes — puis rejoué dès que tout est lu. Filtres et repli des
+// colonnes restent utilisables.
+const EARLY_TABLES = ['Projets', 'Annuaire'];
+const LOCKED_CLICK_SELECTOR = '.nav-btn, #btn-new-project, .project-card, [data-open-project]';
+let pendingClick = null;
+function loadingGuard(event) {
+  if (dataComplete) return;
+  const target = event.target && event.target.closest ? event.target.closest(LOCKED_CLICK_SELECTOR) : null;
+  if (!target) return;
+  event.stopPropagation(); event.preventDefault();
+  pendingClick = target;
+  showLoadingIndicator('Chargement en cours : votre clic sera pris en compte dans un instant…');
+}
+function lockUntilDataComplete() {
+  dataComplete = false; pendingClick = null;
+  document.addEventListener('click', loadingGuard, true);
+  showLoadingIndicator('Chargement des autres tables…');
+}
+function unlockDataComplete() {
+  if (dataComplete) return;
+  dataComplete = true;
+  document.removeEventListener('click', loadingGuard, true);
+  const replay = pendingClick; pendingClick = null;
+  if (replay && replay.isConnected) replay.click();
+}
 function applyTables(tables) { Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data)); }
 
 // --- Dernière page ouverte (retrouvée au rechargement) -----------------------------------------
@@ -134,33 +174,58 @@ function resetLastView() {
 
 async function initializeApp() {
   try {
+    mark('initialisation démarrée (DOM prêt)');
     restoreView(readStoredView().view); // la page retenue s'affiche tout de suite (copie locale), avant la lecture des tables
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
-    // Tout ce qui ne dépend de rien d'autre part en même temps : les tables, le schéma (descriptions des
-    // colonnes + colonnes existantes) et la table de préférences, lue une seule fois pour toutes les pages.
+    mark('grist.ready terminé');
+    // Une seule vague de requêtes, lancées ensemble : préférences, tables (Projets et Annuaire d'abord) puis schéma (descriptions des
+    // colonnes + colonnes existantes). La table de préférences est lue une seule fois pour toutes les pages.
     CoreGrist.openSharedWindow();
     const prefsPrefetch = CoreGrist.getTable('Preferences_Widget', { shared: true }).catch(() => null); // absente au 1er lancement : les chargeurs la créent
-    let [tables] = await Promise.all([CoreGrist.loadAllTables(), CoreGrist.loadColumnDescriptions(), prefsPrefetch]);
+    const stage = CoreGrist.loadAllTablesStaged(EARLY_TABLES);
+    const schemaRead = CoreGrist.loadColumnDescriptions();
+    // Temps 1 : de quoi afficher le Kanban (Projets, Annuaire, préférences de l'utilisateur).
+    const [early] = await Promise.all([stage.critical, prefsPrefetch]);
+    mark('Projets, Annuaire et préférences lus');
+    applyTables(early);
+    if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();
+    restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
+    const showedEarly = !visibleViewId() || visibleViewId() === 'view-projects';
+    if (showedEarly) {
+      lockUntilDataComplete();
+      renderView('view-projects'); setupEventListeners();
+      mark('Kanban affiché (le reste des tables est encore en cours de lecture)');
+    }
+    // Temps 2 : le reste des tables et le schéma.
+    let [tables] = await Promise.all([stage.all, schemaRead]);
+    mark('toutes les tables et le schéma lus');
     // Colonnes neuves de la page Administratif : créées si besoin (1er lancement seulement), puis les tables sont relues
     // pour que les données les contiennent.
     const createdColumns = window.ensureAdministratifColumns ? await window.ensureAdministratifColumns().catch(err => { console.warn('Colonnes Administratif :', err.message); return false; }) : false;
     // Les descriptions (bulles d'aide) sont relues aussi : les colonnes neuves portent la leur.
     if (createdColumns) [tables] = await Promise.all([CoreGrist.loadAllTables(), CoreGrist.loadColumnDescriptions()]);
+    mark('colonnes Administratif vérifiées');
     applyTables(tables);
-    if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();
     if (window.loadAdministratifUserPreferences) await window.loadAdministratifUserPreferences();
     if (window.loadInstallationUserPreferences) await window.loadInstallationUserPreferences();
     if (window.loadTodoUserPreferences) await window.loadTodoUserPreferences();
     if (window.loadInstancesUserPreferences) await window.loadInstancesUserPreferences();
     if (window.loadAnnuaireUserPreferences) await window.loadAnnuaireUserPreferences();
-    restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
+    mark('préférences des pages chargées');
     CoreGrist.closeSharedWindow();
-    renderAllViews(); setupEventListeners(); observeViewVisibility(); hideLoadingIndicator();
+    {
+      // Le Kanban déjà affiché est refait seulement si ses données ont été relues (colonnes créées) ; les autres pages le sont à l'ouverture.
+      renderAllViews({ skipRendered: showedEarly && !createdColumns });
+      if (!showedEarly) setupEventListeners();
+      observeViewVisibility();
+    }
+    unlockDataComplete(); hideLoadingIndicator();
+    mark('première page affichée'); window.PerfTrace?.logToConsole();
     // La page Instances ne charge ses données qu'à l'ouverture depuis la barre : retrouvée au rechargement, elle doit les charger elle-même.
     if (visibleViewId() === 'view-instances') Promise.resolve(window.InstancesPage?.open?.()).catch(() => {});
   } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
-  finally { CoreGrist.closeSharedWindow?.(); hideLoadingIndicator(); }
+  finally { CoreGrist.closeSharedWindow?.(); unlockDataComplete(); hideLoadingIndicator(); }
 }
 function viewProject(projectId) {
   const projects = CoreState.getTable('Projets') || []; const project = projects.find(p => String(p.id) === String(projectId));
@@ -195,5 +260,5 @@ function setupEventListeners() {
 }
 // Points d'entrée exposés pour les tests (tests/suite-app.js) ; tests/index.html pose
 // __SUIVI_SKIP_AUTOINIT__ pour que le chargement de ce fichier ne lance pas l'application.
-window.SuiviApp = { initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved, resetLastView };
+window.SuiviApp = { isDataComplete: () => dataComplete, initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved, resetLastView };
 if (!window.__SUIVI_SKIP_AUTOINIT__) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp); else initializeApp(); }
