@@ -168,6 +168,11 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .mode-cards .admin-notes-line { flex-direction:column; align-items:stretch; gap:6px; }
 .mode-cards .admin-lastaction { flex-direction:column; align-items:flex-start; gap:2px; }
 .mode-cards .admin-notes-next { align-items:stretch; }
+/* Carte Notifications (17/11/2026) : commentaire + « Dernière action » sur la même ligne en vue lignes,
+   l'un sous l'autre en vue cartes ; pas de min-width de 400 px comme .admin-notes (la ligne reste compacte). */
+.mode-rows .admin-notif-line { flex:1 1 auto; min-width:0; }
+.mode-cards .admin-notif-line { width:100%; }
+.mode-cards .admin-notif-line .admin-comment { flex:none; }
 
 .admin-tags { display:flex; flex:none; align-items:center; gap:4px; }
 .admin-tag { position:relative; display:inline-flex; }

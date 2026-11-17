@@ -714,7 +714,7 @@
   });
 
   describe('Administratif — Conventions : « Dernière action » (colonne convention_Date_derniere_modification)', function () {
-    it('un champ date « Dernière action » accompagne le commentaire (sur la même ligne), puis le Next step dessous ; absent des cartes Notifications', async function () {
+    it('un champ date « Dernière action » accompagne le commentaire (sur la même ligne), puis le Next step dessous ; présent aussi sur les cartes Notifications (sans Next step)', async function () {
       await loadFixtureState();
       const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
       const lines = card.querySelectorAll('.admin-notes-line');
@@ -722,7 +722,10 @@
       assertTrue(!!lines[0].querySelector('[data-comment-project]') && !!lines[0].querySelector('[data-lastaction-project]'), 'commentaire + dernière action sur la première ligne');
       assertTrue(!!lines[1].querySelector('[data-nextstep-project]'), 'Next step sur la seconde');
       assertEqual(lines[0].querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
-      assertEqual(document.querySelectorAll('#admin-col-notif [data-lastaction-project]').length, 0);
+      const notif = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX');
+      assertTrue(!!notif.querySelector('[data-comment-project]') && !!notif.querySelector('[data-lastaction-project]'), 'commentaire + dernière action aussi sur la carte Notifications');
+      assertEqual(notif.querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
+      assertEqual(document.querySelectorAll('#admin-col-notif [data-nextstep-project]').length, 0, 'mais pas de Next step côté Notifications');
     });
 
     it('affiche la date enregistrée, l\'enregistre (minuit UTC) sur Projets et la vide en écrivant null', async function () {

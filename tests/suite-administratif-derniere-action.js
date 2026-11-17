@@ -1,6 +1,6 @@
 /**
- * Non-regression suite : page Administratif, onglet Conventions — « Dernière action » automatique.
- * Demande d'Antoine du 17/11/2026 : toute modification faite depuis une carte Conventions pose la date du
+ * Non-regression suite : page Administratif, cartes Conventions et Notifications — « Dernière action » automatique.
+ * Demande d'Antoine du 17/11/2026 : toute modification faite depuis une carte Conventions (puis Notifications) pose la date du
  * jour dans Projets.convention_Date_derniere_modification (dans la MÊME UpdateRecord), le champ restant
  * modifiable à la main. Fixtures (tests/fixtures.js) : INNOVX/NOTIFY en « redaction », CONVENTIX en
  * « signature » (UB « Relu », 2 partenaires), SIGNEX « signée de toutes les parties » ; la colonne vaut
@@ -219,26 +219,81 @@
     });
   });
 
-  describe('Administratif — Conventions : « Dernière action » ne se met pas à jour hors des cartes Conventions', function () {
-    it('un commentaire modifié depuis une carte Notifications n\'écrit pas la dernière action de la convention', async function () {
+  describe('Administratif — Notifications : « Dernière action » aussi sur les cartes Notifications (même colonne, même date)', function () {
+    const notifInput = acronym => notifCard(acronym).querySelector('[data-lastaction-project]');
+    const advanceCalls = async fn => {
+      const api = window.grist.docApi, original = api.applyUserActions, batches = [];
+      api.applyUserActions = actions => { batches.push(actions); return original.call(api, actions); };
+      try { await fn(); } finally { api.applyUserActions = original; }
+      return batches;
+    };
+
+    it('la carte Notifications affiche le champ « Dernière action », avec la date enregistrée et son infobulle', async function () {
+      await load({ dates: { INNOVX: '2026-10-05' } });
+      assertEqual(notifInput('INNOVX').value, '2026-10-05');
+      assertIncludes(notifInput('INNOVX').title, 'automatiquement');
+      assertEqual(notifCard('INNOVX').querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
+    });
+
+    it('un commentaire modifié depuis une carte Notifications date la dernière action, dans la même écriture, et les deux cartes du projet affichent la date', async function () {
       await load();
       await withClock(() => editText(notifCard('INNOVX').querySelector('[data-comment-project]'), 'Relance porteur'));
       const writes = writesOf('comentaire_general_Suivi_projet');
       assertEqual(writes.length, 1);
-      assertFalse(STAMP in writes[0].fields, 'seule la colonne du commentaire est écrite');
-      assertEqual(stampInput('INNOVX').value, '');
+      assertEqual(writes[0].fields[STAMP], epochOf(TODAY), 'la date du jour part avec le commentaire');
+      assertEqual(writesOf(STAMP).length, 1, 'jamais d\'écriture séparée');
+      assertEqual(notifInput('INNOVX').value, TODAY, 'la carte Notifications affiche la date');
+      assertEqual(stampInput('INNOVX').value, TODAY, 'et la carte Conventions du même projet aussi');
     });
 
-    it('le même commentaire modifié depuis la carte Conventions du projet la met à jour', async function () {
+    it('faire avancer une notification (Suivant →) date la dernière action dans le MÊME appel Grist que le changement d\'étape', async function () {
       await load();
-      await withClock(() => editText(convCard('INNOVX').querySelector('[data-comment-project]'), 'Relance faite'));
-      assertEqual(writesOf('comentaire_general_Suivi_projet')[0].fields[STAMP], epochOf(TODAY));
+      let batches;
+      await withClock(async () => {
+        batches = await advanceCalls(async () => { fireMouse(notifCard('INNOVX').querySelector('[data-advance-notif]'), 'click'); await wait(0); });
+      });
+      assertEqual(batches.length, 1, 'un seul appel à Grist');
+      assertDeepEqual(batches[0].map(a => [a[0], a[1]]), [['UpdateRecord', 'Notifications'], ['UpdateRecord', 'Projets']], 'la notification avance, le projet est daté');
+      assertDeepEqual(batches[0][1][3], { [STAMP]: epochOf(TODAY) }, 'seule la date est écrite sur Projets');
+      assertEqual(notifInput('INNOVX')?.value ?? stampInput('INNOVX').value, TODAY, 'la date est affichée après le rendu');
+      assertEqual(projectRow('INNOVX')[STAMP], epochOf(TODAY), 'valeur locale à jour');
     });
 
-    it('faire avancer une notification (Suivant →) n\'écrit pas la dernière action', async function () {
+    it('déjà daté d\'aujourd\'hui : « Suivant → » n\'écrit que la notification', async function () {
+      await load({ dates: { INNOVX: TODAY } });
+      let batches;
+      await withClock(async () => {
+        batches = await advanceCalls(async () => { fireMouse(notifCard('INNOVX').querySelector('[data-advance-notif]'), 'click'); await wait(0); });
+      });
+      assertEqual(batches.length, 1);
+      assertEqual(batches[0].length, 1, 'une seule action : la notification');
+      assertEqual(batches[0][0][1], 'Notifications');
+    });
+
+    it('« Suivant → » refusé par Grist : ni l\'étape ni la date ne bougent', async function () {
+      await load({ dates: { INNOVX: '2026-10-05' } });
+      const api = window.grist.docApi, original = api.applyUserActions;
+      api.applyUserActions = async () => { throw new Error('boom'); };
+      try {
+        await withClock(async () => { fireMouse(notifCard('INNOVX').querySelector('[data-advance-notif]'), 'click'); await wait(0); });
+      } finally { api.applyUserActions = original; }
+      assertEqual(notifInput('INNOVX').value, '2026-10-05');
+      assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-10-05'));
+      assertTrue(!!cardIn('admin-col-notif', 'INNOVX').querySelector('[data-advance-notif]'), 'la carte est toujours là');
+    });
+
+    it('une date saisie à la main sur une carte Notifications s\'écrit seule, sans être remplacée, et la carte Conventions la reprend', async function () {
       await load();
-      await withClock(async () => { fireMouse(notifCard('INNOVX').querySelector('[data-advance-notif]'), 'click'); await wait(0); });
-      assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && c.table === 'Notifications').length, 1, 'la notification avance');
+      await withClock(async () => { setValue(notifInput('INNOVX'), '2026-11-10'); fire(notifInput('INNOVX'), 'change'); await wait(0); });
+      const writes = writesOf(STAMP);
+      assertEqual(writes.length, 1);
+      assertDeepEqual(writes[0].fields, { [STAMP]: epochOf('2026-11-10') }, 'la date saisie, et rien d\'autre');
+      assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-11-10'));
+    });
+
+    it('le bouton « Rédiger » (qui ouvre la page Rédaction) ne date rien : ce n\'est pas une modification de carte', async function () {
+      await load();
+      await withClock(async () => { notifCard('INNOVX').querySelector('[data-redact-notif]').dispatchEvent(new MouseEvent('click', { bubbles: true })); await wait(0); });
       assertEqual(writesOf(STAMP).length, 0);
     });
   });
