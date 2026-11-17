@@ -170,6 +170,29 @@ attendre le reste.
 Avec un serveur qui traite tout **en parallèle** (le mock par défaut), le gain est nul (388 → 403 ms) : c'est le rapport du panneau de
 diagnostic qui dira dans quel cas on est dans le vrai Grist.
 
+### Premier rapport réel (17/11/2026, 19:33, Firefox 160 sous Windows, chargement à froid : 1 fichier sur 35 servi par le cache, 281 ko transférés)
+
+| ms depuis le début du chargement | étape |
+|---|---|
+| 260 | HTML reçu |
+| 726 | tous les scripts du widget exécutés (`app.js`) |
+| 1118 | **fin du téléchargement de `grist-plugin-api.js`** (266 → 1118 = 852 ms, depuis `docs.getgrist.com`) |
+| 1146 | DOMContentLoaded, `grist.ready` : l'initialisation démarre |
+| 1349 / 1353 | Projets, Annuaire et préférences lus (147 ms) ; **Kanban affiché** |
+| 1581 | toutes les tables et le schéma lus ; première page complète |
+
+- Les 12 lectures Grist partent ensemble et finissent en **435 ms** (cumul 2784 ms : le serveur les traite en parallèle). Les plus lentes :
+  `Notifications` 434 ms, `Structures` 256, `Postes2` 215, `Annuaire` 202. La lecture de `Projets` (14 062 cellules) ne dure que 147 ms.
+- **Les lectures ne sont pas le problème** : 1146 des 1353 ms avant le Kanban passent *avant* la première lecture, à attendre le script de
+  l'API Grist (`<script defer>` : DOMContentLoaded, donc `initializeApp`, l'attend). Les 28 fichiers du widget sont prêts à 726 ms.
+- Conséquences : un cache persistant des données gagnerait au mieux ~200 ms (le temps de lire Projets) et n'est pas recommandé ;
+  réduire les colonnes de `Projets` n'aurait presque aucun effet ; la seule piste qui agit sur le chemin critique est le téléchargement du
+  script Grist (héberger une copie avec le widget : le source compilé est dans `tests/vendor/`, voir son README ; risque : version de
+  l'API figée, non testable sans vrai Grist). À décider après un 2e rapport pris sur une ouverture **à chaud** (F5 ou retour sur le widget,
+  pas Ctrl+Maj+R) : si le script est alors servi par le cache, le gain disparaît.
+- Hors chemin critique : les fichiers du widget finissent à 726 ms ; `page-redaction.js` (454 ms), `pdf-viewer.js`, `project-modal.js`
+  pourraient se charger après l'affichage du Kanban, mais cela ne raccourcit rien tant que le script Grist arrive plus tard.
+
 ## Pistes restantes (non faites)
 
 - **Cache persistant des données entre deux ouvertures** (afficher tout de suite le dernier état connu, puis rafraîchir) :
