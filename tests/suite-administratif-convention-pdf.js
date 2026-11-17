@@ -29,6 +29,11 @@
   const fileCell = acronym => card(acronym).querySelector('[data-file-cell]');
   const project = acronym => window.CoreState.getTable('Projets').find(p => p.Acronyme === acronym);
   const names = acronym => Array.from(fileCell(acronym).querySelectorAll('.admin-file-name span')).map(el => el.textContent);
+  // Vue lignes (défaut) : un seul PDF visible dans la cellule, les suivants derrière « +N » ; la liste complète vit dans le popover.
+  const moreBtn = acronym => fileCell(acronym).querySelector('.admin-more');
+  const popover = () => document.querySelector('.admin-popover');
+  const popNames = () => Array.from(popover().querySelectorAll('.admin-pop-file-name span')).map(el => el.textContent);
+  const toggleView = () => document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
   const writes = () => window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord' && FILE_COLUMN in c.fields);
   const toastText = () => document.getElementById('toast').textContent;
   const clearToast = () => { document.getElementById('toast').textContent = ''; };
@@ -149,11 +154,57 @@
   describe('Administratif — Conventions : afficher et télécharger le PDF', function () {
     const attachments = { id: [501, 502], fileName: ['Convention_ACME.pdf', 'Convention_ACME_signee.pdf'] };
 
-    it('liste un fichier par pièce jointe, avec son vrai nom lu dans _grist_Attachments', async function () {
+    it('vue cartes : liste un fichier par pièce jointe, avec son vrai nom lu dans _grist_Attachments', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501, 502] }, attachments });
-      await waitFor(() => names('CONVENTIX').join('|') === 'Convention_ACME.pdf|Convention_ACME_signee.pdf', 'noms de fichier');
-      assertEqual(fileCell('CONVENTIX').querySelectorAll('[data-open-file]').length, 2);
-      assertEqual(fileCell('CONVENTIX').querySelectorAll('[data-download-file]').length, 2);
+      toggleView();
+      try {
+        await waitFor(() => names('CONVENTIX').join('|') === 'Convention_ACME.pdf|Convention_ACME_signee.pdf', 'noms de fichier');
+        assertEqual(fileCell('CONVENTIX').querySelectorAll('[data-open-file]').length, 2);
+        assertEqual(fileCell('CONVENTIX').querySelectorAll('[data-download-file]').length, 2);
+        assertFalse(!!moreBtn('CONVENTIX'), 'en cartes il y a la place : pas de « +N »');
+      } finally { toggleView(); }
+    });
+
+    it('vue lignes : un seul PDF visible (colonne de largeur fixe), « +N » pour les autres, liste complète dans le popover', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501, 502] }, attachments });
+      await waitFor(() => names('CONVENTIX')[0] === 'Convention_ACME.pdf', 'nom du premier fichier');
+      assertDeepEqual(names('CONVENTIX'), ['Convention_ACME.pdf'], 'un seul fichier dans la cellule');
+      assertEqual(moreBtn('CONVENTIX').textContent, '+1');
+      assertIncludes(moreBtn('CONVENTIX').title, '1 autre pièce jointe');
+      moreBtn('CONVENTIX').click();
+      assertTrue(!!popover(), 'le « +1 » ouvre la liste');
+      assertDeepEqual(popNames(), ['Convention_ACME.pdf', 'Convention_ACME_signee.pdf'], 'la liste montre TOUS les fichiers, noms réels');
+      assertEqual(popover().querySelectorAll('[data-download-file]').length, 2);
+      assertEqual(popover().querySelectorAll('[data-detach-file]').length, 2);
+    });
+
+    it('un seul fichier : aucun « +N » en vue lignes', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      await waitFor(() => names('CONVENTIX')[0] === 'Convention_ACME.pdf', 'nom du fichier');
+      assertFalse(!!moreBtn('CONVENTIX'));
+    });
+
+    it('depuis le popover « +N » : afficher un PDF caché l\'ouvre dans la visionneuse, la croix retire seulement ce fichier et ferme la liste', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501, 502] }, attachments });
+      await waitFor(() => names('CONVENTIX')[0] === 'Convention_ACME.pdf', 'noms de fichier');
+      const rest = stubFetch(async () => new Response(await makePdf(1)));
+      try {
+        moreBtn('CONVENTIX').click();
+        popover().querySelectorAll('[data-open-file]')[1].click(); // le deuxième PDF, caché dans la cellule
+        assertTrue(!!viewer(), 'visionneuse ouverte');
+        assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Convention_ACME_signee.pdf', 'c\'est bien le 2e fichier');
+        await waitFor(() => rest.log.length === 1, 'fichier lu');
+        assertEqual(rest.log[0].url, SERVER_URL(502), 'c\'est bien le fichier 502 qui est lu');
+        closeViewer();
+        if (!popover()) moreBtn('CONVENTIX').click();
+        clearToast();
+        popover().querySelectorAll('[data-detach-file]')[1].click();
+        await wait(10);
+        assertFalse(!!popover(), 'la liste se ferme (la cellule est réécrite)');
+        assertDeepEqual(writes()[0].fields[FILE_COLUMN], ['L', 501]);
+        assertDeepEqual(names('CONVENTIX'), ['Convention_ACME.pdf']);
+        assertFalse(!!moreBtn('CONVENTIX'), 'plus rien derrière « +N »');
+      } finally { closeViewer(); rest.restore(); }
     });
 
     it('une pièce jointe dont le nom est introuvable s\'affiche « Pièce jointe #n » sans planter', async function () {
@@ -430,7 +481,10 @@
         chooseFile('Convention_V2.pdf');
         await uploadFinished();
         assertDeepEqual(writes()[0].fields[FILE_COLUMN], ['L', 501, 779]);
-        assertDeepEqual(names('CONVENTIX'), ['Convention_V1.pdf', 'Convention_V2.pdf']);
+        assertDeepEqual(names('CONVENTIX'), ['Convention_V1.pdf'], 'vue lignes : un seul fichier visible…');
+        assertEqual(moreBtn('CONVENTIX').textContent, '+1', '…et le nouveau est derrière « +1 »');
+        moreBtn('CONVENTIX').click();
+        assertDeepEqual(popNames(), ['Convention_V1.pdf', 'Convention_V2.pdf'], 'la liste montre les deux, dans l\'ordre');
       } finally { rest.restore(); }
     });
 
@@ -576,7 +630,8 @@
 
     it('la croix retire seulement ce fichier : écriture de la liste restante, valeur locale à jour', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501, 502] }, attachments });
-      await waitFor(() => names('CONVENTIX').length === 2 && names('CONVENTIX')[1] === 'Convention_V2.pdf', 'noms de fichier');
+      await waitFor(() => names('CONVENTIX')[0] === 'Convention_V1.pdf', 'noms de fichier');
+      assertEqual(moreBtn('CONVENTIX').textContent, '+1', 'vue lignes : le 2e fichier est derrière « +1 »');
       clearToast();
       fileCell('CONVENTIX').querySelectorAll('[data-detach-file]')[0].click();
       await wait(10);
@@ -584,6 +639,7 @@
       assertDeepEqual(writes()[0].fields[FILE_COLUMN], ['L', 502]);
       assertDeepEqual(project('CONVENTIX')[FILE_COLUMN], ['L', 502]);
       assertDeepEqual(names('CONVENTIX'), ['Convention_V2.pdf']);
+      assertFalse(!!moreBtn('CONVENTIX'), 'plus de « +N » : il ne reste qu\'un fichier');
       assertIncludes(toastText(), 'Convention_V1.pdf');
       assertIncludes(toastText(), 'le fichier reste dans le document', 'rien n\'est supprimé de Grist');
     });
