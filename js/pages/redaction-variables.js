@@ -26,7 +26,8 @@
     'Ligne_OPE', 'Action_Ligne_OPE_a_faire', 'Commentaire_ligne_OPE',
     'Convention_de_reversement', 'Partenaire_s_convention_reversement', 'Convention_montant_partenaire_1', 'Convention_montant_partenaire_2',
     ...[2026, 2027, 2028, 2029].flatMap(year => ['M10_Fonctionnement', 'M20_Investissement', 'M30_Personnel'].map(line => `c${year}_${line}`)),
-    'Details_depense_s_Fonctionnement', 'Details_depense_s_Investissement', 'Details_depense_s_Personnel'
+    'Details_depense_s_Fonctionnement', 'Details_depense_s_Investissement', 'Details_depense_s_Personnel',
+    'Part_Idex', 'Part_recette_RNA_PREMAT_MAT', 'Commentaire_budget'
   ]);
 
   const text = value => (value == null ? '' : String(value));

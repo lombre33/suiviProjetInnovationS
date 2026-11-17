@@ -339,6 +339,165 @@
     return w.querySelector('input');
   }
 
+  // Co-financements (demande d'Antoine du 17/11/2026) : volet replié de l'onglet Budget pour les projets (co)financés
+  // par Idex ou par une recette RNA Premat-mat, avec un commentaire libre. Colonnes ajoutées à la main dans Grist, dont le
+  // type n'est pas imposé : le champ s'adapte à la colonne (case Oui/Non, montant, liste de choix ou texte) lue dans les
+  // métadonnées (CoreGrist.columnTypes), ou à défaut aux valeurs déjà présentes ; une colonne absente n'est jamais écrite
+  // (Grist refuserait tout l'enregistrement), une colonne calculée ou d'un type non géré reste en lecture seule.
+  // `fallback` : widget d'une colonne dont le type n'est pas fixé (colonne « vide » d'un Grist neuf, type Any, sans valeur).
+  const COFIN_FIELDS = [
+    { col: 'Part_Idex', label: 'Part Idex', short: 'Idex', fallback: 'bool' },
+    { col: 'Part_recette_RNA_PREMAT_MAT', label: 'Part recette RNA Premat-mat', short: 'Recette RNA Premat-mat', fallback: 'bool' },
+    { col: 'Commentaire_budget', label: 'Commentaire budget', short: 'commentaire', fallback: 'text', multiline: true }
+  ];
+  const COFIN_KIND_BY_TYPE = { Bool: 'bool', Numeric: 'number', Int: 'number', Text: 'text', Choice: 'choice' };
+
+  // Première valeur renseignée de la colonne parmi les projets : sert à deviner son type quand les métadonnées manquent.
+  function firstFilledValue(col) {
+    const found = rows('Projets').find(r => r && r[col] !== undefined && r[col] !== null && r[col] !== '');
+    return found ? found[col] : undefined;
+  }
+
+  // {exists, kind, settled, type} : `settled` vaut false quand le type de la colonne n'est pas fixé (rien n'est alors
+  // écrit tant que le champ n'a pas été touché, pour ne pas figer le type d'une colonne encore vide).
+  function cofinColumn(def) {
+    const col = def.col;
+    const known = global.CoreGrist?.knownColumns?.('Projets');
+    const first = rows('Projets')[0];
+    if (!(known && known.has(col)) && !(first && Object.prototype.hasOwnProperty.call(first, col))) return { exists: false, kind: 'missing' };
+    if (global.CoreGrist?.isFormulaColumn?.('Projets', col)) return { exists: true, kind: 'formula' };
+    const type = global.CoreGrist?.columnTypes?.('Projets')?.[col];
+    if (COFIN_KIND_BY_TYPE[type]) return { exists: true, kind: COFIN_KIND_BY_TYPE[type], settled: true, type };
+    if (type && type !== 'Any') return { exists: true, kind: 'unsupported', type };
+    const sample = firstFilledValue(col);
+    if (typeof sample === 'boolean') return { exists: true, kind: 'bool', settled: true, type };
+    if (typeof sample === 'number') return { exists: true, kind: 'number', settled: true, type };
+    if (typeof sample === 'string') return { exists: true, kind: 'text', settled: true, type };
+    return { exists: true, kind: def.fallback, settled: false, type };
+  }
+
+  function buildCofinancing(panel) {
+    const details = document.createElement('details');
+    details.className = 'cp-cofin';
+    details.dataset.cpCofin = '';
+    details.innerHTML = '<summary><span class="cp-cofin-title">Co-financements</span><span class="cp-cofin-sum" data-cp-cofin-sum></span></summary><div class="cp-cofin-body cp-grid"></div>';
+    panel.appendChild(details);
+    const body = details.querySelector('.cp-cofin-body');
+    const sum = details.querySelector('[data-cp-cofin-sum]');
+    const fields = COFIN_FIELDS.map(def => {
+      const wrap = document.createElement('div');
+      wrap.className = 'cp-field' + (def.multiline ? ' cp-full' : '');
+      wrap.dataset.cofin = def.col;
+      wrap.innerHTML = `<label for="cp-${def.col}">${esc(def.label)}</label><div class="cp-cofin-control"></div>`;
+      withHelp(wrap.querySelector('label'), def.col);
+      body.appendChild(wrap);
+      return { def, wrap, control: wrap.querySelector('.cp-cofin-control'), info: null, read: null, active: null, dirty: false, guard: false };
+    });
+
+    // Une ligne de résumé reste visible volet replié : on voit d'un coup d'œil qu'un projet est co-financé.
+    const refreshSummary = () => {
+      const parts = fields.map(f => f.active && f.active()).filter(Boolean);
+      sum.textContent = parts.join(' · ');
+    };
+
+    function renderField(f, record) {
+      const { def } = f;
+      const id = `cp-${def.col}`;
+      const raw = record ? record[def.col] : undefined;
+      const info = f.info = cofinColumn(def);
+      f.read = null;
+      f.active = null;
+      f.dirty = false;
+      // Valeur déjà enregistrée que le champ ne sait pas afficher (texte dans une colonne numérique…) : laissée telle quelle tant qu'on n'y touche pas.
+      f.guard = false;
+      const touched = () => { f.dirty = true; refreshSummary(); };
+      const note = message => `<p class="cp-cofin-note">${esc(message)}</p>`;
+      f.wrap.classList.toggle('cp-cofin-off', !info.exists);
+      if (info.kind === 'missing') {
+        f.control.innerHTML = note(`Colonne « ${def.col} » absente de la table Projets : rien n'est enregistré.`);
+        return;
+      }
+      if (info.kind === 'formula' || info.kind === 'unsupported') {
+        const readonly = document.createElement(def.multiline ? 'textarea' : 'input');
+        readonly.id = id;
+        readonly.readOnly = true;
+        readonly.className = 'cp-readonly';
+        readonly.setAttribute('aria-readonly', 'true');
+        readonly.value = Array.isArray(raw) ? '' : text(raw);
+        f.control.innerHTML = '';
+        f.control.appendChild(readonly);
+        f.control.insertAdjacentHTML('beforeend', note(info.kind === 'formula' ? 'Colonne calculée (formule) : lecture seule.' : `Type « ${info.type} » non géré : lecture seule.`));
+        return;
+      }
+      if (info.kind === 'bool') {
+        f.control.innerHTML = `<label class="cp-switch-row cp-cofin-switch"><span class="cp-switch"><input id="${id}" type="checkbox"><span class="cp-switch-track"></span></span><span class="cp-cofin-state"></span></label>`;
+        const box = f.control.querySelector('input'), state = f.control.querySelector('.cp-cofin-state');
+        const paint = () => { state.textContent = box.checked ? 'Oui' : 'Non'; };
+        box.checked = raw === true || raw === 1 || raw === 'true';
+        f.guard = raw !== undefined && raw !== null && raw !== '' && ![true, false, 0, 1, 'true', 'false'].includes(raw);
+        paint();
+        box.addEventListener('change', () => { paint(); touched(); });
+        f.read = () => box.checked;
+        f.active = () => box.checked ? def.short : '';
+        return;
+      }
+      let control;
+      if (info.kind === 'choice') {
+        control = document.createElement('select');
+        const current = text(raw);
+        const choices = global.CoreGrist?.columnChoices?.('Projets', def.col) || [];
+        // Valeur déjà enregistrée hors liste : conservée comme option, sinon la liste se vide et l'enregistrement l'effacerait.
+        const options = [''].concat(choices, current && !choices.includes(current) ? [current] : []);
+        control.innerHTML = options.map(v => `<option value="${esc(v)}">${esc(v || 'Aucune')}</option>`).join('');
+        control.value = current;
+        control.addEventListener('change', touched);
+        f.read = () => control.value;
+        f.active = () => control.value ? `${def.short} : ${control.value}` : '';
+      } else if (info.kind === 'number') {
+        control = document.createElement('input');
+        control.type = 'text';
+        control.inputMode = 'decimal';
+        control.autocomplete = 'off';
+        control.placeholder = '0';
+        const blank = raw === null || raw === undefined || raw === '';
+        f.guard = !blank && !Number.isFinite(Number(raw));
+        control.value = blank || f.guard ? '' : String(raw);
+        control.addEventListener('input', () => { sanitizeNumericInput(control); touched(); });
+        f.read = () => normaliseBudgetValue(control.value);
+        f.active = () => normaliseBudgetValue(control.value) ? `${def.short} ${global.CoreUtils.formatCurrency(normaliseBudgetValue(control.value))}` : '';
+      } else {
+        control = document.createElement(def.multiline ? 'textarea' : 'input');
+        if (def.multiline) control.rows = 2; else control.type = 'text';
+        control.value = Array.isArray(raw) ? '' : text(raw);
+        control.addEventListener('input', touched);
+        f.read = () => control.value.trim();
+        f.active = () => control.value.trim() ? (def.multiline ? def.short : `${def.short} : ${control.value.trim()}`) : '';
+      }
+      control.id = id;
+      f.control.innerHTML = '';
+      f.control.appendChild(control);
+    }
+
+    return {
+      details,
+      fields,
+      // À chaque ouverture de la modale (réutilisée d'un projet à l'autre) : champs reconstruits d'après la colonne, volet replié.
+      render(record) {
+        details.open = false;
+        fields.forEach(f => renderField(f, record));
+        details.classList.toggle('cp-hidden', fields.every(f => f.info.kind === 'missing'));
+        refreshSummary();
+      },
+      // Colonnes à écrire : jamais celles d'une colonne absente, calculée ou non gérée ; une colonne au type non fixé
+      // (ou une valeur que le champ ne sait pas afficher) seulement une fois le champ modifié.
+      collect() {
+        const out = {};
+        fields.forEach(f => { if (f.read && ((f.info.settled && !f.guard) || f.dirty)) out[f.def.col] = f.read(); });
+        return out;
+      }
+    };
+  }
+
   function createModal() {
     if (document.getElementById('cp-project-modal')) return document.getElementById('cp-project-modal');
     const m = document.createElement('div');
@@ -534,6 +693,9 @@
     budgetConventionNotice.className = 'cp-budget-notice cp-hidden';
     budgetConventionNotice.textContent = 'Convention de reversement active : l’intégralité du montant reversé doit être couverte par le budget de Fonctionnement ci-dessus (jamais l’Investissement ni le Personnel).';
     panels.budget.appendChild(budgetConventionNotice);
+
+    // Co-financements (volet replié, 17/11/2026) : sous le tableau et son message, jamais dans le total [data-fin].
+    refs._cofin = buildCofinancing(panels.budget);
 
     // Conventions
     const conventionField = document.createElement('div');
@@ -889,6 +1051,7 @@
 
     m.querySelectorAll('[data-fin]').forEach(input => { input.value = normaliseBudgetValue(record?.[input.dataset.fin]); });
     updateFinancialTotals(m.querySelector('.cp-fin'));
+    refs._cofin.render(record);
 
     Object.entries(refs._attachmentsEls).forEach(([col, container]) => {
       const cell = record?.id ? { tableId: 'Projets', colId: col, rowId: record.id } : null;
@@ -927,6 +1090,7 @@
     };
     m.querySelectorAll('[data-fin]').forEach(i => fields[i.dataset.fin] = normaliseBudgetValue(i.value));
     m.querySelectorAll('tbody tr[data-detail]').forEach(tr => fields[tr.dataset.detail] = tr.querySelector('th input').value);
+    Object.assign(fields, refs._cofin.collect());
     return fields;
   }
 

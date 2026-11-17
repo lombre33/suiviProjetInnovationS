@@ -133,6 +133,10 @@
       Details_depense_s_Investissement: ["Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement", "Dépenses d'investissement"],
       Details_depense_s_Personnel: ['Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel', 'Depenses de personnel'],
       Montant_attribue_Total: [1000, 5000, 0, 0, 0, 0, 0],
+      // Co-financements (17/11/2026), colonnes ajoutées à la main dans Grist : drapeaux Oui/Non (type lu dans les métadonnées quand un test les installe).
+      Part_Idex: [false, true, false, false, false, false, false],
+      Part_recette_RNA_PREMAT_MAT: [false, false, false, false, false, false, false],
+      Commentaire_budget: ['', 'Co-financé à 50 % par Idex', '', '', '', '', ''],
       // Page Installation des fonds : rappel budget par grande masse (totaux
       // tous exercices, formules Grist Total_Fonctionnement/Total_investissement/
       // Total_Personnel — valeurs renseignées seulement pour INNOVX/NOTIFY).

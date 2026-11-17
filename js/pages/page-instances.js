@@ -63,7 +63,7 @@
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
     prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
-    ui: { menu: null, settings: false, subs: {} }
+    ui: { menu: null, settings: false, subs: {}, repShown: false }
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -263,7 +263,8 @@
     V.alerts = V.conds.filter(x => x.warn && !x.ok).map(x => x.text);
     if (!V.curDone && prevOpen.length) V.alerts.push('Étapes précédentes à valider : ' + prevOpen.join(', '));
     V.nDone = V.active.filter(x => V.valid(x.key)).length;
-    V.guestOrder = L.sortGuests(s.guests, S.prefs.invTri, g => personOf(m, g.personneId).name, g => personOf(m, g.personneId).gradeKind);
+    V.rep = L.repVisibility(s.guests, S.ui.repShown); // colonne « Réponse » : masquée quand l'appel est fait pour tous (un tri par réponse ne s'applique alors pas, la colonne étant invisible)
+    V.guestOrder = L.sortGuests(s.guests, !V.rep.column && /^reponse:/.test(S.prefs.invTri) ? '' : S.prefs.invTri, g => personOf(m, g.personneId).name, g => personOf(m, g.personneId).gradeKind);
     V.firstStart = g => L.firstStartOf(V.schedAll, g.id);
     return V;
   }
@@ -369,6 +370,7 @@
     const vue = S.prefs.vue;
     const nWritten = s.guests.filter(g => g.ecritLe).length;
     const nYes = s.guests.filter(g => g.reponse === 'viendra').length, nNo = s.guests.filter(g => g.reponse === 'excuse').length, nAsk = s.guests.length - nYes - nNo;
+    const nUnconf = s.guests.filter(g => !L.hasAnswered(g)).length; // ni réponse à l'invitation ni appel : présence encore inconnue
     const nAppel = s.guests.filter(g => g.appel === 'present').length;
     const horTot = s.guests.filter(g => !!V.firstStart(g)).length;
     const horOk = s.guests.filter(g => { const f0 = V.firstStart(g); return !!f0 && !!g.passageLe && g.passageHeure === f0; }).length;
@@ -413,7 +415,7 @@
       // Jalons nommés par ce qu'ils attestent (Antoine, 12/11/2026) : « ODJ validé », « Présence invités confirmée », « Timing envoyé aux invités » ;
       // le numéro et l'ouverture au clic restent ceux de l'étape (ordre du jour, invités, mail d'invitation).
       if (x.key === 'odj') return thr('odj', num, 'ODJ validé', plural(s.points.length, 'point', 'points') + ' · ' + spanTxt, '', nConf ? plural(nConf, 'conflit de disponibilité', 'conflits de disponibilité') : 'Aucun conflit', { warn: nConf > 0 || V.over });
-      if (x.key === 'invites') return thr('invites', num, 'Présence invités confirmée', s.guests.length ? (nYes + nNo) + '/' + s.guests.length + ' réponses' : 'Aucun invité', s.guests.length ? '' : 'dim', s.guests.length ? plural(nYes, 'viendra', 'viendront') + ' · ' + plural(nNo, 'excusé', 'excusés') + (nAsk ? ' · ' + nAsk + ' à confirmer' : '') : '', { warn: nAsk > 0 && s.guests.length > 0 });
+      if (x.key === 'invites') return thr('invites', num, 'Présence invités confirmée', s.guests.length ? (s.guests.length - nUnconf) + '/' + s.guests.length + ' confirmés' : 'Aucun invité', s.guests.length ? '' : 'dim', s.guests.length ? plural(nYes, 'viendra', 'viendront') + ' · ' + plural(nNo, 'excusé', 'excusés') + (nUnconf ? ' · ' + nUnconf + ' à confirmer' : '') : '', { warn: nUnconf > 0 && s.guests.length > 0 });
       if (x.key === 'invitation') return thr('invitation', num, "Mail d'invitation", s.mailInvitationLe ? L.fmtDate(s.mailInvitationLe) : 'À envoyer', s.mailInvitationLe ? '' : 'dim', nWritten + '/' + s.guests.length + ' écrites', { pct: writtenPct });
       if (x.key === 'cr') return thr('cr', num, 'Compte rendu', s.v0 ? 'V0 rédigée' : 'V0 à rédiger', s.v0 ? '' : 'dim', s.crPdf.length ? 'PDF exporté' : 'PDF à exporter', { tags: cfg.relecteurs.map(pid => { const r = s.relectures[pid]; return { name: L.shortName(personOf(m, pid).name), cls: r ? (r.statut === 'valide' ? 'ok' : 'blue') : 'todo' }; }) });
       if (x.key === 'crmail') return thr('crmail', num, 'Envoi du CR', s.mailCrLe ? L.fmtDate(s.mailCrLe) : 'À envoyer', s.mailCrLe ? '' : 'dim', plural(s.guests.length, 'destinataire', 'destinataires'));
@@ -595,8 +597,12 @@
         + esc(compoMissing.slice(0, 6).map(pid => L.shortName(personOf(m, pid).name)).join(', ') + (compoMissing.length > 6 ? '…' : '')) + '</span><span class="sp"></span>'
         + '<button type="button" class="pillbtn" title="Ajouter ces personnes comme invités de la liste permanente" ' + da('g-compo-add') + '>' + ic('peopleAdd', 's') + 'Ajouter (' + compoMissing.length + ')</button></div>';
     }
-    h += '<div class="gwrap"><div class="grow head"><div>' + sortHead('nom', 'Personne', 'A → Z', 'Z → A') + '</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div><div>' + sortHead('reponse', 'Réponse', 'viendra d\'abord', 'excusés d\'abord') + '</div>'
-      + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div>' + sortHead('appel', 'Appel du jour', 'présents d\'abord', 'absents d\'abord') + '</div><div></div></div>';
+    // Bouton œil de l'en-tête « Appel du jour » : affiche les réponses à l'invitation même pour les personnes déjà appelées (utile seulement quand
+    // au moins un appel est fait, c'est-à-dire quand quelque chose est masqué).
+    const repToggle = (s.guests.some(g => g.appel) || S.ui.repShown)
+      ? '<button type="button" class="ibtn hrep ' + (S.ui.repShown ? 'on' : '') + '" aria-pressed="' + (S.ui.repShown ? 'true' : 'false') + '" title="' + (S.ui.repShown ? 'Masquer les réponses des personnes déjà appelées' : 'Afficher les réponses à l\'invitation (masquées pour les personnes déjà appelées)') + '" aria-label="Réponses à l\'invitation" ' + da('rep-show') + '>' + ic('eye', 's') + '</button>' : '';
+    h += '<div class="gwrap' + (V.rep.column ? '' : ' norep') + '"><div class="grow head"><div>' + sortHead('nom', 'Personne', 'A → Z', 'Z → A') + '</div><div>Sujets</div><div title="Invitation écrite">' + ic('mail', 's') + '</div><div title="Horaire de passage envoyé">' + ic('clock', 's') + '</div>' + (V.rep.column ? '<div>' + sortHead('reponse', 'Réponse', 'viendra d\'abord', 'excusés d\'abord') + '</div>' : '')
+      + '<div>Créneau de présence<span class="help" tabindex="0">' + ic('ask', 's') + '<span class="bubble">Heure d\'arrivée et de départ. Vide : disponible toute la séance. Les boutons ronds posent en un clic le début ou la fin de l\'instance. Un point relié à la personne passe en orange s\'il sort du créneau.</span></span></div><div>Commentaire</div><div class="hcall">' + sortHead('appel', 'Appel du jour', 'présents d\'abord', 'absents d\'abord') + repToggle + '</div><div></div></div>';
     // Deux listes : les invités spécifiques (ajoutés sur un point, VP en premier) à part en tête, puis les invités habituels ; les titres de
     // section n'apparaissent que s'il y a des invités spécifiques (aucune place perdue sinon).
     let lastGroup = '';
@@ -615,24 +621,27 @@
       });
       const fs0 = V.firstStart(g), hs = L.horaireState(g, fs0);
       const horTip = hs === 'none' ? 'Aucun point : pas d\'horaire de passage' : (hs === 'stale' ? 'Horaire modifié depuis l\'envoi : ' + g.passageHeure + ' devient ' + fs0 + ' (cliquer pour marquer le nouvel horaire envoyé)' : (hs === 'sent' ? 'Horaire ' + g.passageHeure + ' envoyé le ' + L.fmtDate(g.passageLe) + ' (cliquer pour effacer)' : 'Horaire de passage ' + fs0 + ' pas encore envoyé (cliquer pour marquer envoyé)'));
+      // Une fois l'appel fait, la réponse à l'invitation disparaît de la ligne : elle reste lisible au survol des boutons d'appel.
+      const repWas = g.appel && !V.rep.cell(g) ? ' — avait répondu : ' + ({ viendra: 'viendra', excuse: 'excusé(e)', attente: 'à confirmer' }[g.reponse] || 'à confirmer') : '';
       const ecritTip = g.ecritLe ? 'Écrit le ' + L.fmtDate(g.ecritLe) + ' (cliquer pour effacer)' : 'Pas encore écrit (cliquer pour marquer écrit aujourd\'hui)';
       const tp = (field, scope, value) => {
         const key = 't:' + g.id + ':' + scope;
         return '<div class="rel"><button type="button" class="tp ' + (value ? '' : 'empty') + '" ' + da('menu', { v: key }) + ' aria-label="' + field + '">' + (value || '--:--') + '</button>' + (isOpen(key) ? timeMenu(key, value, 'g-' + scope, g.id, V.startMin, V.endMin, true) : '') + '</div>';
       };
       // Une ligne d'invité tient TOUJOURS sur une seule ligne : nom et poste côte à côte (le poste se tronque, texte complet au survol), sujets en rang.
-      // la couleur de la ligne suit la présence prévue (réponse à l'invitation) : vert = viendra, rouge = excusé, blanc = à confirmer ; un conflit de créneau = barre orange à gauche
-      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag ' : '') + (g.reponse === 'viendra' ? 'rep-ok' : (g.reponse === 'excuse' ? 'rep-no' : '')) + '"><div class="pcell" title="' + esc(person.name + (person.poste ? ' — ' + person.poste : '') + (person.gradeKind ? ' (' + gradeLabel(person) + ')' : '')) + '"><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + '<span class="pn">' + esc(person.name) + '</span>'
+      // la couleur de la ligne suit la présence prévue (réponse à l'invitation) : vert = viendra, rouge = excusé, blanc = à confirmer ; une fois l'appel fait,
+      // elle suit la présence constatée (présent = vert, absent = rouge) ; un conflit de créneau = barre orange à gauche
+      h += '<div class="grow ' + (sujets.some(x => x.warn) ? 'flag ' : '') + (g.appel ? (g.appel === 'present' ? 'rep-ok' : 'rep-no') : (g.reponse === 'viendra' ? 'rep-ok' : (g.reponse === 'excuse' ? 'rep-no' : ''))) + '"><div class="pcell" title="' + esc(person.name + (person.poste ? ' — ' + person.poste : '') + (person.gradeKind ? ' (' + gradeLabel(person) + ')' : '')) + '"><div class="pname">' + (g.origine === 'point' ? ic('star', 's') : '') + '<span class="pn">' + esc(person.name) + '</span>'
         + (person.gradeKind ? '<span class="gbadge ' + gradeClass(person) + '">' + (person.gradeKind === 'vp' ? 'VP' : 'Dir.') + '</span>' : '') + '</div><div class="psub">' + esc(person.poste) + '</div></div>'
         + '<div class="group sjrow" title="' + esc(sujets.map(sj => sj.time + ' · ' + sj.title).join('\n')) + '">' + sujets.map(sj => '<span class="tag plain sj ' + (sj.warn ? 'warn' : '') + '" title="' + esc(sj.title) + '">' + sj.time + ' · ' + esc(sj.label) + '</span>').join('') + '</div>'
         + '<div><button type="button" class="ib ' + (g.ecritLe ? 'on' : '') + '" title="' + esc(ecritTip) + '" aria-label="' + esc(ecritTip) + '" ' + da('g-ecrit', { id: g.id }) + '>' + ic('mail') + '</button></div>'
         + '<div><button type="button" class="ib ' + (hs === 'stale' ? 'warn' : (hs === 'sent' ? 'on' : '')) + '" title="' + esc(horTip) + '" aria-label="' + esc(horTip) + '" ' + (hs === 'none' ? 'disabled ' : '') + da('g-hor', { id: g.id }) + '>' + ic('clock') + '</button></div>'
-        + '<div class="seg-i" role="group" aria-label="Réponse à l\'invitation">' + [['attente', 'ask', 'ask', 'À confirmer'], ['viendra', 'check', 'ok', 'Viendra'], ['excuse', 'no', 'no', 'Excusé(e)']].map(r => '<button type="button" class="' + (g.reponse === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-rep', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
+        + (V.rep.column ? (V.rep.cell(g) ? '<div class="seg-i" role="group" aria-label="Réponse à l\'invitation">' + [['attente', 'ask', 'ask', 'À confirmer'], ['viendra', 'check', 'ok', 'Viendra'], ['excuse', 'no', 'no', 'Excusé(e)']].map(r => '<button type="button" class="' + (g.reponse === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-rep', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>' : '<div class="repgone"></div>') : '')
         + '<div class="dispo"><button type="button" class="ib ' + (g.dispoDe === s.heure ? 'on' : '') + '" title="Dès le début de l\'instance" aria-label="Dès le début de l\'instance" ' + da('g-start', { id: g.id }) + '>' + ic('start', 's') + '</button>'
         + tp('Arrivée', 'de', g.dispoDe) + '<span class="muted">–</span>' + tp('Départ', 'a', g.dispoA)
         + '<button type="button" class="ib ' + (g.dispoA === endTxt ? 'on' : '') + '" title="Jusqu\'à la fin de l\'instance" aria-label="Jusqu\'à la fin de l\'instance" ' + da('g-end', { id: g.id }) + '>' + ic('end', 's') + '</button></div>'
         + '<div><input type="text" class="inp ghost" style="width:100%" placeholder="Commentaire" aria-label="Commentaire" value="' + esc(g.commentaire) + '" data-chg="g-comm" data-id="' + g.id + '"></div>'
-        + '<div class="seg-i" role="group" aria-label="Appel du jour">' + [['present', 'check', 'ok', 'Présent(e)'], ['absent', 'x', 'no', 'Absent(e)']].map(r => '<button type="button" class="' + (g.appel === r[0] ? 'on ' + r[2] : '') + '" title="' + r[3] + '" aria-label="' + r[3] + '" ' + da('g-appel', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
+        + '<div class="seg-i" role="group" aria-label="Appel du jour">' + [['present', 'check', 'ok', 'Présent(e)'], ['absent', 'x', 'no', 'Absent(e)']].map(r => '<button type="button" class="' + (g.appel === r[0] ? 'on ' + r[2] : '') + '" title="' + esc(r[3] + repWas) + '" aria-label="' + r[3] + '" ' + da('g-appel', { id: g.id, v: r[0] }) + '>' + ic(r[1], 's') + '</button>').join('') + '</div>'
         // Corbeille pour TOUS les invités (un invité repris par erreur de la liste permanente ou de la composition doit pouvoir être retiré de la
         // séance) ; la liste permanente de l'instance (paramétrage) n'est pas touchée.
         + '<div><button type="button" class="ibtn" aria-label="' + (g.origine === 'point' ? 'Retirer de la liste' : 'Retirer de cette séance') + '" title="' + (g.origine === 'point' ? 'Retirer de la liste' : 'Retirer de cette séance (la liste permanente de l\'instance n\'est pas modifiée)') + '" ' + da('g-del', { id: g.id }) + '>' + ic('trash', 's') + '</button></div></div>';
@@ -1266,6 +1275,7 @@
     'g-rep': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Reponse: C.reponse[el.dataset.v] })]),
     'g-start': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_de: V.s.heure })]),
     'g-end': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Dispo_a: L.hhmm(V.endMin) })]),
+    'rep-show': () => { S.ui.repShown = !S.ui.repShown; render(); },
     'g-appel': (el, V) => { const g = guestOf(V, el.dataset.id); write([upd('Instance_Invites', g.id, { Appel: g.appel === el.dataset.v ? '' : C.appel[el.dataset.v] })]); },
     'g-del': (el, V) => { const id = Number(el.dataset.id); write([delOp('Instance_Invites', id)].concat(L.allPoints(V.s).filter(p => p.invites.indexOf(id) >= 0).map(p => upd('Instance_Points', p.id, { Invites: D.toList(p.invites.filter(x => x !== id)) })))); },
     'g-compo-add': (el, V) => {
@@ -1491,7 +1501,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {} };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {}, repShown: false };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }

@@ -97,6 +97,15 @@ reste alors utilisable, simplement sans bulles d'aide.
 | `c2026_M10_Fonctionnement`, `c2026_M20_Investissement`, `c2026_M30_Personnel` | Numeric | |
 | `c2027_…`, `c2028_…` (mêmes trois suffixes) | Numeric | |
 | `c2029_M10_Fonctionnement`, `c2029_M20_Investissement`, `c2029_M30_Personnel` | **Formule** | voir écart 1 ci-dessous |
+| `Part_Idex`, `Part_recette_RNA_PREMAT_MAT` | au choix d'Antoine (Bool attendu) | volet « Co-financements » de l'onglet Budget, ajoutées à la main le 17/11/2026 (absentes de l'export ci-dessus) ; le champ suit le type lu dans les métadonnées, voir ci-dessous |
+| `Commentaire_budget` | Text | même volet |
+
+**Co-financements** (`Part_Idex`, `Part_recette_RNA_PREMAT_MAT`, `Commentaire_budget`) : le type de ces
+colonnes n'est pas imposé, la modale s'y adapte (`Bool` : interrupteur Oui/Non ; `Numeric`/`Int` : montant ;
+`Choice` : liste de choix de Grist ; `Text` : texte). Une colonne absente de `Projets` n'est jamais écrite (le champ
+l'indique, et le volet disparaît si les trois manquent) ; une colonne calculée (formule) ou d'un autre type reste en
+lecture seule ; une colonne encore « vide » (type `Any`, sans valeur) n'est écrite qu'une fois le champ modifié, pour ne
+pas figer son type par un simple enregistrement.
 
 L'export ne publie pas la liste des valeurs des colonnes `Choice` ; les listes proposées
 par l'interface (`TYPE_OPTIONS`, `OPE_OPTIONS`, statuts opérationnels) sont donc
@@ -427,6 +436,16 @@ en les déclarant dans `INSTANCE_RULES`). Une instance non principale choisie pr
 gauche/droite = instance voisine (focus conservé). Sans aucune instance principale reconnue (noms différents dans
 Grist), les deux premières font les boutons. Le choix reste retenu par utilisateur (`Preferences_Widget.Inst_instance`).
 `tests/index.html` reproduit le bouton de la barre : à garder identique à `index.html`.
+
+**Étape Invités : la réponse disparaît après l'appel (17/11/2026).** La colonne « Réponse » (À confirmer / Viendra /
+Excusé) n'a plus d'objet une fois l'appel du jour fait : elle disparaît **pour la personne** dont `Instance_Invites.Appel`
+est renseigné (case vide, grille alignée), et **toute la colonne** disparaît quand l'appel est fait pour tout le monde
+(la grille perd une colonne). La réponse reste lisible au survol des boutons d'appel (« avait répondu : viendra ») et un
+**œil** dans l'en-tête « Appel du jour » (visible dès qu'un appel est fait) la réaffiche pour tous, puis la recache
+(état de session, non retenu). Effacer un appel (re-clic) ramène la réponse de la personne et la colonne. Conséquences :
+la couleur de la ligne suit la présence constatée une fois l'appel fait (présent vert, absent rouge ; avant : la
+réponse) ; un tri par réponse enregistré ne s'applique pas tant que la colonne est masquée ; l'appel vaut réponse pour
+l'alerte « n'ont pas encore répondu » de l'étape et pour le jalon « Présence invités confirmée » (« x/y confirmés »).
 
 ## Lignes_OPE
 
