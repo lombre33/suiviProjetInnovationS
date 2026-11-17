@@ -15,7 +15,7 @@
  *    et le temps de blocage du fil principal (longtasks) ;
  *  - le coût de chaque interaction (frappe dans la recherche, changement de page…).
  *
- * Usage : node tests/perf/bench.js [--rtt=80] [--label=nom] [--out=fichier.json] [--runs=3]
+ * Usage : node tests/perf/bench.js [--rtt=80] [--label=nom] [--out=fichier.json] [--runs=3] [--start=view-projects] [--fonts-ms=0] [--profile]
  * Non lancé par la CI (run-headless.js ne lit que tests/index.html). Playwright est
  * résolu comme dans tests/run-headless.js.
  */
@@ -37,6 +37,12 @@ const MS_PER_1000_CELLS = Number(arg('cell-ms', 1));
 const RUNS = Number(arg('runs', 3));
 const LABEL = arg('label', 'bench');
 const OUT = arg('out', '');
+// Page sur laquelle l'utilisateur « qui revient » rouvre le widget (le widget retrouve la dernière page ouverte).
+const START_VIEW = arg('start', 'view-projects');
+// Latence simulée de la feuille de style Google Fonts (0 = requête refusée tout de suite, comme dans l'environnement de test).
+const FONTS_MS = Number(arg('fonts-ms', 0));
+// --profile : pour chaque interaction, ventile le temps (script / calcul des styles / mise en page) d'après les compteurs de Chromium.
+const PROFILE = process.argv.includes('--profile');
 
 function resolvePlaywright() {
   for (const candidate of ['playwright', '/opt/node22/lib/node_modules/playwright']) {
@@ -117,7 +123,11 @@ async function measureRun(browser, mockScript, baseUrl, options = {}) {
   page.on('pageerror', err => errors.push(err.message));
   page.on('console', msg => { if (msg.type() === 'error' && !/net::ERR_FAILED/.test(msg.text())) errors.push(msg.text()); });
   await page.route('https://docs.getgrist.com/grist-plugin-api.js', route => route.fulfill({ contentType: 'application/javascript', body: mockScript }));
-  await page.route(/fonts\.(googleapis|gstatic)\.com/, route => route.abort());
+  await page.route(/fonts\.(googleapis|gstatic)\.com/, async route => {
+    if (!FONTS_MS || /gstatic/.test(route.request().url())) return route.abort();
+    await new Promise(resolve => setTimeout(resolve, FONTS_MS));
+    return route.fulfill({ contentType: 'text/css', body: '/* polices simulées */' });
+  });
   await page.addInitScript(INIT_SCRIPT);
   await page.goto(`${baseUrl}/index.html`, { waitUntil: 'load' });
   try {
@@ -147,13 +157,27 @@ async function measureRun(browser, mockScript, baseUrl, options = {}) {
   });
 
   // Interactions : durée jusqu'à 2 frames après l'action (rendu + mise en page).
-  const timed = async (name, fn, argument) => page.evaluate(async ([label, src, a]) => {
+  const cdp = PROFILE ? await context.newCDPSession(page) : null;
+  if (cdp) await cdp.send('Performance.enable');
+  const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
+  const timedOnce = async (name, fn, argument) => page.evaluate(async ([label, src, a]) => {
     const f = new Function('return (' + src + ')')();
     const t0 = performance.now();
     await f(a);
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    return { name: label, ms: Math.round((performance.now() - t0) * 10) / 10 };
+    const ms = Math.round((performance.now() - t0) * 10) / 10;
+    // « settledMs » : jusqu'à la fin des animations en cours (fondu d'ouverture de page) — ce que l'œil perçoit.
+    await Promise.all(document.getAnimations().map(an => an.finished.catch(() => null)));
+    return { name: label, ms, settledMs: Math.round((performance.now() - t0) * 10) / 10 };
   }, [name, fn.toString(), argument]);
+  const timed = async (name, fn, argument) => {
+    if (!cdp) return timedOnce(name, fn, argument);
+    const before = await metrics();
+    const result = await timedOnce(name, fn, argument);
+    const after = await metrics();
+    const ms = key => Math.round((after[key] - before[key]) * 10000) / 10;
+    return Object.assign(result, { scriptMs: ms('ScriptDuration'), styleMs: ms('RecalcStyleDuration'), layoutMs: ms('LayoutDuration'), layouts: after.LayoutCount - before.LayoutCount, nodes: after.Nodes });
+  };
 
   const interactions = [];
   const typeSearch = async value => { const el = document.getElementById('filter-search'); el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -230,7 +254,7 @@ function summarize(runs) {
     longTasks: Math.round(median(runs.map(r => r.startup.longTasks))),
     blockingMs: Math.round(median(runs.map(r => r.startup.blockingMs))),
     maxLongTaskMs: Math.round(median(runs.map(r => r.startup.maxLongTask))),
-    interactions: first.interactions.map((it, i) => Object.assign({ name: it.name, ms: Math.round(median(runs.map(r => r.interactions[i].ms)) * 10) / 10 }, it.calls != null ? { apiCalls: it.calls } : {})),
+    interactions: first.interactions.map((it, i) => Object.assign({ name: it.name, ms: Math.round(median(runs.map(r => r.interactions[i].ms)) * 10) / 10 }, it.settledMs != null ? { settledMs: Math.round(median(runs.map(r => r.interactions[i].settledMs)) * 10) / 10 } : {}, it.calls != null ? { apiCalls: it.calls } : {}, it.layoutMs != null ? { scriptMs: median(runs.map(r => r.interactions[i].scriptMs)), styleMs: median(runs.map(r => r.interactions[i].styleMs)), layoutMs: median(runs.map(r => r.interactions[i].layoutMs)), nodes: it.nodes } : {})),
     pageErrors: first.errors
   };
 }
@@ -247,6 +271,10 @@ async function main() {
     // Échauffement : un 1er lancement crée ce que le widget crée tout seul (colonnes, tables, préférences),
     // puis on mesure l'état « régime de croisière » (document déjà préparé, utilisateur qui revient).
     const warm = await measureRun(browser, buildMockScript(buildSyntheticFixtures()), baseUrl, { warmup: true });
+    // L'échauffement a fini sur la page Instances (qu'il a ouverte pour créer ses tables) : le widget la retrouverait
+    // au rechargement. On fixe la page de départ mesurée, sinon on chronomètre l'ouverture d'Instances et non celle du Kanban.
+    const prefs = warm.snapshot.tables.Preferences_Widget;
+    if (prefs && prefs.Page_courante) prefs.Page_courante = prefs.Page_courante.map(() => START_VIEW);
     const mockScript = buildMockScript(withMetadata(warm.snapshot.tables));
     const runs = [];
     for (let i = 0; i < RUNS; i++) runs.push(await measureRun(browser, mockScript, baseUrl, { prefsRowId: warm.snapshot.prefsRowId }));

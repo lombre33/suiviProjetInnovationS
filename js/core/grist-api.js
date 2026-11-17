@@ -5,8 +5,9 @@
 (function (global) {
   'use strict';
 
+  // 'Etablissement' (singulier) n'existe pas dans le document et rien ne le lit : le demander coûtait une requête en erreur à chaque lecture.
   const TABLE_NAMES = ['Projets', 'Annuaire', 'Postes2', 'Structures',
-    'Programmes', 'Etablissements', 'Etablissement', 'Suivi_Instance', 'Lignes_OPE', 'Notifications'];
+    'Programmes', 'Etablissements', 'Suivi_Instance', 'Lignes_OPE', 'Notifications'];
 
   // docApi.fetchTable returns column-oriented data; the UI consumes records.
   function toRecords(table) {

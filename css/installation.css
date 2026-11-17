@@ -106,3 +106,6 @@ button.install-chip-ope:focus-visible { outline:2px solid var(--accent); outline
 .install-status-select { width:100%; height:30px; padding:0 8px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background-color:var(--surface); color:var(--text); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
 .install-status-select:hover { border-color:var(--accent); }
 .install-status-select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+
+/* Perf : voir css/administratif.css — les cartes hors écran ne sont mises en page qu'à l'approche. */
+.install-card { content-visibility:auto; contain-intrinsic-size:auto 254px; } /* 277 mesurés − padding et bordure */

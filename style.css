@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
+/* La police Manrope n'est PAS importée ici : un @import bloque l'affichage ET l'exécution des scripts tant que Google Fonts n'a pas répondu
+   (et s'enchaîne après le téléchargement de ce fichier). Elle est demandée en parallèle, sans bloquer, par le <link> d'index.html. */
 
 /* Design tokens — inspiré de PublipostagePlus (voir maquette Option A). */
 :root {
@@ -19,9 +20,12 @@ body { margin:0; font-family:'Manrope',system-ui,-apple-system,BlinkMacSystemFon
 button,input,select,textarea { font:inherit; }
 
 .container { max-width:1280px; margin:0 auto; padding:24px; min-height:calc(100vh - 62px); }
-.view { display:block; animation:fadeIn .2s ease; }
+/* Fondu d'ouverture de page : bref et sans glissement. À 200 ms (avec translateY) il ajoutait ~200 ms perçus à CHAQUE changement de page,
+   et le glissement d'une page de plusieurs milliers de nœuds la faisait composer dans un calque à part le temps de l'animation. */
+.view { display:block; animation:fadeIn .09s ease-out; }
+@media (prefers-reduced-motion: reduce) { .view { animation:none; } }
 .view.hidden { display:none!important; }
-@keyframes fadeIn { from {opacity:0;transform:translateY(6px)} to {opacity:1;transform:translateY(0)} }
+@keyframes fadeIn { from {opacity:0} to {opacity:1} }
 
 /* Boutons */
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:36px; padding:0 15px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font-size:13.5px; font-weight:700; cursor:pointer; }
@@ -55,6 +59,9 @@ button,input,select,textarea { font:inherit; }
 .error-close { border:0; background:transparent; color:var(--danger); font-size:20px; line-height:1; cursor:pointer; }
 
 /* Toast */
+/* Indicateur de chargement : ne prend aucune place (fixe, en bas à gauche) et n'apparaît qu'après 0,4 s — un démarrage rapide ne le montre jamais.
+   Retiré par js/app.js dès que les données sont affichées (ou en cas d'échec). */
+.app-loading { position:fixed; left:20px; bottom:20px; z-index:300; padding:8px 14px; border-radius:999px; background:var(--text); color:#fff; font-size:12.5px; font-weight:700; box-shadow:0 6px 16px rgba(20,28,46,.25); pointer-events:none; animation:fadeIn .15s ease-out .4s both; }
 .toast { position:fixed; right:20px; bottom:20px; z-index:300; padding:12px 16px; border-radius:var(--radius-sm); background:var(--text); color:#fff; font-size:13.5px; font-weight:600; box-shadow:var(--shadow-float); }
 .toast.hidden { display:none; }
 .toast.error { background:var(--danger); }

@@ -58,6 +58,8 @@ function observeViewVisibility() {
   }));
   document.querySelectorAll('.view').forEach(view => viewObserver.observe(view, { attributes: true, attributeFilter: ['class'] }));
 }
+// Indicateur « Chargement des données… » d'index.html : retiré dès que la première page est affichée, ou en cas d'échec.
+function hideLoadingIndicator() { document.getElementById('app-loading')?.remove(); }
 function applyTables(tables) { Object.entries(tables).forEach(([name, data]) => CoreState.setTable(name, data)); }
 
 // --- Dernière page ouverte (retrouvée au rechargement) -----------------------------------------
@@ -154,11 +156,11 @@ async function initializeApp() {
     if (window.loadAnnuaireUserPreferences) await window.loadAnnuaireUserPreferences();
     restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
     CoreGrist.closeSharedWindow();
-    renderAllViews(); setupEventListeners(); observeViewVisibility();
+    renderAllViews(); setupEventListeners(); observeViewVisibility(); hideLoadingIndicator();
     // La page Instances ne charge ses données qu'à l'ouverture depuis la barre : retrouvée au rechargement, elle doit les charger elle-même.
     if (visibleViewId() === 'view-instances') Promise.resolve(window.InstancesPage?.open?.()).catch(() => {});
   } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
-  finally { CoreGrist.closeSharedWindow?.(); }
+  finally { CoreGrist.closeSharedWindow?.(); hideLoadingIndicator(); }
 }
 function viewProject(projectId) {
   const projects = CoreState.getTable('Projets') || []; const project = projects.find(p => String(p.id) === String(projectId));
