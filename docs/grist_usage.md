@@ -658,6 +658,29 @@ Quatre colonnes **Date** sont créées par le widget au premier lancement qui su
 Comme pour les autres colonnes de cet onglet, une colonne déjà présente dans `Projets` ou `Notifications`
 n'est pas recréée ; si le schéma n'est pas modifiable, le message de démarrage les liste.
 
+### 9. Onglet Conventions : mail « Demande de visa » (17 novembre 2026)
+
+Sur la ligne de la sous-étape *Demande de visa* (statut de l'UB « en cours de signature »), une petite enveloppe
+ouvre un brouillon rempli dans la messagerie (`mailto:`), d'après un **modèle e-mail de Publipostage+** (GFS
+n'est pas ouvert). Code : `js/pages/visa-mail.js` (logique) et `js/pages/page-administratif.js` (bouton, fenêtre).
+
+- **Lecture seule** : tables `Publipostage_Modeles` (lignes `TypeModele = email` : `Nom`, `Contenu`, `Objet`,
+  `Destinataires`, `Cc`, `Cci`) et `Publipostage_LiensTables` (règles de liaison). Rien n'y est écrit ; elles ne sont
+  lues qu'au clic (aucun appel de plus au démarrage).
+- **Modèle retenu par utilisateur** : `Preferences_Widget.Mail_visa_modele` (nom du modèle, pas un identifiant ;
+  même principe que `Instances.Modele_invitation`) et `Mail_visa_client` (`zimbra` ou vide), colonnes auto-créées.
+  Sans modèle retenu, le premier clic ouvre le choix ; le lien « Mail de demande de visa » de la fenêtre de date de
+  *Visa* permet de le changer.
+- **Contexte de résolution** : la ligne `Notifications` du projet, puis la ligne `Projets`. Les variables suivent
+  Publipostage+ : colonne affichée des références, listes, rebonds `Réf.Colonne`, règles de liaison, dates / nombres /
+  booléens, texte avant / après.
+- **Limites du mailto** : texte brut (la mise en forme saute), aucune pièce jointe, lien de 2 000 caractères au
+  plus. Les conditions, boucles et calculs de Publipostage+ ne sont **pas** rejoués : le widget le signale. Toute
+  variable sans valeur, adresse invalide, absence de destinataire ou lien trop long est dite dans une fenêtre avant
+  l'ouverture (« Ouvrir quand même » reste possible). Option « Ma messagerie est Zimbra » : mêmes contournements
+  que Publipostage+.
+- Rien n'est écrit dans `Projets` à l'envoi ; la date de *Visa* reste saisie à la main.
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies
