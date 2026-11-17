@@ -47,3 +47,7 @@
   .filter-search input { min-width:0; }
 }
 @media (max-width:520px) { .kanban-board { grid-template-columns:1fr; } }
+
+/* Perf : les cartes hors de l'écran ne sont mises en page qu'à l'approche (voir css/administratif.css). Hauteur de repli ≈ médiane mesurée
+   (142 à 178 px selon la largeur) moins padding et bordure ; le navigateur retient la vraie hauteur d'une carte dès qu'il l'a vue. */
+.project-card { content-visibility:auto; contain-intrinsic-size:auto 140px; }

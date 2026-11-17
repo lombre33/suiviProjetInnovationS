@@ -193,3 +193,14 @@ a.admin-icon-btn { color:var(--accent-hover); }
 .admin-pop-item.is-selected .admin-pop-check { opacity:1; }
 .admin-pop-empty { margin:6px 8px; font-size:12px; color:var(--text-muted); }
 
+
+/* Perf : les cartes hors de l'écran ne sont ni stylées ni mises en page tant qu'on ne les approche pas (content-visibility:auto) —
+   la bascule vers Administratif / To Do et le changement d'onglet passent de ~120 ms à une poignée. Hauteurs estimées « auto » :
+   le navigateur retient la vraie hauteur d'une carte dès qu'il l'a vue. Les popovers et bulles d'aide sont posés dans <body> (jamais
+   dans une carte) : le rognage du contenu (paint containment) ne les touche pas. */
+/* Hauteurs de repli : hauteur mesurée (Notifications / Conventions, lignes / cartes) MOINS le padding et la bordure — contain-intrinsic-size
+   donne la taille du contenu, le padding et la bordure s'y ajoutent. La barre de défilement ne saute donc pas à l'approche des cartes. */
+.mode-rows .admin-card:not(.todo-card) { content-visibility:auto; contain-intrinsic-size:auto 40px; }
+.mode-rows .admin-card-conv:not(.todo-card) { contain-intrinsic-size:auto 69px; }
+.mode-cards .admin-card:not(.todo-card) { content-visibility:auto; contain-intrinsic-size:auto 225px; }
+.mode-cards .admin-card-conv:not(.todo-card) { contain-intrinsic-size:auto 442px; }

@@ -432,4 +432,156 @@
       document.querySelector('[data-admin-tab="notif"]').click();
     });
   });
+
+  // ── Deuxième vague (17/11/2026) : ouverture et navigation ────────────────────────────────────────────────
+  const readRepoFile = async path => (await fetch(path, { cache: 'no-store' })).text();
+
+  describe('Ouverture — la police Google Fonts ne bloque plus l\'affichage ni les scripts', function () {
+    it('style.css n\'importe plus la police (un @import bloque le rendu ET l\'exécution des scripts tant que Google n\'a pas répondu)', async function () {
+      const css = await readRepoFile('../style.css');
+      assertFalse(/@import/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')), 'aucun @import dans style.css (hors commentaires)');
+    });
+
+    it('index.html demande la police sans bloquer (media="print" puis bascule au chargement), avec préconnexion', async function () {
+      const doc = new DOMParser().parseFromString(await readRepoFile('../index.html'), 'text/html');
+      const fonts = Array.from(doc.querySelectorAll('link[rel="stylesheet"][href*="fonts.googleapis.com"]')).filter(link => !link.closest('noscript'));
+      assertEqual(fonts.length, 1, 'une seule feuille de police');
+      assertEqual(fonts[0].getAttribute('media'), 'print', 'chargée hors du chemin critique');
+      assertTrue(/media\s*=\s*['"]all['"]/.test(fonts[0].getAttribute('onload') || ''), 'basculée en media=all une fois chargée');
+      assertTrue(/display=swap/.test(fonts[0].getAttribute('href')), 'font-display: swap conservé (le texte s\'affiche tout de suite)');
+      assertTrue(!!doc.querySelector('link[rel="preconnect"][href="https://fonts.googleapis.com"]') && !!doc.querySelector('link[rel="preconnect"][href="https://fonts.gstatic.com"]'), 'préconnexion aux deux domaines');
+      assertTrue(!!doc.querySelector('noscript link[href*="fonts.googleapis.com"]'), 'repli sans JavaScript');
+    });
+
+    it('aucune autre feuille de style externe ne bloque le rendu (seules les feuilles du widget, même origine)', async function () {
+      const doc = new DOMParser().parseFromString(await readRepoFile('../index.html'), 'text/html');
+      const blocking = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).filter(link => !link.closest('noscript') && !link.hasAttribute('media') && /^https?:/.test(link.getAttribute('href')));
+      assertEqual(blocking.length, 0, `feuilles externes bloquantes : ${blocking.map(l => l.getAttribute('href')).join(', ')}`);
+    });
+  });
+
+  describe('Ouverture — indicateur « Chargement… » discret', function () {
+    it('index.html contient l\'indicateur, fixe (aucune place prise) et retardé de 0,4 s : un démarrage rapide ne le montre jamais', async function () {
+      const doc = new DOMParser().parseFromString(await readRepoFile('../index.html'), 'text/html');
+      const pill = doc.getElementById('app-loading');
+      assertTrue(!!pill, 'indicateur présent');
+      assertEqual(pill.getAttribute('role'), 'status');
+      const css = await readRepoFile('../style.css');
+      const rule = (/\.app-loading\s*\{([^}]*)\}/.exec(css) || [])[1] || '';
+      assertTrue(/position:\s*fixed/.test(rule), 'position fixe : pas de décalage de la mise en page quand il disparaît');
+      assertTrue(/animation:[^;]*\.4s\s+both/.test(rule), 'apparition retardée de 0,4 s, invisible pendant le délai');
+    });
+
+    it('le démarrage le retire une fois la première page affichée', async function () {
+      const restore = prepareViews(), idle = holdIdleCallbacks();
+      const pill = document.createElement('div'); pill.id = 'app-loading'; document.body.appendChild(pill);
+      try {
+        await window.SuiviApp.initializeApp();
+        assertEqual(document.getElementById('app-loading'), null, 'indicateur retiré');
+      } finally { pill.remove(); idle.restore(); restore(); }
+    });
+
+    it('il est aussi retiré quand l\'initialisation échoue (sinon il resterait affiché à côté du message d\'erreur)', async function () {
+      const restore = prepareViews(), idle = holdIdleCallbacks();
+      const pill = document.createElement('div'); pill.id = 'app-loading'; document.body.appendChild(pill);
+      const original = window.CoreGrist.loadAllTables;
+      window.CoreGrist.loadAllTables = async () => { throw new Error('panne simulée'); };
+      try {
+        await window.SuiviApp.initializeApp();
+        assertEqual(document.getElementById('app-loading'), null, 'indicateur retiré malgré l\'échec');
+      } finally { window.CoreGrist.loadAllTables = original; pill.remove(); idle.restore(); restore(); }
+    });
+  });
+
+  describe('Navigation — fondu de page bref, cartes hors écran non mises en page', function () {
+    it('le fondu d\'ouverture d\'une page dure moins de 0,15 s et sans glissement (à 0,2 s avec translateY, il ajoutait ~200 ms perçus à chaque changement de page)', async function () {
+      const css = await readRepoFile('../style.css');
+      const rule = /\.view\s*\{[^}]*animation:\s*fadeIn\s+([\d.]+)(m?s)/.exec(css);
+      assertTrue(!!rule, 'règle .view avec animation fadeIn');
+      const seconds = Number(rule[1]) / (rule[2] === 'ms' ? 1000 : 1);
+      assertTrue(seconds > 0 && seconds <= 0.15, `durée du fondu : ${seconds} s`);
+      const keyframes = (/@keyframes\s+fadeIn\s*\{([\s\S]*?\})\s*\}/.exec(css) || [])[1] || '';
+      assertTrue(keyframes.length > 0, 'image-clé fadeIn trouvée');
+      assertFalse(/transform/.test(keyframes), 'aucun glissement dans le fondu de page');
+      assertTrue(/prefers-reduced-motion:\s*reduce\)\s*\{\s*\.view\s*\{\s*animation:\s*none/.test(css), 'aucune animation si le système demande de réduire les animations');
+    });
+
+    const CARD_RULES = [
+      { file: '../css/administratif.css', selector: /\.mode-rows \.admin-card:not\(\.todo-card\)\s*\{[^}]*content-visibility:\s*auto[^}]*contain-intrinsic-size:\s*auto\s+\d+px/, label: 'cartes Administratif en lignes' },
+      { file: '../css/administratif.css', selector: /\.mode-cards \.admin-card:not\(\.todo-card\)\s*\{[^}]*content-visibility:\s*auto[^}]*contain-intrinsic-size:\s*auto\s+\d+px/, label: 'cartes Administratif en cartes' },
+      { file: '../css/installation.css', selector: /\.install-card\s*\{[^}]*content-visibility:\s*auto[^}]*contain-intrinsic-size:\s*auto\s+\d+px/, label: 'cartes Installation des fonds' },
+      { file: '../kanban.css', selector: /\.project-card\s*\{[^}]*content-visibility:\s*auto[^}]*contain-intrinsic-size:\s*auto\s+\d+px/, label: 'cartes du Kanban' }
+    ];
+    CARD_RULES.forEach(({ file, selector, label }) => {
+      it(`${label} : content-visibility:auto avec une hauteur de repli « auto »`, async function () {
+        assertTrue(selector.test(await readRepoFile(file)), `règle attendue dans ${file}`);
+      });
+    });
+
+    it('le rognage du contenu d\'une carte (paint containment) ne doit rien couper : le popover de date est posé dans <body>, jamais dans une carte', async function () {
+      const tables = await window.CoreGrist.loadAllTables();
+      Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      window.renderAdministratif();
+      document.querySelector('[data-admin-tab="conv"]').click();
+      const anchor = document.querySelector('#admin-col-conv [data-pop-anchor]');
+      assertTrue(!!anchor, 'une pastille de date à ouvrir');
+      anchor.click();
+      const popover = document.querySelector('.admin-popover');
+      try {
+        assertTrue(!!popover, 'popover ouvert');
+        assertEqual(popover.parentElement, document.body, 'popover enfant direct de <body>');
+        assertEqual(popover.closest('.admin-card'), null, 'aucune carte ne contient le popover');
+      } finally { window.AdministratifConv.closePopover(); document.querySelector('[data-admin-tab="notif"]').click(); }
+    });
+  });
+
+  describe('Requêtes inutiles — table inexistante et lectures en série', function () {
+    it('loadAllTables ne demande plus la table « Etablissement » (singulier), absente du document et lue par personne', async function () {
+      const spy = spyDocApi();
+      try {
+        const tables = await window.CoreGrist.loadAllTables();
+        assertEqual(spy.count('fetch:Etablissement'), 0, 'aucune lecture de la table inexistante');
+        assertEqual(spy.count('fetch:Etablissements'), 1, 'la vraie table est lue');
+        assertFalse('Etablissement' in tables, 'pas de clé fantôme dans les tables chargées');
+      } finally { spy.restore(); }
+    });
+
+    it('page Instances : la composition des instances est lue en même temps que les autres tables (un seul aller-retour, pas deux ou trois en série)', async function () {
+      const grist = window.CoreGrist, original = { getTable: grist.getTable, knownTableIds: grist.knownTableIds, columnTypes: grist.columnTypes };
+      const events = [];
+      grist.knownTableIds = () => ['Projets', 'Instances', 'Composition_instances', 'Lieux'];
+      grist.columnTypes = id => (id === 'Composition_instances' ? { Instance: 'Ref:Instances', Personne: 'Ref:Annuaire', Lieu: 'Ref:Lieux' } : null);
+      grist.getTable = function (name) {
+        events.push('début:' + name);
+        return new Promise(resolve => setTimeout(() => {
+          events.push('fin:' + name);
+          resolve(name === 'Composition_instances' ? [{ id: 1, Instance: 1, Personne: 2, Lieu: 7 }] : name === 'Lieux' ? [{ id: 7, Lieux: 'Salle A' }] : []);
+        }, 25));
+      };
+      try {
+        const raw = await window.InstancesData.fetchAll();
+        const firstEnd = events.findIndex(event => event.startsWith('fin:'));
+        const startsBeforeFirstEnd = events.slice(0, firstEnd).filter(event => event.startsWith('début:')).map(event => event.slice(6));
+        ['Instances', 'Suivi_Instance', 'Export_VP', 'Composition_instances'].forEach(name => {
+          assertTrue(startsBeforeFirstEnd.includes(name), `${name} est demandée avant que la première lecture soit terminée (en parallèle) ; démarrées d'abord : ${startsBeforeFirstEnd.join(', ')}`);
+        });
+        assertEqual(raw.Composition__id, 'Composition_instances');
+        assertEqual(raw.Composition.length, 1, 'composition lue');
+        assertEqual(raw.Composition__types.Lieu, 'Ref:Lieux', 'types de colonnes conservés');
+        assertEqual(raw.Composition__refNames.Lieux[7], 'Salle A', 'libellés de la table liée lus aussi');
+      } finally { Object.assign(grist, original); }
+    });
+
+    it('page Instances : une composition illisible n\'empêche pas le chargement des autres tables (erreur notée, rien de bloquant)', async function () {
+      const grist = window.CoreGrist, original = { getTable: grist.getTable, knownTableIds: grist.knownTableIds };
+      grist.knownTableIds = () => ['Composition_instances'];
+      grist.getTable = async name => { if (name === 'Composition_instances') throw new Error('illisible'); return []; };
+      try {
+        const raw = await window.InstancesData.fetchAll();
+        assertEqual(raw.Composition__error, 'illisible', 'erreur retenue');
+        assertEqual(raw.Composition.length, 0, 'composition vide');
+        assertTrue(Array.isArray(raw.Instances) && Array.isArray(raw.Suivi_Instance), 'les autres tables sont chargées');
+      } finally { Object.assign(grist, original); }
+    });
+  });
 })();

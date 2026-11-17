@@ -81,14 +81,60 @@ préférences (on mesure l'état normal d'un utilisateur qui revient). Il affich
 le temps jusqu'aux premières cartes, le blocage du fil principal et le coût de chaque interaction.
 Non lancé par la CI. Les tests de non-régression des correctifs sont dans `tests/suite-performance.js`.
 
+## Deuxième vague — 17/11/2026 (ouverture et navigation)
+
+Constat d'Antoine : l'ouverture reste un peu longue et la navigation entre pages a de petits délais. Même méthode
+(mock Grist, 80 ms par appel, 300 projets × 230 colonnes) ; le banc a été corrigé : il rouvrait le widget **sur la page
+Instances** (la dernière page ouverte est retrouvée depuis le 12/11, l'échauffement finissait sur Instances), donc il ne
+chronométrait plus le Kanban. Option `--start=` (défaut `view-projects`).
+
+| Cause | Avant | Après |
+|---|---|---|
+| `@import` de Google Fonts dans `style.css` : s'enchaîne après le téléchargement de `style.css`, **bloque le rendu et l'exécution des scripts** tant que Google n'a pas répondu | premières cartes 607 ms (Google Fonts à 300 ms ; le banc ne simulait pas cette latence avant) | 335 ms ; plus rien de bloquant : `<link>` en `media="print"` basculé au chargement + préconnexion, `font-display: swap` conservé |
+| Fondu d'ouverture de chaque page : `.view { animation: fadeIn .2s }` avec glissement de 6 px | ~200 ms **perçus** en plus à chaque changement de page (page complète visible après 330 ms) | 90 ms, opacité seule, rien si le système demande de réduire les animations (page visible après ~125-140 ms) |
+| Mise en page de toutes les cartes à chaque affichage d'une page (display:none → block repasse tout le style + la mise en page) | Administratif 126 ms, Installation 136 ms, onglet Conventions 109 ms | Administratif 28 ms, Installation 38 ms, onglet Conventions 44 ms : `content-visibility:auto` sur `.admin-card` (hors To Do), `.install-card`, `.project-card` |
+| Kanban : frappe dans la recherche, déplier une colonne, retour sur Projets | 38 à 61 ms | 26 à 28 ms ; retour sur Projets 51 → 26 ms |
+| Page Instances, 1re ouverture : la composition des instances n'était lue qu'**après** les 9 autres tables (2 à 3 allers-retours en série) | 178 ms | 98 ms (1 aller-retour) |
+| Table `Etablissement` (singulier, inexistante) demandée à chaque lecture générale | 1 requête en erreur par lecture | supprimée (12 appels au démarrage au lieu de 13) |
+| Rien à l'écran pendant la lecture des tables | page vide | pastille « Chargement des données… » en bas à gauche, ne prend aucune place, n'apparaît qu'après 0,4 s |
+
+Chiffres du mock, médiane de 5 lancements ; le rendu JS direct d'Administratif varie de 45 à 78 ms d'un lancement à
+l'autre sur la machine de test, avec ou sans ces correctifs (pas de lien).
+
+### `content-visibility:auto` : ce qui a été vérifié, ce qu'il faut garder en tête
+
+- Capture d'écran à quatre positions de défilement, avant/après, pour Kanban (1400 et 820 px), Administratif
+  (Notifications / Conventions, lignes / cartes), Installation, To Do : Administratif et Kanban à 820 px sont
+  **identiques** à l'œil (écart maximal de 5/255 sur quelques centaines de pixels), To Do au pixel près. Sur
+  Installation et sur le Kanban à 1400 px, seul le rendu des bords de caractères change (la peinture d'une carte
+  s'aligne sur le pixel) : rien ne bouge, vérifié en agrandissant.
+- `contain-intrinsic-size` donne la taille du **contenu** : padding et bordure s'y ajoutent. Les hauteurs de repli
+  sont les hauteurs mesurées moins padding et bordure ; sinon un saut de défilement apparaît. Elles ne servent qu'avant
+  qu'une carte ait été vue (`auto` retient ensuite la vraie hauteur) ; elles sont justes pour les cartes de hauteur
+  fixe (Notifications), approximatives pour les autres (Conventions, Installation, Kanban : la hauteur dépend de la
+  largeur du widget). Un saut de la barre de défilement est donc possible en la tirant d'un coup très loin.
+- Le rognage du contenu (paint containment) coupe tout ce qui dépasse de la carte. **Règle : un popover, une bulle
+  ou un menu ouvert depuis une carte se pose dans `<body>`** (c'est le cas : `.admin-popover`, `HelpTooltip`, modales),
+  jamais dans la carte (`position:fixed` y serait aussi relatif à la carte). Un test le garde pour le popover de date.
+- Les cartes de la page To Do (`.todo-card`) en sont exclues (hauteurs non mesurées, peu nombreuses).
+
+### Mesurer la deuxième vague
+
+```
+node tests/perf/bench.js --fonts-ms=300        # latence simulée de Google Fonts (0 = requête refusée tout de suite)
+node tests/perf/bench.js --profile             # ventile chaque interaction : script / calcul des styles / mise en page
+```
+
+Chaque interaction donne `ms` (jusqu'à 2 images après l'action) et `settledMs` (jusqu'à la fin des animations en cours :
+ce que l'œil perçoit). Tests de non-régression : `tests/suite-performance.js` (sections « Ouverture » et « Navigation »).
+
 ## Pistes restantes (non faites)
 
-- `content-visibility: auto` sur les cartes (`.project-card`, `.admin-card`, `.install-card`) : mesuré,
-  la mise en page des pages Administratif / Installation passe de ~50-70 ms à ~8 ms. Non retenu pour
-  l'instant : risque visuel (le contenu est rogné à la boîte de la carte, hauteurs estimées au
-  défilement) à vérifier dans le vrai Grist avant de l'activer.
-- `loadAllTables()` demande encore `Etablissement` (au singulier, table inexistante dans le document) :
-  un appel en erreur, en parallèle donc sans coût de latence.
-- Après l'enregistrement d'un projet, les 10 tables sont relues. Seules `Projets` et `Notifications`
-  changent à coup sûr (formules Grist) ; à restreindre seulement si la relecture complète se sent.
+- **Cache persistant des données entre deux ouvertures** (afficher tout de suite le dernier état connu, puis rafraîchir) :
+  le plus gros gain d'ouverture possible, mais il laisserait des données de projets dans le navigateur (localStorage /
+  IndexedDB) et un autre utilisateur du même poste verrait brièvement celles du précédent : décision d'Antoine.
+- Après l'enregistrement d'un projet, les 9 tables sont relues. Seules `Projets` et `Notifications` changent à coup sûr
+  (formules Grist) ; à restreindre seulement si la relecture complète se sent.
+- Animations de la modale projet (fondu de 0,15 s à l'ouverture, 0,22 s à chaque changement d'onglet, flou d'arrière-plan) :
+  conservées, ce sont des choix de présentation ; ~0,2 s perçu à chaque ouverture / changement d'onglet.
 - Si le nombre de projets dépasse largement le millier : virtualiser les listes de cartes.

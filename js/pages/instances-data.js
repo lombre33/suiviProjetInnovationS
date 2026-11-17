@@ -95,12 +95,16 @@
   }
 
   // Lit les tables de la page ; une table absente (Lieux, GFS_Fichiers) donne [] plutôt qu'une erreur.
+  // Tout part en même temps, la composition des instances comprise : son identifiant et les types de ses colonnes viennent du
+  // schéma déjà connu (aucun appel), elle n'a donc pas à attendre la fin des autres lectures (avant : 2 à 3 allers-retours en série).
   async function fetchAll() {
     const raw = {};
-    await Promise.all(READ_TABLES.map(async name => {
-      try { raw[name] = await global.CoreGrist.getTable(name); } catch (err) { raw[name] = []; if (name === 'Instances' || name === 'Suivi_Instance') raw[name + '__error'] = err.message; }
-    }));
-    await fetchComposition(raw);
+    await Promise.all([
+      ...READ_TABLES.map(async name => {
+        try { raw[name] = await global.CoreGrist.getTable(name); } catch (err) { raw[name] = []; if (name === 'Instances' || name === 'Suivi_Instance') raw[name + '__error'] = err.message; }
+      }),
+      fetchComposition(raw)
+    ]);
     return raw;
   }
   // Table « Composition instances » (invités par défaut des instances) : retrouvée par son nom, lue sans jamais bloquer la page.
@@ -111,18 +115,23 @@
       let id = L.findCompositionTable(global.CoreGrist.knownTableIds ? global.CoreGrist.knownTableIds() : []);
       if (!id && global.CoreGrist.gristInstance) id = L.findCompositionTable(await global.CoreGrist.gristInstance.docApi.listTables());
       if (!id) return;
-      raw.Composition__id = id; raw.Composition = await global.CoreGrist.getTable(id);
-      // Types de colonnes (cache des métadonnées) : une référence ne désigne une instance que si elle pointe vers la table Instances.
-      raw.Composition__types = (global.CoreGrist.columnTypes && global.CoreGrist.columnTypes(id)) || {};
+      raw.Composition__id = id;
+      // Types de colonnes (cache des métadonnées, aucun appel) : une référence ne désigne une instance que si elle pointe vers la table Instances.
+      const types = (global.CoreGrist.columnTypes && global.CoreGrist.columnTypes(id)) || {};
       // Référence vers une AUTRE table (ni Instances ni Annuaire) : on lit son libellé, jamais son numéro (numéros sans rapport avec Instances).
       const targets = [];
-      Object.keys(raw.Composition__types).forEach(col => { const m = /^Ref(?:List)?:(.+)$/.exec(raw.Composition__types[col]); if (m && ['Instances', 'Annuaire'].indexOf(m[1]) < 0 && targets.indexOf(m[1]) < 0) targets.push(m[1]); });
-      await Promise.all(targets.slice(0, 3).map(async table => {
-        try {
-          const names = {}; (await global.CoreGrist.getTable(table)).forEach(row => { const label = refRowLabel(row); if (label) names[row.id] = label; });
-          raw.Composition__refNames[table] = names;
-        } catch (err) { /* table illisible : sa colonne sera ignorée */ }
-      }));
+      Object.keys(types).forEach(col => { const m = /^Ref(?:List)?:(.+)$/.exec(types[col]); if (m && ['Instances', 'Annuaire'].indexOf(m[1]) < 0 && targets.indexOf(m[1]) < 0) targets.push(m[1]); });
+      // La composition et les tables de libellés sont lues ensemble : un aller-retour, pas deux.
+      const [rows] = await Promise.all([
+        global.CoreGrist.getTable(id),
+        ...targets.slice(0, 3).map(async table => {
+          try {
+            const names = {}; (await global.CoreGrist.getTable(table)).forEach(row => { const label = refRowLabel(row); if (label) names[row.id] = label; });
+            raw.Composition__refNames[table] = names;
+          } catch (err) { /* table illisible : sa colonne sera ignorée */ }
+        })
+      ]);
+      raw.Composition = rows; raw.Composition__types = types;
     } catch (err) { raw.Composition__error = err.message; }
   }
   const REF_LABEL_KEYS = ['Instances', 'Instance', 'Nom', 'Nom_Complet', 'Libelle', 'Intitule', 'Name', 'Acronyme'];
