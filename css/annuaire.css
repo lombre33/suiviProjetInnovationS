@@ -10,7 +10,7 @@
 .annu-filters { gap:6px; padding:10px 12px; margin:0 0 12px; }
 .annu-filters input { min-width:0; }
 .annu-filters .filter-search input { width:156px; min-width:0; }
-.annu-filters .filter-combo input { width:100px; text-overflow:ellipsis; cursor:pointer; }
+.annu-filters .filter-combo input { width:104px; padding:0 8px; text-overflow:ellipsis; cursor:pointer; }
 .annu-filters .filter-combo[hidden], .annu-seg[hidden] { display:none; }
 .annu-filters .filter-combo .combo-list { min-width:210px; right:auto; }
 .annu-filters .filter-combo.is-active input { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
@@ -66,6 +66,12 @@
 .annu-empty { padding:34px 16px; text-align:center; color:var(--text-muted); font-weight:600; }
 .annu-link { position:relative; z-index:2; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-hover); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; text-align:left; }
 .annu-link:hover { color:var(--text); }
+
+/* Perf (même règle que les cartes des autres pages, docs/performance.md) : les lignes et cartes hors de l'écran ne sont pas mises
+   en page avant d'être approchées. Tailles de repli = hauteur du contenu (padding et bordure s'y ajoutent). Rien ne déborde d'une
+   ligne : la bulle d'aide, la fiche et les modales vivent dans <body>. */
+.annu-row { content-visibility:auto; contain-intrinsic-size:auto 40px; }
+.annu-pc { content-visibility:auto; contain-intrinsic-size:auto 128px; }
 
 /* Par structure */
 .annu-group { margin-top:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); }
