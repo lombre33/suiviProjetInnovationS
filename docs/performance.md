@@ -193,6 +193,15 @@ diagnostic qui dira dans quel cas on est dans le vrai Grist.
 - Hors chemin critique : les fichiers du widget finissent à 726 ms ; `page-redaction.js` (454 ms), `pdf-viewer.js`, `project-modal.js`
   pourraient se charger après l'affichage du Kanban, mais cela ne raccourcit rien tant que le script Grist arrive plus tard.
 
+### Deuxième rapport réel (17/11/2026, 19:35, même poste, rechargement normal F5 : 35 fichiers sur 35 servis par le cache)
+
+- Kanban affiché à **254 ms**, tout lu à **374 ms** (contre 1353 / 1581 ms à froid). `grist-plugin-api.js` : 109 ms (contre 852 ms) ;
+  les 12 lectures Grist finissent en 213 ms (Projets : 89 ms).
+- À chaud il n'y a plus rien à gagner côté widget. Le cas lent est le chargement à froid (premier accès, nouvelle version publiée,
+  cache expiré) : 0,85 s sur 1,35 s y sont l'attente du script Grist. **Décision (17/11) : on n'héberge pas ce script** (gain seulement à
+  froid, version de l'API figée, non testable sans vrai Grist) et on ne code pas de cache de données (~0,1 s à chaud). À rouvrir si Antoine
+  signale de la lenteur à froid. Ce que le rapport ne voit pas : le temps d'ouverture du document Grist et de création du cadre avant que le widget démarre.
+
 ## Pistes restantes (non faites)
 
 - **Cache persistant des données entre deux ouvertures** (afficher tout de suite le dernier état connu, puis rafraîchir) :
