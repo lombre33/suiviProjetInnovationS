@@ -1226,7 +1226,8 @@
     const fileId = Number(rawFileId);
     if (!project || !filesOf(project).includes(fileId)) return;
     if (data.detachFile !== undefined) detachConventionFile(project, fileId);
-    else CoreAttachments.open(fileId, fileLocation(project), { inline: data.openFile !== undefined });
+    else if (data.openFile !== undefined) CoreAttachments.view(fileId, fileLocation(project)); // afficher : visionneuse PDF du navigateur
+    else CoreAttachments.open(fileId, fileLocation(project)); // télécharger : fichier enregistré sous son vrai nom
   }
 
   // Responsables du next step : pastilles d'initiales (nom complet en infobulle), une croix

@@ -97,19 +97,78 @@
     return `${token.baseUrl}/attachments/${id}/download?auth=${encodeURIComponent(token.token)}${cellParams}${inline ? '&inline=1' : ''}`;
   }
 
-  // Ouvre une pièce jointe dans un nouvel onglet. La fenêtre est ouverte tout de suite (geste
-  // de la personne) pour que le navigateur ne la bloque pas, puis dirigée vers l'adresse quand
-  // le jeton est arrivé.
-  function open(id, cell, options) {
+  // Dirige la fenêtre déjà ouverte vers `url` ; si elle n'existe pas (fenêtre bloquée) ou refuse la
+  // navigation (autre origine), en ouvre une nouvelle.
+  function go(win, url) {
+    if (win) { try { win.location.href = url; return; } catch (err) { /* navigation refusée : nouvelle fenêtre */ } }
+    global.open(url, '_blank');
+  }
+  // La fenêtre est ouverte tout de suite (geste de la personne) pour que le navigateur ne la bloque
+  // pas ; le jeton et le fichier n'arrivent qu'ensuite.
+  function openWindow(message) {
     const win = global.open('', '_blank');
-    if (win) { try { win.opener = null; } catch (err) { /* fenêtre d'une autre origine : sans importance */ } }
-    return getToken().then(token => {
-      const url = downloadUrl(token, id, cell, options);
-      if (win) win.location.href = url; else global.open(url, '_blank');
-    }).catch(err => {
-      if (win) win.close();
-      if (global.CoreUtils) global.CoreUtils.showToast(`Ouverture impossible : ${err.message}`, true);
-    });
+    if (win) {
+      try { win.opener = null; } catch (err) { /* fenêtre d'une autre origine : sans importance */ }
+      try { win.document.title = message; win.document.body.textContent = message; } catch (err) { /* fenêtre d'une autre origine */ }
+    }
+    return win;
+  }
+  const fail = (win, err) => {
+    if (win) win.close();
+    if (global.CoreUtils) global.CoreUtils.showToast(`Ouverture impossible : ${err.message}`, true);
+  };
+
+  // Télécharge une pièce jointe : nouvel onglet dirigé vers l'adresse de Grist, qui force le
+  // téléchargement (Content-Disposition: attachment) sous le vrai nom du fichier.
+  function open(id, cell, options) {
+    const win = openWindow('Téléchargement en cours… vous pouvez fermer cet onglet.');
+    return getToken().then(token => go(win, downloadUrl(token, id, cell, options))).catch(err => fail(win, err));
+  }
+
+  // Affiche un PDF dans le navigateur. Une adresse de Grist ne s'affiche pas : sa réponse porte
+  // « Content-Security-Policy: sandbox » (et, selon la version, un téléchargement forcé), que la
+  // visionneuse de PDF du navigateur refuse ; le navigateur télécharge alors le fichier. On lit
+  // donc le fichier avec le jeton (l'API répond en CORS à toute origine, sans cookie) et on
+  // l'ouvre depuis une adresse locale « blob: » de type application/pdf, sans aucun en-tête de
+  // Grist. Seul un contenu qui commence vraiment par « %PDF- » est ouvert ainsi : un autre type de
+  // fichier ne devient jamais une page de CE site. Au moindre échec (réseau, contenu inattendu),
+  // repli sur l'adresse de Grist en affichage « inline », comme avant.
+  // Le contenu d'une pièce jointe ne change jamais : l'adresse locale est gardée pour les clics
+  // suivants (les plus anciennes sont libérées au-delà de 8 fichiers).
+  const blobUrls = new Map();
+  const MAX_BLOB_URLS = 8;
+  const looksLikePdf = bytes => {
+    const head = new Uint8Array(bytes, 0, Math.min(1024, bytes.byteLength));
+    for (let i = 0; i + 4 < head.length; i++) {
+      if (head[i] === 0x25 && head[i + 1] === 0x50 && head[i + 2] === 0x44 && head[i + 3] === 0x46 && head[i + 4] === 0x2d) return true; // « %PDF- »
+    }
+    return false;
+  };
+  async function pdfBlobUrl(id, cell, token) {
+    const key = String(id);
+    if (blobUrls.has(key)) return blobUrls.get(key);
+    const response = await global.fetch(downloadUrl(token, id, cell), { credentials: 'omit' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bytes = await response.arrayBuffer();
+    if (!looksLikePdf(bytes)) throw new Error('ce fichier n\'est pas un PDF');
+    const url = global.URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    blobUrls.set(key, url);
+    if (blobUrls.size > MAX_BLOB_URLS) {
+      const oldest = blobUrls.keys().next().value;
+      global.URL.revokeObjectURL(blobUrls.get(oldest));
+      blobUrls.delete(oldest);
+    }
+    return url;
+  }
+  async function view(id, cell) {
+    const win = openWindow('Chargement du PDF…');
+    let token;
+    try { token = await getToken(); } catch (err) { fail(win, err); return; }
+    try {
+      go(win, await pdfBlobUrl(id, cell, token));
+    } catch (err) {
+      go(win, downloadUrl(token, id, cell, { inline: true }));
+    }
   }
 
   // Envoie un fichier dans le document (POST multipart, champ « upload », droit d'édition requis) :
@@ -140,7 +199,11 @@
 
   // Remet à zéro les mémoires (noms, jeton) : utilisé par les tests entre deux cas, et sans danger ailleurs
   // (la prochaine demande relit simplement la table / redemande un jeton).
-  function resetCaches() { names.clear(); missingSince.clear(); tokenCache = null; metaInFlight = null; }
+  function resetCaches() {
+    names.clear(); missingSince.clear(); tokenCache = null; metaInFlight = null;
+    blobUrls.forEach(url => global.URL.revokeObjectURL(url));
+    blobUrls.clear();
+  }
 
-  global.CoreAttachments = { ids, encode, loadMeta, nameOf, rememberName, ensureNames, getToken, downloadUrl, open, upload, resetCaches };
+  global.CoreAttachments = { ids, encode, loadMeta, nameOf, rememberName, ensureNames, getToken, downloadUrl, open, view, upload, resetCaches };
 }(window));

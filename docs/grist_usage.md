@@ -736,8 +736,8 @@ n'est pas ouvert). Code : `js/pages/visa-mail.js` (logique) et `js/pages/page-ad
 relecture), le lien reste, puisque c'est le Word partagé pour la relecture. Un lien déjà saisi reste
 ouvrable à l'étape de signature (petite icône), rien n'est caché.
 
-Dans la cellule : le nom du PDF (clic = affichage dans un nouvel onglet, `?inline=1`), une icône de
-téléchargement (téléchargement forcé par Grist), une croix au survol pour **retirer le fichier de la
+Dans la cellule : le nom du PDF (clic = **affichage** dans un nouvel onglet, voir ci-dessous), une icône de
+téléchargement (téléchargement forcé par Grist, sous le vrai nom du fichier), une croix au survol pour **retirer le fichier de la
 cellule** (il reste dans les pièces jointes du document), et un trombone pour **joindre** un PDF.
 Téléverser = `POST {baseUrl}/attachments?auth=<jeton>` (champ multipart `upload`, droit d'édition requis),
 puis écriture `['L', …numéros]` sur la ligne de `Projets` — la liste lue après l'envoi, donc les fichiers
@@ -746,6 +746,18 @@ un jeton `readOnly:true` est plafonné au rôle Lecteur et ne peut ni lire une p
 éditeurs ni en envoyer une. Code partagé avec la fiche projet : `js/core/attachments.js`
 (`CoreAttachments`) ; les noms de fichier (`_grist_Attachments`) ne sont relus que pour un numéro inconnu.
 Colonne `Lien_convention` et fiche projet inchangées.
+
+**Afficher plutôt que télécharger.** Une adresse `…/attachments/<n>/download` de Grist ne s'affiche pas dans
+le navigateur : sa réponse porte `Content-Security-Policy: sandbox` (que la visionneuse de PDF refuse) et,
+selon la version, un téléchargement forcé — même avec `?inline=1`. Le clic sur le nom lit donc le fichier avec
+le jeton (l'API répond `Access-Control-Allow-Origin: *` aux origines non Grist, sans cookie : `credentials:'omit'`)
+et l'ouvre depuis une adresse locale `blob:` de type `application/pdf`, dans la fenêtre ouverte au moment du
+clic. Seul un contenu qui commence par `%PDF-` est ouvert ainsi (jamais un autre type de fichier depuis une
+adresse de ce site) ; sinon, ou si la lecture échoue, repli sur l'adresse de Grist en `inline`. L'adresse
+`blob:` est gardée pour les clics suivants (8 fichiers au plus). Vérifié dans Chromium avec visionneuse PDF
+contre une réponse simulée « comme Grist » (CSP sandbox + `attachment`) : l'onglet s'ouvre sur le `blob:`,
+sans téléchargement. Si le navigateur est réglé pour télécharger les PDF au lieu de les ouvrir, il les
+téléchargera quand même.
 
 ### Divergences sans effet
 

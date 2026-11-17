@@ -67,6 +67,18 @@
     return { opened, restore() { window.open = original; } };
   }
 
+  // URL.createObjectURL remplacé : garde chaque Blob créé et rend une adresse « blob:test/n » reconnaissable.
+  function stubBlobs() {
+    const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    const created = [];
+    URL.createObjectURL = blob => { created.push(blob); return `blob:test/${created.length}`; };
+    URL.revokeObjectURL = () => {};
+    return { created, restore() { URL.createObjectURL = original.create; URL.revokeObjectURL = original.revoke; } };
+  }
+  const SERVER_URL = id => `${BASE}/attachments/${id}/download?auth=jeton-de-test&tableId=Projets&colId=${FILE_COLUMN}&rowId=12`;
+  const openedAt = (open, index = 0) => open.opened[index] && open.opened[index].location.href;
+  const viewerWindowReady = (open, index = 0) => waitFor(() => (openedAt(open, index) || '').length > 0 && openedAt(open, index) !== '', 'fenêtre dirigée');
+
   // Clic sur le trombone sans ouvrir la vraie boîte de dialogue du système.
   function clickAttach(acronym) {
     const original = HTMLInputElement.prototype.click;
@@ -174,28 +186,102 @@
       } finally { spy.restore(); }
     });
 
-    it('le nom du fichier ouvre le PDF dans un nouvel onglet (affichage), avec la preuve d\'accès sur la cellule', async function () {
+    it('le nom du fichier AFFICHE le PDF : lu avec le jeton, ouvert depuis une adresse blob: de type application/pdf (Grist ne le laisse pas s\'afficher lui-même)', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), spy = spyDocApi();
+      const open = stubOpen(), blobs = stubBlobs(), spy = spyDocApi();
+      const rest = stubFetch(() => new Response('%PDF-1.7 contenu de la convention'));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => open.opened[0] && open.opened[0].location.href.includes('/attachments/'), 'fenêtre dirigée vers le PDF');
+        await waitFor(() => openedAt(open) === 'blob:test/1', 'fenêtre dirigée vers le PDF');
         assertEqual(open.opened.length, 1);
-        assertEqual(open.opened[0].location.href, `${BASE}/attachments/501/download?auth=jeton-de-test&tableId=Projets&colId=${FILE_COLUMN}&rowId=12&inline=1`);
+        assertEqual(rest.log.length, 1);
+        assertEqual(rest.log[0].url, SERVER_URL(501), 'fichier lu avec la preuve d\'accès sur la cellule, sans « inline »');
+        assertEqual(rest.log[0].init.credentials, 'omit', 'aucun cookie');
+        assertEqual(blobs.created.length, 1);
+        assertEqual(blobs.created[0].type, 'application/pdf');
+        assertEqual(await blobs.created[0].text(), '%PDF-1.7 contenu de la convention');
         assertDeepEqual(spy.tokenOptions, [{ readOnly: false }], 'jeton non plafonné au rôle Lecteur');
-      } finally { open.restore(); spy.restore(); }
+      } finally { open.restore(); blobs.restore(); spy.restore(); rest.restore(); }
+    });
+
+    it('un second clic sur le même fichier réutilise la lecture déjà faite (une seule requête, deux fenêtres)', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const open = stubOpen(), blobs = stubBlobs();
+      const rest = stubFetch(() => new Response('%PDF-1.4 x'));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => openedAt(open) === 'blob:test/1', 'première fenêtre');
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => openedAt(open, 1) === 'blob:test/1', 'seconde fenêtre');
+        assertEqual(rest.log.length, 1, 'une seule lecture du fichier');
+        assertEqual(blobs.created.length, 1);
+      } finally { open.restore(); blobs.restore(); rest.restore(); }
+    });
+
+    it('un PDF précédé de quelques octets (espace, marque d\'ordre) est quand même reconnu', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const open = stubOpen(), blobs = stubBlobs();
+      const rest = stubFetch(() => new Response('﻿ \n%PDF-1.5 x'));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => openedAt(open) === 'blob:test/1', 'fenêtre dirigée vers le PDF');
+      } finally { open.restore(); blobs.restore(); rest.restore(); }
+    });
+
+    it('un fichier qui n\'est pas un PDF n\'est JAMAIS ouvert depuis une adresse blob: de ce site : repli sur l\'adresse de Grist', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const open = stubOpen(), blobs = stubBlobs();
+      const rest = stubFetch(() => new Response('<html><script>alert(1)</script></html>'));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await viewerWindowReady(open);
+        assertEqual(blobs.created.length, 0, 'aucun blob créé');
+        assertEqual(openedAt(open), SERVER_URL(501) + '&inline=1');
+        assertFalse(open.opened[0].closed);
+      } finally { open.restore(); blobs.restore(); rest.restore(); }
+    });
+
+    it('lecture impossible (réseau coupé, 403, 404) : repli sur l\'adresse de Grist, la fenêtre n\'est pas refermée', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const answers = [() => { throw new TypeError('Failed to fetch'); }, () => new Response('no', { status: 403 }), () => new Response('no', { status: 404 })];
+      for (const answer of answers) {
+        const open = stubOpen(), blobs = stubBlobs();
+        const rest = stubFetch(answer);
+        try {
+          fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+          await viewerWindowReady(open);
+          assertEqual(blobs.created.length, 0);
+          assertEqual(openedAt(open), SERVER_URL(501) + '&inline=1');
+          assertFalse(open.opened[0].closed);
+        } finally { open.restore(); blobs.restore(); rest.restore(); }
+      }
+    });
+
+    it('la fenêtre ouverte tout de suite (geste de la personne) reçoit l\'adresse locale : aucune seconde fenêtre', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const open = stubOpen(), blobs = stubBlobs();
+      const rest = stubFetch(() => new Response('%PDF-1.4 x'));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        assertEqual(open.opened.length, 1, 'ouverte avant même la lecture du fichier');
+        assertEqual(openedAt(open), '', 'encore vide');
+        await waitFor(() => openedAt(open) === 'blob:test/1', 'adresse reçue');
+        assertEqual(open.opened.length, 1);
+      } finally { open.restore(); blobs.restore(); rest.restore(); }
     });
 
     it('l\'icône de téléchargement ouvre la même pièce jointe SANS « inline » (téléchargement forcé par Grist)', async function () {
       await loadState({ files: { CONVENTIX: ['L', 502] }, attachments });
       const open = stubOpen();
+      const rest = stubFetch(() => new Response('%PDF-1.4 x'));
       try {
         fileCell('CONVENTIX').querySelector('[data-download-file]').click();
         await waitFor(() => open.opened[0] && open.opened[0].location.href.includes('/attachments/'), 'fenêtre dirigée vers le PDF');
         const url = open.opened[0].location.href;
         assertIncludes(url, '/attachments/502/download?auth=jeton-de-test');
         assertFalse(url.includes('inline'), 'pas d\'affichage en ligne');
-      } finally { open.restore(); }
+        assertEqual(rest.log.length, 0, 'le fichier n\'est pas lu par le widget : c\'est le navigateur qui le télécharge, sous son vrai nom');
+      } finally { open.restore(); rest.restore(); }
     });
 
     it('jeton impossible à obtenir : la fenêtre ouverte est refermée et une erreur est affichée', async function () {
