@@ -72,17 +72,15 @@
     return { opened, restore() { window.open = original; } };
   }
 
-  // URL.createObjectURL remplacé : garde chaque Blob créé et rend une adresse « blob:test/n » reconnaissable.
-  function stubBlobs() {
-    const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
-    const created = [];
-    URL.createObjectURL = blob => { created.push(blob); return `blob:test/${created.length}`; };
-    URL.revokeObjectURL = () => {};
-    return { created, restore() { URL.createObjectURL = original.create; URL.revokeObjectURL = original.revoke; } };
-  }
   const SERVER_URL = id => `${BASE}/attachments/${id}/download?auth=jeton-de-test&tableId=Projets&colId=${FILE_COLUMN}&rowId=12`;
-  const openedAt = (open, index = 0) => open.opened[index] && open.opened[index].location.href;
-  const viewerWindowReady = (open, index = 0) => waitFor(() => (openedAt(open, index) || '').length > 0 && openedAt(open, index) !== '', 'fenêtre dirigée');
+  // Vrai PDF (pdf-lib, embarqué avec l'outil de signature) : la visionneuse le lit et le dessine pour de bon.
+  async function makePdf(pages = 2) {
+    const pdf = await window.PDFLib.PDFDocument.create();
+    for (let i = 0; i < pages; i++) pdf.addPage([300, 400]);
+    return pdf.save();
+  }
+  const viewer = () => document.querySelector('[data-pdf-viewer]');
+  const closeViewer = () => window.PdfViewer.close();
 
   // Clic sur le trombone sans ouvrir la vraie boîte de dialogue du système.
   function clickAttach(acronym) {
@@ -234,88 +232,156 @@
       } finally { spy.restore(); }
     });
 
-    it('le nom du fichier AFFICHE le PDF : lu avec le jeton, ouvert depuis une adresse blob: de type application/pdf (Grist ne le laisse pas s\'afficher lui-même)', async function () {
+    it('le nom du fichier AFFICHE le PDF dans la visionneuse du widget : ouverte aussitôt, jamais de nouvel onglet', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), blobs = stubBlobs(), spy = spyDocApi();
-      const rest = stubFetch(() => new Response('%PDF-1.7 contenu de la convention'));
+      await waitFor(() => names('CONVENTIX')[0] === 'Convention_ACME.pdf', 'nom du fichier');
+      const open = stubOpen(), spy = spyDocApi();
+      const rest = stubFetch(async () => new Response(await makePdf(2)));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => openedAt(open) === 'blob:test/1', 'fenêtre dirigée vers le PDF');
-        assertEqual(open.opened.length, 1);
+        assertTrue(!!viewer(), 'fenêtre là tout de suite, avant même la fin de la lecture');
+        assertEqual(viewer().querySelector('[role="dialog"]').getAttribute('aria-modal'), 'true');
+        assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Convention_ACME.pdf');
+        await waitFor(() => viewer().querySelectorAll('.pdfv-page').length === 2, 'deux pages');
+        await waitFor(() => viewer().querySelectorAll('canvas').length === 2, 'pages dessinées');
+        assertEqual(viewer().querySelector('.pdfv-count').textContent, '2 pages');
+        assertEqual(open.opened.length, 0, 'pas de nouvel onglet');
         assertEqual(rest.log.length, 1);
-        assertEqual(rest.log[0].url, SERVER_URL(501), 'fichier lu avec la preuve d\'accès sur la cellule, sans « inline »');
+        assertEqual(rest.log[0].url, SERVER_URL(501), 'fichier lu avec la preuve d\'accès sur la cellule');
         assertEqual(rest.log[0].init.credentials, 'omit', 'aucun cookie');
-        assertEqual(blobs.created.length, 1);
-        assertEqual(blobs.created[0].type, 'application/pdf');
-        assertEqual(await blobs.created[0].text(), '%PDF-1.7 contenu de la convention');
         assertDeepEqual(spy.tokenOptions, [{ readOnly: false }], 'jeton non plafonné au rôle Lecteur');
-      } finally { open.restore(); blobs.restore(); spy.restore(); rest.restore(); }
+      } finally { closeViewer(); open.restore(); spy.restore(); rest.restore(); }
     });
 
-    it('un second clic sur le même fichier réutilise la lecture déjà faite (une seule requête, deux fenêtres)', async function () {
-      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), blobs = stubBlobs();
-      const rest = stubFetch(() => new Response('%PDF-1.4 x'));
+    it('fermer la visionneuse (croix, Échap, clic hors de la fenêtre) la retire ; une seule à la fois', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501], SIGNEX: ['L', 502] }, attachments });
+      await waitFor(() => names('SIGNEX')[0] === 'Convention_ACME_signee.pdf', 'noms de fichier');
+      const rest = stubFetch(async () => new Response(await makePdf(1)));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => openedAt(open) === 'blob:test/1', 'première fenêtre');
+        fileCell('SIGNEX').querySelector('[data-open-file]').click();
+        assertEqual(document.querySelectorAll('[data-pdf-viewer]').length, 1, 'une seule visionneuse');
+        assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Convention_ACME_signee.pdf', 'la plus récente');
+        viewer().querySelector('[data-pdfv-close]').click();
+        assertFalse(!!viewer(), 'croix');
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => openedAt(open, 1) === 'blob:test/1', 'seconde fenêtre');
-        assertEqual(rest.log.length, 1, 'une seule lecture du fichier');
-        assertEqual(blobs.created.length, 1);
-      } finally { open.restore(); blobs.restore(); rest.restore(); }
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        assertFalse(!!viewer(), 'Échap');
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        viewer().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        assertFalse(!!viewer(), 'clic sur le fond');
+        assertFalse(window.PdfViewer.isOpen());
+      } finally { closeViewer(); rest.restore(); }
     });
 
-    it('un PDF précédé de quelques octets (espace, marque d\'ordre) est quand même reconnu', async function () {
+    it('le bouton « Télécharger » de la visionneuse télécharge le fichier (adresse Grist sans « inline »)', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), blobs = stubBlobs();
-      const rest = stubFetch(() => new Response('﻿ \n%PDF-1.5 x'));
+      const open = stubOpen();
+      const rest = stubFetch(async () => new Response(await makePdf(1)));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => openedAt(open) === 'blob:test/1', 'fenêtre dirigée vers le PDF');
-      } finally { open.restore(); blobs.restore(); rest.restore(); }
+        viewer().querySelector('[data-pdfv-download]').click();
+        await waitFor(() => open.opened[0] && open.opened[0].location.href.includes('/attachments/'), 'téléchargement lancé');
+        assertEqual(open.opened[0].location.href, SERVER_URL(501));
+        assertTrue(!!viewer(), 'la visionneuse reste ouverte');
+      } finally { closeViewer(); open.restore(); rest.restore(); }
     });
 
-    it('un fichier qui n\'est pas un PDF n\'est JAMAIS ouvert depuis une adresse blob: de ce site : repli sur l\'adresse de Grist', async function () {
+    it('le zoom agrandit et réduit les pages, avec des bornes', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), blobs = stubBlobs();
+      const rest = stubFetch(async () => new Response(await makePdf(1)));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => viewer().querySelectorAll('canvas').length === 1, 'page dessinée');
+        const width = () => viewer().querySelector('.pdfv-page').getBoundingClientRect().width;
+        const before = width();
+        viewer().querySelector('[data-pdfv-zoom-in]').click();
+        assertTrue(width() > before, 'plus grand');
+        await waitFor(() => viewer().querySelectorAll('canvas').length === 1, 'page redessinée au nouveau zoom');
+        viewer().querySelector('[data-pdfv-zoom-out]').click();
+        viewer().querySelector('[data-pdfv-zoom-out]').click();
+        assertTrue(width() < before, 'plus petit');
+        for (let i = 0; i < 20; i++) viewer().querySelector('[data-pdfv-zoom-out]').click();
+        assertTrue(viewer().querySelector('[data-pdfv-zoom-out]').disabled, 'borne basse');
+        assertTrue(width() >= 100, 'jamais réduit à rien');
+      } finally { closeViewer(); rest.restore(); }
+    });
+
+    it('un long PDF ne garde pas toutes ses pages dessinées : seules celles proches de l\'écran existent', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const rest = stubFetch(async () => new Response(await makePdf(40)));
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => viewer().querySelectorAll('canvas').length >= 1, 'première page dessinée');
+        assertEqual(viewer().querySelectorAll('.pdfv-page').length, 40, 'une case par page (la barre de défilement a la bonne longueur)');
+        await wait(150);
+        assertTrue(viewer().querySelectorAll('canvas').length < 20, 'pages éloignées : pas de toile');
+      } finally { closeViewer(); rest.restore(); }
+    });
+
+    it('un fichier qui n\'est pas un PDF n\'est pas affiché : message clair, « Télécharger » reste disponible', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
       const rest = stubFetch(() => new Response('<html><script>alert(1)</script></html>'));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await viewerWindowReady(open);
-        assertEqual(blobs.created.length, 0, 'aucun blob créé');
-        assertEqual(openedAt(open), SERVER_URL(501) + '&inline=1');
-        assertFalse(open.opened[0].closed);
-      } finally { open.restore(); blobs.restore(); rest.restore(); }
+        await waitFor(() => viewer().querySelector('.pdfv-error'), 'message d\'erreur');
+        assertIncludes(viewer().querySelector('.pdfv-error').textContent, 'n\'est pas un PDF');
+        assertEqual(viewer().querySelectorAll('canvas, script, iframe, embed').length, 0, 'rien du contenu n\'est injecté');
+        assertFalse(viewer().querySelector('[data-pdfv-download]').disabled);
+      } finally { closeViewer(); rest.restore(); }
     });
 
-    it('lecture impossible (réseau coupé, 403, 404) : repli sur l\'adresse de Grist, la fenêtre n\'est pas refermée', async function () {
+    it('lecture impossible (réseau coupé, 403, 404, 500) : la cause est affichée dans la visionneuse (diagnostic)', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const answers = [() => { throw new TypeError('Failed to fetch'); }, () => new Response('no', { status: 403 }), () => new Response('no', { status: 404 })];
-      for (const answer of answers) {
-        const open = stubOpen(), blobs = stubBlobs();
+      const answers = [
+        [() => { throw new TypeError('Failed to fetch'); }, 'connexion'],
+        [() => new Response('no', { status: 403 }), 'HTTP 403'],
+        [() => new Response('no', { status: 404 }), 'HTTP 404'],
+        [() => new Response('no', { status: 500 }), 'HTTP 500']
+      ];
+      for (const [answer, expected] of answers) {
         const rest = stubFetch(answer);
         try {
           fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-          await viewerWindowReady(open);
-          assertEqual(blobs.created.length, 0);
-          assertEqual(openedAt(open), SERVER_URL(501) + '&inline=1');
-          assertFalse(open.opened[0].closed);
-        } finally { open.restore(); blobs.restore(); rest.restore(); }
+          await waitFor(() => viewer().querySelector('.pdfv-error'), 'message d\'erreur');
+          assertIncludes(viewer().querySelector('.pdfv-error').textContent, 'n\'a pas pu être lu');
+          assertIncludes(viewer().querySelector('.pdfv-error').textContent, expected);
+        } finally { closeViewer(); rest.restore(); }
       }
     });
 
-    it('la fenêtre ouverte tout de suite (geste de la personne) reçoit l\'adresse locale : aucune seconde fenêtre', async function () {
+    it('un PDF illisible (début correct, contenu corrompu) : « ne peut pas être affiché » avec le détail de pdf.js', async function () {
       await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen(), blobs = stubBlobs();
-      const rest = stubFetch(() => new Response('%PDF-1.4 x'));
+      const rest = stubFetch(() => new Response('%PDF-1.4\nce contenu n\'est pas un vrai document'));
       try {
         fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        assertEqual(open.opened.length, 1, 'ouverte avant même la lecture du fichier');
-        assertEqual(openedAt(open), '', 'encore vide');
-        await waitFor(() => openedAt(open) === 'blob:test/1', 'adresse reçue');
-        assertEqual(open.opened.length, 1);
-      } finally { open.restore(); blobs.restore(); rest.restore(); }
+        await waitFor(() => viewer().querySelector('.pdfv-error'), 'message d\'erreur', 8000);
+        assertIncludes(viewer().querySelector('.pdfv-error').textContent, 'ne peut pas être affiché');
+        assertIncludes(viewer().querySelector('.pdfv-error').textContent, 'Détail');
+      } finally { closeViewer(); rest.restore(); }
+    });
+
+    it('jeton impossible à obtenir : la cause est affichée dans la visionneuse, aucun nouvel onglet', async function () {
+      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
+      const open = stubOpen();
+      const original = window.grist.docApi.getAccessToken;
+      window.grist.docApi.getAccessToken = async () => { throw new Error('refusé'); };
+      try {
+        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
+        await waitFor(() => viewer().querySelector('.pdfv-error'), 'message d\'erreur');
+        assertIncludes(viewer().querySelector('.pdfv-error').textContent, 'refusé');
+        assertEqual(open.opened.length, 0);
+      } finally { closeViewer(); window.grist.docApi.getAccessToken = original; open.restore(); }
+    });
+
+    it('le chargement anticipé de la visionneuse est idempotent (un seul préchargement du moteur)', async function () {
+      window.PdfViewer.preload();
+      const count = () => document.querySelectorAll('link[rel="prefetch"][href$="pdf.worker.min.mjs"]').length;
+      const once = count();
+      window.PdfViewer.preload();
+      window.PdfViewer.preload();
+      assertEqual(count(), once);
+      assertTrue(once <= 1, 'jamais plusieurs balises');
     });
 
     it('l\'icône de téléchargement ouvre la même pièce jointe SANS « inline » (téléchargement forcé par Grist)', async function () {
@@ -330,19 +396,6 @@
         assertFalse(url.includes('inline'), 'pas d\'affichage en ligne');
         assertEqual(rest.log.length, 0, 'le fichier n\'est pas lu par le widget : c\'est le navigateur qui le télécharge, sous son vrai nom');
       } finally { open.restore(); rest.restore(); }
-    });
-
-    it('jeton impossible à obtenir : la fenêtre ouverte est refermée et une erreur est affichée', async function () {
-      await loadState({ files: { CONVENTIX: ['L', 501] }, attachments });
-      const open = stubOpen();
-      const original = window.grist.docApi.getAccessToken;
-      window.grist.docApi.getAccessToken = async () => { throw new Error('refusé'); };
-      clearToast();
-      try {
-        fileCell('CONVENTIX').querySelector('[data-open-file]').click();
-        await waitFor(() => open.opened[0] && open.opened[0].closed, 'fenêtre refermée');
-        assertIncludes(toastText(), 'Ouverture impossible');
-      } finally { window.grist.docApi.getAccessToken = original; open.restore(); }
     });
 
     it('le nom d\'un fichier est échappé (aucune balise injectée par un nom piégé)', async function () {

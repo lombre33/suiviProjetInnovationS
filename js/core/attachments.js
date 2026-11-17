@@ -125,50 +125,26 @@
     return getToken().then(token => go(win, downloadUrl(token, id, cell, options))).catch(err => fail(win, err));
   }
 
-  // Affiche un PDF dans le navigateur. Une adresse de Grist ne s'affiche pas : sa réponse porte
-  // « Content-Security-Policy: sandbox » (et, selon la version, un téléchargement forcé), que la
-  // visionneuse de PDF du navigateur refuse ; le navigateur télécharge alors le fichier. On lit
-  // donc le fichier avec le jeton (l'API répond en CORS à toute origine, sans cookie) et on
-  // l'ouvre depuis une adresse locale « blob: » de type application/pdf, sans aucun en-tête de
-  // Grist. Seul un contenu qui commence vraiment par « %PDF- » est ouvert ainsi : un autre type de
-  // fichier ne devient jamais une page de CE site. Au moindre échec (réseau, contenu inattendu),
-  // repli sur l'adresse de Grist en affichage « inline », comme avant.
-  // Le contenu d'une pièce jointe ne change jamais : l'adresse locale est gardée pour les clics
-  // suivants (les plus anciennes sont libérées au-delà de 8 fichiers).
-  const blobUrls = new Map();
-  const MAX_BLOB_URLS = 8;
-  const looksLikePdf = bytes => {
-    const head = new Uint8Array(bytes, 0, Math.min(1024, bytes.byteLength));
-    for (let i = 0; i + 4 < head.length; i++) {
-      if (head[i] === 0x25 && head[i + 1] === 0x50 && head[i + 2] === 0x44 && head[i + 3] === 0x46 && head[i + 4] === 0x2d) return true; // « %PDF- »
-    }
-    return false;
-  };
-  async function pdfBlobUrl(id, cell, token) {
-    const key = String(id);
-    if (blobUrls.has(key)) return blobUrls.get(key);
-    const response = await global.fetch(downloadUrl(token, id, cell), { credentials: 'omit' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const bytes = await response.arrayBuffer();
-    if (!looksLikePdf(bytes)) throw new Error('ce fichier n\'est pas un PDF');
-    const url = global.URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    blobUrls.set(key, url);
-    if (blobUrls.size > MAX_BLOB_URLS) {
-      const oldest = blobUrls.keys().next().value;
-      global.URL.revokeObjectURL(blobUrls.get(oldest));
-      blobUrls.delete(oldest);
-    }
-    return url;
-  }
-  async function view(id, cell) {
-    const win = openWindow('Chargement du PDF…');
-    let token;
-    try { token = await getToken(); } catch (err) { fail(win, err); return; }
+  // Octets d'une pièce jointe (GET avec le jeton). L'API répond en CORS à toute origine non Grist
+  // (Access-Control-Allow-Origin: *), à condition de ne pas envoyer de cookie : credentials:'omit'.
+  // Sert à la visionneuse de PDF du widget (js/components/pdf-viewer.js) : une adresse de pièce jointe
+  // de Grist ne s'affiche pas dans le navigateur (en-tête « Content-Security-Policy: sandbox », et
+  // téléchargement forcé selon la version), il faut donc lire le fichier soi-même pour l'afficher.
+  // Les erreurs disent ce qui s'est passé (réseau, droits, introuvable) : elles sont affichées telles
+  // quelles dans la visionneuse. Grist répond 404 quand la règle d'accès refuse la lecture.
+  async function fetchBytes(id, cell) {
+    const token = await getToken();
+    let response;
     try {
-      go(win, await pdfBlobUrl(id, cell, token));
+      response = await global.fetch(downloadUrl(token, id, cell), { credentials: 'omit' });
     } catch (err) {
-      go(win, downloadUrl(token, id, cell, { inline: true }));
+      throw new Error('lecture impossible, vérifiez la connexion');
     }
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403 || response.status === 404) throw new Error(`pièce jointe introuvable ou accès refusé (HTTP ${response.status})`);
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   // Envoie un fichier dans le document (POST multipart, champ « upload », droit d'édition requis) :
@@ -199,11 +175,7 @@
 
   // Remet à zéro les mémoires (noms, jeton) : utilisé par les tests entre deux cas, et sans danger ailleurs
   // (la prochaine demande relit simplement la table / redemande un jeton).
-  function resetCaches() {
-    names.clear(); missingSince.clear(); tokenCache = null; metaInFlight = null;
-    blobUrls.forEach(url => global.URL.revokeObjectURL(url));
-    blobUrls.clear();
-  }
+  function resetCaches() { names.clear(); missingSince.clear(); tokenCache = null; metaInFlight = null; }
 
-  global.CoreAttachments = { ids, encode, loadMeta, nameOf, rememberName, ensureNames, getToken, downloadUrl, open, view, upload, resetCaches };
+  global.CoreAttachments = { ids, encode, loadMeta, nameOf, rememberName, ensureNames, getToken, downloadUrl, open, fetchBytes, upload, resetCaches };
 }(window));
