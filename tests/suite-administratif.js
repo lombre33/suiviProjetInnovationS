@@ -328,7 +328,20 @@
       assertTrue(fields[0].hasAttribute('data-comment-project'), 'le commentaire général vient en premier');
       assertTrue(fields[1].hasAttribute('data-nextstep-project'), 'Next step vient en dessous');
       assertEqual(fields[1].value, 'Relancer le juridique');
-      assertTrue(card.querySelector('.admin-nextstep .admin-field-label').textContent.trim() === 'Next step', 'le champ porte le titre "Next step"');
+      // Vue lignes : le titre vit UNE fois dans l'en-tête du volet (colonnes alignées), le champ garde son nom accessible.
+      assertEqual(card.querySelector('.admin-nextstep .visually-hidden').textContent.trim(), 'Next step', 'nom accessible du champ');
+      assertFalse(!!card.querySelector('.admin-nextstep .admin-field-label'), 'plus de titre répété sur chaque carte en vue lignes');
+      assertIncludes(panelIn('admin-col-conv', 'Convention en redaction').querySelector('.admin-colhead-text').textContent, 'Next step', 'titre dans l\'en-tête du volet');
+    });
+
+    it('en vue « cartes », le titre « Next step » reste affiché au-dessus du champ', async function () {
+      await loadFixtureState();
+      document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      try {
+        const card = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+        assertEqual(card.querySelector('.admin-nextstep .admin-field-label').textContent.trim(), 'Next step');
+        assertEqual(document.querySelectorAll('#admin-col-conv .admin-colhead').length, 0, 'pas d\'en-têtes de colonnes en vue cartes');
+      } finally { document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
 
     it('enregistre next_step sur Projets à la sortie du champ, et seulement s\'il a changé', async function () {
@@ -462,13 +475,25 @@
     it('une seule phrase « Transmise au porteur le » suivie de deux icônes (e-mail, papier), sur les cartes de la dernière étape uniquement', async function () {
       await loadFixtureState();
       const card = lastStageCard('SIGNEX');
-      assertEqual(card.querySelectorAll('.admin-transmit .admin-field-label').length, 1, 'une seule phrase');
-      assertEqual(card.querySelector('.admin-transmit .admin-field-label').textContent.trim(), 'Transmise au porteur le');
+      // Vue lignes : la phrase est une infobulle + un nom accessible (pas de texte visible, pour garder la colonne étroite).
+      assertEqual(card.querySelectorAll('.admin-transmit .visually-hidden').length, 1, 'une seule phrase');
+      assertEqual(card.querySelector('.admin-transmit .visually-hidden').textContent.trim(), 'Transmise au porteur le');
+      assertEqual(card.querySelector('.admin-transmit').title, 'Transmise au porteur le', 'visible au survol');
       assertEqual(card.querySelectorAll('.admin-transmit-btn').length, 2, 'deux icônes');
       assertTrue(!!transmitBtn(card, 'mail') && !!transmitBtn(card, 'paper'));
       assertEqual(card.querySelector('.admin-done-badge').textContent, 'Signée');
       assertEqual(document.querySelectorAll('#admin-col-conv .admin-transmit').length, 1, 'absent de toutes les autres étapes');
       assertEqual(document.querySelectorAll('#admin-col-conv input[type="date"][data-transmise-project]').length, 0, 'plus de champ date en clair');
+    });
+
+    it('en vue « cartes », la phrase « Transmise au porteur le » reste visible devant les icônes', async function () {
+      await loadFixtureState();
+      document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      try {
+        const card = lastStageCard('SIGNEX');
+        assertEqual(card.querySelectorAll('.admin-transmit .admin-field-label').length, 1, 'une seule phrase');
+        assertEqual(card.querySelector('.admin-transmit .admin-field-label').textContent.trim(), 'Transmise au porteur le');
+      } finally { document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
 
     it('icône grise sans date, bleue avec la date affichée à côté une fois renseignée (chaque canal indépendant)', async function () {
@@ -721,7 +746,9 @@
       assertEqual(lines.length, 2);
       assertTrue(!!lines[0].querySelector('[data-comment-project]') && !!lines[0].querySelector('[data-lastaction-project]'), 'commentaire + dernière action sur la première ligne');
       assertTrue(!!lines[1].querySelector('[data-nextstep-project]'), 'Next step sur la seconde');
-      assertEqual(lines[0].querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
+      // Convention (vue lignes) : titre dans l'en-tête du volet, nom accessible sur le champ ; Notifications garde son titre inline.
+      assertEqual(lines[0].querySelector('.admin-lastaction .visually-hidden').textContent.trim(), 'Dernière action');
+      assertIncludes(panelIn('admin-col-conv', 'Convention en redaction').querySelector('.admin-colhead-last').textContent, 'Dernière action');
       const notif = cardByAcronym(panelIn('admin-col-notif', 'Information projet saisies'), 'INNOVX');
       assertTrue(!!notif.querySelector('[data-comment-project]') && !!notif.querySelector('[data-lastaction-project]'), 'commentaire + dernière action aussi sur la carte Notifications');
       assertEqual(notif.querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
@@ -880,13 +907,32 @@
     it('au-delà de 3 responsables, les suivants se replient en « +N » (même liste, nom des autres en infobulle)', async function () {
       const extra = [3, 4, 5].map(id => ({ id, NOM: `Nom${id}`, Prenom: `Prenom${id}`, Email: `p${id}@example.org`, Telephone: '', Poste2: 0, nom_et_Prenom: `Prenom${id} Nom${id}` }));
       await withTagged([1, 2, 3, 4, 5], extra);
-      assertEqual(innovCard().querySelectorAll('.admin-tag').length, 3);
+      // Vue lignes (colonne de largeur fixe) : 2 pastilles + « +N » ; vue cartes (plus de place) : 3 pastilles.
+      assertEqual(innovCard().querySelectorAll('.admin-tag').length, 2);
       const more = innovCard().querySelector('.admin-avatar-more');
-      assertEqual(more.textContent, '+2');
+      assertEqual(more.textContent, '+3');
+      assertIncludes(more.title, 'Prenom3 Nom3');
       assertIncludes(more.title, 'Prenom4 Nom4');
       assertIncludes(more.title, 'Prenom5 Nom5');
       fireMouse(more, 'click');
       assertTrue(!!popoverEl(), 'ouvre la liste pour modifier');
+    });
+
+    it('exactement 3 responsables : tous visibles, aucun « +N » (en lignes comme en cartes)', async function () {
+      const extra = [3].map(id => ({ id, NOM: `Nom${id}`, Prenom: `Prenom${id}`, Email: `p${id}@example.org`, Telephone: '', Poste2: 0, nom_et_Prenom: `Prenom${id} Nom${id}` }));
+      await withTagged([1, 2, 3], extra);
+      assertEqual(innovCard().querySelectorAll('.admin-tag').length, 3);
+      assertFalse(!!innovCard().querySelector('.admin-avatar-more'));
+    });
+
+    it('en vue « cartes », 3 responsables restent visibles puis « +N » pour les suivants', async function () {
+      const extra = [3, 4, 5].map(id => ({ id, NOM: `Nom${id}`, Prenom: `Prenom${id}`, Email: `p${id}@example.org`, Telephone: '', Poste2: 0, nom_et_Prenom: `Prenom${id} Nom${id}` }));
+      await withTagged([1, 2, 3, 4, 5], extra);
+      document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      try {
+        assertEqual(innovCard().querySelectorAll('.admin-tag').length, 3);
+        assertEqual(innovCard().querySelector('.admin-avatar-more').textContent, '+2');
+      } finally { document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
 
     it('un identifiant absent de l\'Annuaire ne casse rien (pastille « ? », libellé neutre)', async function () {
@@ -1198,9 +1244,17 @@
       window.__mockSetTable('_grist_Tables_column', { id: [1, 2], parentId: [1, 1], colId: ['convention_Date_derniere_modification', 'Transmise_signee_au_porteur_le'], description: ['Date de la dernière action', 'Date d\'envoi par e-mail'] });
       await window.CoreGrist.loadColumnDescriptions();
       await loadFixtureState();
-      const open = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
-      assertTrue(!!open.querySelector('.admin-lastaction .help-icon'), 'icône sur « Dernière action »');
-      assertTrue(!!lastStageCard('SIGNEX').querySelector('.admin-transmit .help-icon'), 'icône sur « Transmise au porteur le »');
+      // Vue lignes : les bulles vivent UNE fois dans l'en-tête du volet (Dernière action), pas répétées sur chaque carte.
+      const panel = panelIn('admin-col-conv', 'Convention en redaction');
+      assertTrue(!!panel.querySelector('.admin-colhead-last .help-icon'), 'icône dans l\'en-tête « Dernière action »');
+      assertFalse(!!cardByAcronym(panel, 'INNOVX').querySelector('.admin-lastaction .help-icon'), 'pas répétée sur chaque carte');
+      // Vue cartes : titres de champs affichés, bulles à côté de chaque titre (« Transmise au porteur le » comprise).
+      document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      try {
+        const open = cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX');
+        assertTrue(!!open.querySelector('.admin-lastaction .help-icon'), 'icône sur « Dernière action »');
+        assertTrue(!!lastStageCard('SIGNEX').querySelector('.admin-transmit .help-icon'), 'icône sur « Transmise au porteur le »');
+      } finally { document.getElementById('admin-toggle-view').dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
   });
 

@@ -934,6 +934,8 @@
   function renderAttachments(container, ids, cell) {
     if (!container) return;
     const gen = (container._cpAttachmentsGen = (container._cpAttachmentsGen || 0) + 1);
+    container._cpAttachmentCell = cell;
+    wireAttachmentViewer(container);
     if (!ids.length) {
       container.innerHTML = '<span class="cp-attachments-empty">Aucun fichier.</span>';
       return;
@@ -953,10 +955,41 @@
       const cellParams = cell ? `&tableId=${encodeURIComponent(cell.tableId)}&colId=${encodeURIComponent(cell.colId)}&rowId=${encodeURIComponent(cell.rowId)}` : '';
       container.innerHTML = ids.map(id => {
         const name = meta.get(id) || `Pièce jointe #${id}`;
+        if (meta.get(id)) global.CoreAttachments.rememberName(id, meta.get(id)); // titre de la visionneuse
         const url = `${token.baseUrl}/attachments/${id}/download?auth=${encodeURIComponent(token.token)}${cellParams}`;
-        return `<a href="${esc(url)}" class="cp-attachment-link" target="_blank" rel="noopener">${esc(name)}</a>`;
+        return `<a href="${esc(url)}" class="cp-attachment-link" data-attachment-id="${id}" target="_blank" rel="noopener">${esc(name)}</a>`;
       }).join('');
     })();
+  }
+
+  // Un clic sur le nom d'une pièce jointe PDF l'affiche dans la visionneuse du widget
+  // (js/components/pdf-viewer.js) au lieu d'ouvrir un onglet : l'adresse Grist de la pièce jointe
+  // force le téléchargement. Le lien garde son href (clic droit « enregistrer », Ctrl/Maj/clic
+  // milieu = comportement du navigateur) ; un fichier qui n'est visiblement pas un PDF, ou une
+  // visionneuse absente, laissent le lien faire son travail habituel. Le fichier est lu avec le
+  // jeton (CoreAttachments.fetchBytes) ; l'icône « télécharger » de la visionneuse garde le
+  // téléchargement. Un seul écouteur par conteneur : la liste est redessinée à chaque ouverture.
+  function wireAttachmentViewer(container) {
+    if (container._cpViewerWired) return;
+    container._cpViewerWired = true;
+    container.addEventListener('click', event => {
+      const link = event.target.closest && event.target.closest('a.cp-attachment-link[data-attachment-id]');
+      if (!link || !container.contains(link) || event.defaultPrevented) return;
+      if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      if (!global.PdfViewer || !global.CoreAttachments) return;
+      const name = link.textContent.trim();
+      const extension = /\.([a-z0-9]{1,6})$/i.exec(name);
+      if (extension && extension[1].toLowerCase() !== 'pdf') return;
+      event.preventDefault();
+      const id = Number(link.dataset.attachmentId);
+      const cell = container._cpAttachmentCell || null;
+      global.PdfViewer.open({
+        title: name,
+        load: () => global.CoreAttachments.fetchBytes(id, cell),
+        onDownload: () => global.CoreAttachments.open(id, cell),
+        opener: link
+      });
+    });
   }
 
   // Appelée aussi bien en édition (record renseigné) qu'à l'ouverture en création : dans

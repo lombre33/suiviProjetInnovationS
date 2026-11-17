@@ -1050,6 +1050,161 @@
       await flush();
       assertEqual(attachmentsEl('Notifications_Signees').textContent, 'Aucun fichier.', 'NOTIFY n\'a pas de pièce jointe : la réponse tardive de CONVENTIX ne doit pas s\'appliquer après coup');
     });
+
+    // Demande d'Antoine du 17/11/2026 : « je ne le veux pas dans un nouvel onglet mais dans une visionneuse ».
+    // Le nom d'une pièce jointe PDF de la fiche projet s'affiche dans la visionneuse du widget (celle de la
+    // page Administratif), le lien garde son adresse pour tous les autres usages.
+    describe('Modale Projet — le nom d\'une pièce jointe PDF s\'affiche dans la visionneuse (17/11/2026)', function () {
+      const BASE = 'http://127.0.0.1/api/docs/test';
+      async function makePdf() {
+        const pdf = await window.PDFLib.PDFDocument.create();
+        pdf.addPage([300, 400]);
+        return pdf.save();
+      }
+      const viewer = () => document.querySelector('[data-pdf-viewer]');
+      function stubFetch(handler) {
+        const original = window.fetch, log = [];
+        window.fetch = async function (url, init) { log.push({ url: String(url), init }); return handler(String(url), init); };
+        return { log, restore() { window.fetch = original; } };
+      }
+      function stubOpen() {
+        const original = window.open, opened = [];
+        window.open = function (url) { const win = { location: { href: url || '' }, close() {} }; opened.push(win); return win; };
+        return { opened, restore() { window.open = original; } };
+      }
+      // Clic sur le lien ; renvoie false si la modale a bloqué le comportement par défaut (donc l'onglet). Un
+      // écouteur placé plus haut (document) note le résultat puis annule lui-même la navigation, pour que le
+      // test n'ouvre jamais de vraie fenêtre vers l'adresse Grist factice.
+      function click(link, init = {}) {
+        let prevented = false;
+        const spy = event => { prevented = event.defaultPrevented; event.preventDefault(); };
+        document.addEventListener('click', spy);
+        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...init })); } finally { document.removeEventListener('click', spy); }
+        return !prevented;
+      }
+      async function openWith(files, col = 'Convention_de_reversement_le_cas_echeant') {
+        const tables = await loadFixtureState();
+        window.__mockSetTable('_grist_Attachments', { id: [501, 502], fileName: files });
+        const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+        record[col] = ['L', 501, 502];
+        window.ProjectModal.open(record);
+        await flush();
+        return { record, links: attachmentsEl(col).querySelectorAll('a') };
+      }
+
+      it('un clic sur un PDF ouvre la visionneuse, lit le fichier avec la preuve d\'accès sur la cellule, sans nouvel onglet', async function () {
+        const { record, links } = await openWith(['Convention_ACME.pdf', 'Avenant.pdf']);
+        const open = stubOpen();
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          assertFalse(click(links[0]), 'le comportement par défaut du lien (onglet / téléchargement) est bloqué');
+          assertTrue(!!viewer(), 'visionneuse ouverte tout de suite');
+          assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Convention_ACME.pdf');
+          await waitFor(() => viewer().querySelectorAll('canvas').length === 1, 'page dessinée');
+          assertEqual(open.opened.length, 0, 'pas de nouvel onglet');
+          assertEqual(rest.log.length, 1);
+          assertEqual(rest.log[0].url, `${BASE}/attachments/501/download?auth=jeton-de-test&tableId=Projets&colId=Convention_de_reversement_le_cas_echeant&rowId=${record.id}`);
+          assertEqual(rest.log[0].init.credentials, 'omit', 'aucun cookie');
+        } finally { window.PdfViewer.close(); open.restore(); rest.restore(); }
+      });
+
+      it('marche aussi pour la notification signée, et chaque fichier ouvre le sien', async function () {
+        const { links } = await openWith(['Notification_signee.pdf', 'Avenant.pdf'], 'Notifications_Signees');
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          click(links[1]);
+          assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Avenant.pdf');
+          await waitFor(() => rest.log.length === 1, 'fichier demandé');
+          assertTrue(rest.log[0].url.includes('/attachments/502/download') && rest.log[0].url.includes('colId=Notifications_Signees'), rest.log[0].url);
+        } finally { window.PdfViewer.close(); rest.restore(); }
+      });
+
+      it('le lien garde son adresse de téléchargement : Ctrl/Cmd/Maj/clic milieu = comportement habituel du navigateur', async function () {
+        const { links } = await openWith(['Convention_ACME.pdf', 'Avenant.pdf']);
+        assertTrue(links[0].getAttribute('href').includes('/attachments/501/download'), 'href conservé');
+        [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }].forEach(init => {
+          assertTrue(click(links[0], init), `${JSON.stringify(init)} : le navigateur garde la main`);
+          assertFalse(!!viewer(), `${JSON.stringify(init)} : pas de visionneuse`);
+        });
+      });
+
+      it('un fichier qui n\'est visiblement pas un PDF garde le comportement habituel (téléchargement)', async function () {
+        const { links } = await openWith(['Tableau_budget.xlsx', 'Avenant.PDF']);
+        assertTrue(click(links[0]), 'tableur : le lien fait son travail');
+        assertFalse(!!viewer());
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          assertFalse(click(links[1]), 'extension .PDF en majuscules : visionneuse');
+          assertTrue(!!viewer());
+        } finally { window.PdfViewer.close(); rest.restore(); }
+      });
+
+      it('une pièce jointe sans nom connu s\'ouvre quand même dans la visionneuse (qui dira si ce n\'est pas un PDF)', async function () {
+        const tables = await loadFixtureState();
+        const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+        record.Convention_de_reversement_le_cas_echeant = ['L', 999];
+        window.ProjectModal.open(record);
+        await flush();
+        const rest = stubFetch(async () => new Response('pas un pdf', { status: 200 }));
+        try {
+          assertFalse(click(attachmentsEl('Convention_de_reversement_le_cas_echeant').querySelector('a')));
+          assertEqual(viewer().querySelector('.pdfv-title').textContent, 'Pièce jointe #999');
+          await waitFor(() => viewer().querySelector('.pdfv-error'), 'message d\'erreur');
+          assertTrue(viewer().querySelector('.pdfv-error').textContent.includes('Ce fichier n\'est pas un PDF.'));
+          assertTrue(!!viewer().querySelector('[data-pdfv-download]'), 'le bouton Télécharger reste proposé');
+        } finally { window.PdfViewer.close(); rest.restore(); }
+      });
+
+      it('réouvrir la fiche plusieurs fois n\'empile pas d\'écouteurs : un clic = un seul fichier lu', async function () {
+        const tables = await loadFixtureState();
+        window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Convention_ACME.pdf'] });
+        const record = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+        record.Convention_de_reversement_le_cas_echeant = ['L', 501];
+        for (let i = 0; i < 3; i++) { window.ProjectModal.open(record); await flush(); }
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          click(attachmentsEl('Convention_de_reversement_le_cas_echeant').querySelector('a'));
+          await waitFor(() => viewer().querySelectorAll('canvas').length === 1, 'page dessinée');
+          assertEqual(rest.log.length, 1);
+        } finally { window.PdfViewer.close(); rest.restore(); }
+      });
+
+      it('depuis la fiche d\'un AUTRE projet : la cellule du clic est celle du projet affiché (pas celle de la fiche précédente)', async function () {
+        const tables = await loadFixtureState();
+        window.__mockSetTable('_grist_Attachments', { id: [501], fileName: ['Convention_ACME.pdf'] });
+        const first = tables.Projets.find(p => p.Acronyme === 'CONVENTIX');
+        const second = tables.Projets.find(p => p.Acronyme === 'SIGNEX');
+        first.Convention_de_reversement_le_cas_echeant = ['L', 501];
+        second.Convention_de_reversement_le_cas_echeant = ['L', 501];
+        window.ProjectModal.open(first); await flush();
+        window.ProjectModal.open(second); await flush();
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          click(attachmentsEl('Convention_de_reversement_le_cas_echeant').querySelector('a'));
+          await waitFor(() => rest.log.length === 1, 'fichier demandé');
+          assertTrue(rest.log[0].url.endsWith(`rowId=${second.id}`), rest.log[0].url);
+        } finally { window.PdfViewer.close(); rest.restore(); }
+      });
+
+      it('le bouton « Télécharger » de la visionneuse télécharge la pièce jointe (adresse Grist, sans « inline »)', async function () {
+        const { record, links } = await openWith(['Convention_ACME.pdf', 'Avenant.pdf']);
+        const open = stubOpen();
+        const rest = stubFetch(async () => new Response(await makePdf()));
+        try {
+          click(links[0]);
+          viewer().querySelector('[data-pdfv-download]').click();
+          await waitFor(() => open.opened[0] && open.opened[0].location.href.includes('/attachments/'), 'téléchargement lancé');
+          assertEqual(open.opened[0].location.href, `${BASE}/attachments/501/download?auth=jeton-de-test&tableId=Projets&colId=Convention_de_reversement_le_cas_echeant&rowId=${record.id}`);
+        } finally { window.PdfViewer.close(); open.restore(); rest.restore(); }
+      });
+
+      it('sans visionneuse chargée, le lien garde son comportement habituel (jamais un clic mort)', async function () {
+        const { links } = await openWith(['Convention_ACME.pdf', 'Avenant.pdf']);
+        const viewerApi = window.PdfViewer;
+        window.PdfViewer = undefined;
+        try { assertTrue(click(links[0]), 'le lien fait son travail'); } finally { window.PdfViewer = viewerApi; }
+      });
+    });
   });
 
   // Demande d'Antoine du 22/10/2026 : « flèche du bas ne permet pas de naviguer dans
