@@ -16,7 +16,8 @@ const VIEW_RENDERERS = {
   'view-administratif': () => window.renderAdministratif?.(),
   'view-installation-fonds': () => window.renderInstallation?.(),
   'view-todo': () => window.renderTodo?.(),
-  'view-instances': () => window.renderInstances?.()
+  'view-instances': () => window.renderInstances?.(),
+  'view-annuaire': () => window.renderAnnuaire?.()
 };
 const staleViews = new Set();
 let idleRenderHandle = null;
@@ -150,6 +151,7 @@ async function initializeApp() {
     if (window.loadInstallationUserPreferences) await window.loadInstallationUserPreferences();
     if (window.loadTodoUserPreferences) await window.loadTodoUserPreferences();
     if (window.loadInstancesUserPreferences) await window.loadInstancesUserPreferences();
+    if (window.loadAnnuaireUserPreferences) await window.loadAnnuaireUserPreferences();
     restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
     CoreGrist.closeSharedWindow();
     renderAllViews(); setupEventListeners(); observeViewVisibility();

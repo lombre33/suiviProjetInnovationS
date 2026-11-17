@@ -298,6 +298,8 @@
             : [...annuaire, updated]);
         }
         close();
+        // La page Annuaire relit la table (nom calculé à jour) et ouvre la fiche d'une personne créée.
+        global.dispatchEvent(new CustomEvent('directory-changed', { detail: { table: 'Annuaire', id: Number(id), created: !editing } }));
       } catch (e) {
         button.disabled = false;
         error.textContent = `${editing ? 'Modification' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
