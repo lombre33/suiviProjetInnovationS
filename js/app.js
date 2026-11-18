@@ -15,6 +15,7 @@ function waitForDependencies(timeout = 5000) { if (checkDependencies()) return P
 // inactif — avant, les cinq pages étaient reconstruites à chaque démarrage et à chaque
 // enregistrement de projet, alors qu'une seule est visible.
 const VIEW_RENDERERS = {
+  'view-dashboard': () => window.renderDashboard?.(),
   'view-projects': () => renderProjectsKanban(CoreState.getTable('Projets') || []),
   'view-administratif': () => window.renderAdministratif?.(),
   'view-installation-fonds': () => window.renderInstallation?.(),
@@ -212,6 +213,7 @@ async function initializeApp() {
     if (window.loadTodoUserPreferences) await window.loadTodoUserPreferences();
     if (window.loadInstancesUserPreferences) await window.loadInstancesUserPreferences();
     if (window.loadAnnuaireUserPreferences) await window.loadAnnuaireUserPreferences();
+    if (window.loadDashboardUserPreferences) await window.loadDashboardUserPreferences();
     mark('préférences des pages chargées');
     CoreGrist.closeSharedWindow();
     {

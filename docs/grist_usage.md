@@ -539,9 +539,51 @@ passent par les modales Personne et Poste existantes (`openCreatePersonModal` / 
   Description dans Grist ; aucune icône sinon.
 - Pas dans la V1 : photos (`Annuaire.photos`), `Actions_PUI`, suppression de personne, champs d'étiquettes éditables.
 
+## Page Dashboard (18/11/2026)
+
+Premier bouton de la barre. Maquette validée le 10/11/2026 (Artifact Design), mise en œuvre le 18/11/2026. « Bilan » 2023-2026 pour
+l'instant. Code : `js/pages/dashboard-logic.js` (règles de calcul, pures), `js/pages/page-dashboard.js` (rendu, interactions,
+préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
+
+- **Page** : bandeau d'une seule ligne (années en pastilles, Programme et Statut à cases multiples, recherche de projet, mesure CP/AE,
+  icône « Réinitialiser » visible seulement quand un filtre est actif, bouton « Graphiques »). En dessous : total attribué / consommé,
+  deux graphiques à détail progressif (années > programmes > projets et l'inverse, un clic sur une barre filtre, le fil d'Ariane
+  remonte), puis un **volet par programme** (replié par défaut) qui contient ses projets (attribué, consommé, **statut modifiable**),
+  puis, sous chaque projet, un volet **Dépenses** (replié par défaut) avec les lignes de l'export FD02.
+- **Attribué par année** : `Projets.cAAAA_M10_Fonctionnement + cAAAA_M20_Investissement + cAAAA_M30_Personnel` (AAAA = 2023…2026).
+  Jamais `Montant_attribue_Total` (il ne somme que 2026-2028) ni `Total_AAAA` (formules qui renvoient « » à 0). **À revoir** : pour les
+  projets de l'historique importé, ces colonnes resteront vides ; l'attribué viendra des `Lignes_OPE` (`Attribue_AAAA`), voir l'outil de
+  fusion. Tout passe par la seule fonction `buildDataset` (dashboard-logic.js) : changer de source ne touche qu'elle.
+- **Consommé par année** : table `Depenses_OPE` (export FD02 « Consommation détaillée des AE », une ligne par objet de gestion),
+  **créée à la première ouverture de la page si elle manque** (`CoreGrist.ensureTable`, 25 colonnes : `Exercice` Int, `Code_operation`,
+  `CRB`, `SO`, `Sous_SO`, `Nature_depense`, `Code_analytique`, `Reference_externe_operation`, `Destination`, `Libelle_destination`,
+  `Num_EJ`, `Type_objet`, `Libelle_objet`, `Date_creation`, `Fournisseur`, `Etat`, `Date_validation`, `EJ_montant_budgetaire`,
+  `Montant_budgetaire_SF`, `AE_consomme_hors_virement`, `AE_consomme_sur_virement`, `AE_consomme`, `CP_consomme`, `Domaine`,
+  `Donnees_au`). **Le widget ne l'écrit jamais** (alimentée par l'import). Une dépense est rattachée à un projet quand son
+  `Code_operation` (espaces et casse ignorés) est le `N_OPE` d'une ligne OPE du projet (`Projets.Ligne_OPE`). CP = `CP_consomme`,
+  AE = `AE_consomme` ; le choix est retenu par utilisateur (CP par défaut).
+- **« Sans année »** : `Lignes_OPE.totalCPConsomme` (un seul cumul par ligne OPE) moins les CP déjà détaillés dans `Depenses_OPE`, quand
+  il est positif. CP seulement (pas de total AE). Sert de repli tant que le détail n'est pas importé : sans lui, un projet afficherait 0.
+  Jamais signalé comme un dépassement (il est cumulé depuis l'origine, l'attribué ne couvre que 2023-2026).
+- **Sans projet rattaché** : volet à part pour les dépenses dont le code opération ne correspond à aucune ligne OPE de projet (visible
+  seulement sans filtre de projet). **Hors 2023-2026** : un exercice en dehors n'est compté nulle part, une note en bas de page le signale
+  avec son montant. Une ligne OPE portée par deux projets : ses dépenses vont au premier (jamais comptées deux fois).
+- **Écrit dans Grist** : seulement `Projets.Statut_operationnel_projet` (liste déroulante d'un projet : écriture optimiste, rétablie
+  avec un message si Grist refuse ; `Statut_Macro` est une formule, donc non modifiable ; relecture groupée des autres pages 2,5 s
+  après) et la ligne de préférences de l'utilisateur.
+- **Préférences** (`Preferences_Widget`, 6 colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
+  année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
+  `Dash_graphiques` (`0` = graphiques masqués). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+- **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
+  l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
+  bloquer le reste.
+- **Bulles d'aide** : en-tête « Statut du projet » (`HelpTooltip.markup('Projets', 'Statut_operationnel_projet')`) quand la colonne a une
+  Description dans Grist.
+- Pas dans cette version : Grist-BI à la place des graphiques faits main, filtre sur le financeur, export.
+
 ## Dernière page ouverte (12/11/2026)
 
-Le widget revient sur la dernière page ouverte (Projets, Administratif, Installation des fonds, Suivi opérationnel, To Do,
+Le widget revient sur la dernière page ouverte (Dashboard, Projets, Administratif, Installation des fonds, Suivi opérationnel, To Do,
 Instances, Annuaire) après un rechargement (Ctrl+Maj+R), une fermeture/réouverture ou un changement de page dans Grist. Avant, il
 repartait toujours sur le Kanban. Code : `js/app.js` (section « Dernière page ouverte »).
 

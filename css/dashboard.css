@@ -1,0 +1,157 @@
+/* Page Dashboard — attribué / consommé (maquette validée le 10/11/2026, mise en œuvre le 18/11/2026). Classes préfixées « db- » ;
+   bandeau de filtres, listes à cases (.combo-list) et boutons repris de style.css / kanban.css pour rester cohérent avec les autres pages. */
+#view-dashboard { --db-track:#c9dcfc; --db-over:#d84343; }
+
+/* Bandeau : années (pastilles), mesure CP/AE, bouton des graphiques */
+.db-filters .db-years, .db-filters .db-measure { display:flex; gap:2px; flex:none; align-items:center; height:36px; padding:3px; border-radius:999px; background:var(--surface-sunken); }
+.db-year, .db-mbtn { appearance:none; border:0; background:transparent; height:30px; padding:0 13px; border-radius:999px; font:inherit; font-size:12.5px; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; }
+.db-year:hover, .db-mbtn:hover { color:var(--text); }
+.db-year.is-on { background:var(--accent); color:#fff; }
+.db-mbtn { padding:0 11px; }
+.db-mbtn.is-on { background:var(--surface); color:var(--text); box-shadow:var(--shadow-card); }
+.db-filters input.is-active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
+.db-filters .db-spacer { flex:1 1 0; }
+/* Une seule ligne dans un widget de largeur courante : les trois champs se partagent la place restante */
+.db-filters .filter-combo, .db-filters .filter-search { flex:1 1 150px; min-width:130px; max-width:230px; }
+.db-filters .filter-combo input, .db-filters .filter-search input { min-width:0; width:100%; text-overflow:ellipsis; }
+.db-reset { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); cursor:pointer; flex:none; }
+.db-reset:hover { background:var(--surface-sunken); color:var(--text); }
+.db-reset[hidden] { display:none; }
+.db-charts-toggle .db-chev { transition:transform .15s; transform:rotate(180deg); }
+.db-charts-toggle.is-collapsed .db-chev { transform:none; }
+.db-charts[hidden] { display:none; }
+
+/* Graphiques */
+.db-charts { margin:0 0 14px; }
+.db-charts-grid { display:grid; grid-template-columns:minmax(190px,230px) minmax(0,1fr) minmax(0,1.15fr); gap:12px; align-items:stretch; }
+.db-card { min-width:0; padding:12px 14px; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow-card); }
+.db-kpis { display:flex; flex-direction:column; justify-content:center; gap:14px; }
+.db-kl { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700; color:var(--text-muted); }
+.db-sw { display:inline-block; width:10px; height:10px; border-radius:3px; }
+.db-sw-att { background:var(--db-track); }
+.db-sw-cons { background:var(--accent); }
+.db-kv { display:block; font-size:24px; line-height:1.15; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.db-kbar { height:8px; margin-top:8px; border-radius:999px; background:var(--db-track); overflow:hidden; }
+.db-kfill { height:100%; border-radius:999px; background:var(--accent); }
+.db-kfill.is-over { background:var(--db-over); }
+.db-kp { display:block; margin-top:5px; font-size:11.5px; font-weight:600; color:var(--text-muted); }
+.db-chead { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:26px; margin-bottom:6px; }
+.db-crumbs { display:flex; align-items:center; flex-wrap:wrap; min-width:0; }
+.db-crumb { display:inline-flex; align-items:center; gap:6px; border:0; background:transparent; padding:3px 6px; border-radius:6px; font:inherit; font-size:13px; font-weight:700; color:var(--text-muted); cursor:pointer; }
+.db-crumb:hover { background:var(--surface-sunken); color:var(--text); }
+.db-crumb.is-current { color:var(--text); font-weight:800; cursor:default; }
+.db-crumb.is-current:hover { background:transparent; }
+.db-sep { color:var(--text-faint); font-weight:600; }
+.db-hint { font-size:11px; color:var(--text-muted); white-space:nowrap; }
+.db-chart-empty { margin:34px 0; text-align:center; font-size:12.5px; color:var(--text-muted); }
+
+/* Colonnes (graphique 1) : barre claire = attribué, barre pleine = consommé */
+.db-cols { display:flex; align-items:flex-end; justify-content:space-around; gap:10px; height:196px; }
+.db-col { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; flex:1 1 0; max-width:110px; min-width:0; height:100%; padding:0 2px; border:0; border-radius:8px; background:transparent; font:inherit; color:inherit; cursor:pointer; }
+.db-col:hover { background:var(--bg); }
+.db-col.is-static { cursor:default; }
+.db-pct { height:18px; font-size:12.5px; font-weight:800; font-variant-numeric:tabular-nums; }
+.db-vbar { position:relative; width:46px; max-width:100%; border-radius:8px 8px 3px 3px; background:var(--db-track); }
+.db-vfill { position:absolute; left:0; right:0; bottom:0; border-radius:8px 8px 3px 3px; background:var(--accent); }
+.db-col.is-over .db-vfill { background:var(--db-over); }
+.db-lbl { display:flex; flex-direction:column; align-items:center; gap:1px; width:100%; height:36px; padding-top:6px; overflow:hidden; }
+.db-lbl b { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:800; }
+.db-lbl span { font-size:11px; font-weight:600; color:var(--text-muted); }
+.db-tip { display:none; position:absolute; z-index:15; top:-4px; left:50%; transform:translate(-50%,-100%); padding:7px 10px; border-radius:8px; background:var(--text); color:#fff; font-size:11.5px; font-weight:600; white-space:nowrap; text-align:left; pointer-events:none; box-shadow:0 8px 20px -6px rgba(9,16,35,.5); }
+.db-tip span { display:block; }
+.db-col:hover .db-tip, .db-col:focus-visible .db-tip { display:block; }
+
+/* Barres horizontales (graphique 2) */
+.db-hrows { display:flex; flex-direction:column; gap:4px; }
+.db-hrow { display:grid; grid-template-columns:minmax(80px,150px) minmax(0,1fr) 40px 56px; align-items:center; gap:10px; width:100%; padding:5px 6px; border:0; border-radius:8px; background:transparent; text-align:left; font:inherit; color:inherit; cursor:pointer; }
+.db-hrow:hover { background:var(--bg); }
+.db-hrow.is-static { cursor:default; }
+.db-hname { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:700; }
+.db-htrack { position:relative; height:16px; }
+.db-hatt, .db-hcons { position:absolute; left:0; top:0; bottom:0; border-radius:5px; }
+.db-hatt { background:var(--db-track); }
+.db-hcons { background:var(--accent); }
+.db-hrow.is-over .db-hcons { background:var(--db-over); }
+.db-hpct { text-align:right; font-size:12.5px; font-weight:800; font-variant-numeric:tabular-nums; }
+.db-hamt { text-align:right; font-size:11px; font-weight:600; color:var(--text-muted); white-space:nowrap; }
+
+/* Liste : un volet par programme, ses projets dessous */
+.db-list { display:flex; flex-direction:column; gap:8px; }
+.db-row { display:grid; grid-template-columns:minmax(0,1fr) 224px 160px 112px 112px; align-items:center; gap:6px 14px; width:100%; padding:8px 14px; }
+.db-colhead { padding-top:0; padding-bottom:0; font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+.db-r, .db-att, .db-cons { text-align:right; font-variant-numeric:tabular-nums; }
+.db-vol { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); box-shadow:var(--shadow-card); overflow:hidden; }
+.db-vol.is-open { border-color:var(--accent-soft-border); }
+.db-vhead { min-height:50px; border:0; background:var(--surface); text-align:left; font:inherit; color:inherit; cursor:pointer; }
+.db-vhead:hover { background:#f7f9fd; }
+.db-vol.is-open .db-vhead { border-bottom:1px solid var(--border); }
+.db-name { display:flex; align-items:center; gap:9px; min-width:0; }
+.db-chev { flex:none; color:var(--text-muted); transition:transform .15s; }
+.db-vol:not(.is-open) .db-vhead .db-chev, .db-prow:not(.is-open) .db-exp-toggle .db-chev { transform:rotate(-90deg); }
+.db-pn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:800; }
+.db-tag { display:inline-flex; align-items:center; flex:none; height:19px; padding:0 8px; border-radius:999px; background:var(--surface-sunken); color:var(--text-muted); font-size:10.5px; font-weight:700; }
+.db-st { display:flex; align-items:center; gap:6px; min-width:0; }
+.db-dotn { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#475467; }
+.db-dot { display:inline-block; flex:none; width:9px; height:9px; border-radius:50%; }
+.db-pr { display:flex; align-items:center; gap:8px; }
+.db-mini { flex:1 1 auto; height:8px; border-radius:999px; background:var(--db-track); overflow:hidden; }
+.db-mf { display:block; height:100%; border-radius:999px; background:var(--accent); }
+.db-mf.is-over { background:var(--db-over); }
+.db-pp { width:40px; text-align:right; font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; }
+.db-att b, .db-cons b { font-size:14px; font-weight:800; }
+.db-cons.is-over { color:#b42323; }
+.db-vbody { background:#fafbfd; }
+.db-prow { min-height:48px; border-top:1px solid var(--surface-sunken); }
+.db-prow:first-child { border-top:0; }
+.db-prow:hover { background:#f4f7fd; }
+.db-att, .db-cons { font-size:13.5px; font-weight:700; }
+.db-pj { gap:6px; }
+.db-exp-toggle { display:inline-flex; align-items:center; gap:2px; flex:none; height:28px; padding:0 6px 0 2px; border:0; border-radius:999px; background:transparent; font:inherit; color:var(--text-muted); cursor:pointer; }
+.db-exp-toggle:hover { background:var(--surface-sunken); color:var(--text); }
+.db-n { min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:var(--accent-soft); color:var(--accent-hover); font-size:11px; font-weight:800; line-height:19px; text-align:center; font-variant-numeric:tabular-nums; }
+.db-n.is-zero { background:var(--surface-sunken); color:var(--text-muted); }
+.db-who { display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:0; }
+.db-acr { max-width:100%; padding:0; border:0; background:transparent; font:inherit; font-size:13.5px; font-weight:800; text-align:left; color:var(--text); cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.db-acr:hover { color:var(--accent-hover); text-decoration:underline; }
+.db-cap { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--text-muted); }
+.db-stwrap { position:relative; display:inline-flex; align-items:center; max-width:100%; border-radius:999px; }
+.db-stwrap .db-dot { position:absolute; left:10px; pointer-events:none; }
+.db-stchev { position:absolute; right:9px; pointer-events:none; }
+.db-sel { appearance:none; -webkit-appearance:none; max-width:100%; height:28px; padding:0 26px; border:1px solid transparent; border-radius:999px; background:transparent; color:inherit; font:inherit; font-size:12px; font-weight:700; text-overflow:ellipsis; cursor:pointer; }
+.db-sel:hover { border-color:rgba(27,36,48,.25); }
+.db-sel option { background:#fff; color:var(--text); }
+.db-saved { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:700; color:var(--success); white-space:nowrap; }
+.db-saved[hidden] { display:none; }
+
+/* Volet « Dépenses » sous un projet (lignes de l'export FD02) */
+.db-exp { padding:8px 14px 12px 52px; border-top:1px solid var(--surface-sunken); background:var(--surface); }
+.db-exp-scroll { overflow-x:auto; }
+.db-exp-table { width:100%; border-collapse:collapse; font-size:12px; }
+.db-exp-table th { padding:5px 8px; text-align:left; font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+.db-exp-table td { padding:5px 8px; border-bottom:1px solid var(--surface-sunken); vertical-align:top; }
+.db-exp-table tfoot td { border-bottom:0; font-weight:800; }
+.db-exp-table .db-num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.db-exp-table .db-nowrap { white-space:nowrap; }
+.db-exp-obj { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.db-exp-empty, .db-exp-note { margin:4px 0 0; font-size:12px; color:var(--text-muted); }
+.db-vol-orphans .db-vhead .db-pn { color:var(--text-muted); }
+.db-vol-orphans > .db-exp { padding-left:14px; }
+.db-foot { margin:2px 2px 0; font-size:11.5px; color:var(--text-muted); }
+.db-empty { display:flex; flex-direction:column; align-items:center; gap:10px; padding:34px 16px; text-align:center; color:var(--text-muted); }
+
+@media (max-width: 980px) {
+  .db-charts-grid { grid-template-columns:minmax(0,1fr); }
+  .db-kpis { flex-direction:row; flex-wrap:wrap; gap:16px 32px; }
+  .db-kpis > div { flex:1 1 180px; }
+}
+@media (max-width: 860px) {
+  .db-row { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .db-row > .db-name, .db-row > .db-st, .db-row > .db-pr { grid-column:1 / -1; }
+  .db-colhead { display:none; }
+  .db-att, .db-cons { text-align:left; }
+  .db-att::before { content:"Attribué"; display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); }
+  .db-cons::before { content:"Consommé"; display:block; font-size:10.5px; font-weight:700; color:var(--text-muted); }
+  .db-hrow { grid-template-columns:minmax(70px,110px) minmax(0,1fr) 38px; }
+  .db-hamt { display:none; }
+  .db-exp { padding-left:14px; }
+}

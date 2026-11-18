@@ -11,7 +11,7 @@
   'use strict';
 
   const MIRROR_KEY = 'suiviProjetInnovationS:lastView';
-  const VIEWS = ['view-projects', 'view-administratif', 'view-installation-fonds', 'view-todo', 'view-instances', 'view-annuaire'];
+  const VIEWS = ['view-projects', 'view-administratif', 'view-installation-fonds', 'view-todo', 'view-instances', 'view-annuaire', 'view-dashboard'];
   const app = () => window.SuiviApp;
   const byId = id => document.getElementById(id);
   const isHidden = id => byId(id).classList.contains('hidden');
