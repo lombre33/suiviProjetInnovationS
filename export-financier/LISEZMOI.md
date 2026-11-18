@@ -43,10 +43,13 @@ casse rien et ne modifie ni ne convertit jamais une colonne existante (technique
 `AddTable`, `AddColumn`, `CreateViewSection`, partage du formulaire). Il crée :
 
 - la table d'arrivée `Import_Financements` avec les 24 colonnes de l'export (identifiants exacts de `COLONNES`,
-  sans accent) et `Lot` ; le modèle `exemple/Import_Financements_modele.csv` ne sert plus qu'à vérifier la liste ;
-- les colonnes calculées par Grist, que le script n'envoie jamais : `Cle_ligne` (formule
-  `$N_OPE + "|" + $Financeur + "|" + $Ligne_budgetaire`, **à confirmer sur le vrai export**), `Cle_OPE`, `Exporte_le`
-  (date d'arrivée, `NOW()` sur les nouveaux enregistrements) et `Valide` ;
+  sans accent) et `Lot` ; l'outil de reprise unique la crée déjà (avec `Cle_ligne` et `Exporte_le` en colonnes de
+  données) et le widget ne complète que ce qui manque ; le modèle `exemple/Import_Financements_modele.csv` ne sert
+  plus qu'à vérifier la liste ;
+- ce que Grist calcule et que le script n'envoie jamais : `Cle_ligne` (formule appliquée aux nouveaux enregistrements,
+  `$N_OPE + "|" + $Financeur + "|" + $Ligne_budgetaire`, **à confirmer sur le vrai export** ; la colonne de données
+  créée par la reprise unique reçoit cette formule sans changer de type), `Exporte_le` (`NOW()` sur les nouveaux
+  enregistrements), `Cle_OPE` et `Valide` ;
 - la table `Import_Lots` (un lot = un envoi) pour l'historique et la validation ;
 - les formules de `Lignes_OPE` qui lisent les envois **validés** (voir plus bas) ;
 - une page avec le formulaire, **publié seulement après l'accord d'Antoine** : toute personne qui a le lien peut
@@ -68,6 +71,11 @@ compte qu'une fois validé d'un clic. Colonnes visées : `Attribue_2022` à `Att
 même N° OPE peut avoir plusieurs lignes (financeurs, lignes budgétaires) ; un filtre sur `r.Financeur` sépare
 InnovationS des autres financeurs (IDEX…) selon ce qu'Antoine décidera de compter. Une ligne qui disparaît d'un envoi
 reste comptée et signalée, jamais retirée toute seule.
+
+**Règle `Valide`** : une ligne **sans `Lot`** vient de la reprise unique (import de fichier de Grist, sans formulaire) et
+compte d'office ; une ligne avec `Lot` ne compte que si son lot est validé dans `Import_Lots`. Sans cette règle,
+l'historique n'arriverait jamais sur `Lignes_OPE`. Comme `Cle_ligne` peut manquer sur ces lignes importées, les
+formules recalculent la clé à partir de `N_OPE`, `Financeur` et `Ligne_budgetaire` quand elle est vide.
 
 ## Ce que fait chaque lancement
 
