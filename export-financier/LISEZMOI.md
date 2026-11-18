@@ -42,7 +42,7 @@ d'environnement `GRIST_LIEN_FORMULAIRE_EXPORT`, pas dans le code ni dans le dép
 3. Pas de colonne Référence à double sens sur cette table (Grist refuserait l'envoi anonyme).
 4. Table de synthèse de `Import_Financements` groupée par `Cle_ligne`, puis, dans la synthèse :
    `Derniere` = `max($group, key=lambda r: (r.Exporte_le, r.id))`, et chaque colonne utile en `=$Derniere.<colonne>`
-   (remplacer les `SUM($group.…)` créées d'office pour les colonnes numériques).
+   (remplacer les `SUM($group.…)` créées d'office pour les colonnes numériques ; ne pas oublier `Financeur`, `N_OPE`).
 
 ## Du journal vers `Lignes_OPE` (à décider avec Antoine)
 
@@ -55,6 +55,8 @@ d'une ligne OPE ne peut donc arriver dans `Lignes_OPE` que de deux façons :
   `Date_maj_conso`. Par exemple, sur `Lignes_OPE` (noms de la synthèse à adapter, formules non testées dans Grist) :
   `SUM(r.Consomme_CP for r in Import_Financements_summary_Cle_ligne.lookupRecords(N_OPE=$N_OPE)) if $N_OPE else None`.
   Une somme, parce qu'un même N° OPE peut avoir plusieurs lignes (financeurs, lignes budgétaires).
+  La synthèse porte `Financeur` (`=$Derniere.Financeur`) : un filtre `if r.Financeur == "InnovationS"` sépare ce
+  financeur des autres (IDEX…) pour les totaux, selon les financeurs qu'Antoine décidera de compter.
 - **Bouton dans le widget** : une action « Appliquer le dernier envoi » écrit les colonnes de données de
   `Lignes_OPE` quand quelqu'un clique. Le script seul ne suffit plus.
 
