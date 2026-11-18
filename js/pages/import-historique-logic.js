@@ -47,8 +47,9 @@
     ['Consomme_AE', 'Consommé AE', 'Numeric'], ['Consomme_CP', 'Consommé CP', 'Numeric'], ['Disponible_AE', 'Disponible AE', 'Numeric'], ['Disponible_CP', 'Disponible CP', 'Numeric'],
     ['Statuts', 'Statuts', 'Text'], ['N_decision', 'N° décision', 'Text'], ['Structure', 'Structure', 'Text'], ['Etablissement', 'Établissement', 'Text']
   ];
-  // Journal d'import : les 24 colonnes de l'export, plus Cle_ligne et Exporte_le (colonnes de données, remplies par le script d'envoi
-  // quand il passe par le formulaire publié ; l'outil lit la dernière version de chaque ligne lui-même, par plus grand id).
+  // Journal d'import : les 24 colonnes de l'export, plus Cle_ligne et Exporte_le (colonnes de données : le script d'envoi ne les pousse pas,
+  // l'import régulier leur ajoute une formule appliquée aux nouveaux enregistrements ; ici elles restent vides, l'outil lit la dernière
+  // version de chaque ligne lui-même, par plus grand id).
   const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
     .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }]);
   const MONEY_TOLERANCE = 0.01;
