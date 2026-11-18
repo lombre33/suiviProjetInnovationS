@@ -198,7 +198,22 @@ class TestEnvoi(unittest.TestCase):
             posts = [r for r in g.requetes if r[0] == "POST"]
             self.assertEqual([len(p[2]["records"]) for p in posts], [100, 100, 50])
             self.assertEqual(len(g.lignes), 250)
-            self.assertEqual(bilan, {"envoyees": 250, "ignorees": 0, "lots": 3, "table": "Import_Financements"})
+            self.assertEqual(bilan, {"envoyees": 250, "ignorees": 0, "lots": 3, "table": "Import_Financements",
+                                     "lot": None})
+            self.assertTrue(all("Lot" not in l for l in g.lignes))
+
+    def test_identifiant_de_lot_commun_a_toutes_les_lignes_d_un_lancement(self):
+        lignes = [ligne(**{"N° OPE": "FICTIF-%04d" % i}) for i in range(150)]
+        with FauxGrist() as g:
+            bilan = eg.pousser(lignes, g.lien(), taille_lot=100, identifiant_lot="auto", journal=lambda *_: None)
+            self.assertRegex(bilan["lot"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+            self.assertEqual({l["Lot"] for l in g.lignes}, {bilan["lot"]})  # même valeur sur les 2 envois
+            self.assertEqual(len(g.lignes), 150)
+
+    def test_identifiant_de_lot_choisi(self):
+        with FauxGrist() as g:
+            eg.pousser([ligne()], g.lien(), identifiant_lot="2026-11-18 macro", journal=lambda *_: None)
+            self.assertEqual(g.lignes[0]["Lot"], "2026-11-18 macro")
 
     def test_le_script_ne_fait_que_lire_la_definition_et_ajouter(self):
         with FauxGrist() as g:

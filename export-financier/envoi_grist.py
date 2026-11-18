@@ -54,6 +54,7 @@ import urllib.request
 VARIABLE_LIEN = "GRIST_LIEN_FORMULAIRE_EXPORT"
 FEUILLE_PAR_DEFAUT = "Reporting"
 TAILLE_LOT = 100
+COLONNE_LOT = "Lot"  # ajoutée à chaque ligne d'un lancement quand identifiant_lot est demandé
 
 # (en-tête dans l'Excel, identifiant de la colonne Grist, type Grist)
 # Les identifiants Grist sont écrits ici sans accent ni espace : la table `Import_Financements`
@@ -301,10 +302,19 @@ def preparer(lignes):
     return prets, ignorees
 
 
-def pousser(lignes, lien=None, *, taille_lot=TAILLE_LOT, dry_run=False, journal=print):
+def nouvel_identifiant_lot():
+    """Identifiant d'un envoi : la date et l'heure UTC, par ex. 2026-11-18T12:45:30Z."""
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def pousser(lignes, lien=None, *, taille_lot=TAILLE_LOT, dry_run=False, journal=print, identifiant_lot=None):
     """Dépose les lignes de l'export (dicts { en-tête Excel : valeur }) dans le formulaire Grist.
 
-    Renvoie un petit compte rendu { envoyees, ignorees, lots, table }.
+    `identifiant_lot` : None n'envoie que les 24 colonnes de l'export ; "auto" ajoute à chaque ligne une colonne
+    `Lot` (date et heure de l'envoi) pour que Grist reconnaisse tous les envois d'un même lancement ; une autre
+    chaîne est envoyée telle quelle. La table doit alors avoir la colonne `Lot` (créée par le widget).
+
+    Renvoie un petit compte rendu { envoyees, ignorees, lots, table, lot }.
     """
     lien = lien or os.environ.get(VARIABLE_LIEN)
     if not lien and not dry_run:
@@ -315,13 +325,18 @@ def pousser(lignes, lien=None, *, taille_lot=TAILLE_LOT, dry_run=False, journal=
         journal("Attention : %d ligne(s) sans N° OPE ignorée(s)." % ignorees)
     if not prets:
         raise EnvoiGristError("Aucune ligne à envoyer.")
+    if identifiant_lot == "auto":
+        identifiant_lot = nouvel_identifiant_lot()
+    if identifiant_lot:
+        for champs in prets:
+            champs[COLONNE_LOT] = str(identifiant_lot)
     lots = [prets[i:i + taille_lot] for i in range(0, len(prets), taille_lot)]
 
     if dry_run:
         journal("[essai à blanc] %d ligne(s) en %d envoi(s), rien n'est envoyé. Première ligne :" %
                 (len(prets), len(lots)))
         journal(json.dumps(prets[0], ensure_ascii=False, indent=2))
-        return {"envoyees": 0, "ignorees": ignorees, "lots": len(lots), "table": None}
+        return {"envoyees": 0, "ignorees": ignorees, "lots": len(lots), "table": None, "lot": identifiant_lot}
 
     cible = analyser_lien(lien)
     table, colonnes_formulaire = table_du_formulaire(cible["api"], cible["section"])
@@ -341,7 +356,7 @@ def pousser(lignes, lien=None, *, taille_lot=TAILLE_LOT, dry_run=False, journal=
                 "danger (Grist garde la dernière version de chaque ligne)." % envoyees)
         envoyees += len(lot)
         journal("Lot %d/%d envoyé (%d/%d lignes)." % (n, len(lots), envoyees, len(prets)))
-    return {"envoyees": envoyees, "ignorees": ignorees, "lots": len(lots), "table": table}
+    return {"envoyees": envoyees, "ignorees": ignorees, "lots": len(lots), "table": table, "lot": identifiant_lot}
 
 
 def pousser_xlsx(chemin, lien=None, *, feuille=FEUILLE_PAR_DEFAUT, **options):
@@ -383,6 +398,8 @@ def main(argv=None):
     ap.add_argument("--lien", help="lien du formulaire publié (sinon variable %s)" % VARIABLE_LIEN)
     ap.add_argument("--feuille", default=FEUILLE_PAR_DEFAUT)
     ap.add_argument("--lot", type=int, default=TAILLE_LOT, help="lignes par envoi (défaut %d)" % TAILLE_LOT)
+    ap.add_argument("--avec-lot", action="store_true",
+                    help="ajoute la colonne Lot (date et heure de l'envoi) ; la table Grist doit l'avoir")
     ap.add_argument("--dry-run", action="store_true", help="prépare les lignes sans rien envoyer")
     ap.add_argument("--modele-csv", metavar="SORTIE.csv",
                     help="écrit un modèle CSV de la table Import_Financements (2 lignes d'exemple) et s'arrête")
@@ -393,7 +410,8 @@ def main(argv=None):
             ecrire_modele_csv(lignes, a.modele_csv)
             print("Modèle écrit : %s" % a.modele_csv)
             return 0
-        bilan = pousser_xlsx(a.fichier, a.lien, feuille=a.feuille, taille_lot=a.lot, dry_run=a.dry_run)
+        bilan = pousser_xlsx(a.fichier, a.lien, feuille=a.feuille, taille_lot=a.lot, dry_run=a.dry_run,
+                             identifiant_lot="auto" if a.avec_lot else None)
     except EnvoiGristError as e:
         print("ERREUR : %s" % e, file=sys.stderr)
         return 1
