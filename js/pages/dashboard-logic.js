@@ -136,7 +136,8 @@
 
   // --- Filtres et calcul --------------------------------------------------------------------------
   // state : { years: null | [..] (null = toutes), programmes: [], statuts: [], search: '', measure: 'CP' | 'AE' }
-  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: true }; }
+  // Graphiques repliés par défaut (demande d'Antoine du 18/11/2026) ; les totaux restent visibles dans la ligne « Total » de la liste.
+  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: false }; }
 
   // `dated` = consommé rattaché à une année : le reliquat « Sans année » (total de la ligne OPE, cumulé depuis l'origine, donc pas
   // comparable à l'attribué 2023-2026) n'est jamais signalé comme un dépassement.

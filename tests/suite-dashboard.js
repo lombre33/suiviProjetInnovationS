@@ -294,7 +294,9 @@
   const vol = name => vols().find(v => v.dataset.dbProgramme === name);
   const head = name => vol(name).querySelector('.db-vhead');
   const prow = acronyme => Array.from(list().querySelectorAll('.db-prow')).find(row => row.querySelector('.db-acr').textContent === acronyme);
-  const kpi = () => ({ att: byId('db-kpi-att') && byId('db-kpi-att').textContent, cons: byId('db-kpi-cons') && byId('db-kpi-cons').textContent });
+  // Totaux : ligne « Total » de la liste, toujours là (les graphiques sont repliés par défaut)
+  const kpi = () => ({ att: byId('db-total-att') && byId('db-total-att').textContent, cons: byId('db-total-cons') && byId('db-total-cons').textContent });
+  const openCharts = () => { if (byId('db-charts').hidden) click(byId('db-toggle-charts')); };
   const yearBtn = year => view().querySelector(`[data-db-year="${year}"]`);
   const yearsOn = () => Array.from(view().querySelectorAll('[data-db-year].is-on')).map(btn => btn.dataset.dbYear);
   const norm = s => String(s).replace(/ | /g, ' ');
@@ -310,7 +312,7 @@
   async function load(options = {}) {
     const projets = options.projets || PROJETS;
     window.__mockSetTable('Projets', toTable(projets));
-    window.__mockSetTable('Programmes', toTable(PROGRAMMES));
+    window.__mockSetTable('Programmes', toTable(options.programmes || PROGRAMMES));
     window.__mockSetTable('Lignes_OPE', toTable(LIGNES));
     if (options.depenses !== false) window.__mockSetTable('Depenses_OPE', toTable(options.depenses || DEPENSES));
     await installMeta();
@@ -493,6 +495,7 @@
       await load();
       click(view().querySelector('[data-db-measure="AE"]'));
       assertEqual(norm(kpi().cons), '800 €');
+      openCharts();
       assertIncludes(byId('db-charts').textContent, 'Consommé (AE)');
       assertEqual(yearBtn(0), null, 'pas de reliquat AE');
       assertEqual(view().querySelector('[data-db-measure="AE"]').getAttribute('aria-pressed'), 'true');
@@ -501,6 +504,7 @@
 
     it('cliquer une barre filtre sur sa valeur, le fil d\'Ariane remonte', async function () {
       await load();
+      openCharts();
       const bar = byId('db-charts').querySelector('[data-db-bar^="A:"]');
       assertTrue(!!bar, 'barres du graphique 1');
       click(byId('db-charts').querySelector('[data-db-bar="A:1"]')); // 2024
@@ -516,6 +520,7 @@
 
     it('le second graphique filtre par programme et ouvre son volet', async function () {
       await load();
+      openCharts();
       click(byId('db-charts').querySelector('[data-db-bar="B:0"]')); // FARE (le plus gros attribué)
       assertDeepEqual(P().state.programmes, ['FARE']);
       assertEqual(volNames().join('|'), 'FARE');
@@ -584,15 +589,48 @@
       unload();
     });
 
-    it('le bouton « Graphiques » replie la zone des graphiques (liste et totaux restent)', async function () {
+    it('les graphiques sont repliés par défaut ; le bouton « Graphiques » les ouvre et les replie (liste et totaux restent)', async function () {
       await load();
+      assertEqual(P().state.charts, false);
+      assertEqual(byId('db-charts').hidden, true, 'repliés à l\'ouverture');
+      assertEqual(byId('db-charts').innerHTML, '', 'rien n\'est dessiné tant qu\'ils sont repliés');
+      assertEqual(byId('db-toggle-charts').getAttribute('aria-expanded'), 'false');
+      assertEqual(norm(kpi().att), '7 300 €', 'les totaux restent visibles dans la liste');
+      click(byId('db-toggle-charts'));
       assertEqual(byId('db-charts').hidden, false);
+      assertEqual(byId('db-toggle-charts').getAttribute('aria-expanded'), 'true');
+      assertTrue(byId('db-charts').querySelectorAll('.db-card').length >= 3, 'tuile des totaux et deux graphiques');
+      assertEqual(norm(byId('db-kpi-att').textContent), '7 300 €');
       click(byId('db-toggle-charts'));
       assertEqual(byId('db-charts').hidden, true);
-      assertEqual(byId('db-toggle-charts').getAttribute('aria-expanded'), 'false');
       assertEqual(volNames().length, 3);
-      click(byId('db-toggle-charts'));
-      assertEqual(byId('db-charts').hidden, false);
+      unload();
+    });
+
+    it('la ligne « Total » ouvre la liste : projets comptés, attribué, consommé et avancement des filtres en cours', async function () {
+      await load();
+      const row = list().querySelector('.db-totalrow');
+      assertTrue(!!row, 'ligne Total');
+      assertIncludes(row.textContent, '4 projets');
+      assertEqual(norm(kpi().cons), '1 530 €');
+      click(yearBtn(2023)); click(yearBtn(2024)); click(yearBtn(2025)); click(yearBtn(0)); // reste 2026 seulement
+      assertEqual(norm(kpi().att), '3 000 €');
+      assertEqual(norm(kpi().cons), '0 €');
+      assertIncludes(list().querySelector('.db-totalrow').textContent, '1 projet');
+      unload();
+    });
+
+    it('graphique 1 : jusqu\'à 6 éléments en colonnes, au-delà en barres horizontales défilantes (les colonnes se chevauchaient)', async function () {
+      const many = Array.from({ length: 8 }, (_, i) => ({ id: 20 + i, Acronyme: `P${i + 1}`, Projet: `P${i + 1}`, Programme: i + 1, Statut_operationnel_projet: 'en cours', c2024_M10_Fonctionnement: 1000 * (i + 1) }));
+      const programmes = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, Programme: `Programme à nom assez long numéro ${i + 1}` }));
+      await load({ projets: many, programmes });
+      openCharts();
+      assertEqual(byId('db-charts').querySelectorAll('.db-card')[1].querySelectorAll('.db-col').length, 1, 'niveau années : une seule année a des montants, une colonne');
+      click(byId('db-charts').querySelector('[data-db-bar="A:0"]')); // 2024 : huit programmes
+      const cardA = byId('db-charts').querySelectorAll('.db-card')[1];
+      assertEqual(cardA.querySelectorAll('.db-col').length, 0, 'plus de colonnes à ce niveau');
+      assertEqual(cardA.querySelectorAll('.db-hrow').length, 8, 'huit barres horizontales');
+      assertTrue(!!cardA.querySelector('.db-hrows'), 'zone des barres (défilante : max-height dans css/dashboard.css)');
       unload();
     });
 
@@ -677,13 +715,13 @@
       unload();
     });
 
-    it('chaque choix est enregistré sur la ligne de la personne : années, programmes (virgule préservée), statuts, mesure, graphiques', async function () {
+    it('chaque choix est enregistré sur la ligne de la personne : années, programmes (virgule préservée), statuts, mesure, graphiques ouverts', async function () {
       await load();
       await loadPrefs();
       window.__TEST_CALLS__.length = 0;
       click(yearBtn(2023)); click(yearBtn(0));
       click(view().querySelector('[data-db-measure="AE"]'));
-      click(byId('db-toggle-charts'));
+      click(byId('db-toggle-charts')); // les ouvre : retenu
       P().state.programmes = ['Plateau A, B', 'FARE'];
       P().state.statuts = ['en cours'];
       P().state.search = 'alpha';
@@ -692,7 +730,7 @@
       assertEqual(update.id, 1, 'la ligne partagée avec les autres pages');
       assertEqual(update.fields.Dash_annees, '2024,2025,2026');
       assertEqual(update.fields.Dash_mesure, 'AE');
-      assertEqual(update.fields.Dash_graphiques, '0');
+      assertEqual(update.fields.Dash_graphiques, '1', 'graphiques ouverts');
       assertEqual(update.fields.Dash_programmes, '["Plateau A, B","FARE"]', 'un libellé avec virgule est écrit en JSON, jamais coupé');
       assertEqual(update.fields.Dash_statuts, 'en cours');
       assertEqual(update.fields.Dash_recherche, 'alpha');
@@ -728,7 +766,7 @@
       await window.loadKanbanUserPreferences();
       window.__mockSetTable('Preferences_Widget', {
         id: [1], Email_utilisateur: [''], Dash_annees: ['2024,2025'], Dash_programmes: ['["FARE"]'], Dash_statuts: ['en cours'],
-        Dash_recherche: ['alp'], Dash_mesure: ['AE'], Dash_graphiques: ['0']
+        Dash_recherche: ['alp'], Dash_mesure: ['AE'], Dash_graphiques: ['1']
       });
       try { localStorage.setItem(PREFS_ROWID_KEY, '1'); } catch (err) { /* ignore */ }
       P().resetState(); P().resetPrefsRow();
@@ -738,13 +776,13 @@
       assertDeepEqual(P().state.statuts, ['en cours']);
       assertEqual(P().state.search, 'alp');
       assertEqual(P().state.measure, 'AE');
-      assertEqual(P().state.charts, false);
+      assertEqual(P().state.charts, true);
       window.renderDashboard();
       await waitFor(() => P().state.expensesState === 'ready', 'dépenses lues');
       assertDeepEqual(yearsOn(), ['2024', '2025']);
       assertEqual(byId('db-filter-programme').value, 'FARE');
       assertEqual(byId('db-filter-search').value, 'alp');
-      assertEqual(byId('db-charts').hidden, true);
+      assertEqual(byId('db-charts').hidden, false, 'graphiques ouverts comme à la fermeture');
       assertEqual(list().querySelectorAll('.db-vbody').length, 0, 'replié malgré le filtre');
       unload();
     });
@@ -760,7 +798,7 @@
       await window.loadDashboardUserPreferences();
       assertEqual(P().state.years, null);
       assertEqual(P().state.measure, 'CP');
-      assertEqual(P().state.charts, true);
+      assertEqual(P().state.charts, false, 'repliés par défaut');
       unload();
     });
   });
