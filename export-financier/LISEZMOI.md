@@ -4,7 +4,7 @@ Le script d'export produit `financements_InnovationS_AAAA-MM-JJ.xlsx`. `envoi_gr
 dans un **formulaire Grist publié** : pas de copier-coller, pas de clé API, seulement le lien du formulaire.
 
 ```
-script d'export ──► .xlsx ──► envoi_grist.py ──POST──► formulaire publié ──► journal Export_Financier (ajout seul)
+script d'export ──► .xlsx ──► envoi_grist.py ──POST──► formulaire publié ──► journal Import_Financements (ajout seul)
                                                                                      │ formules Grist
                                                                                      ▼
                                                               synthèse : dernière version de chaque ligne
@@ -31,7 +31,7 @@ d'environnement `GRIST_LIEN_FORMULAIRE_EXPORT`, pas dans le code ni dans le dép
 
 ## Côté Grist (à faire une fois)
 
-1. Créer la table **`Export_Financier`** avec ces colonnes (identifiants exacts, sans accent) :
+1. Créer la table **`Import_Financements`** avec ces colonnes (identifiants exacts, sans accent) :
 
 | Texte | Date | Numérique | Autre |
 |---|---|---|---|
@@ -40,7 +40,7 @@ d'environnement `GRIST_LIEN_FORMULAIRE_EXPORT`, pas dans le code ni dans le dép
 2. Ajouter un widget **Formulaire** sur cette table, y mettre toutes les colonnes, **publier**, copier le lien
    (`https://…/forms/<clé>/<numéro>`).
 3. Pas de colonne Référence à double sens sur cette table (Grist refuserait l'envoi anonyme).
-4. Table de synthèse de `Export_Financier` groupée par `Cle_ligne`, puis, dans la synthèse :
+4. Table de synthèse de `Import_Financements` groupée par `Cle_ligne`, puis, dans la synthèse :
    `Derniere` = `max($group, key=lambda r: (r.Exporte_le, r.id))`, et chaque colonne utile en `=$Derniere.<colonne>`
    (remplacer les `SUM($group.…)` créées d'office pour les colonnes numériques).
 

@@ -6,7 +6,7 @@ et par financeur). Ce module dépose ces mêmes lignes dans un FORMULAIRE GRIST 
 comme le fait FormPlus : pas de clé API, seulement le lien du formulaire.
 
   - Le formulaire n'accepte que l'AJOUT : chaque lancement ajoute des lignes dans le
-    journal `Export_Financier` ; Grist garde ensuite, par formules, la dernière version
+    journal `Import_Financements` ; Grist garde ensuite, par formules, la dernière version
     de chaque ligne (voir LISEZMOI.md).
   - Rien n'est jamais modifié ni supprimé dans Grist par ce module.
 
@@ -45,7 +45,7 @@ FEUILLE_PAR_DEFAUT = "Reporting"
 TAILLE_LOT = 100
 
 # (en-tête dans l'Excel, identifiant de la colonne Grist, type Grist)
-# Les identifiants Grist sont écrits ici sans accent ni espace : la table `Export_Financier`
+# Les identifiants Grist sont écrits ici sans accent ni espace : la table `Import_Financements`
 # doit porter exactement ces identifiants (voir LISEZMOI.md).
 COLONNES = [
     ("Programme", "Programme", "Text"),
@@ -265,7 +265,7 @@ def _expliquer(statut, texte, action):
         return "%s : lien de formulaire inconnu de Grist (HTTP 404). Vérifie qu'il est publié." % action
     if statut == 400:
         return ("%s : Grist refuse les données (HTTP 400) : %s. Une colonne de la table "
-                "`Export_Financier` manque ou n'a pas le bon identifiant." % (action, detail))
+                "`Import_Financements` manque ou n'a pas le bon identifiant." % (action, detail))
     return "%s : HTTP %d %s" % (action, statut, detail)
 
 
@@ -349,7 +349,7 @@ def pousser_xlsx(chemin, lien=None, *, feuille=FEUILLE_PAR_DEFAUT, **options):
     journal = options.get("journal", print)
     if inconnus:
         journal("Attention : colonne(s) de l'export non envoyée(s) à Grist : %s. "
-                "Ajoute-les à COLONNES dans envoi_grist.py et à la table Export_Financier." % ", ".join(inconnus))
+                "Ajoute-les à COLONNES dans envoi_grist.py et à la table Import_Financements." % ", ".join(inconnus))
     return pousser(lignes, lien, **options)
 
 

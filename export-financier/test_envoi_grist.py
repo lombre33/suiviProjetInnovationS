@@ -27,7 +27,7 @@ CLE = "AbCdEfGhIjKlMnOpQrStUv"
 class FauxGrist:
     """Imite la partie « clé de partage d'un formulaire publié » de l'API Grist."""
 
-    def __init__(self, org=None, table="Export_Financier", colonnes=None):
+    def __init__(self, org=None, table="Import_Financements", colonnes=None):
         self.requetes = []        # (méthode, chemin, corps)
         self.lignes = []          # champs reçus
         self.echecs = []          # statuts à renvoyer d'abord aux POST (ex. [503, 503])
@@ -178,7 +178,7 @@ class TestEnvoi(unittest.TestCase):
             posts = [r for r in g.requetes if r[0] == "POST"]
             self.assertEqual([len(p[2]["records"]) for p in posts], [100, 100, 50])
             self.assertEqual(len(g.lignes), 250)
-            self.assertEqual(bilan, {"envoyees": 250, "ignorees": 0, "lots": 3, "table": "Export_Financier"})
+            self.assertEqual(bilan, {"envoyees": 250, "ignorees": 0, "lots": 3, "table": "Import_Financements"})
             self.assertTrue(all(c["Exporte_le"] == 1700000000 for c in g.lignes))
 
     def test_le_script_ne_fait_que_lire_la_definition_et_ajouter(self):
@@ -206,7 +206,7 @@ class TestEnvoi(unittest.TestCase):
             g.refus_post = 400
             with self.assertRaises(eg.EnvoiGristError) as e:
                 eg.pousser([ligne()], g.lien(), journal=lambda *_: None)
-            self.assertIn("Export_Financier", str(e.exception))
+            self.assertIn("Import_Financements", str(e.exception))
 
     def test_lien_inconnu(self):
         with FauxGrist() as g:
