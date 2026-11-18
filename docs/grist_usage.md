@@ -568,12 +568,21 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
 - **Sans projet rattaché** : volet à part pour les dépenses dont le code opération ne correspond à aucune ligne OPE de projet (visible
   seulement sans filtre de projet). **Hors 2023-2026** : un exercice en dehors n'est compté nulle part, une note en bas de page le signale
   avec son montant. Une ligne OPE portée par deux projets : ses dépenses vont au premier (jamais comptées deux fois).
+- **Pastille « écart »** (18/11/2026, demandée par Antoine via le fil de fusion de l'historique) : sur un projet, elle signale que le
+  consommé de ses lignes OPE (`Lignes_OPE.totalCPConsomme`, et `Consomme_AE` quand cette colonne existe) ne correspond pas à la somme du
+  détail `Depenses_OPE` de ces mêmes lignes. Même règle que le contrôle des totaux de l'outil d'import historique
+  (`ImportHistoriqueLogic.checkTotals`) : tolérance 0,50 € (`DashboardLogic.GAP_TOLERANCE`), **tous exercices confondus** (donc
+  indépendante des années et de la mesure choisies), et un projet dont aucune ligne OPE n'a de détail est **« sans détail »** plutôt
+  qu'en écart chiffré (sauf s'il n'a rien consommé). Rien n'est signalé tant que `Depenses_OPE` est vide. Un clic sur la pastille ouvre
+  le volet Dépenses, qui explique l'écart (ligne OPE, détail, différence, ligne par ligne s'il y en a plusieurs) ; le nombre de projets
+  concernés est rappelé en bas de page. Une ligne OPE portée par deux projets n'est évaluée que par le premier. Lecture seule : rien
+  n'est écrit dans Grist.
 - **Écrit dans Grist** : seulement `Projets.Statut_operationnel_projet` (liste déroulante d'un projet : écriture optimiste, rétablie
   avec un message si Grist refuse ; `Statut_Macro` est une formule, donc non modifiable ; relecture groupée des autres pages 2,5 s
   après) et la ligne de préférences de l'utilisateur.
 - **Préférences** (`Preferences_Widget`, 6 colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
   année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
-  `Dash_graphiques` (`0` = graphiques masqués). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
 - **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
   l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
   bloquer le reste.

@@ -14,6 +14,13 @@
  *    projet dont le détail n'a pas encore été importé afficherait 0 consommé.
  *  - Statut du projet : Projets.Statut_operationnel_projet (Choice ; Statut_Macro est une formule, donc non modifiable).
  *
+ * Pastille « écart » (18/11/2026, avec le fil de fusion de l'historique) : sur un projet, elle signale que le consommé de ses lignes OPE
+ *    (Lignes_OPE.totalCPConsomme, et Consomme_AE quand la colonne existe) ne correspond pas à la somme du détail Depenses_OPE de ces mêmes
+ *    lignes, TOUS exercices confondus (donc indépendante des filtres de la page). Même règle que le contrôle des totaux de l'outil
+ *    d'import historique (ImportHistoriqueLogic.checkTotals) : tolérance GAP_TOLERANCE, et un projet dont aucune ligne OPE n'a de détail
+ *    est « sans détail » plutôt qu'en écart chiffré (sauf s'il n'a rien consommé : rien à signaler). Rien n'est signalé tant que
+ *    Depenses_OPE est vide (détail pas encore importé : tous les projets seraient « sans détail »).
+ *
  * Choix de présentation : une dépense dont l'exercice sort de 2023-2026 n'est comptée nulle part (elle est signalée en bas de
  * page) ; une dépense dont le code opération ne correspond à aucune ligne OPE de projet va dans le volet « Sans projet
  * rattaché ». Quand une ligne OPE appartient à plusieurs projets, ses dépenses vont au premier (jamais comptées deux fois).
@@ -26,6 +33,8 @@
   const NO_YEAR_LABEL = 'Sans année';
   const NO_PROGRAMME = 'Sans programme';
   const MEASURES = ['CP', 'AE'];
+  // Écart toléré entre le consommé d'une ligne OPE et la somme de son détail (euros) : celui de ImportHistoriqueLogic.checkTotals.
+  const GAP_TOLERANCE = 0.5;
   const MASSES = ['M10_Fonctionnement', 'M20_Investissement', 'M30_Personnel'];
   // Valeurs de Projets.Statut_operationnel_projet (Choice) : sert quand le schéma n'a pas pu être lu.
   const STATUS_FALLBACK = ['en cours', 'Brouillon', 'En retard', 'cloturé avec Reliquat à traiter', 'Cloturé et reliquat traités', 'En attente des dispo des fonds', 'Suposé cloturé sans information sur ...'];
@@ -79,6 +88,33 @@
   const pctText = (cons, att) => (att > 0 ? `${pctN(cons, att)} %` : (cons > 0 ? '—' : '0 %'));
   const statusColors = status => STATUS_COLORS[status] || STATUS_NEUTRAL;
 
+  // --- Écart entre la ligne OPE et le détail des dépenses -------------------------------------------
+  // Une ligne OPE n'est évaluée que par le projet à qui ses dépenses sont rattachées (le premier qui la porte).
+  // Résultat : null (rien à signaler) ou { kind: 'gap' | 'nodetail', CP, detailCP, diffCP, AE, detailAE, diffAE, withAE, items }.
+  function gapOf(project, opeOwner, withAE) {
+    const lines = new Map();
+    project.opeLines.forEach(line => {
+      if (!line.key || opeOwner.get(line.key) !== project) return;
+      const merged = lines.get(line.key) || { code: line.code, CP: 0, AE: 0 };
+      merged.CP += line.CP; merged.AE += line.AE; lines.set(line.key, merged);
+    });
+    const differs = (cp, ae) => Math.abs(cp) > GAP_TOLERANCE || (withAE && Math.abs(ae) > GAP_TOLERANCE);
+    const total = { CP: 0, AE: 0, detailCP: 0, detailAE: 0, withDetail: false };
+    const items = [];
+    lines.forEach((line, key) => {
+      const detail = project.detailByKey.get(key);
+      total.CP += line.CP; total.AE += line.AE;
+      if (detail) { total.withDetail = true; total.detailCP += detail.CP; total.detailAE += detail.AE; }
+      const diffCP = line.CP - (detail ? detail.CP : 0), diffAE = line.AE - (detail ? detail.AE : 0);
+      if (differs(diffCP, diffAE)) items.push({ code: line.code, kind: detail ? 'gap' : 'nodetail', CP: line.CP, detailCP: detail ? detail.CP : 0, diffCP, AE: line.AE, detailAE: detail ? detail.AE : 0, diffAE });
+    });
+    const diffCP = total.CP - total.detailCP, diffAE = total.AE - total.detailAE;
+    // Même règle que checkTotals : sans aucun détail, « sans détail » (mais pas quand rien n'a été consommé) ; sinon un écart chiffré
+    // (aussi quand deux lignes OPE du projet se compensent : l'écart d'une ligne reste un écart).
+    const kind = total.withDetail ? (items.length || differs(diffCP, diffAE) ? 'gap' : '') : (differs(total.CP, total.AE) ? 'nodetail' : '');
+    return kind ? { kind, CP: total.CP, detailCP: total.detailCP, diffCP, AE: total.AE, detailAE: total.detailAE, diffAE, withAE, items } : null;
+  }
+
   // --- Données -----------------------------------------------------------------------------------
   // projets : lignes de Projets ; programmes : Programmes ; lignes : Lignes_OPE ; depenses : Depenses_OPE (peut être vide).
   function buildDataset({ projets = [], programmes = [], lignes = [], depenses = [] } = {}) {
@@ -96,12 +132,15 @@
         programme: programmeLabel.get(refId(row.Programme)) || NO_PROGRAMME,
         statut: text(row.Statut_operationnel_projet),
         att, ope, totalCP: lines.reduce((sum, line) => sum + num(line.totalCPConsomme), 0),
+        opeLines: lines.map(line => ({ key: opeKey(line.N_OPE), code: text(line.N_OPE), CP: num(line.totalCPConsomme), AE: num(line.Consomme_AE) })),
+        detailByKey: new Map(), gap: null,
         expenses: [], cons: { CP: {}, AE: {} }
       };
       ope.forEach(code => { if (!opeOwner.has(opeKey(code))) opeOwner.set(opeKey(code), project); });
       return project;
     });
 
+    const withAE = lignes.some(line => Object.prototype.hasOwnProperty.call(line, 'Consomme_AE')); // colonne créée par le fil d'import
     const orphans = [];
     const outOfRange = { count: 0, CP: 0, AE: 0 };
     depenses.forEach(row => {
@@ -114,6 +153,10 @@
         AE: num(row.AE_consomme), CP: num(row.CP_consomme), domaine: text(row.Domaine)
       };
       const owner = opeOwner.get(opeKey(row.Code_operation));
+      if (owner) { // détail par code opération, tous exercices (sert à la pastille « écart »)
+        const key = opeKey(row.Code_operation), detail = owner.detailByKey.get(key) || { CP: 0, AE: 0 };
+        detail.CP += expense.CP; detail.AE += expense.AE; owner.detailByKey.set(key, detail);
+      }
       if (!YEARS.includes(year)) { // hors du bilan : ni compté ni rattaché, mais signalé
         outOfRange.count += 1; outOfRange.CP += expense.CP; outOfRange.AE += expense.AE;
         if (owner) owner.detailedCP = (owner.detailedCP || 0) + expense.CP;
@@ -129,6 +172,7 @@
       const detailedCP = project.expenses.reduce((sum, expense) => sum + expense.CP, 0) + (project.detailedCP || 0);
       project.undetailedCP = Math.max(0, project.totalCP - detailedCP);
       project.cons.CP[NO_YEAR] = project.undetailedCP;
+      project.gap = depenses.length ? gapOf(project, opeOwner, withAE) : null;
     });
     orphans.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.year - a.year || a.id - b.id);
     return { projects, orphans, outOfRange };
@@ -223,6 +267,8 @@
     }).sort((a, b) => (a.programme === NO_PROGRAMME) - (b.programme === NO_PROGRAMME) || a.programme.localeCompare(b.programme, 'fr'));
 
     const total = sumRows(rows);
+    const gapCount = { gap: 0, nodetail: 0 };
+    perProject.forEach(entry => { if (entry.project.gap) gapCount[entry.project.gap.kind] += 1; });
     const statuses = (statusChoices && statusChoices.length ? statusChoices : STATUS_FALLBACK).slice();
     dataset.projects.forEach(project => { if (project.statut && !statuses.includes(project.statut)) statuses.push(project.statut); });
     const orphanExpenses = selYears.length ? dataset.orphans.filter(expense => selYears.includes(expense.year)) : [];
@@ -232,7 +278,7 @@
       measure, years: availableYears, selYears, allYears,
       kpi: { att: total.att, cons: total.cons, pct: pctText(total.cons, total.att), pctN: pctN(total.cons, total.att), reste: Math.max(0, total.att - total.cons), over: total.dated > total.att },
       chartA: chart(['year', 'programme'], 'Années'), chartB: chart(['programme', 'year'], 'Programmes'),
-      groups, count: perProject.length,
+      groups, count: perProject.length, gapCount,
       options: { programmes: Array.from(new Set(dataset.projects.map(project => project.programme))).sort((a, b) => (a === NO_PROGRAMME) - (b === NO_PROGRAMME) || a.localeCompare(b, 'fr')), statuses },
       orphans: noProjectFilter && orphanExpenses.length ? { expenses: orphanExpenses, AE: orphanExpenses.reduce((s, e) => s + e.AE, 0), CP: orphanExpenses.reduce((s, e) => s + e.CP, 0) } : null,
       outOfRange: dataset.outOfRange.count ? dataset.outOfRange : null
@@ -254,7 +300,7 @@
   }
 
   global.DashboardLogic = {
-    YEARS, NO_YEAR, NO_YEAR_LABEL, NO_PROGRAMME, MEASURES, MASSES, STATUS_FALLBACK, STATUS_COLORS,
+    YEARS, NO_YEAR, NO_YEAR_LABEL, NO_PROGRAMME, MEASURES, MASSES, GAP_TOLERANCE, STATUS_FALLBACK, STATUS_COLORS,
     buildDataset, compute, defaultState, drillState, toggleYear, statusColors, yearLabel,
     eur, compact, pctN, pctText, refIds, isoDate, opeKey, fold
   };

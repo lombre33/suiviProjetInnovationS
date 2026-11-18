@@ -133,16 +133,39 @@
       chartCard('A', m.chartA, m.chartA.items.length <= VERTICAL_MAX) + chartCard('B', m.chartB, false) + '</div>';
   }
 
-  function expensesHtml(list, extra) {
+  // Explication de la pastille « écart » : ce que dit la ligne OPE, ce que dit le détail, et l'écart (ligne par ligne si plusieurs).
+  function gapTitle(gap) {
+    if (gap.kind === 'nodetail') return `Aucun détail de dépense pour ${gap.items.length > 1 ? 'ces lignes OPE' : 'cette ligne OPE'} (${L.eur(gap.CP)} consommés au total).`;
+    return `Écart entre la ligne OPE (${L.eur(gap.CP)} CP) et le détail des dépenses (${L.eur(gap.detailCP)}) : ${gapSigned(gap.diffCP)}.`;
+  }
+  const gapSigned = value => `${value > 0 ? '+' : ''}${L.eur(value)}`;
+  function gapNoteHtml(gap) {
+    if (!gap) return '';
+    const head = gap.kind === 'nodetail'
+      ? `Aucun détail de dépense n'a été importé pour ${gap.items.length > 1 ? 'ces lignes OPE' : 'cette ligne OPE'} : ${esc(L.eur(gap.CP))} CP consommés au total sur la ligne.`
+      : `Écart entre la ligne OPE et le détail des dépenses (tous exercices) : la ligne indique ${esc(L.eur(gap.CP))} CP, le détail en totalise ${esc(L.eur(gap.detailCP))}, soit ${esc(gapSigned(gap.diffCP))}.`;
+    const ae = gap.withAE && gap.kind === 'gap' && Math.abs(gap.diffAE) > L.GAP_TOLERANCE ? ` En AE : ${esc(L.eur(gap.AE))} sur la ligne, ${esc(L.eur(gap.detailAE))} au détail (${esc(gapSigned(gap.diffAE))}).` : '';
+    const lines = gap.items.length > 1 || gap.kind === 'gap' && gap.items.length === 1 && gap.items[0].kind === 'nodetail'
+      ? `<ul class="db-gap-list">${gap.items.map(item => `<li><b>${esc(item.code)}</b> : ${item.kind === 'nodetail' ? `sans détail (${esc(L.eur(item.CP))} sur la ligne)` : `ligne ${esc(L.eur(item.CP))}, détail ${esc(L.eur(item.detailCP))} (${esc(gapSigned(item.diffCP))})`}</li>`).join('')}</ul>` : '';
+    return `<div class="db-gap-note is-${gap.kind}"><p>${head}${ae}</p>${lines}</div>`;
+  }
+  function gapBadgeHtml(project) {
+    const gap = project.gap;
+    if (!gap) return '';
+    return `<button type="button" class="db-gap is-${gap.kind}" data-db-exp="${esc(project.id)}" title="${esc(gapTitle(gap))}" aria-expanded="${state.openExpenses.has(project.id)}" aria-label="${esc(`${project.acronyme} : ${gapTitle(gap)}`)}">${gap.kind === 'nodetail' ? 'sans détail' : 'écart'}</button>`;
+  }
+
+  function expensesHtml(list, extra, gap) {
     const note = amount => `<p class="db-exp-note">${esc(L.eur(amount))} consommés sur la ligne OPE sans détail de dépense (total de la ligne OPE, non ventilé par année).</p>`;
-    if (!list.length) return extra ? note(extra) : '<p class="db-exp-empty">Aucune dépense détaillée pour ces années.</p>';
+    const gapNote = gapNoteHtml(gap);
+    if (!list.length) return (extra ? note(extra) : '<p class="db-exp-empty">Aucune dépense détaillée pour ces années.</p>') + gapNote;
     const ae = list.reduce((sum, e) => sum + e.AE, 0), cp = list.reduce((sum, e) => sum + e.CP, 0);
     const rows = list.map(e => `<tr><td class="db-nowrap">${esc(e.date ? e.date.split('-').reverse().join('/') : '')}</td><td>${esc(e.fournisseur)}</td>` +
       `<td class="db-exp-obj" title="${esc(e.libelle)}">${esc(e.libelle)}</td><td class="db-nowrap">${esc(e.ej)}</td><td title="${esc(e.destinationLibelle)}">${esc(e.nature)}${e.destination ? ` · ${esc(e.destination)}` : ''}</td>` +
       `<td>${esc(e.etat)}</td><td class="db-num">${e.AE ? esc(L.eur(e.AE)) : ''}</td><td class="db-num">${e.CP ? esc(L.eur(e.CP)) : ''}</td></tr>`).join('');
     return `<div class="db-exp-scroll"><table class="db-exp-table"><thead><tr><th>Date</th><th>Fournisseur</th><th>Objet</th><th>N° EJ</th><th>Nature · destination</th><th>État</th><th class="db-num">AE</th><th class="db-num">CP</th></tr></thead>` +
       `<tbody>${rows}</tbody><tfoot><tr><td colspan="6">${list.length} dépense${list.length > 1 ? 's' : ''}</td><td class="db-num">${esc(L.eur(ae))}</td><td class="db-num">${esc(L.eur(cp))}</td></tr></tfoot></table></div>` +
-      (extra ? note(extra) : '');
+      (extra ? note(extra) : '') + gapNote;
   }
 
   function projectRowHtml(entry, statuses, helpHtml) {
@@ -155,12 +178,12 @@
     const n = entry.expenses.length;
     return `<div class="db-row db-prow${open ? ' is-open' : ''}" data-project-id="${esc(project.id)}">` +
       `<span class="db-name db-pj"><button type="button" class="db-exp-toggle" data-db-exp="${esc(project.id)}" aria-expanded="${open}" title="Dépenses détaillées" aria-label="${esc(`Dépenses de ${project.acronyme}`)}">${ICON_CHEVRON}<span class="db-n${n ? '' : ' is-zero'}">${n}</span></button>` +
-      `<span class="db-who"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>` +
+      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${gapBadgeHtml(project)}</span>` +
       `${project.titre ? `<span class="db-cap" title="${esc(project.titre)}">${esc(project.titre)}</span>` : ''}</span></span>` +
       `<span class="db-st"><span class="db-stwrap" style="${pillStyle(status)}"><i class="db-dot" style="background:${dot}"></i>${select}<svg class="db-stchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span><span class="db-saved" data-db-saved="${esc(project.id)}" hidden>${ICON_CHECK}Enregistré</span></span>` +
       `<span class="db-pr">${progressHtml(entry.cons, entry.att, entry.pct, entry.over)}</span>` +
       `<span class="db-att">${esc(L.eur(entry.att))}</span><span class="db-cons${entry.over ? ' is-over' : ''}">${esc(L.eur(entry.cons))}</span></div>` +
-      (open ? `<div class="db-exp">${expensesHtml(entry.expenses, entry.undetailed)}</div>` : '');
+      (open ? `<div class="db-exp">${expensesHtml(entry.expenses, entry.undetailed, project.gap)}</div>` : '');
   }
   function progressHtml(cons, att, pct, over) {
     const w = att > 0 ? Math.min(100, Math.round((cons / att) * 100)) : 0;
@@ -190,6 +213,13 @@
     if (state.expensesState === 'loading' || state.expensesState === 'idle') notes.push('Chargement des dépenses…');
     if (state.expensesState === 'error') notes.push(`Table ${EXPENSES_TABLE} illisible : ${esc(state.expensesError)}`);
     if (m.outOfRange) notes.push(`${m.outOfRange.count} dépense${m.outOfRange.count > 1 ? 's' : ''} d'un exercice hors 2023-2026 (${esc(L.eur(m.outOfRange[m.measure]))} ${m.measure}) non comptée${m.outOfRange.count > 1 ? 's' : ''}.`);
+    const gaps = m.gapCount;
+    if (gaps && (gaps.gap || gaps.nodetail)) {
+      const parts = [];
+      if (gaps.gap) parts.push(`${gaps.gap} projet${gaps.gap > 1 ? 's' : ''} avec un écart entre la ligne OPE et le détail des dépenses`);
+      if (gaps.nodetail) parts.push(`${gaps.nodetail} sans détail de dépense`);
+      notes.push(`${parts.join(', ')}.`);
+    }
     return notes.length ? `<p class="db-foot">${notes.join(' ')}</p>` : '';
   }
 
