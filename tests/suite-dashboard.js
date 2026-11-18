@@ -90,6 +90,80 @@
       assertEqual(project(small, 'ALPHA').undetailedCP, 0, 'le détail dépasse le total : pas de reliquat négatif');
     });
 
+    // --- Pastille « écart » : consommé de la ligne OPE ≠ somme du détail Depenses_OPE (mêmes règles que l'outil d'import historique) ---
+    it('écart : le consommé de la ligne OPE diffère du détail (tous exercices compris) → pastille « écart » chiffrée', function () {
+      const ds = dataset();
+      const alpha = project(ds, 'ALPHA').gap, gamma = project(ds, 'GAMMA').gap;
+      assertEqual(alpha.kind, 'gap');
+      assertEqual(alpha.CP, 1200);
+      assertEqual(alpha.detailCP, 570, '300 + 200 + 70 (l\'exercice 2027 compte : le contrôle porte sur tous les exercices)');
+      assertEqual(alpha.diffCP, 630);
+      assertDeepEqual(alpha.items.map(i => i.code), ['OPE 001']);
+      assertEqual(gamma.kind, 'gap');
+      assertEqual(gamma.diffCP, 300);
+    });
+
+    it('écart : rien à signaler quand le détail égale le total (à la tolérance près) ou quand rien n\'a été consommé', function () {
+      const lignes = LIGNES.map(l => (l.id === 1 ? Object.assign({}, l, { totalCPConsomme: 570.4 }) : l));
+      assertEqual(project(dataset({ lignes }), 'ALPHA').gap, null, '0,40 € d\'écart : sous la tolérance de 0,50 €');
+      const over = LIGNES.map(l => (l.id === 1 ? Object.assign({}, l, { totalCPConsomme: 570.6 }) : l));
+      assertEqual(project(dataset({ lignes: over }), 'ALPHA').gap.kind, 'gap', '0,60 € : au-dessus');
+      assertEqual(project(dataset(), 'BETA').gap, null, 'BETA : OPE002 à 0 € et sans détail');
+      assertEqual(project(dataset(), 'DELTA').gap, null, 'DELTA : aucune ligne OPE');
+      assertEqual(L().GAP_TOLERANCE, 0.5);
+    });
+
+    it('écart : une ligne OPE consommée sans aucun détail est « sans détail », pas un écart chiffré', function () {
+      const lignes = LIGNES.map(l => (l.id === 2 ? Object.assign({}, l, { totalCPConsomme: 700 }) : l));
+      const beta = project(dataset({ lignes }), 'BETA').gap;
+      assertEqual(beta.kind, 'nodetail');
+      assertEqual(beta.CP, 700);
+      assertEqual(beta.detailCP, 0);
+    });
+
+    it('écart : le détail plus grand que la ligne est aussi un écart (négatif) ; deux lignes OPE qui se compensent restent signalées', function () {
+      const small = LIGNES.map(l => (l.id === 1 ? Object.assign({}, l, { totalCPConsomme: 100 }) : l));
+      assertEqual(project(dataset({ lignes: small }), 'ALPHA').gap.diffCP, -470);
+      const two = [{ id: 1, N_OPE: 'OPE 001', totalCPConsomme: 1000 }, { id: 2, N_OPE: 'OPE002', totalCPConsomme: 0 }, { id: 3, N_OPE: 'ope003', totalCPConsomme: 400 }, { id: 4, N_OPE: 'OPE 004', totalCPConsomme: 100 }];
+      const projets = PROJETS.map(p => (p.id === 10 ? Object.assign({}, p, { Ligne_OPE: ['L', 1, 4] }) : p));
+      const depenses = DEPENSES.concat([{ id: 6, Exercice: 2025, Code_operation: 'OPE004', CP_consomme: 530 }]);
+      const gap = project(dataset({ lignes: two, projets, depenses }), 'ALPHA').gap;
+      assertEqual(gap.diffCP, 0, 'OPE 001 : +430 ; OPE 004 : -430 → cumul nul');
+      assertEqual(gap.kind, 'gap', '… mais chaque ligne reste en écart');
+      assertDeepEqual(gap.items.map(i => i.code), ['OPE 001', 'OPE 004']);
+    });
+
+    it('écart : rien n\'est signalé tant que Depenses_OPE est vide (sinon tous les projets seraient « sans détail ») ; filtres sans effet', function () {
+      assertEqual(project(dataset({ depenses: [] }), 'ALPHA').gap, null);
+      const ds = dataset();
+      const filtered = L().compute(ds, { years: [2025], programmes: ['FARE'] });
+      assertEqual(filtered.groups[0].projects.find(e => e.project.acronyme === 'ALPHA').project.gap.diffCP, 630, 'ne dépend pas des années choisies');
+      assertDeepEqual(L().compute(ds, {}).gapCount, { gap: 2, nodetail: 0 });
+      assertDeepEqual(L().compute(ds, { programmes: ['CTO Innovation'] }).gapCount, { gap: 1, nodetail: 0 }, 'compte les projets visibles');
+    });
+
+    it('écart : une ligne OPE partagée n\'est évaluée que par le projet qui porte ses dépenses ; une ligne sans N_OPE est ignorée', function () {
+      const shared = PROJETS.map(p => (p.id === 11 ? Object.assign({}, p, { Ligne_OPE: ['L', 1] }) : p));
+      const ds = dataset({ projets: shared });
+      assertEqual(project(ds, 'ALPHA').gap.kind, 'gap');
+      assertEqual(project(ds, 'BETA').gap, null, 'le second projet ne reçoit pas un faux « sans détail »');
+      const nameless = LIGNES.map(l => (l.id === 2 ? Object.assign({}, l, { N_OPE: '', totalCPConsomme: 900 }) : l));
+      assertEqual(project(dataset({ lignes: nameless }), 'BETA').gap, null);
+    });
+
+    it('écart en AE : comparé seulement quand la colonne Consomme_AE existe sur Lignes_OPE', function () {
+      assertEqual(project(dataset(), 'ALPHA').gap.withAE, false);
+      const lignes = LIGNES.map(l => Object.assign({}, l, { Consomme_AE: l.id === 1 ? 770 : (l.id === 3 ? 100 : 0) }));
+      const ok = Object.assign({}, lignes[0], { totalCPConsomme: 570 });
+      const clean = project(dataset({ lignes: [ok, lignes[1], Object.assign({}, lignes[2], { totalCPConsomme: 100 })] }), 'ALPHA');
+      assertEqual(clean.gap, null, 'CP 570 = 570 et AE 770 = 500 + 200 + 70');
+      const off = project(dataset({ lignes: [Object.assign({}, ok, { Consomme_AE: 800 }), lignes[1], lignes[2]] }), 'ALPHA').gap;
+      assertEqual(off.kind, 'gap');
+      assertEqual(off.withAE, true);
+      assertEqual(off.diffAE, 30);
+      assertEqual(off.diffCP, 0);
+    });
+
     it('une dépense sans ligne OPE de projet va dans « Sans projet rattaché » ; un exercice hors 2023-2026 n\'est compté nulle part mais signalé', function () {
       const ds = dataset();
       assertDeepEqual(ds.orphans.map(e => e.fournisseur), ['ORPHELIN']);
@@ -313,7 +387,7 @@
     const projets = options.projets || PROJETS;
     window.__mockSetTable('Projets', toTable(projets));
     window.__mockSetTable('Programmes', toTable(options.programmes || PROGRAMMES));
-    window.__mockSetTable('Lignes_OPE', toTable(LIGNES));
+    window.__mockSetTable('Lignes_OPE', toTable(options.lignes || LIGNES));
     if (options.depenses !== false) window.__mockSetTable('Depenses_OPE', toTable(options.depenses || DEPENSES));
     await installMeta();
     const tables = await window.CoreGrist.loadAllTables();
@@ -403,6 +477,52 @@
       assertEqual(prow('BETA').querySelector('.db-n').textContent, '0');
       click(prow('BETA').querySelector('[data-db-exp]'));
       assertIncludes(list().querySelector('.db-exp').textContent, 'Aucune dépense détaillée');
+      unload();
+    });
+
+    it('pastille « écart » sur un projet dont la ligne OPE ne colle pas au détail : au clic, le volet Dépenses explique l\'écart', async function () {
+      await load();
+      click(head('FARE'));
+      const badge = prow('ALPHA').querySelector('.db-gap');
+      assertTrue(!!badge, 'pastille sur ALPHA');
+      assertEqual(badge.textContent, 'écart');
+      assertIncludes(norm(badge.title), 'Écart entre la ligne OPE (1 200 € CP) et le détail des dépenses (570 €) : +630 €');
+      assertEqual(prow('BETA').querySelector('.db-gap'), null, 'rien consommé, rien à signaler');
+      click(badge);
+      assertEqual(badge.getAttribute('aria-expanded'), 'false', 'l\'attribut se met à jour au prochain rendu');
+      const note = list().querySelector('.db-exp .db-gap-note');
+      assertTrue(!!note, 'explication dans le volet');
+      assertIncludes(norm(note.textContent), 'la ligne indique 1 200 € CP, le détail en totalise 570 €, soit +630 €');
+      click(prow('ALPHA').querySelector('.db-gap'));
+      assertEqual(list().querySelectorAll('.db-exp').length, 0, 'second clic : se replie');
+      assertIncludes(norm(list().querySelector('.db-foot').textContent), '2 projets avec un écart entre la ligne OPE et le détail des dépenses');
+      unload();
+    });
+
+    it('la pastille ne dépend pas des années ni de la mesure : elle reste quand on filtre', async function () {
+      await load();
+      click(yearBtn(2025)); click(yearBtn(2023)); click(yearBtn(2026)); click(yearBtn(0));
+      click(view().querySelector('[data-db-measure="AE"]'));
+      click(head('FARE'));
+      assertTrue(!!prow('ALPHA').querySelector('.db-gap'));
+      unload();
+    });
+
+    it('un projet consommé mais sans aucun détail porte « sans détail » ; sans dépenses importées, aucune pastille', async function () {
+      await load({ lignes: LIGNES.map(l => (l.id === 2 ? Object.assign({}, l, { totalCPConsomme: 700 }) : l)) });
+      click(head('FARE'));
+      const badge = prow('BETA').querySelector('.db-gap');
+      assertEqual(badge.textContent, 'sans détail');
+      assertTrue(badge.classList.contains('is-nodetail'));
+      click(badge);
+      assertIncludes(norm(list().querySelector('.db-gap-note').textContent), 'Aucun détail de dépense n\'a été importé pour cette ligne OPE : 700 € CP');
+      assertIncludes(norm(list().querySelector('.db-foot').textContent), '2 projets avec un écart entre la ligne OPE et le détail des dépenses, 1 sans détail de dépense.');
+      unload();
+      await load({ depenses: [] });
+      click(head('FARE'));
+      assertTrue(!!prow('ALPHA'), 'volet FARE ouvert');
+      assertEqual(list().querySelectorAll('.db-gap').length, 0, 'Depenses_OPE vide : aucune pastille');
+      assertFalse(norm(list().textContent).includes('écart entre la ligne OPE'), 'ni mention en bas de page');
       unload();
     });
 
