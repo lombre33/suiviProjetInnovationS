@@ -9,7 +9,7 @@
  * l'utilisateur (Preferences_Widget, colonnes Dash_*). La table Depenses_OPE est créée à la première ouverture si elle manque,
  * puis seulement lue (les dépenses y sont importées par ailleurs). Lue à l'ouverture de la page, pas au démarrage du widget.
  *
- * Préférences par utilisateur : années, programmes, statuts, recherche, mesure (CP/AE), graphiques masqués. Les volets ouverts
+ * Préférences par utilisateur : années, programmes, statuts, recherche, mesure (CP/AE), graphiques ouverts (repliés par défaut). Les volets ouverts
  * ne sont pas retenus : ils sont repliés à chaque ouverture (demande d'Antoine du 10/11).
  */
 (function (global) {
@@ -37,6 +37,7 @@
   ];
   const EXPENSES_STALE_MS = 60000; // une ouverture de la page relit les dépenses si la lecture a plus d'une minute
   const BAR_PX = 118;
+  const VERTICAL_MAX = 6; // au-delà, les colonnes du graphique 1 se chevauchent : barres horizontales défilantes
 
   const esc = value => CoreUtils.escapeHtml(value);
   const encodeList = CoreUtils.encodeList;
@@ -129,7 +130,7 @@
       `<div><span class="db-kl"><i class="db-sw db-sw-cons"></i>Consommé (${m.measure})</span><strong class="db-kv" id="db-kpi-cons">${esc(L.eur(kpi.cons))}</strong>` +
       `<div class="db-kbar"><div class="db-kfill${kpi.over ? ' is-over' : ''}" style="width:${Math.min(100, kpi.pctN)}%"></div></div>` +
       `<span class="db-kp">${esc(kpi.pct)} · reste ${esc(L.eur(kpi.reste))}</span></div></div>` +
-      chartCard('A', m.chartA, true) + chartCard('B', m.chartB, false) + '</div>';
+      chartCard('A', m.chartA, m.chartA.items.length <= VERTICAL_MAX) + chartCard('B', m.chartB, false) + '</div>';
   }
 
   function expensesHtml(list, extra) {
@@ -192,11 +193,19 @@
     return notes.length ? `<p class="db-foot">${notes.join(' ')}</p>` : '';
   }
 
+  // Ligne « Total » en tête de liste : les totaux restent visibles quand les graphiques sont repliés (c'est l'état par défaut).
+  function totalHtml(m) {
+    const k = m.kpi;
+    return `<div class="db-row db-totalrow" title="${esc(`Reste à consommer : ${L.eur(k.reste)}`)}"><span class="db-name"><span class="db-pn">Total</span><span class="db-tag">${m.count} projet${m.count > 1 ? 's' : ''}</span></span>` +
+      `<span class="db-st"></span><span class="db-pr">${progressHtml(k.cons, k.att, k.pct, k.over)}</span>` +
+      `<span class="db-att"><b id="db-total-att">${esc(L.eur(k.att))}</b></span><span class="db-cons${k.over ? ' is-over' : ''}"><b id="db-total-cons">${esc(L.eur(k.cons))}</b></span></div>`;
+  }
   function listHtml(m) {
     const help = global.HelpTooltip ? HelpTooltip.markup('Projets', 'Statut_operationnel_projet') : '';
     const head = `<div class="db-row db-colhead" aria-hidden="true"><span>Programme · projet</span><span>Statut du projet${help}</span><span>Consommation</span><span class="db-r">Attribué</span><span class="db-r">Consommé</span></div>`;
+    const total = totalHtml(m);
     if (!m.groups.length && !m.orphans) return `${head}<div class="db-card db-empty"><span>Aucun projet ne correspond à ces filtres.</span><button type="button" class="btn btn-secondary" data-db-reset>Réinitialiser les filtres</button></div>${footnoteHtml(m)}`;
-    return head + m.groups.map(group => volHtml(group, m, m.options.statuses, help)).join('') + orphansHtml(m) + footnoteHtml(m);
+    return head + total + m.groups.map(group => volHtml(group, m, m.options.statuses, help)).join('') + orphansHtml(m) + footnoteHtml(m);
   }
 
   // Bandeau : années, listes à cases, mesure, bouton des graphiques.
@@ -251,7 +260,7 @@
     model = L.compute(getDataset(), state, statusChoices());
     renderBand(model);
     const charts = $('db-charts');
-    if (charts) { charts.hidden = !state.charts; if (state.charts) charts.innerHTML = chartsHtml(model); }
+    if (charts) { charts.hidden = !state.charts; charts.innerHTML = state.charts ? chartsHtml(model) : ''; } // repliés : rien n'est dessiné
     const list = $('db-list');
     if (list) list.innerHTML = listHtml(model);
     if (isVisible() && state.expensesState === 'idle') loadExpenses(false);
@@ -343,7 +352,7 @@
     state.statuts = decodeList(row.Dash_statuts);
     state.search = text(row.Dash_recherche);
     if (L.MEASURES.includes(text(row.Dash_mesure))) state.measure = text(row.Dash_mesure);
-    state.charts = text(row.Dash_graphiques) !== '0';
+    state.charts = text(row.Dash_graphiques) === '1'; // replié par défaut : seul « 1 » (ouvert) est retenu
   }
   async function loadDashboardUserPreferences() {
     if (!global.CoreGrist || !CoreGrist.gristInstance) return;
@@ -369,7 +378,7 @@
     if (!prefsRowId || !global.CoreGrist || !CoreGrist.gristInstance) return;
     const fields = {
       Dash_annees: Array.isArray(state.years) ? encodeList(state.years.map(String)) : '', Dash_programmes: encodeList(state.programmes), Dash_statuts: encodeList(state.statuts),
-      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '' : '0'
+      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : ''
     };
     try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
     catch (err) { console.warn('Enregistrement des préférences Dashboard a échoué :', err.message); }
