@@ -1,17 +1,19 @@
 /**
  * Non-regression suite : outil « Import de l'historique financier » (js/pages/import-historique-logic.js + page-import-historique.js) — 18/11/2026.
  *
- * Planche validée par Antoine le 18/11/2026 : l'outil relie le journal Import_Financements aux projets et aux lignes OPE de Grist
- * (création de ce qui manque, après accord à l'écran), ne copie AUCUN montant, vérifie les totaux contre le détail des dépenses, et
- * tient un journal qui rend chaque lot annulable.
+ * Planche validée par Antoine le 18/11/2026, puis tableau de contrôle (maquette v6) : une ligne par projet de l'export, des cellules
+ * colorées (ajout, modification, écart où Grist garde sa valeur, anomalie), un clic sur une valeur pour la changer. L'outil relie le
+ * journal Import_Financements aux projets et aux lignes OPE de Grist (création de ce qui manque), ne copie AUCUN montant, vérifie les
+ * totaux contre le détail des dépenses, bloque l'écriture tant qu'il reste une anomalie, et tient un journal qui rend chaque lot annulable.
  *
  * Jeu de données (posé par load()) :
  *   Journal (6 envois) : FICTIF-0001 InnovationS (2 versions : id 1 puis id 3), FICTIF-0002 IDEX — les 2 lignes du tableur de test —,
  *     « OPE 001 » (Projet Alpha), « OPE-GAMMA-1 » (nom contenant l'acronyme GAMMA), « OPE-DEL-1 » (N° décision DEC-2023-045).
  *   Grist : Programmes 1 FARE, 2 CTO Innovation · Structures 1 LAB1 (« Laboratoire fictif »), 3 DIESE · Lignes OPE 1 « OPE001 » ·
  *     Projets 10 ALPHA (OPE 1, programme FARE), 12 GAMMA (rien), 14 DELTA (cite DEC-2023-045).
- *   Donc : « Projet Alpha (export) » = sûr (N° OPE), « Un tout autre libellé » = sûr (N° décision), « GAMMA - Projet Gamma financé » = à confirmer
- *     (acronyme dans le nom), « PROJET FICTIF - exemple de format » = nouveau (2 lignes OPE).
+ *   Donc : « Projet Alpha (export) » = sûr (N° OPE), « Un tout autre libellé » = sûr (N° décision) mais sa structure « Structure inconnue » est
+ *     une anomalie, « GAMMA - Projet Gamma financé » = à confirmer (acronyme dans le nom), « PROJET FICTIF - exemple de format » = nouveau
+ *     (2 lignes OPE) mais son programme « Programme fictif (test) » est une anomalie. 3 anomalies au départ.
  */
 (function () {
   'use strict';
@@ -80,19 +82,31 @@
     P().resetState();
     await P().open();
   }
-  const entryRow = name => Array.from(document.querySelectorAll('.ih-row')).find(row => row.textContent.includes(name));
-  const rowCategory = name => { const el = entryRow(name)?.querySelector('.ih-state'); return el ? el.className.replace('ih-state is-', '') : null; };
+  const KEY = { fictif: 'projet fictif exemple de format', gamma: 'gamma projet gamma finance', alpha: 'projet alpha export', delta: 'un tout autre libelle' };
+  const rowEl = key => document.querySelector(`tr[data-ih-entry="${key}"]`);
+  const rowOfName = name => Array.from(document.querySelectorAll('.ih-tr')).find(row => row.textContent.includes(name));
+  const rowState = name => { const el = rowOfName(name); return el ? el.className.replace(/.*is-(\w+).*/, '$1') : null; };
+  const cellEl = id => document.querySelector(`[data-ih-cell="${id}"]`);
   const click = id => byId(id).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const writeCalls = () => window.__TEST_CALLS__.filter(call => call.table !== 'Import_Journal' && ['AddRecord', 'UpdateRecord', 'RemoveRecord'].includes(call.type));
+  const writeCalls = () => window.__TEST_CALLS__.filter(call => ['Projets', 'Lignes_OPE'].includes(call.table) && ['AddRecord', 'UpdateRecord', 'RemoveRecord'].includes(call.type));
   const grist = name => CoreGrist.getTable(name);
-  const simulateAndWrite = async () => {
-    click('ih-confirm-all');
-    click('ih-simulate');
-    await waitFor(() => byId('ih-sim'), 'simulation affichée');
+  // Ouvre une cellule du tableau, y choisit une valeur (ou en tape une) comme le ferait l'utilisateur.
+  const openCell = id => { const el = cellEl(id); assertTrue(!!el, 'cellule ' + id); el.click(); };
+  const inEl = id => document.querySelector(`[data-ih-in="${id}"]`);
+  const pickIn = (id, value) => { const el = inEl(id); assertTrue(!!el, 'éditeur ' + id); el.value = value; fire(el, 'change'); };
+  const fixCell = (id, value) => { openCell(id); pickIn(id, value); };
+  // Règle les 3 anomalies de départ : GAMMA confirmé, programme fictif non renseigné, structure inconnue non renseignée.
+  const fixAll = () => {
+    fixCell(KEY.gamma + '|status', 'p:12');
+    fixCell(KEY.fictif + '|prog', '__none');
+    fixCell(KEY.delta + '|s|OPE-DEL-1', '__none');
+  };
+  const ackWrite = async () => {
     const ack = byId('ih-ack'); ack.checked = true; fire(ack, 'change');
     click('ih-write');
     await waitFor(() => document.querySelector('.ih-banner'), 'résultat de l\'écriture');
   };
+  const fixAndWrite = async () => { fixAll(); await ackWrite(); };
 
   // ===========================================================================================================
   describe('Import historique — le journal devient une version par ligne de financement', function () {
@@ -186,13 +200,109 @@
       assertEqual(L().matchEntry(entry, ctx).status, 'conflict');
     });
     it('programmes et structures : égalité exacte d\'abord, suggestion très proche à relire, sinon rien', function () {
-      const { grouped, ctx } = matches();
-      const maps = L().buildMappings(grouped.entries, ctx);
-      const prog = label => maps.programmes.find(m => m.label === label), struct = label => maps.structures.find(m => m.label === label);
-      assertEqual(prog('FARE').id, 1); assertTrue(prog('FARE').auto);
-      assertEqual(prog('Programme fictif (test)').id, 0, 'aucun programme proche : rien n\'est renseigné');
-      assertEqual(struct('Laboratoire fictif').id, 1, 'le nom complet suffit'); assertEqual(struct('DIESE').id, 3);
-      assertEqual(struct('Structure inconnue').id, 0);
+      const { ctx } = matches();
+      const prog = label => L().matchLabel(label, ctx.programmeList, p => [p.n]), struct = label => L().matchLabel(label, ctx.structureList, s => s.names);
+      assertTrue(prog('FARE').exact); assertEqual(prog('fare').item.id, 1, 'sans accents ni majuscules');
+      assertEqual(prog('Programme fictif (test)').item, null, 'aucun programme proche : rien n\'est renseigné'); assertEqual(prog('Programme fictif (test)').suggestion, null);
+      assertEqual(struct('Laboratoire fictif').item.id, 1, 'le nom complet suffit'); assertEqual(struct('DIESE').item.id, 3);
+      assertEqual(struct('Structure inconnue').item, null);
+      const close = struct('Laboratoire fictiv');
+      assertFalse(close.exact); assertEqual(close.suggestion.id, 1, 'un libellé très proche est suggéré, à relire');
+    });
+  });
+
+  describe('Import historique — le tableau de contrôle : une cellule par valeur, une couleur par sens', function () {
+    function build(options = {}) {
+      const lines = L().latestVersions(options.journal || JOURNAL).lines, grouped = L().groupProjects(lines, L().checkLines(lines));
+      const ctx = Object.assign(L().buildContext({ projets: options.projets || PROJETS, lignes: options.lignes || LIGNES, programmes: PROGRAMMES, structures: STRUCTURES, statusChoices: options.statusChoices }), options.ctx || {});
+      const matches = new Map(grouped.entries.map(e => [e.key, L().matchEntry(e, ctx)]));
+      return L().buildTable({ entries: grouped.entries, matches, decisions: options.decisions || new Map(), edits: options.edits || new Map(), ctx, now: Date.UTC(2026, 10, 18) });
+    }
+    const rowOf = (t, key) => t.rows.find(r => r.key === key);
+    const states = row => Object.fromEntries(Object.keys(row.cells).map(k => [k, row.cells[k].state]));
+    const resolved = () => ({ decisions: new Map([[KEY.gamma, { mode: 'project', projectId: 12, confirmed: true }]]), edits: new Map([[KEY.fictif + '|prog', null], [KEY.delta + '|s|OPE-DEL-1', null]]) });
+
+    it('une ligne par projet, avec son état : ajout, modification, à confirmer', function () {
+      const t = build();
+      assertEqual(t.rows.length, 4);
+      assertEqual(rowOf(t, KEY.fictif).state, 'add'); assertEqual(rowOf(t, KEY.alpha).state, 'mod'); assertEqual(rowOf(t, KEY.delta).state, 'mod');
+      assertEqual(rowOf(t, KEY.gamma).state, 'tbd', 'nom proche : attend un choix');
+      assertDeepEqual({ add: t.add, mod: t.mod, same: t.same, tbd: t.tbd, skip: t.skip, todo: t.todo, left: t.left }, { add: 1, mod: 2, same: 0, tbd: 1, skip: 0, todo: 3, left: 3 });
+    });
+
+    it('projet créé : tout est « ajouté », l\'acronyme vient du nom avant « - », les dates sont les plus larges, le statut suit la date de fin', function () {
+      const row = rowOf(build(), KEY.fictif);
+      assertEqual(row.cells.name.state, 'add'); assertEqual(row.cells.acr.v, 'PROJET FICTIF');
+      assertEqual(row.cells.start.v, '2022-01-01', 'la plus ancienne des deux lignes'); assertEqual(row.cells.end.v, '2025-12-31');
+      assertEqual(row.cells.stat.v, L().STATUS_CLOSED); assertEqual(row.cells.stat.state, 'add');
+      assertDeepEqual(row.lines.map(l => [l.ope, l.state, l.cell.v]).sort(), [['FICTIF-0001', 'add', 'LAB1'], ['FICTIF-0002', 'add', 'LAB1']], 'le nom complet de la structure est reconnu : LAB1');
+    });
+
+    it('projet de Grist : vide = modifié (bleu), identique = inchangé, rempli et différent = écart, Grist garde sa valeur', function () {
+      const alpha = rowOf(build(), KEY.alpha);
+      assertDeepEqual(states(alpha), { name: 'conf', acr: 'same', prog: 'same', start: 'fill', end: 'fill', stat: 'empty' });
+      assertEqual(alpha.cells.name.v, 'Projet Alpha', 'la valeur de Grist reste affichée'); assertEqual(alpha.cells.name.alt, 'Projet Alpha (export)', 'celle de l\'export est montrée à côté');
+      assertEqual(alpha.lines[0].state, 'fill', 'la structure de la ligne OPE était vide dans Grist'); assertEqual(alpha.lines[0].cell.v, 'LAB1');
+      const full = rowOf(build({ projets: [Object.assign({}, PROJETS[0], { Programme: 2, Date_debut_Projet: UTC(2020, 1, 1) }), ...PROJETS.slice(1)] }), KEY.alpha);
+      assertEqual(full.cells.prog.state, 'conf'); assertEqual(full.cells.prog.v, 'CTO Innovation'); assertEqual(full.cells.prog.alt, 'FARE');
+      assertEqual(full.cells.start.state, 'conf'); assertEqual(full.cells.start.v, '2020-01-01');
+    });
+
+    it('une valeur que Grist n\'accepte pas est une anomalie, avec sa raison et une suggestion quand un libellé est proche', function () {
+      const t = build({ statusChoices: ['en cours', 'En retard'] });
+      const fictif = rowOf(t, KEY.fictif);
+      assertEqual(fictif.cells.prog.state, 'bad'); assertEqual(fictif.cells.prog.err, 'Programme inconnu dans Grist'); assertEqual(fictif.cells.prog.v, 'Programme fictif (test)');
+      assertEqual(fictif.cells.stat.state, 'bad'); assertEqual(fictif.cells.stat.err, 'Absent de la liste de choix', 'le statut « supposé clôturé » n\'est pas dans les choix de la colonne');
+      assertEqual(rowOf(t, KEY.delta).lines[0].state, 'bad'); assertEqual(rowOf(t, KEY.delta).lines[0].cell.err, 'Structure inconnue dans Grist');
+      assertEqual(fictif.anomalies, 2);
+      const near = build({ journal: JOURNAL.map(r => (r.N_OPE === 'OPE-DEL-1' ? Object.assign({}, r, { Structure: 'Laboratoire fictiv' }) : r)) });
+      assertEqual(rowOf(near, KEY.delta).lines[0].cell.hint, 'LAB1');
+      const reversed = build({ journal: JOURNAL.map(r => (r.N_OPE === 'OPE-GAMMA-1' ? Object.assign({}, r, { Date_fin: UTC(2020, 1, 1) }) : r)) });
+      assertEqual(rowOf(reversed, KEY.gamma).cells.end.state, 'bad'); assertEqual(rowOf(reversed, KEY.gamma).cells.end.err, 'Fin avant le début');
+    });
+
+    it('une valeur choisie remplace celle de l\'export et lève l\'anomalie ; « ne pas renseigner » aussi', function () {
+      const t = build({ edits: new Map([[KEY.fictif + '|prog', 'FARE'], [KEY.delta + '|s|OPE-DEL-1', 'DIESE']]) });
+      assertEqual(rowOf(t, KEY.fictif).cells.prog.state, 'add'); assertEqual(rowOf(t, KEY.fictif).cells.prog.v, 'FARE');
+      assertEqual(rowOf(t, KEY.delta).lines[0].cell.v, 'DIESE'); assertEqual(rowOf(t, KEY.delta).lines[0].state, 'add');
+      assertEqual(t.left, 1, 'reste seulement GAMMA à confirmer');
+      const none = build({ edits: new Map([[KEY.fictif + '|prog', null]]) });
+      assertEqual(rowOf(none, KEY.fictif).cells.prog.state, 'empty'); assertEqual(rowOf(none, KEY.fictif).anomalies, 0);
+    });
+
+    it('la même valeur invalide sur plusieurs projets se règle d\'un coup, sur demande seulement', function () {
+      const twin = (name, ope) => Object.assign({}, alpha, { Projet: name, N_OPE: ope, Programme: 'CTO Innov. 2024', Structure: 'LAB1' });
+      const journal = [Object.assign({ id: 1 }, twin('Projet Un', 'N-1')), Object.assign({ id: 2 }, twin('Projet Deux', 'N-2')), Object.assign({ id: 3 }, twin('Projet Trois', 'N-3'))];
+      const t = build({ journal, projets: [], lignes: [] });
+      const ids = t.rows.map(r => r.cells.prog.id);
+      assertEqual(t.rows.every(r => r.cells.prog.state === 'bad'), true);
+      assertEqual(L().similarBad(t, ids[0]).length, 2, 'deux autres projets disent la même chose');
+      const all = new Map(); L().applyChoice(t, all, ids[0], 'FARE', true);
+      assertEqual(all.size, 3);
+      assertEqual(build({ journal, projets: [], lignes: [], edits: all }).left, 0);
+      const one = new Map(); L().applyChoice(t, one, ids[0], 'FARE', false);
+      assertEqual(one.size, 1, 'sans la case, une seule cellule change');
+    });
+
+    it('un N° OPE déjà sur un autre projet : anomalie à trancher (rattacher aussi, ou écarter le projet)', function () {
+      const decisions = new Map([[KEY.alpha, { mode: 'project', projectId: 12, confirmed: true }]]);
+      const line = t => rowOf(t, KEY.alpha).lines[0];
+      const t = build({ decisions });
+      assertEqual(line(t).state, 'bad'); assertEqual(line(t).conflict.owner, 'ALPHA'); assertEqual(rowOf(t, KEY.alpha).anomalies, 1);
+      const keep = build({ decisions, edits: new Map([[KEY.alpha + '|c|OPE001', 'keep']]) });
+      assertEqual(line(keep).state, 'fill'); assertEqual(rowOf(keep, KEY.alpha).anomalies, 0);
+      assertTrue(keep.plan.phase2.some(op => op.id === 12 && op.fields.Ligne_OPE.includes(1)), 'la ligne OPE est rattachée au projet choisi');
+    });
+
+    it('décisions : « autre projet » sans choix attend ; écarter met de côté ; un projet absent de Grist n\'attend plus d\'accord', function () {
+      const E = L().effectiveDecision;
+      assertEqual(E({ status: 'new' }, null).confirmed, true); assertEqual(E({ status: 'new' }, null).action, 'create');
+      assertEqual(E({ status: 'maybe', projectId: 12 }, null).confirmed, false);
+      assertEqual(E({ status: 'maybe', projectId: 12 }, { mode: 'project', projectId: 12 }).confirmed, true);
+      assertEqual(E({ status: 'sure', projectId: 10 }, { mode: 'other' }).action, 'pending');
+      assertEqual(E({ status: 'conflict' }, null).action, 'pending');
+      assertEqual(E({ status: 'sure', projectId: 10 }, { mode: 'skip' }).action, 'skip');
+      assertEqual(E({ status: 'blocked' }, { mode: 'project', projectId: 3 }).action, 'skip');
     });
   });
 
@@ -201,66 +311,88 @@
       const lines = L().latestVersions(JOURNAL).lines, grouped = L().groupProjects(lines, L().checkLines(lines));
       const ctx = Object.assign(L().buildContext({ projets: options.projets || PROJETS, lignes: LIGNES, programmes: PROGRAMMES, structures: STRUCTURES }), options.ctx || {});
       const matches = new Map(grouped.entries.map(e => [e.key, L().matchEntry(e, ctx)]));
-      return L().buildPlan({ entries: grouped.entries, matches, decisions: options.decisions || new Map(), mappings: L().buildMappings(grouped.entries, ctx), ctx, now: Date.UTC(2026, 10, 18) });
+      return L().buildPlan({ entries: grouped.entries, matches, decisions: options.decisions || new Map(), edits: options.edits || new Map(), ctx, now: Date.UTC(2026, 10, 18) });
     }
-    const confirmAll = () => new Map([['projet fictif exemple de format', { mode: 'auto', confirmed: true }], ['gamma projet gamma finance', { mode: 'auto', confirmed: true }]]);
+    const gammaOk = { mode: 'project', projectId: 12, confirmed: true };
+    // Les trois anomalies de départ réglées : GAMMA confirmé, programme fictif et structure inconnue non renseignés.
+    const settled = (extra = {}) => ({
+      decisions: new Map([[KEY.gamma, gammaOk]].concat(extra.decisions || [])),
+      edits: new Map([[KEY.fictif + '|prog', null], [KEY.delta + '|s|OPE-DEL-1', null]].concat(extra.edits || []))
+    });
     const addOf = (p, table) => p.phase1.concat(p.phase2).filter(op => op.kind === 'add' && op.table === table);
 
-    it('sans accord, seuls les rapprochements sûrs sont prévus ; « à confirmer » et « nouveau » attendent', function () {
+    it('tant qu\'un projet porte une anomalie ou attend un choix, rien n\'est prévu pour lui : seul ALPHA est prêt', function () {
       const p = plan();
-      assertEqual(p.counts.aConfirmer, 2);
+      assertEqual(p.counts.aConfirmer, 3);
       assertEqual(p.counts.projetsCrees, 0);
-      assertEqual(p.counts.projetsLies, 2, 'ALPHA (dates) et DELTA (nouvelle ligne OPE)');
-      assertEqual(p.counts.opesCreees, 1, 'seulement OPE-DEL-1');
-      assertTrue(p.phase1.concat(p.phase2).every(op => op.entry !== 'projet fictif exemple de format' && op.entry !== 'gamma projet gamma finance'));
+      assertEqual(p.counts.projetsLies, 1, 'ALPHA (dates)');
+      assertEqual(p.counts.opesCompletees, 1, 'la structure de OPE001');
+      assertEqual(p.counts.opesCreees, 0);
+      assertTrue(p.phase1.concat(p.phase2).every(op => op.entry === KEY.alpha));
     });
 
-    it('avec accord : crée le projet fictif et ses 2 lignes OPE, relie GAMMA, complète ALPHA et DELTA', function () {
-      const p = plan({ decisions: confirmAll() });
+    it('anomalies réglées : crée le projet fictif et ses 2 lignes OPE, relie GAMMA, complète ALPHA et DELTA', function () {
+      const p = plan(settled());
       assertDeepEqual({ projetsCrees: p.counts.projetsCrees, projetsLies: p.counts.projetsLies, opesCreees: p.counts.opesCreees, opesCompletees: p.counts.opesCompletees, aConfirmer: p.counts.aConfirmer, dejaAJour: p.counts.dejaAJour },
         { projetsCrees: 1, projetsLies: 3, opesCreees: 4, opesCompletees: 1, aConfirmer: 0, dejaAJour: 0 });
       assertEqual(p.actionCount, 9);
     });
 
     it('un projet créé porte le nom, l\'acronyme avant « - », les dates min/max, le statut selon la date de fin, une note, et AUCUNE ligne Notifications', function () {
-      const created = addOf(plan({ decisions: confirmAll() }), 'Projets')[0].fields;
+      const created = addOf(plan(settled()), 'Projets')[0].fields;
       assertEqual(created.Projet, FICTIF);
       assertEqual(created.Acronyme, 'PROJET FICTIF');
       assertEqual(created.Date_debut_Projet, UTC(2022, 1, 1), 'la plus ancienne des deux lignes');
       assertEqual(created.Date_de_fin_Projet, UTC(2025, 12, 31));
       assertEqual(created.Statut_operationnel_projet, L().STATUS_CLOSED, 'fin passée : supposé clôturé');
       assertEqual(created.remplissage_automatique_Notifications, 0, 'la valeur par défaut créerait une ligne Notifications');
-      assertEqual(created.Programme, 0, 'programme de l\'export inconnu de Grist : rien n\'est renseigné');
+      assertEqual(created.Programme, 0, 'programme de l\'export inconnu de Grist, non renseigné : rien n\'est écrit');
       assertIncludes(created.comentaire_general_Suivi_projet, 'Créé par l\'import');
       assertDeepEqual(created.Ligne_OPE.slice(0, 1), ['L']);
       assertEqual(created.Ligne_OPE.length, 3, 'deux lignes OPE à relier');
-      const running = plan({ decisions: new Map([['projet fictif exemple de format', { mode: 'auto', confirmed: true, acronyme: 'FIC' }]]) });
-      assertEqual(addOf(running, 'Projets')[0].fields.Acronyme, 'FIC', 'l\'acronyme modifié à l\'écran est repris');
+      const edited = plan(settled({ edits: [[KEY.fictif + '|acr', 'FIC'], [KEY.fictif + '|prog', 'CTO Innovation'], [KEY.fictif + '|end', '2030-06-30']] }));
+      const fields = addOf(edited, 'Projets')[0].fields;
+      assertEqual(fields.Acronyme, 'FIC', 'l\'acronyme modifié à l\'écran est repris'); assertEqual(fields.Programme, 2, 'le programme choisi est écrit par son id');
+      assertEqual(fields.Date_de_fin_Projet, UTC(2030, 6, 30)); assertEqual(fields.Statut_operationnel_projet, 'en cours', 'le statut suit la date de fin corrigée');
     });
 
-    it('un projet de Grist garde son contenu : on ajoute la ligne OPE sans retirer les autres, programme et dates seulement s\'ils sont vides, l\'écart est listé', function () {
+    it('un projet de Grist garde son contenu : on ajoute la ligne OPE sans retirer les autres, programme et dates seulement s\'ils sont vides, l\'écart reste visible', function () {
       const projets = [Object.assign({}, PROJETS[0], { Programme: 2, Date_debut_Projet: UTC(2020, 1, 1), Ligne_OPE: ['L', 1, 99] }), ...PROJETS.slice(1)];
-      const p = plan({ projets, decisions: confirmAll() });
+      const p = plan(Object.assign({ projets }, settled()));
       const alphaUpdate = p.phase2.find(op => op.id === 10);
       assertEqual(alphaUpdate.fields.Programme, undefined, 'programme déjà renseigné : jamais écrasé');
       assertEqual(alphaUpdate.fields.Date_debut_Projet, undefined);
       assertEqual(alphaUpdate.fields.Date_de_fin_Projet, UTC(2026, 12, 31), 'date de fin vide : complétée');
-      ['Programme', 'Date de début'].forEach(field => assertTrue(p.conflicts.some(c => c.field === field && c.entry.name === 'Projet Alpha (export)'), 'écart « ' + field + ' » listé'));
+      assertEqual(p.counts.ecarts, 5, 'programme et date de début d\'ALPHA, et le nom des trois projets de Grist');
       const delta = p.phase2.find(op => op.id === 14);
       assertDeepEqual(delta.fields.Ligne_OPE.slice(0, 1), ['L']);
       assertEqual(delta.before.Ligne_OPE[0], 'L');
     });
 
+    it('prendre la valeur de l\'export à la place de celle de Grist : cellule par cellule, l\'ancienne valeur est gardée pour l\'annulation', function () {
+      const projets = [Object.assign({}, PROJETS[0], { Programme: 2 }), ...PROJETS.slice(1)];
+      const p = plan(Object.assign({ projets }, settled({ edits: [[KEY.alpha + '|prog', 'FARE']] })));
+      const alphaUpdate = p.phase2.find(op => op.id === 10);
+      assertEqual(alphaUpdate.fields.Programme, 1); assertEqual(alphaUpdate.before.Programme, 2);
+    });
+
     it('la structure d\'une ligne OPE n\'est complétée que si elle est vide', function () {
-      const p = plan({ decisions: confirmAll() });
+      const p = plan(settled());
       const upd = p.phase1.find(op => op.kind === 'update');
       assertEqual(upd.id, 1); assertEqual(upd.fields.installe_chez, 1);
       const adds = addOf(p, 'Lignes_OPE').reduce((acc, op) => Object.assign(acc, { [op.fields.N_OPE]: op.fields.installe_chez }), {});
       assertDeepEqual(Object.keys(adds).sort().map(k => [k, adds[k]]), [['FICTIF-0001', 1], ['FICTIF-0002', 1], ['OPE-DEL-1', 0], ['OPE-GAMMA-1', 3]]);
+      const lignes = [{ id: 1, N_OPE: 'OPE001', installe_chez: 3 }];
+      const lines = L().latestVersions(JOURNAL).lines, grouped = L().groupProjects(lines, L().checkLines(lines));
+      const ctx = L().buildContext({ projets: PROJETS, lignes, programmes: PROGRAMMES, structures: STRUCTURES });
+      const matches = new Map(grouped.entries.map(e => [e.key, L().matchEntry(e, ctx)]));
+      const kept = L().buildTable({ entries: grouped.entries, matches, decisions: new Map(), edits: new Map(), ctx, now: Date.UTC(2026, 10, 18) });
+      assertEqual(kept.rows.find(r => r.key === KEY.alpha).lines[0].state, 'conf', 'structure déjà renseignée et différente : Grist garde');
+      assertFalse(kept.plan.phase1.some(op => op.kind === 'update'));
     });
 
     it('n\'écrit jamais une colonne calculée, ni une colonne absente du document ; jamais aucun montant', function () {
-      const p = plan({ decisions: confirmAll(), ctx: { isFormula: (t, c) => t === 'Projets' && c === 'Acronyme', hasColumn: (t, c) => !(t === 'Projets' && c === 'comentaire_general_Suivi_projet') } });
+      const p = plan(Object.assign({ ctx: { isFormula: (t, c) => t === 'Projets' && c === 'Acronyme', hasColumn: (t, c) => !(t === 'Projets' && c === 'comentaire_general_Suivi_projet') } }, settled()));
       const created = addOf(p, 'Projets')[0].fields;
       assertFalse('Acronyme' in created, 'colonne calculée');
       assertFalse('comentaire_general_Suivi_projet' in created, 'colonne absente');
@@ -269,10 +401,72 @@
     });
 
     it('un projet mis de côté, ou bloqué par une erreur de l\'export, n\'écrit rien', function () {
-      const decisions = confirmAll(); decisions.set('projet alpha export', { mode: 'skip' });
-      const p = plan({ decisions });
+      const s = settled({ decisions: [[KEY.alpha, { mode: 'skip' }]] });
+      const p = plan(s);
       assertEqual(p.counts.misDeCote, 1);
       assertFalse(p.phase2.some(op => op.id === 10));
+    });
+  });
+
+  describe('Import historique — les lots d\'import (Import_Lots, contrat avec les imports réguliers)', function () {
+    const lot = (id, extra) => Object.assign({ id, Lot: '2026-11-18T10:00:00Z', Type: 'Reprise unique', Source: 'Fichier', Statut: 'A valider', Lot_journal: '' }, extra);
+
+    it('un identifiant de lot est la date et l\'heure UTC à la seconde', function () {
+      assertEqual(L().lotIdOf(Date.UTC(2026, 10, 18, 12, 45, 30, 987)), '2026-11-18T12:45:30Z');
+    });
+
+    it('la table Import_Lots a les colonnes du contrat, avec les listes de choix', function () {
+      const cols = Object.fromEntries(L().LOTS_COLUMNS.map(c => [c.id, c]));
+      assertDeepEqual(L().LOTS_COLUMNS.map(c => c.id), ['Lot', 'Type', 'Source', 'Fichier', 'Donnees_au', 'Recu_le', 'Lignes', 'Statut', 'Compare_a', 'Ajoutees', 'Modifiees', 'Absentes', 'Anomalies', 'Inchangees', 'Valide_par', 'Valide_le', 'Lot_journal', 'Note']);
+      assertEqual(L().LOTS_TABLE, 'Import_Lots');
+      assertDeepEqual(JSON.parse(cols.Type.widgetOptions).choices, ['Reprise unique', 'Macro', 'Détail']);
+      assertDeepEqual(JSON.parse(cols.Source.widgetOptions).choices, ['Script', 'Fichier']);
+      assertDeepEqual(JSON.parse(cols.Statut.widgetOptions).choices, ['A valider', 'Valide', 'Refuse', 'Annule', 'Remplace']);
+      assertEqual(cols.Donnees_au.type, 'Date'); assertEqual(cols.Recu_le.type, 'DateTime:Europe/Paris'); assertEqual(cols.Lignes.type, 'Int');
+      assertFalse(L().LOTS_COLUMNS.some(c => c.isFormula), 'aucune colonne calculée');
+    });
+
+    it('un fichier lu porte un même lot sur toutes ses lignes, et la ligne de lot naît « A valider »', function () {
+      const headers = ['Programme', 'Projet', 'Financeur', 'Financeurs du projet', 'N° OPE', 'Libellé opération', 'Ligne budgétaire', 'Statuts', 'N° décision', 'Structure', 'Établissement', 'Date début', 'Date fin', 'Montant attribué', 'Part du projet',
+        'Attribué 2022', 'Attribué 2023', 'Attribué 2024', 'Attribué 2025', 'Attribué 2026', 'Consommé AE', 'Consommé CP', 'Disponible AE', 'Disponible CP'];
+      const row = n => headers.map(h => (h === 'N° OPE' ? n : (h === 'Projet' ? 'P' : (/Date/.test(h) ? '2024-01-01' : 0))));
+      const parsed = L().readExport([headers, row('A-1'), row('A-2')], new Date(Date.UTC(2026, 10, 18, 12, 45, 30)), () => UTC(2024, 1, 1));
+      assertEqual(parsed.records.length, 2);
+      assertEqual(parsed.lot, '2026-11-18T12:45:30Z');
+      assertTrue(parsed.records.every(r => r.Lot === '2026-11-18T12:45:30Z'), 'même Lot partout');
+      const fields = L().newLotFields({ lot: parsed.lot, fichier: 'export.xlsx', recuLe: parsed.exporteLe, lignes: 2 });
+      assertDeepEqual(fields, { Lot: '2026-11-18T12:45:30Z', Type: 'Reprise unique', Source: 'Fichier', Fichier: 'export.xlsx', Recu_le: parsed.exporteLe, Lignes: 2, Statut: 'A valider' });
+    });
+
+    it('les lignes sans lot (anciens chargements) sont rattachées à UN lot « Reprise unique », créé une seule fois', function () {
+      const rows = [{ id: 1, Exporte_le: 1790000000, Lot: '' }, { id: 2, Exporte_le: 1790000100, Lot: null }, { id: 3, Exporte_le: 1790000200, Lot: '2026-11-01T00:00:00Z' }];
+      const plan = L().planLegacyLot(rows, [], [], new Date(Date.UTC(2026, 10, 18)));
+      assertEqual(plan.lot, L().lotIdOf(1790000000 * 1000), 'daté du plus ancien envoi');
+      assertDeepEqual(plan.ids, [1, 2], 'seules les lignes sans lot');
+      assertEqual(plan.create.Statut, 'A valider'); assertEqual(plan.create.Type, 'Reprise unique'); assertEqual(plan.create.Lignes, 2);
+      const written = L().planLegacyLot(rows, [], [{ Operation: 'ajout', Annule: false }], new Date());
+      assertEqual(written.create.Statut, 'Valide', 'des écritures existent déjà au journal : le lot est déjà validé');
+      const undone = L().planLegacyLot(rows, [], [{ Operation: 'ajout', Annule: true }, { Operation: 'chargement', Annule: false }], new Date());
+      assertEqual(undone.create.Statut, 'A valider', 'écritures annulées ou simple chargement : rien n\'est validé');
+      assertEqual(L().planLegacyLot(rows, [lot(9, { Lot: plan.lot })], [], new Date()).create, null, 'le lot existe déjà : pas de doublon');
+      assertEqual(L().planLegacyLot(rows.slice(2), [], [], new Date()), null, 'tout porte déjà un lot');
+    });
+
+    it('validation : le lot du tableau passe en Valide avec la photo du contrôle, le lot validé d\'avant en Remplace', function () {
+      const lots = [lot(1, { Lot: '2026-10-01T08:00:00Z', Statut: 'Valide' }), lot(2, { Lot: '2026-11-18T10:00:00Z' }), lot(3, { Lot: '2026-11-18T11:00:00Z', Type: 'Macro' }), lot(4, { Lot: '2026-11-17T09:00:00Z', Statut: 'Refuse' })];
+      const actions = L().planLotValidation(lots, { lots: ['2026-11-18T10:00:00Z', '2026-11-18T11:00:00Z'], counts: { add: 3, mod: 5, same: 7, left: 0 }, journalLot: 'LOT-20261118125000', now: Date.UTC(2026, 10, 18, 13, 0, 0) });
+      assertEqual(actions.length, 2);
+      assertDeepEqual(actions[0], ['UpdateRecord', 'Import_Lots', 1, { Statut: 'Remplace' }]);
+      assertDeepEqual(actions[1], ['UpdateRecord', 'Import_Lots', 2, { Statut: 'Valide', Compare_a: '2026-10-01T08:00:00Z', Ajoutees: 3, Modifiees: 5, Inchangees: 7, Absentes: 0, Anomalies: 0, Valide_le: Date.UTC(2026, 10, 18, 13) / 1000, Lot_journal: 'LOT-20261118125000' }]);
+      assertDeepEqual(L().planLotValidation(lots, { lots: ['2026-11-17T09:00:00Z'], counts: {}, journalLot: 'X', now: Date.now() }), [], 'un lot refusé n\'est pas validé par une écriture');
+      assertDeepEqual(L().planLotValidation(lots, { lots: ['2026-10-01T08:00:00Z'], counts: {}, journalLot: 'X', now: Date.now() }), [], 'déjà validé : rien à faire');
+    });
+
+    it('annulation : le lot du fichier (par son Lot) ou les lots écrits (par leur Lot_journal) passent en Annule, avec le motif', function () {
+      const lots = [lot(1, { Lot: 'A' }), lot(2, { Lot: 'B', Statut: 'Valide', Lot_journal: 'LOT-1' }), lot(3, { Lot: 'C', Statut: 'Annule', Lot_journal: 'LOT-1' })];
+      assertDeepEqual(L().planLotCancel(lots, { lot: 'A', note: 'Chargement annulé' }), [['UpdateRecord', 'Import_Lots', 1, { Statut: 'Annule', Note: 'Chargement annulé' }]]);
+      assertDeepEqual(L().planLotCancel(lots, { journalLot: 'LOT-1', note: 'Écritures annulées' }), [['UpdateRecord', 'Import_Lots', 2, { Statut: 'Annule', Note: 'Écritures annulées' }]], 'un lot déjà annulé n\'est pas retouché');
+      assertDeepEqual(L().planLotCancel(lots, { lot: '', journalLot: '' }), [], 'sans identifiant, rien ne correspond');
     });
   });
 
@@ -361,7 +555,7 @@
     });
   });
 
-  describe('Import historique — la page : lecture, rapprochement, accord, simulation', function () {
+  describe('Import historique — la page : lecture, tableau de contrôle, corrections', function () {
     it('Alt+Maj+I ouvre la page cachée ; sans table Import_Financements, elle la crée avec les colonnes de l\'export et dit comment la remplir', async function () {
       const mark = window.__TEST_CALLS__.length;
       document.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, shiftKey: true, code: 'KeyI', bubbles: true }));
@@ -371,17 +565,17 @@
       const created = calls.find(call => call.type === 'AddTable' && call.table === 'Import_Financements');
       assertTrue(!!created, 'la table du journal est créée par l\'outil');
       const byIdCol = Object.fromEntries(created.colDefs.map(col => [col.id, col]));
-      assertEqual(created.colDefs.length, 26, '24 colonnes de l\'export + Cle_ligne + Exporte_le');
+      assertEqual(created.colDefs.length, 27, '24 colonnes de l\'export + Cle_ligne, Exporte_le et Lot');
       assertEqual(byIdCol.N_OPE.label, 'N° OPE', 'l\'étiquette reprend l\'en-tête Excel : l\'import de fichier associe tout seul');
       assertEqual(byIdCol.Attribue_2024.label, 'Attribué 2024'); assertEqual(byIdCol.Etablissement.label, 'Établissement');
       assertEqual(byIdCol.Date_debut.type, 'Date'); assertEqual(byIdCol.Consomme_AE.type, 'Numeric');
       assertFalse(created.colDefs.some(col => col.isFormula), 'aucune colonne calculée : le formulaire doit pouvoir tout envoyer');
       ['Programme', 'Projet', 'Financeur', 'Financeurs_du_projet', 'N_OPE', 'Libelle_operation', 'Ligne_budgetaire', 'Statuts', 'N_decision', 'Structure', 'Etablissement', 'Date_debut', 'Date_fin', 'Montant_attribue', 'Part_du_projet',
-        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
+        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le', 'Lot'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
       assertTrue(calls.some(call => call.type === 'AddTable' && call.table === 'Import_Journal'), 'le journal des écritures est créé aussi');
-      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (26 colonnes)');
+      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (27 colonnes)');
       assertFalse(calls.some(call => call.table === 'Lignes_OPE' || call.table === 'Projets'), 'rien n\'est touché dans Projets ni Lignes_OPE (pas de formule de montant, pas de conversion)');
-      assertTrue(!!byId('ih-pick') && !!byId('ih-file') && !byId('ih-simulate'), 'bouton pour choisir le fichier, pas de simulation sur un journal vide');
+      assertTrue(!!byId('ih-pick') && !!byId('ih-file') && !byId('ih-write'), 'bouton pour choisir le fichier, pas de tableau sur un journal vide');
       assertFalse(!!document.querySelector('.nav-btn[data-view="view-import-historique"]'), 'pas dans la barre de navigation');
     });
 
@@ -399,15 +593,16 @@
       const added = calls.filter(call => call.type === 'AddColumn' && call.table === 'Import_Financements').map(call => call.colId);
       assertTrue(added.length > 0 && added.includes('Cle_ligne') && added.includes('Exporte_le'), 'les colonnes absentes sont ajoutées');
       assertFalse(added.includes('N_OPE') || added.includes('Projet') || added.includes('Consomme_AE'), 'celles qui existent ne sont pas recréées');
-      assertFalse(calls.some(call => call.table === 'Import_Financements' && ['UpdateRecord', 'RemoveRecord', 'AddRecord'].includes(call.type)), 'aucune ligne du journal n\'est écrite');
+      assertFalse(calls.some(call => call.table === 'Import_Financements' && ['RemoveRecord', 'AddRecord'].includes(call.type)), 'aucune ligne du journal n\'est ajoutée ni retirée');
+      assertTrue(calls.filter(call => call.table === 'Import_Financements' && call.type === 'UpdateRecord').every(call => Object.keys(call.fields).join() === 'Lot'), 'seule la colonne Lot est posée sur les lignes (rattachement à un lot)');
       assertEqual((await grist('Import_Financements')).length, 6, 'les 6 envois sont toujours là');
-      assertEqual(document.querySelectorAll('.ih-row').length, 4, 'et l\'outil travaille sur eux comme avant');
+      assertEqual(document.querySelectorAll('.ih-tr').length, 4, 'et l\'outil travaille sur eux comme avant');
     });
 
-    it('journal vide : la page le dit et ne propose pas de simuler', async function () {
+    it('journal vide : la page le dit et ne propose pas d\'écrire', async function () {
       await setup({ journal: [] });
       assertIncludes(byId('ih-root').textContent, 'Charge l\'export Excel');
-      assertFalse(!!byId('ih-simulate'));
+      assertFalse(!!byId('ih-write'));
     });
 
     it('si Grist refuse la création de la table, la page le dit au lieu de rester vide', async function () {
@@ -424,78 +619,145 @@
       assertIncludes(byId('ih-root').textContent, 'droits insuffisants');
     });
 
-    it('affiche un projet par ligne avec son rapprochement, des compteurs par filtre, et un résumé', async function () {
+    it('un tableau : une ligne par projet, ses états, ses couleurs, des compteurs par filtre, une légende et un résumé', async function () {
       await setup();
-      assertEqual(document.querySelectorAll('.ih-row').length, 4);
-      assertEqual(rowCategory('Projet Alpha (export)'), 'sure');
-      assertEqual(rowCategory('Un tout autre libellé'), 'sure');
-      assertEqual(rowCategory('GAMMA - Projet Gamma financé'), 'maybe');
-      assertEqual(rowCategory(FICTIF), 'new');
+      assertEqual(document.querySelectorAll('.ih-tr').length, 4);
+      assertEqual(rowState(FICTIF), 'add'); assertEqual(rowState('Projet Alpha (export)'), 'mod'); assertEqual(rowState('Un tout autre libellé'), 'mod'); assertEqual(rowState('GAMMA - Projet Gamma financé'), 'tbd', 'à confirmer');
+      const head = Array.from(document.querySelectorAll('.ih-t th')).map(th => th.textContent);
+      assertDeepEqual(head, ['Statut', 'Projet', 'Acronyme', 'Programme', 'Début', 'Fin', 'Statut du projet', 'Lignes OPE · structure']);
+      assertTrue(!!cellEl(KEY.fictif + '|prog').classList.contains('c-bad'), 'programme inconnu : cellule rouge');
+      assertTrue(cellEl(KEY.fictif + '|name').classList.contains('c-add'), 'projet créé : cellule verte');
+      assertTrue(cellEl(KEY.alpha + '|start').classList.contains('c-fill'), 'date de début posée dans une cellule vide : cellule bleue');
+      assertTrue(cellEl(KEY.alpha + '|name').classList.contains('c-conf'), 'nom différent de celui de Grist : cellule orange, Grist garde');
+      assertIncludes(cellEl(KEY.alpha + '|name').textContent, 'export : Projet Alpha (export)');
+      assertIncludes(cellEl(KEY.fictif + '|prog').textContent, 'Programme inconnu dans Grist');
       const counts = Array.from(document.querySelectorAll('[data-ih-filter]')).reduce((acc, b) => Object.assign(acc, { [b.dataset.ihFilter]: b.querySelector('.kanban-count').textContent }), {});
-      assertDeepEqual(counts, { all: '4', maybe: '1', new: '1', sure: '2', conflict: '0', skip: '0' });
+      assertDeepEqual(counts, { all: '4', add: '1', mod: '2', same: '0', todo: '3', skip: '0' });
+      assertEqual(document.querySelectorAll('.ih-legend .ih-sw').length, 4, 'légende : ajouté, modifié, écart, anomalie');
       assertIncludes(byId('ih-root').querySelector('.ih-summary').textContent, '5 lignes de financement');
       assertIncludes(byId('ih-root').querySelector('.ih-summary').textContent, 'sur 6 reçues');
       assertEqual(byId('ih-root').querySelector('[data-ih-box="checks"] summary').textContent.includes('7 sur 7'), true);
     });
 
-    it('filtres et recherche : « Nouveaux » et la saisie d\'un N° OPE ne gardent que les projets concernés', async function () {
+    it('filtres et recherche : « Ajouts » et la saisie d\'un N° OPE ne gardent que les projets concernés', async function () {
       await setup();
-      document.querySelector('[data-ih-filter="new"]').click();
-      assertEqual(document.querySelectorAll('.ih-row').length, 1);
-      document.querySelector('[data-ih-filter="all"]').click();
+      document.querySelector('[data-ih-filter="add"]').click();
+      assertEqual(document.querySelectorAll('.ih-tr').length, 1);
+      document.querySelector('[data-ih-filter="todo"]').click();
+      assertEqual(document.querySelectorAll('.ih-tr').length, 3, 'les projets à régler');
+      document.querySelector('[data-ih-filter="todo"]').click();
       const search = byId('ih-search'); search.value = 'ope-del'; fire(search, 'input');
-      assertEqual(document.querySelectorAll('.ih-row').length, 1);
-      assertIncludes(document.querySelector('.ih-row').textContent, 'Un tout autre libellé');
+      assertEqual(document.querySelectorAll('.ih-tr').length, 1);
+      assertIncludes(document.querySelector('.ih-tr').textContent, 'Un tout autre libellé');
     });
 
-    it('le bouton d\'écriture reste grisé tant que la simulation n\'est pas relue ; rien n\'est écrit à la simulation', async function () {
+    it('cliquer une valeur l\'ouvre ; le choix la colore, enlève l\'anomalie et fait baisser le compteur ; Échap annule', async function () {
       await setup();
-      assertFalse(!!byId('ih-write'), 'pas de bouton d\'écriture avant la simulation');
-      click('ih-confirm-all'); click('ih-simulate');
-      await waitFor(() => byId('ih-sim'), 'simulation');
-      assertTrue(byId('ih-write').disabled);
-      assertEqual(writeCalls().length, 0, 'aucune écriture');
+      assertIncludes(document.querySelector('.ih-actions-bar').textContent, '3 anomalies restent à régler');
+      openCell(KEY.fictif + '|prog');
+      const select = inEl(KEY.fictif + '|prog');
+      assertEqual(select.tagName, 'SELECT');
+      assertDeepEqual(Array.from(select.options).map(o => o.value), ['', 'FARE', 'CTO Innovation', '__none'], 'les programmes de Grist, et « ne pas renseigner »');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      byId('ih-root').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assertFalse(!!inEl(KEY.fictif + '|prog'), 'Échap referme sans rien changer');
+      assertTrue(cellEl(KEY.fictif + '|prog').classList.contains('c-bad'));
+      fixCell(KEY.fictif + '|prog', 'FARE');
+      assertTrue(cellEl(KEY.fictif + '|prog').classList.contains('c-add'));
+      assertEqual(cellEl(KEY.fictif + '|prog').textContent.trim(), 'FARE');
+      assertIncludes(document.querySelector('.ih-actions-bar').textContent, '2 anomalies restent à régler');
+      assertEqual(writeCalls().length, 0, 'une correction n\'écrit rien dans Grist');
+    });
+
+    it('une date ou un texte se change au clavier ; une cellule orange propose de garder Grist ou de prendre l\'export', async function () {
+      await setup();
+      fixCell(KEY.fictif + '|end', '2030-06-30');
+      assertEqual(cellEl(KEY.fictif + '|end').textContent.trim(), '30/06/2030');
+      assertEqual(cellEl(KEY.fictif + '|stat').textContent.trim(), 'en cours', 'le statut suit la date de fin corrigée');
+      fixCell(KEY.fictif + '|acr', 'FIC');
+      assertEqual(cellEl(KEY.fictif + '|acr').textContent.trim(), 'FIC');
+      openCell(KEY.alpha + '|name');
+      assertDeepEqual(Array.from(inEl(KEY.alpha + '|name').options).map(o => o.textContent), ['Choisir…', 'Garder Grist : Projet Alpha', 'Prendre l\'export : Projet Alpha (export)']);
+      pickIn(KEY.alpha + '|name', 'Projet Alpha (export)');
+      assertTrue(cellEl(KEY.alpha + '|name').classList.contains('c-fill'), 'valeur de l\'export prise : cellule bleue');
+      assertEqual(cellEl(KEY.alpha + '|name').textContent.trim(), 'Projet Alpha (export)');
+      openCell(KEY.alpha + '|name'); pickIn(KEY.alpha + '|name', 'Projet Alpha');
+      assertTrue(cellEl(KEY.alpha + '|name').classList.contains('c-same'), 'Grist gardé : plus d\'écart');
+    });
+
+    it('la même valeur invalide sur plusieurs projets : la case « appliquer aux autres » règle tout, ou une seule cellule', async function () {
+      const twin = (name, ope, id) => Object.assign({ id }, alpha, { Projet: name, N_OPE: ope, Programme: 'CTO Innov. 2024', Structure: 'LAB1' });
+      await setup({ journal: [twin('Projet Un', 'N-1', 1), twin('Projet Deux', 'N-2', 2), twin('Projet Trois', 'N-3', 3)], projets: [], lignes: [] });
+      assertEqual(document.querySelectorAll('.ih-t td.c-bad').length, 3);
+      openCell('projet un|prog');
+      assertIncludes(document.querySelector('.ih-all').textContent, 'Appliquer aussi aux 2 autres « CTO Innov. 2024 »');
+      pickIn('projet un|prog', 'FARE');
+      assertEqual(document.querySelectorAll('.ih-t td.c-bad').length, 0, 'les trois sont réglées');
+      assertIncludes(document.querySelector('.ih-actions-bar').textContent, 'Prêt à écrire');
+      await setup({ journal: [twin('Projet Un', 'N-1', 1), twin('Projet Deux', 'N-2', 2)], projets: [], lignes: [] });
+      openCell('projet un|prog');
+      assertIncludes(document.querySelector('.ih-all').textContent, 'Appliquer aussi à l\'autre « CTO Innov. 2024 »', 'au singulier quand il n\'y en a qu\'un');
+      const box = document.querySelector('[data-ih-all]'); box.checked = false; fire(box, 'change');
+      pickIn('projet un|prog', 'FARE');
+      assertEqual(document.querySelectorAll('.ih-t td.c-bad').length, 1, 'case décochée : une seule cellule change');
+    });
+
+    it('« Prochaine anomalie » mène à la prochaine cellule rouge, et se grise quand il n\'y en a plus', async function () {
+      await setup();
+      assertFalse(byId('ih-next').disabled);
+      click('ih-next');
+      assertTrue(document.querySelectorAll('.ih-t .flash').length === 1, 'la cellule visée clignote');
+      fixAll();
+      assertTrue(byId('ih-next').disabled);
+    });
+
+    it('le statut d\'un projet : choisir un projet de Grist, en créer un, ou l\'écarter ; « Autre projet… » attend le choix', async function () {
+      await setup();
+      openCell(KEY.gamma + '|status');
+      assertDeepEqual(Array.from(inEl(KEY.gamma + '|status').options).map(o => o.textContent.replace(/\s+/g, ' ')), ['Choisir…', '→ GAMMA (90 %)', 'Créer un nouveau projet', 'Autre projet…', 'Écarter ce projet']);
+      pickIn(KEY.gamma + '|status', 'p:12');
+      assertEqual(rowState('GAMMA - Projet Gamma financé'), 'mod', 'confirmé : le projet est complété');
+      openCell(KEY.fictif + '|status');
+      pickIn(KEY.fictif + '|status', 'other');
+      assertEqual(rowState(FICTIF), 'tbd', 'en attente tant que le projet n\'est pas choisi');
+      assertTrue(!!inEl(KEY.fictif + '|other'), 'la liste de tous les projets de Grist apparaît');
+      pickIn(KEY.fictif + '|other', '12');
+      assertEqual(rowState(FICTIF), 'mod', 'relié à GAMMA');
+      assertIncludes(rowOfName(FICTIF).querySelector('.s1').textContent, 'trouvé par');
+      openCell(KEY.fictif + '|status'); pickIn(KEY.fictif + '|status', 'skip');
+      assertEqual(rowState(FICTIF), 'skip');
+      assertFalse(!!rowOfName(FICTIF).querySelector('.c-bad'), 'un projet écarté n\'a plus d\'anomalie');
+    });
+
+    it('le bouton d\'écriture reste grisé tant qu\'il reste une anomalie, puis tant que le tableau n\'est pas relu ; rien n\'est écrit avant le clic', async function () {
+      await setup();
+      assertTrue(byId('ih-write').disabled); assertTrue(byId('ih-ack').disabled, 'la case « relu » attend la fin des anomalies');
+      fixAll();
+      assertFalse(byId('ih-ack').disabled); assertTrue(byId('ih-write').disabled);
+      assertIncludes(document.querySelector('.ih-actions-bar').textContent, 'Prêt à écrire');
       byId('ih-ack').checked = true; fire(byId('ih-ack'), 'change');
       assertFalse(byId('ih-write').disabled);
-      assertIncludes(byId('ih-sim').textContent, 'Écrire 9 actions');
-    });
-
-    it('un projet « à confirmer » attend son accord : la simulation le compte et ne l\'écrit pas', async function () {
-      await setup();
-      click('ih-simulate');
-      await waitFor(() => byId('ih-sim'), 'simulation');
-      assertIncludes(byId('ih-sim').textContent, '2 projets attendent ta validation');
-      assertFalse(/OPE-GAMMA-1/.test(byId('ih-sim').textContent), 'rien n\'est prévu pour GAMMA tant qu\'il n\'est pas confirmé');
-    });
-
-    it('« Autre projet… » : le projet reste en attente jusqu\'au choix, puis vaut accord', async function () {
-      await setup();
-      const select = entryRow(FICTIF).querySelector('[data-ih-select]');
-      select.value = 'other'; fire(select, 'change');
-      assertEqual(rowCategory(FICTIF), 'new');
-      click('ih-simulate'); await waitFor(() => byId('ih-sim'), 'simulation');
-      assertIncludes(byId('ih-sim').textContent, 'attendent ta validation');
-      const other = entryRow(FICTIF).querySelector('[data-ih-other]');
-      other.value = '12'; fire(other, 'change');
-      click('ih-simulate'); await waitFor(() => byId('ih-sim') && /GAMMA/.test(byId('ih-sim').textContent), 'GAMMA relié');
-      assertTrue(Array.from(document.querySelectorAll('.ih-actions li')).some(li => /FICTIF-0001/.test(li.textContent)), 'lignes OPE créées');
-      assertFalse(Array.from(document.querySelectorAll('.ih-actions li')).some(li => /Projet <b>PROJET FICTIF/.test(li.innerHTML)), 'pas de création : relié à GAMMA');
+      assertIncludes(byId('ih-write').textContent, 'Écrire 9 actions');
+      assertEqual(writeCalls().length, 0, 'aucune écriture');
+      openCell(KEY.fictif + '|prog'); pickIn(KEY.fictif + '|prog', 'FARE');
+      assertFalse(byId('ih-ack').checked, 'une correction demande de relire');
+      assertTrue(byId('ih-write').disabled);
     });
 
     it('un N° OPE rattaché à deux projets dans l\'export : projets écartés (« À corriger »), jamais écrits', async function () {
       const bad = [Object.assign({ id: 1 }, alpha, { Projet: 'P1', N_OPE: 'B' }), Object.assign({ id: 2 }, alpha, { Projet: 'P2', N_OPE: 'B', Financeur: 'IDEX' })];
       await setup({ journal: bad });
-      assertEqual(document.querySelectorAll('.ih-state.is-skip').length, 2);
-      assertIncludes(document.querySelector('.ih-row').textContent, 'plusieurs projets'.slice(0, 0) + 'N° OPE B');
-      click('ih-confirm-all'); click('ih-simulate'); await waitFor(() => byId('ih-sim'), 'simulation');
-      assertEqual(P().state.plan.actionCount, 0);
+      assertEqual(document.querySelectorAll('.ih-tr.is-skip').length, 2);
+      assertIncludes(document.querySelector('.ih-tr').textContent, 'N° OPE B');
+      assertFalse(!!document.querySelector('.ih-tr [data-ih-cell$="|status"]'), 'pas de choix possible : l\'export doit être corrigé');
+      assertEqual(P().state.table.plan.actionCount, 0);
+      assertTrue(byId('ih-write').disabled);
     });
 
-    it('le contrôle des totaux s\'affiche dans la simulation quand le détail des dépenses existe', async function () {
+    it('le contrôle des totaux s\'affiche sous le bandeau quand le détail des dépenses existe', async function () {
       await setup({ depenses: [{ Code_operation: 'FICTIF-0001', AE_consomme: 1, CP_consomme: 1 }] });
-      click('ih-simulate'); await waitFor(() => byId('ih-sim'), 'simulation');
-      assertIncludes(byId('ih-sim').textContent, 'OPE en écart');
-      assertEqual(byId('ih-root').querySelector('[data-ih-box="totals-sim"]').open, true, 'ouvert d\'office quand il y a un écart');
+      assertIncludes(byId('ih-root').querySelector('[data-ih-box="totals"]').textContent, 'OPE en écart');
+      assertEqual(byId('ih-root').querySelector('[data-ih-box="totals"]').open, true, 'ouvert d\'office quand il y a un écart');
     });
   });
 
@@ -504,7 +766,7 @@
 
     it('écrit seulement Projets, Lignes_OPE et le journal ; Ligne_OPE au format liste Grist ; rien d\'autre, aucun montant', async function () {
       await setup();
-      await simulateAndWrite();
+      await fixAndWrite();
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
       assertIncludes(document.querySelector('.ih-banner').textContent, '1 projet créé');
       const calls = writeCalls();
@@ -527,9 +789,77 @@
       assertFalse(Array.from(keys).some(k => /Attribue|Consomme|Disponible|Montant|Total|Statut_Macro/.test(k)));
     });
 
+    it('les corrections faites dans le tableau sont ce qui est écrit : programme choisi, valeur de l\'export prise à la place de celle de Grist', async function () {
+      await setup({ projets: [Object.assign({}, PROJETS[0], { Programme: 2 }), ...PROJETS.slice(1)] });
+      fixCell(KEY.gamma + '|status', 'p:12');
+      fixCell(KEY.fictif + '|prog', 'CTO Innovation');
+      fixCell(KEY.delta + '|s|OPE-DEL-1', 'DIESE');
+      fixCell(KEY.alpha + '|prog', 'FARE');
+      await ackWrite();
+      const projets = await grist('Projets'), lignes = await grist('Lignes_OPE'), journal = await grist('Import_Journal');
+      assertEqual(projets.find(p => p.Projet === FICTIF).Programme, 2, 'programme choisi à l\'écran');
+      assertEqual(lignes.find(l => l.N_OPE === 'OPE-DEL-1').installe_chez, 3, 'structure choisie à l\'écran');
+      assertEqual(projets.find(p => p.id === 10).Programme, 1, 'la valeur de l\'export remplace celle de Grist, parce que l\'utilisateur l\'a demandé');
+      const alphaJournal = journal.find(r => r.Table_modifiee === 'Projets' && r.Ligne === 10);
+      assertEqual(JSON.parse(alphaJournal.Avant).Programme, 2, 'l\'ancienne valeur est au journal : le lot reste annulable');
+    });
+
+    it('à l\'ouverture, les lignes sans lot reçoivent un lot « Reprise unique » (une fois), sans rien écrire d\'autre', async function () {
+      await setup();
+      const lots = await grist('Import_Lots'), rows = await grist('Import_Financements');
+      assertEqual(lots.length, 1);
+      assertDeepEqual({ Type: lots[0].Type, Source: lots[0].Source, Statut: lots[0].Statut, Lignes: lots[0].Lignes }, { Type: 'Reprise unique', Source: 'Fichier', Statut: 'A valider', Lignes: 6 });
+      assertTrue(rows.every(r => r.Lot === lots[0].Lot), 'toutes les lignes portent le lot');
+      const mark = window.__TEST_CALLS__.length;
+      await P().open();
+      assertFalse(window.__TEST_CALLS__.slice(mark).some(call => call.table === 'Import_Lots' || (call.table === 'Import_Financements' && call.type === 'UpdateRecord')), 'rouvrir ne recrée rien');
+      assertEqual((await grist('Import_Lots')).length, 1);
+    });
+
+    it('l\'écriture valide le lot : statut, photo du contrôle, lien vers le lot du journal ; l\'annulation le passe en Annule', async function () {
+      await setup();
+      assertEqual((await grist('Import_Lots'))[0].Statut, 'A valider');
+      await fixAndWrite();
+      const journalLot = (await grist('Import_Journal'))[0].Lot;
+      let lot = (await grist('Import_Lots'))[0];
+      assertEqual(lot.Statut, 'Valide'); assertEqual(lot.Lot_journal, journalLot);
+      assertDeepEqual({ Ajoutees: lot.Ajoutees, Modifiees: lot.Modifiees, Inchangees: lot.Inchangees, Anomalies: lot.Anomalies, Absentes: lot.Absentes, Compare_a: lot.Compare_a }, { Ajoutees: 1, Modifiees: 3, Inchangees: 0, Anomalies: 0, Absentes: 0, Compare_a: '' });
+      assertTrue(lot.Valide_le > 0, 'date de validation');
+      document.querySelector('[data-ih-undo]').click();
+      await waitFor(() => document.querySelector('[data-ih-undo-confirm]'), 'aperçu de l\'annulation');
+      document.querySelector('[data-ih-undo-confirm]').click();
+      await waitFor(() => /Lot annulé/.test(byId('ih-root').textContent), 'annulation faite');
+      lot = (await grist('Import_Lots'))[0];
+      assertEqual(lot.Statut, 'Annule'); assertEqual(lot.Note, 'Écritures annulées');
+    });
+
+    it('une écriture interrompue ne valide pas le lot', async function () {
+      await setup();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[1] === 'Projets')) throw new Error('Grist refuse (test)');
+        return original.call(this, actions);
+      };
+      try { await fixAndWrite(); } finally { window.grist.docApi.applyUserActions = original; }
+      assertEqual((await grist('Import_Lots'))[0].Statut, 'A valider');
+    });
+
+    it('si le lot ne peut pas être marqué Valide, l\'écriture reste faite et la raison est donnée', async function () {
+      await setup();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[1] === 'Import_Lots')) throw new Error('Import_Lots verrouillée (test)');
+        return original.call(this, actions);
+      };
+      try { await fixAndWrite(); } finally { window.grist.docApi.applyUserActions = original; }
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Import_Lots verrouillée (test)');
+      assertEqual((await grist('Projets')).length, GRIST_INITIAL().projets + 1, 'les projets sont bien écrits');
+    });
+
     it('le journal garde chaque écriture (avant / après) sous un même lot', async function () {
       await setup();
-      await simulateAndWrite();
+      await fixAndWrite();
       const journal = await grist('Import_Journal');
       assertEqual(journal.length, 9);
       assertEqual(new Set(journal.map(r => r.Lot)).size, 1);
@@ -540,20 +870,20 @@
       assertIncludes(byId('ih-root').querySelector('[data-ih-box="lots"]').textContent, 'Annuler ce lot');
     });
 
-    it('relançable : une fois écrit, la simulation suivante ne prévoit plus rien (aucun doublon)', async function () {
+    it('relançable : une fois écrit, le tableau ne prévoit plus rien (aucun doublon), les corrections restent', async function () {
       await setup();
-      await simulateAndWrite();
-      click('ih-confirm-all'); click('ih-simulate');
-      await waitFor(() => byId('ih-sim'), 'nouvelle simulation');
-      assertEqual(P().state.plan.actionCount, 0);
-      assertEqual(P().state.plan.counts.projetsCrees, 0);
-      assertEqual(P().state.plan.counts.dejaAJour, 4);
-      assertEqual(rowCategory(FICTIF), 'sure', 'le projet créé est maintenant retrouvé par son N° OPE');
+      await fixAndWrite();
+      assertEqual(P().state.table.plan.actionCount, 0);
+      assertEqual(P().state.table.plan.counts.projetsCrees, 0);
+      assertEqual(P().state.table.plan.counts.dejaAJour, 4);
+      assertEqual(P().state.table.left, 0, 'les corrections de l\'utilisateur sont gardées : pas de nouvelle anomalie');
+      assertEqual(rowState(FICTIF), 'same', 'le projet créé est maintenant retrouvé par son N° OPE');
+      assertIncludes(document.querySelector('.ih-actions-bar').textContent, 'Rien à écrire');
     });
 
     it('annuler un lot : remet les champs d\'avant, supprime ce qui a été créé, marque le journal', async function () {
       await setup();
-      await simulateAndWrite();
+      await fixAndWrite();
       document.querySelector('[data-ih-undo]').click();
       await waitFor(() => document.querySelector('[data-ih-undo-confirm]'), 'aperçu de l\'annulation');
       assertIncludes(document.querySelector('.ih-undo').textContent, '9 actions seront défaites');
@@ -570,7 +900,7 @@
 
     it('annuler ne touche pas ce qui a été modifié depuis : le projet créé puis édité à la main reste, la raison est donnée', async function () {
       await setup();
-      await simulateAndWrite();
+      await fixAndWrite();
       const created = (await grist('Projets')).find(p => p.Projet === FICTIF);
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', 'Projets', created.id, { Statut_operationnel_projet: 'en cours', Acronyme: 'FIC-MODIFIE' }]]);
       document.querySelector('[data-ih-undo]').click();
@@ -591,7 +921,7 @@
         if (actions.some(action => action[1] === 'Projets')) throw new Error('Grist refuse (test)');
         return original.call(this, actions);
       };
-      try { await simulateAndWrite(); } finally { window.grist.docApi.applyUserActions = original; }
+      try { await fixAndWrite(); } finally { window.grist.docApi.applyUserActions = original; }
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Écriture interrompue');
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Grist refuse (test)');
       assertIncludes(document.querySelector('.ih-banner').textContent, '5 écritures sont passées');
@@ -601,15 +931,17 @@
       assertTrue(!!document.querySelector('[data-ih-undo]'), 'le lot est annulable');
     });
 
-    it('relit Grist avant d\'écrire : une simulation qui date de plus de 10 minutes est refusée', async function () {
+    it('relit Grist avant d\'écrire : un tableau qui date de plus de 10 minutes est relu, et l\'écriture demande une nouvelle relecture', async function () {
       await setup();
-      click('ih-confirm-all'); click('ih-simulate'); await waitFor(() => byId('ih-sim'), 'simulation');
-      P().state.simulatedAt = Date.now() - 11 * 60 * 1000;
+      fixAll();
+      P().state.readAt = Date.now() - 11 * 60 * 1000;
       byId('ih-ack').checked = true; fire(byId('ih-ack'), 'change');
       click('ih-write');
       await waitFor(() => document.querySelector('.ih-banner.is-error'), 'refus');
       assertIncludes(document.querySelector('.ih-banner').textContent, 'plus de 10 minutes');
       assertEqual(writeCalls().length, 0);
+      assertFalse(byId('ih-ack').checked, 'à relire de nouveau');
+      assertEqual(P().state.table.left, 0, 'les corrections de l\'utilisateur survivent à la relecture');
     });
   });
 
@@ -647,9 +979,16 @@
       const load = journal.find(r => r.Operation === 'chargement');
       assertTrue(!!load && /^CHARGEMENT-/.test(load.Lot), 'le chargement est journalisé');
       assertEqual(JSON.parse(load.Apres).fichier, 'financements_test.xlsx'); assertEqual(JSON.parse(load.Apres).exporte_le, first.Exporte_le);
+      assertTrue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(first.Lot) && first.Lot === second.Lot, 'toutes les lignes du fichier portent le même Lot (date UTC)');
+      const lots = await grist('Import_Lots');
+      assertEqual(lots.length, 1);
+      assertDeepEqual({ Lot: lots[0].Lot, Type: lots[0].Type, Source: lots[0].Source, Fichier: lots[0].Fichier, Lignes: lots[0].Lignes, Statut: lots[0].Statut }, { Lot: first.Lot, Type: 'Reprise unique', Source: 'Fichier', Fichier: 'financements_test.xlsx', Lignes: 2, Statut: 'A valider' });
+      assertEqual(lots[0].Recu_le, first.Exporte_le);
+      assertEqual(JSON.parse(load.Apres).lot, first.Lot, 'le journal du chargement retrouve son lot');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'lot ' + first.Lot);
       // La page enchaîne sur le rapprochement du journal chargé.
-      await waitFor(() => document.querySelectorAll('.ih-row').length === 1, 'le projet du fichier est rapproché');
-      assertEqual(rowCategory(FICTIF), 'new');
+      await waitFor(() => document.querySelectorAll('.ih-tr').length === 1, 'le projet du fichier est rapproché');
+      assertEqual(rowState(FICTIF), 'add');
       assertTrue(!!byId('ih-pick'), '« Charger un autre fichier » reste proposé');
     });
 
@@ -658,16 +997,18 @@
       pick(xlsxFile('bon', 'financements_test.xlsx'));
       await waitFor(() => byId('ih-upload-confirm'), 'aperçu');
       click('ih-upload-confirm');
-      await waitFor(() => document.querySelectorAll('.ih-row').length === 1, 'journal chargé');
+      await waitFor(() => document.querySelectorAll('.ih-tr').length === 1, 'journal chargé');
       const lot = (await grist('Import_Journal')).find(r => r.Operation === 'chargement').Lot;
       document.querySelector('[data-ih-box="lots"] summary').click();
       document.querySelector(`[data-ih-undo="${lot}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await waitFor(() => document.querySelector(`[data-ih-undo-confirm="${lot}"]`), 'demande de confirmation');
       assertIncludes(document.querySelector('.ih-undo').textContent, '2 lignes seront retirées');
       document.querySelector(`[data-ih-undo-confirm="${lot}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await waitFor(() => byId('ih-pick') && !document.querySelector('.ih-row'), 'page revenue à l\'invitation');
+      await waitFor(() => byId('ih-pick') && !document.querySelector('.ih-tr'), 'page revenue à l\'invitation');
       assertEqual((await grist('Import_Financements')).length, 0);
       assertTrue((await grist('Import_Journal')).find(r => r.Operation === 'chargement').Annule === true, 'le journal marque le chargement annulé');
+      const lots = await grist('Import_Lots');
+      assertEqual(lots.length, 1); assertEqual(lots[0].Statut, 'Annule'); assertEqual(lots[0].Note, 'Chargement annulé');
     });
 
     it('colonne absente : le fichier n\'est pas chargé et la colonne est nommée', async function () {
