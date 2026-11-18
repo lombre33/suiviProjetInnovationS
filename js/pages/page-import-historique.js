@@ -27,7 +27,8 @@
       phase: 'idle', error: '', rows: [], lines: [], ignored: 0, total: 0, issues: [], entries: [], orphans: [], ctx: null, matches: new Map(),
       mappings: { programmes: [], structures: [] }, mappingChoice: { programmes: new Map(), structures: new Map() }, decisions: new Map(),
       filter: 'all', search: '', detail: [], totals: null, journal: [], tables: {}, plan: null, simulatedAt: 0, writing: false,
-      result: null, undo: null, openBoxes: new Set(), _refocus: null
+      result: null, undo: null, openBoxes: new Set(), _refocus: null,
+      prepared: []
     };
   }
   function resetState() { Object.assign(state, freshState()); }
@@ -72,9 +73,23 @@
     state.totals = L.checkTotals(state.lines, state.entries, state.detail);
   }
 
+  // Ce dont l'outil a besoin dans Grist, créé à l'ouverture : le journal Import_Financements (colonnes de l'export) et Import_Journal.
+  // Seul ce qui manque est ajouté ; rien d'existant n'est modifié.
+  async function prepare() {
+    await CoreGrist.ready();
+    const done = [];
+    if (await CoreGrist.ensureTable(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`table ${L.SOURCE_TABLE} créée (${L.SOURCE_COLUMNS.length} colonnes : les 24 de l'export, plus Cle_ligne et Exporte_le)`);
+    else if (await CoreGrist.ensureColumns(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`colonnes manquantes ajoutées à ${L.SOURCE_TABLE}`);
+    if (await CoreGrist.ensureTable(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS)) done.push(`table ${L.JOURNAL_TABLE} créée`);
+    else await CoreGrist.ensureColumns(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS);
+    if (done.length) state.prepared = state.prepared.concat(done);
+  }
+
   async function load() {
     state.phase = 'loading'; state.error = ''; state.plan = null; render();
     try {
+      try { await prepare(); }
+      catch (err) { throw new Error('Préparation de Grist impossible (création de ' + L.SOURCE_TABLE + ' et de ses colonnes) : ' + (err.message || err)); }
       let rows;
       try { rows = await CoreGrist.getTable(L.SOURCE_TABLE); }
       catch (err) { state.phase = 'missing'; render(); return; }
@@ -295,6 +310,10 @@
     return `<div class="ih-banner is-error" role="alert">${esc(r.message)}</div>`;
   }
 
+  function preparedHtml() {
+    return state.prepared.length ? `<div class="ih-prepared" role="status"><strong>Préparé automatiquement dans Grist :</strong> ${state.prepared.map(esc).join(' ; ')}.</div>` : '';
+  }
+
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail des dépenses absent';
@@ -314,13 +333,18 @@
       root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div><div class="ih-empty ih-banner is-error" role="alert">${esc(state.error)}</div>`;
       return;
     }
+    if (!state.total) {
+      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}
+        <div class="ih-empty"><p><strong>La table ${L.SOURCE_TABLE} est vide.</strong></p><p class="ih-muted">Dans Grist, ouvre cette table (page « Raw Data »), puis « Importer depuis un fichier » et choisis l'export Excel de tous les projets, en associant chaque colonne à son homonyme. Reviens ensuite ici et clique sur « Relire ».</p><button type="button" class="btn btn-primary" id="ih-reload">Relire</button></div>`;
+      return;
+    }
     const c = counts();
     const visible = visibleEntries();
     const blocked = state.entries.filter(e => state.matches.get(e.key).status === 'blocked').length;
     const body = state.entries.length
       ? `<div class="ih-head"><span>Projet de l'export</span><span>Rapprochement</span><span>Projet dans Grist</span><span>Accord</span></div>${visible.length ? visible.map(rowHtml).join('') : '<p class="ih-empty">Aucun projet ne correspond à ce filtre.</p>'}`
       : '<p class="ih-empty">Le journal ne contient aucune ligne rattachable (N° OPE manquant).</p>';
-    root.innerHTML = barHtml(c) + resultHtml() + summaryHtml()
+    root.innerHTML = barHtml(c) + preparedHtml() + resultHtml() + summaryHtml()
       + boxHtml('checks', 'Contrôles de l\'export', state.issues.length ? plural(state.issues.length, 'écart', 'écarts') + (blocked ? ` · ${plural(blocked, 'projet écarté', 'projets écartés')}` : '') : '7 sur 7 réussis', checksHtml(), false)
       + boxHtml('maps', 'Correspondances', `${plural(state.mappings.programmes.length, 'programme', 'programmes')}, ${plural(state.mappings.structures.length, 'structure', 'structures')}`, mappingsHtml(), mappingNeedsAttention())
       + `<div class="ih-list">${body}</div>` + simulationHtml() + lotsHtml();

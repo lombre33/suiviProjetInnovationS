@@ -307,12 +307,67 @@
   });
 
   describe('Import historique — la page : lecture, rapprochement, accord, simulation', function () {
-    it('Alt+Maj+I ouvre la page cachée ; sans table Import_Financements, elle explique quoi faire', async function () {
+    it('Alt+Maj+I ouvre la page cachée ; sans table Import_Financements, elle la crée avec les colonnes de l\'export et dit comment la remplir', async function () {
+      const mark = window.__TEST_CALLS__.length;
       document.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, shiftKey: true, code: 'KeyI', bubbles: true }));
       await waitFor(() => !byId('view-import-historique').classList.contains('hidden'), 'page ouverte');
-      await waitFor(() => /n'existe pas encore/.test(byId('ih-root').textContent), 'message de table absente');
-      assertIncludes(byId('ih-root').textContent, 'Import_Financements');
+      await waitFor(() => /est vide/.test(byId('ih-root').textContent), 'message de table vide');
+      const calls = window.__TEST_CALLS__.slice(mark);
+      const created = calls.find(call => call.type === 'AddTable' && call.table === 'Import_Financements');
+      assertTrue(!!created, 'la table du journal est créée par l\'outil');
+      const byIdCol = Object.fromEntries(created.colDefs.map(col => [col.id, col]));
+      assertEqual(created.colDefs.length, 26, '24 colonnes de l\'export + Cle_ligne + Exporte_le');
+      assertEqual(byIdCol.N_OPE.label, 'N° OPE', 'l\'étiquette reprend l\'en-tête Excel : l\'import de fichier associe tout seul');
+      assertEqual(byIdCol.Attribue_2024.label, 'Attribué 2024'); assertEqual(byIdCol.Etablissement.label, 'Établissement');
+      assertEqual(byIdCol.Date_debut.type, 'Date'); assertEqual(byIdCol.Consomme_AE.type, 'Numeric');
+      assertFalse(created.colDefs.some(col => col.isFormula), 'aucune colonne calculée : le formulaire doit pouvoir tout envoyer');
+      ['Programme', 'Projet', 'Financeur', 'Financeurs_du_projet', 'N_OPE', 'Libelle_operation', 'Ligne_budgetaire', 'Statuts', 'N_decision', 'Structure', 'Etablissement', 'Date_debut', 'Date_fin', 'Montant_attribue', 'Part_du_projet',
+        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
+      assertTrue(calls.some(call => call.type === 'AddTable' && call.table === 'Import_Journal'), 'le journal des écritures est créé aussi');
+      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'Import_Financements créée');
+      assertFalse(calls.some(call => call.table === 'Lignes_OPE' || call.table === 'Projets'), 'rien n\'est touché dans Projets ni Lignes_OPE (pas de formule de montant, pas de conversion)');
+      assertIncludes(byId('ih-root').textContent, 'Importer depuis un fichier');
+      assertTrue(!!byId('ih-reload') && !byId('ih-simulate'), 'Relire proposé, pas de simulation sur un journal vide');
       assertFalse(!!document.querySelector('.nav-btn[data-view="view-import-historique"]'), 'pas dans la barre de navigation');
+    });
+
+    it('rouvrir la page ne recrée rien', async function () {
+      await P().open();
+      const mark = window.__TEST_CALLS__.length;
+      await P().open();
+      assertFalse(window.__TEST_CALLS__.slice(mark).some(call => ['AddTable', 'AddColumn', 'ModifyColumn'].includes(call.type)), 'aucune création au second passage');
+    });
+
+    it('une table Import_Financements déjà faite à la main : seules les colonnes manquantes sont ajoutées, les lignes ne sont pas touchées', async function () {
+      const mark = window.__TEST_CALLS__.length;
+      await setup();
+      const calls = window.__TEST_CALLS__.slice(mark);
+      const added = calls.filter(call => call.type === 'AddColumn' && call.table === 'Import_Financements').map(call => call.colId);
+      assertTrue(added.length > 0 && added.includes('Cle_ligne') && added.includes('Exporte_le'), 'les colonnes absentes sont ajoutées');
+      assertFalse(added.includes('N_OPE') || added.includes('Projet') || added.includes('Consomme_AE'), 'celles qui existent ne sont pas recréées');
+      assertFalse(calls.some(call => call.table === 'Import_Financements' && ['UpdateRecord', 'RemoveRecord', 'AddRecord'].includes(call.type)), 'aucune ligne du journal n\'est écrite');
+      assertEqual((await grist('Import_Financements')).length, 6, 'les 6 envois sont toujours là');
+      assertEqual(document.querySelectorAll('.ih-row').length, 4, 'et l\'outil travaille sur eux comme avant');
+    });
+
+    it('journal vide : la page le dit et ne propose pas de simuler', async function () {
+      await setup({ journal: [] });
+      assertIncludes(byId('ih-root').textContent, 'est vide');
+      assertFalse(!!byId('ih-simulate'));
+    });
+
+    it('si Grist refuse la création de la table, la page le dit au lieu de rester vide', async function () {
+      window.__mockSetTable('Import_Financements', { id: [], N_OPE: [] });
+      window.__mockSetTable('Projets', toTable(PROJETS)); window.__mockSetTable('Lignes_OPE', toTable(LIGNES));
+      P().resetState();
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[0] === 'AddColumn')) throw new Error('droits insuffisants');
+        return original.apply(this, arguments);
+      };
+      try { await P().open(); } finally { window.grist.docApi.applyUserActions = original; }
+      assertIncludes(byId('ih-root').textContent, 'Préparation de Grist impossible');
+      assertIncludes(byId('ih-root').textContent, 'droits insuffisants');
     });
 
     it('affiche un projet par ligne avec son rapprochement, des compteurs par filtre, et un résumé', async function () {

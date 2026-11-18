@@ -4,7 +4,7 @@
  *
  * Ce que fait l'outil (one-shot) : relier les lignes du journal `Import_Financements` (export financier, une ligne par N° OPE +
  * financeur + ligne budgétaire) aux projets et aux lignes OPE de Grist, en créant ce qui manque. Il n'écrit AUCUN montant : les
- * montants (attribué par année, consommé AE/CP) arrivent par formules sur Lignes_OPE, lues dans le journal. Il écrit seulement :
+ * montants (attribué par année, consommé AE/CP) arrivent par des formules de Lignes_OPE qui lisent le journal (import régulier). Il écrit seulement :
  *  - Lignes_OPE : N_OPE et installe_chez (création), installe_chez (complétée si vide) ;
  *  - Projets : Ligne_OPE (on ajoute, on ne retire jamais), et à la création Projet, Acronyme, Programme, dates, statut, commentaire ;
  *    Programme et dates seulement s'ils sont vides (« Grist garde », l'écart est listé) ;
@@ -31,6 +31,26 @@
   const MIN_SIMILARITY = 0.6;       // en dessous, le nom ne propose rien
   const MIN_CANDIDATE = 0.5;        // en dessous, un projet n'est même pas listé comme piste
   const MIN_LABEL_SIMILARITY = 0.75; // programmes et structures : une suggestion préremplie, à relire
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Ce que l'outil crée lui-même dans Grist (dès l'ouverture de la page ; jamais ce qui existe déjà : ensureTable / ensureColumns
+  // n'ajoutent que ce qui manque). Il ne crée AUCUNE formule de montant sur Lignes_OPE ni ne convertit totalCPConsomme : ces formules
+  // relèvent de l'import régulier (fil « export financier → formulaire »), qui complète la même table Import_Financements.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  const SOURCE_FIELDS = [
+    ['Programme', 'Programme', 'Text'], ['Projet', 'Projet', 'Text'], ['Financeur', 'Financeur', 'Text'], ['Financeurs_du_projet', 'Financeurs du projet', 'Text'],
+    ['N_OPE', 'N° OPE', 'Text'], ['Libelle_operation', 'Libellé opération', 'Text'], ['Ligne_budgetaire', 'Ligne budgétaire', 'Text'],
+    ['Date_debut', 'Date début', 'Date'], ['Date_fin', 'Date fin', 'Date'], ['Montant_attribue', 'Montant attribué', 'Numeric'], ['Part_du_projet', 'Part du projet', 'Numeric'],
+    ['Attribue_2022', 'Attribué 2022', 'Numeric'], ['Attribue_2023', 'Attribué 2023', 'Numeric'], ['Attribue_2024', 'Attribué 2024', 'Numeric'],
+    ['Attribue_2025', 'Attribué 2025', 'Numeric'], ['Attribue_2026', 'Attribué 2026', 'Numeric'],
+    ['Consomme_AE', 'Consommé AE', 'Numeric'], ['Consomme_CP', 'Consommé CP', 'Numeric'], ['Disponible_AE', 'Disponible AE', 'Numeric'], ['Disponible_CP', 'Disponible CP', 'Numeric'],
+    ['Statuts', 'Statuts', 'Text'], ['N_decision', 'N° décision', 'Text'], ['Structure', 'Structure', 'Text'], ['Etablissement', 'Établissement', 'Text']
+  ];
+  // Journal d'import : les 24 colonnes de l'export, plus Cle_ligne et Exporte_le (colonnes de données, remplies par le script d'envoi
+  // quand il passe par le formulaire publié ; l'outil lit la dernière version de chaque ligne lui-même, par plus grand id).
+  const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
+    .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }]);
   const MONEY_TOLERANCE = 0.01;
   const CHUNK = 100;                // actions Grist par appel
 
@@ -517,7 +537,7 @@
   }
 
   global.ImportHistoriqueLogic = {
-    SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
+    SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, SOURCE_COLUMNS, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
     normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, buildMappings, effectiveDecision, buildPlan,
     execute, planUndo, summarizeLots, checkTotals
