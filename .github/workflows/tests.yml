@@ -24,3 +24,19 @@ jobs:
 
       - name: Lancer tests/index.html en headless
         run: npm test
+
+  envoi-grist:
+    name: Envoi de l'export financier vers Grist (Python)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer openpyxl
+        run: pip install openpyxl
+
+      - name: Lancer les tests contre un faux Grist local
+        run: python -m unittest discover -s export-financier -v
