@@ -44,6 +44,20 @@ d'environnement `GRIST_LIEN_FORMULAIRE_EXPORT`, pas dans le code ni dans le dép
    `Derniere` = `max($group, key=lambda r: (r.Exporte_le, r.id))`, et chaque colonne utile en `=$Derniere.<colonne>`
    (remplacer les `SUM($group.…)` créées d'office pour les colonnes numériques).
 
+## Du journal vers `Lignes_OPE` (à décider avec Antoine)
+
+Le formulaire publié ne peut **pas** modifier une ligne existante : il ne fait qu'ajouter au journal. Le consommé
+d'une ligne OPE ne peut donc arriver dans `Lignes_OPE` que de deux façons :
+
+- **Formules Grist (proposé)** : `Lignes_OPE` lit la synthèse par N° OPE, rien d'autre à lancer que le script.
+  Colonnes visées, les mêmes que dans la proposition de fusion de l'historique : `Consomme_AE`, `totalCPConsomme`
+  (Consommé CP, aujourd'hui une colonne de données lue par le Dashboard : elle deviendrait une formule) et
+  `Date_maj_conso`. Par exemple, sur `Lignes_OPE` (noms de la synthèse à adapter, formules non testées dans Grist) :
+  `SUM(r.Consomme_CP for r in Import_Financements_summary_Cle_ligne.lookupRecords(N_OPE=$N_OPE)) if $N_OPE else None`.
+  Une somme, parce qu'un même N° OPE peut avoir plusieurs lignes (financeurs, lignes budgétaires).
+- **Bouton dans le widget** : une action « Appliquer le dernier envoi » écrit les colonnes de données de
+  `Lignes_OPE` quand quelqu'un clique. Le script seul ne suffit plus.
+
 ## Ce que fait chaque lancement
 
 - Une ligne du journal par ligne de l'export, toutes datées du même `Exporte_le`. Relancer l'envoi ne crée
@@ -59,4 +73,4 @@ d'environnement `GRIST_LIEN_FORMULAIRE_EXPORT`, pas dans le code ni dans le dép
 
 - Le formulaire publié n'accepte que l'ajout : le script ne peut ni relire ni corriger ce qu'il a envoyé.
   Le journal grossit à chaque lancement (une purge se fait à la main dans Grist).
-- Le rattachement au projet (N° OPE → `Lignes_OPE.N_OPE`) et l'alimentation du widget ne sont pas faits ici.
+- Le rattachement au projet (N° OPE → `Lignes_OPE.N_OPE`) et l'alimentation du widget ne sont pas faits ici : voir la section ci-dessus.
