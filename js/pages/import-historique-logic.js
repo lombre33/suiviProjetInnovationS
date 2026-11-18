@@ -52,6 +52,87 @@
   // version de chaque ligne lui-même, par plus grand id).
   const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
     .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }]);
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Lecture de l'export Excel (lignes déjà extraites du classeur par XlsxReader) -> lignes prêtes pour Import_Financements.
+  // Mêmes règles que le script d'envoi : en-têtes reconnus sans accent ni casse, une ligne sans N° OPE est ignorée, une valeur illisible
+  // arrête tout (rien n'est chargé à moitié).
+  // ---------------------------------------------------------------------------------------------------------------
+
+  const MAX_ERRORS_LISTED = 8;
+  const isBlank = cell => cell == null || (typeof cell === 'string' && !cell.trim());
+  const unixOf = (y, m, d) => (m >= 1 && m <= 12 && d >= 1 && d <= 31 && y >= 1900 && y <= 2200 && new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d ? Date.UTC(y, m - 1, d) / 1000 : null);
+
+  function convertCell(type, cell, excelDateToUnix) {
+    if (isBlank(cell)) return { skip: true };
+    if (type === 'Text') {
+      if (typeof cell === 'string') return { value: cell.trim() };
+      if (typeof cell === 'number') return { value: String(cell) };
+      if (cell && typeof cell === 'object' && 'excelDate' in cell) return { value: new Date(excelDateToUnix(cell.excelDate) * 1000).toISOString().slice(0, 10) };
+      return { value: String(cell) };
+    }
+    if (type === 'Numeric') {
+      if (typeof cell === 'number') return { value: cell };
+      if (typeof cell === 'string') {
+        const percent = /%\s*$/.test(cell), cleaned = cell.replace(/%\s*$/, '').replace(/[\s ]/g, '').replace(',', '.');
+        if (/^-?\d+(\.\d+)?$/.test(cleaned)) return { value: percent ? Number(cleaned) / 100 : Number(cleaned) };
+      }
+      return { error: true };
+    }
+    if (type === 'Date') {
+      if (cell && typeof cell === 'object' && 'excelDate' in cell) return { value: excelDateToUnix(cell.excelDate) };
+      if (typeof cell === 'number') return cell > 20000 ? { value: excelDateToUnix(cell) } : { error: true };
+      if (typeof cell === 'string') {
+        const fr = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(cell.trim()), iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(cell.trim());
+        const value = fr ? unixOf(Number(fr[3]), Number(fr[2]), Number(fr[1])) : iso ? unixOf(Number(iso[1]), Number(iso[2]), Number(iso[3])) : null;
+        return value == null ? { error: true } : { value };
+      }
+    }
+    return { error: true };
+  }
+  const shown = cell => (cell && typeof cell === 'object' && 'excelDate' in cell ? 'date ' + cell.excelDate : String(cell));
+
+  function readExport(sheetRows, now, excelDateToUnix) {
+    const rows = sheetRows || [];
+    const headerAt = rows.findIndex(row => row.some(cell => !isBlank(cell)));
+    const empty = { records: [], total: 0, ignored: 0, errors: [], errorCount: 0, missing: [], unknown: [], projets: 0, opes: 0, exporteLe: null };
+    if (headerAt < 0) return Object.assign(empty, { missing: SOURCE_FIELDS.map(field => field[1]) });
+    const headers = rows[headerAt].map(cell => normalize(cell));
+    const columnOf = new Map();
+    headers.forEach((header, i) => { if (header && !columnOf.has(header)) columnOf.set(header, i); });
+    const missing = SOURCE_FIELDS.filter(field => !columnOf.has(normalize(field[1]))).map(field => field[1]);
+    const known = new Set(SOURCE_FIELDS.map(field => normalize(field[1])));
+    const unknown = rows[headerAt].filter((cell, i) => !isBlank(cell) && !known.has(headers[i]) && columnOf.get(headers[i]) === i).map(cell => String(cell).trim());
+    if (missing.length) return Object.assign(empty, { missing, unknown });
+    const exporteLe = now.getTime() / 1000;
+    const out = Object.assign(empty, { unknown, exporteLe });
+    const projets = new Set(), opes = new Set();
+    for (let i = headerAt + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.every(isBlank)) continue;
+      out.total++;
+      const record = {};
+      let bad = false;
+      SOURCE_FIELDS.forEach(([id, label, type]) => {
+        const cell = row[columnOf.get(normalize(label))];
+        const converted = convertCell(type, cell, excelDateToUnix);
+        if (converted.skip) return;
+        if (converted.error) {
+          bad = true; out.errorCount++;
+          if (out.errors.length < MAX_ERRORS_LISTED) out.errors.push({ line: i + 1, column: label, value: shown(cell) });
+        } else record[id] = converted.value;
+      });
+      if (bad) continue;
+      if (!text(record.N_OPE)) { out.ignored++; continue; }
+      record.Cle_ligne = [record.N_OPE, record.Financeur || '', record.Ligne_budgetaire || ''].join('|');
+      record.Exporte_le = exporteLe;
+      out.records.push(record);
+      if (text(record.Projet)) projets.add(normalize(record.Projet));
+      opes.add(opeKey(record.N_OPE));
+    }
+    out.projets = projets.size; out.opes = opes.size;
+    return out;
+  }
   const MONEY_TOLERANCE = 0.01;
   const CHUNK = 100;                // actions Grist par appel
 
@@ -481,13 +562,27 @@
     return { actions, skipped, done };
   }
 
+  // Annuler un chargement de fichier : retire les lignes de Import_Financements ajoutées par ce chargement (même Exporte_le).
+  // Les projets déjà écrits à partir d'elles ne sont pas défaits : ils ont leur propre lot.
+  function planUnload(journalRows, lot, sourceRows) {
+    const row = (journalRows || []).find(r => r.Lot === lot && r.Operation === 'chargement' && !r.Annule);
+    if (!row) return { actions: [], skipped: [], done: [] };
+    let info = {};
+    try { info = JSON.parse(row.Apres || '{}'); } catch (err) { info = {}; }
+    const stamp = Number(info.exporte_le);
+    const ids = stamp ? (sourceRows || []).filter(r => Number(r.Exporte_le) === stamp).map(r => Number(r.id)) : [];
+    return { actions: ids.map(id => ['RemoveRecord', SOURCE_TABLE, id]), skipped: [], done: [row.id] };
+  }
+
   function summarizeLots(journalRows) {
     const lots = new Map();
     (journalRows || []).forEach(row => {
-      if (!lots.has(row.Lot)) lots.set(row.Lot, { lot: row.Lot, horodatage: row.Horodatage, ajouts: 0, modifs: 0, annules: 0, total: 0 });
+      if (!lots.has(row.Lot)) lots.set(row.Lot, { lot: row.Lot, horodatage: row.Horodatage, ajouts: 0, modifs: 0, annules: 0, total: 0, kind: 'ecriture', info: null });
       const lot = lots.get(row.Lot);
       lot.total++;
+      if (row.Operation === 'chargement') { lot.kind = 'chargement'; try { lot.info = JSON.parse(row.Apres || '{}'); } catch (err) { lot.info = {}; } }
       if (row.Annule) lot.annules++;
+      else if (row.Operation === 'chargement') { /* compté à part */ }
       else if (row.Operation === 'ajout') lot.ajouts++; else lot.modifs++;
     });
     return Array.from(lots.values()).sort((a, b) => String(b.horodatage).localeCompare(String(a.horodatage)));
@@ -541,6 +636,6 @@
     SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, SOURCE_COLUMNS, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
     normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, buildMappings, effectiveDecision, buildPlan,
-    execute, planUndo, summarizeLots, checkTotals
+    execute, planUndo, planUnload, summarizeLots, checkTotals, readExport
   };
 })(window);

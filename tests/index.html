@@ -231,6 +231,7 @@
     // Test-only scripts, must load before the app's core so window.grist exists
     // before CoreGrist.ready() starts polling for it.
     await loadScript('fixtures.js');
+    await loadScript('fixtures-xlsx.js');
     await loadScript('mock-grist.js');
     await loadScript('harness.js');
 
@@ -243,6 +244,7 @@
     await loadScript('../js/core/state.js');
     await loadScript('../js/core/grist-api.js');
     await loadScript('../js/core/attachments.js');
+    await loadScript('../js/core/xlsx-reader.js');
     await loadScript('../js/core/grist-bridge.js');
     // Dossier du widget pour js/components/pdf-viewer.js : pdf.js (signature/vendor/pdfjs) est chargé à la demande.
     window.SUIVI_ROOT = location.origin + '/';
@@ -308,6 +310,7 @@
     await loadScript('suite-instances-complements.js');
     await loadScript('suite-annuaire.js');
     await loadScript('suite-dashboard.js');
+    await loadScript('suite-xlsx-reader.js');
     await loadScript('suite-import-historique.js');
     await loadScript('suite-performance.js');
     await loadScript('suite-perf-trace.js');

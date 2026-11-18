@@ -83,6 +83,9 @@
 .ih-ack { display:inline-flex; gap:6px; align-items:center; font-size:13px; font-weight:600; }
 #ih-write[disabled] { opacity:.5; cursor:not-allowed; }
 
+.ih-upload { border:1px solid var(--accent-soft-border); border-radius:12px; background:var(--surface); padding:4px 16px; font-size:13px; }
+.ih-upload p { margin:8px 0; }
+.ih-banner p { margin:8px 0 0; }
 .ih-banner { padding:10px 14px; border-radius:10px; font-size:13px; }
 .ih-banner.is-ok, .ih-prepared { background:var(--ih-sure-soft); color:var(--ih-sure); }
 .ih-prepared { padding:10px 14px; border-radius:10px; font-size:13px; }

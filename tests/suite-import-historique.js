@@ -306,12 +306,67 @@
     });
   });
 
+  describe('Import historique — lecture de l\'export Excel (valeurs, dates, erreurs)', function () {
+    const HEAD = ['Programme', 'Projet', 'Financeur', 'Financeurs du projet', 'N° OPE', 'Libellé opération', 'Ligne budgétaire', 'Date début', 'Date fin', 'Montant attribué', 'Part du projet', 'Attribué 2022', 'Attribué 2023', 'Attribué 2024', 'Attribué 2025', 'Attribué 2026', 'Consommé AE', 'Consommé CP', 'Disponible AE', 'Disponible CP', 'Statuts', 'N° décision', 'Structure', 'Établissement'];
+    const row = (patch = {}) => HEAD.map(h => (h in patch ? patch[h] : null));
+    const read = (rows, head = HEAD) => L().readExport([head].concat(rows), new Date('2026-11-18T13:00:00Z'), XlsxReader.excelDateToUnix);
+
+    it('reconnaît les en-têtes sans accent ni casse, lit texte, nombres, pourcentages et dates (série Excel, JJ/MM/AAAA, AAAA-MM-JJ)', function () {
+      const head = HEAD.map(h => h.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') + ' ');
+      const out = read([row({ 'N° OPE': ' OPE 1 ', Projet: 'P', Financeur: 'InnovationS', 'Ligne budgétaire': 'L1', 'Date début': { excelDate: 44927 }, 'Date fin': '31/12/2025', 'Montant attribué': '1 234,5', 'Part du projet': '60 %', 'Consommé AE': 10, 'N° décision': 12345 }),
+        row({ 'N° OPE': 'OPE 2', Projet: 'P', 'Date début': '2024-02-29' })], head);
+      assertEqual(out.errorCount, 0); assertEqual(out.records.length, 2);
+      const r = out.records[0];
+      assertEqual(r.N_OPE, 'OPE 1'); assertEqual(r.Date_debut, Date.UTC(2023, 0, 1) / 1000); assertEqual(r.Date_fin, Date.UTC(2025, 11, 31) / 1000);
+      assertEqual(r.Montant_attribue, 1234.5); assertEqual(r.Part_du_projet, 0.6); assertEqual(r.Consomme_AE, 10); assertEqual(r.N_decision, '12345', 'un numéro lu comme nombre reste un texte');
+      assertEqual(out.records[1].Date_debut, Date.UTC(2024, 1, 29) / 1000);
+      assertFalse('Consomme_CP' in r, 'une cellule vide n\'écrit rien');
+    });
+
+    it('ajoute la clé de ligne et l\'instant du chargement (le même pour toutes les lignes) ; ignore les lignes vides et sans N° OPE', function () {
+      const out = read([row({ 'N° OPE': 'A1', Financeur: 'F', 'Ligne budgétaire': 'LB' }), row(), row({ Projet: 'sans numéro' }), row({ 'N° OPE': 'A2' })]);
+      assertEqual(out.records.length, 2); assertEqual(out.total, 3, 'la ligne entièrement vide n\'est pas comptée'); assertEqual(out.ignored, 1);
+      assertEqual(out.records[0].Cle_ligne, 'A1|F|LB'); assertEqual(out.records[1].Cle_ligne, 'A2||');
+      assertEqual(out.records[0].Exporte_le, new Date('2026-11-18T13:00:00Z').getTime() / 1000);
+      assertEqual(out.records[0].Exporte_le, out.records[1].Exporte_le);
+      assertEqual(out.projets, 0); assertEqual(out.opes, 2);
+    });
+
+    it('colonnes absentes : rien n\'est chargé et elles sont nommées ; colonnes en plus : listées', function () {
+      const out = read([row({ 'N° OPE': 'A1' })], HEAD.filter(h => h !== 'Consommé CP' && h !== 'Statuts').concat(['Commentaire']));
+      assertDeepEqual(out.missing, ['Consommé CP', 'Statuts']); assertEqual(out.records.length, 0);
+      assertDeepEqual(out.unknown, ['Commentaire']);
+      assertEqual(L().readExport([], new Date(), XlsxReader.excelDateToUnix).missing.length, 24, 'feuille vide : tout manque');
+    });
+
+    it('une valeur illisible est signalée avec sa ligne et sa colonne, et la ligne n\'est pas retenue', function () {
+      const out = read([row({ 'N° OPE': 'A1' }), row({ 'N° OPE': 'A2', 'Consommé AE': 'abc', 'Date début': 'pas une date', 'Date fin': '31/02/2025' })]);
+      assertEqual(out.errorCount, 3); assertEqual(out.records.length, 1);
+      assertDeepEqual(out.errors.map(e => [e.line, e.column, e.value]), [[3, 'Date début', 'pas une date'], [3, 'Date fin', '31/02/2025'], [3, 'Consommé AE', 'abc']].sort((a, b) => out.errors.findIndex(e => e.column === a[1]) - out.errors.findIndex(e => e.column === b[1])));
+    });
+  });
+
+  describe('Import historique — annuler un chargement de fichier', function () {
+    it('retire les lignes de ce chargement (même instant) et seulement elles ; le chargement est un lot à part dans la liste', function () {
+      const journal = [{ id: 5, Lot: 'CHARGEMENT-1', Horodatage: '2026-11-18T13:00:00Z', Table_modifiee: 'Import_Financements', Ligne: 0, Operation: 'chargement', Apres: JSON.stringify({ exporte_le: 1000.5, fichier: 'export.xlsx', lignes: 2 }), Annule: false },
+        { id: 6, Lot: 'LOT-1', Horodatage: '2026-11-18T14:00:00Z', Table_modifiee: 'Projets', Ligne: 10, Operation: 'modif', Apres: '{}', Avant: '{}', Annule: false }];
+      const rows = [{ id: 1, Exporte_le: 1000.5 }, { id: 2, Exporte_le: 1000.5 }, { id: 3, Exporte_le: 2000 }, { id: 4, Exporte_le: null }];
+      const plan = L().planUnload(journal, 'CHARGEMENT-1', rows);
+      assertDeepEqual(plan.actions, [['RemoveRecord', 'Import_Financements', 1], ['RemoveRecord', 'Import_Financements', 2]]);
+      assertDeepEqual(plan.done, [5]);
+      assertEqual(L().planUnload(journal, 'LOT-1', rows).actions.length, 0, 'un lot d\'écriture n\'est pas un chargement');
+      const lots = L().summarizeLots(journal);
+      const load = lots.find(l => l.lot === 'CHARGEMENT-1');
+      assertEqual(load.kind, 'chargement'); assertEqual(load.info.fichier, 'export.xlsx'); assertEqual(load.modifs, 0); assertEqual(lots.find(l => l.lot === 'LOT-1').kind, 'ecriture');
+    });
+  });
+
   describe('Import historique — la page : lecture, rapprochement, accord, simulation', function () {
     it('Alt+Maj+I ouvre la page cachée ; sans table Import_Financements, elle la crée avec les colonnes de l\'export et dit comment la remplir', async function () {
       const mark = window.__TEST_CALLS__.length;
       document.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, shiftKey: true, code: 'KeyI', bubbles: true }));
       await waitFor(() => !byId('view-import-historique').classList.contains('hidden'), 'page ouverte');
-      await waitFor(() => /est vide/.test(byId('ih-root').textContent), 'message de table vide');
+      await waitFor(() => /Choisir le fichier Excel/.test(byId('ih-root').textContent), 'invitation à choisir le fichier');
       const calls = window.__TEST_CALLS__.slice(mark);
       const created = calls.find(call => call.type === 'AddTable' && call.table === 'Import_Financements');
       assertTrue(!!created, 'la table du journal est créée par l\'outil');
@@ -324,10 +379,9 @@
       ['Programme', 'Projet', 'Financeur', 'Financeurs_du_projet', 'N_OPE', 'Libelle_operation', 'Ligne_budgetaire', 'Statuts', 'N_decision', 'Structure', 'Etablissement', 'Date_debut', 'Date_fin', 'Montant_attribue', 'Part_du_projet',
         'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
       assertTrue(calls.some(call => call.type === 'AddTable' && call.table === 'Import_Journal'), 'le journal des écritures est créé aussi');
-      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'Import_Financements créée');
+      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (26 colonnes)');
       assertFalse(calls.some(call => call.table === 'Lignes_OPE' || call.table === 'Projets'), 'rien n\'est touché dans Projets ni Lignes_OPE (pas de formule de montant, pas de conversion)');
-      assertIncludes(byId('ih-root').textContent, 'Importer depuis un fichier');
-      assertTrue(!!byId('ih-reload') && !byId('ih-simulate'), 'Relire proposé, pas de simulation sur un journal vide');
+      assertTrue(!!byId('ih-pick') && !!byId('ih-file') && !byId('ih-simulate'), 'bouton pour choisir le fichier, pas de simulation sur un journal vide');
       assertFalse(!!document.querySelector('.nav-btn[data-view="view-import-historique"]'), 'pas dans la barre de navigation');
     });
 
@@ -352,7 +406,7 @@
 
     it('journal vide : la page le dit et ne propose pas de simuler', async function () {
       await setup({ journal: [] });
-      assertIncludes(byId('ih-root').textContent, 'est vide');
+      assertIncludes(byId('ih-root').textContent, 'Charge l\'export Excel');
       assertFalse(!!byId('ih-simulate'));
     });
 
@@ -556,6 +610,105 @@
       await waitFor(() => document.querySelector('.ih-banner.is-error'), 'refus');
       assertIncludes(document.querySelector('.ih-banner').textContent, 'plus de 10 minutes');
       assertEqual(writeCalls().length, 0);
+    });
+  });
+
+  describe('Import historique — choisir le fichier Excel dans la page', function () {
+    const xlsxFile = (key, name) => new File([Uint8Array.from(atob(window.__XLSX_FIXTURES__[key]), ch => ch.charCodeAt(0))], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const pick = file => { const input = byId('ih-file'); const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); };
+    const emptySetup = () => setup({ journal: [] });
+
+    it('lit le classeur dans le navigateur et montre ce qu\'il contient avant de rien écrire', async function () {
+      await emptySetup();
+      const mark = window.__TEST_CALLS__.length;
+      pick(xlsxFile('bon', 'financements_test.xlsx'));
+      await waitFor(() => byId('ih-upload-confirm'), 'aperçu du fichier');
+      const preview = document.querySelector('.ih-upload').textContent;
+      assertIncludes(preview, 'financements_test.xlsx'); assertIncludes(preview, 'feuille Reporting');
+      assertIncludes(preview, '2 lignes'); assertIncludes(preview, '1 projet'); assertIncludes(preview, '2 N° OPE');
+      assertIncludes(preview, '1 ligne sans N° OPE ignorée'); assertIncludes(preview, 'colonnes non utilisées : Commentaire');
+      assertFalse(window.__TEST_CALLS__.slice(mark).some(call => call.type === 'AddRecord'), 'rien n\'est écrit à la lecture');
+    });
+
+    it('« Charger » ajoute les lignes à Import_Financements (types Grist, clé de ligne, même instant) et tient un lot annulable', async function () {
+      await emptySetup();
+      pick(xlsxFile('bon', 'financements_test.xlsx'));
+      await waitFor(() => byId('ih-upload-confirm'), 'aperçu du fichier');
+      click('ih-upload-confirm');
+      await waitFor(() => /Fichier chargé/.test(byId('ih-root').textContent), 'résultat du chargement');
+      const rows = await grist('Import_Financements');
+      assertEqual(rows.length, 2);
+      const first = rows.find(r => r.N_OPE === 'FICTIF-0001'), second = rows.find(r => r.N_OPE === 'FICTIF-0002');
+      assertEqual(first.Projet, FICTIF); assertEqual(first.Date_debut, UTC(2023, 1, 1)); assertEqual(first.Date_fin, UTC(2025, 12, 31)); assertEqual(first.Part_du_projet, 0.6);
+      assertEqual(first.Consomme_AE, 37500); assertEqual(first.N_decision, 'DEC-FICTIVE-001'); assertEqual(first.Etablissement, 'Établissement fictif');
+      assertEqual(first.Cle_ligne, 'FICTIF-0001|InnovationS|' + LIGNE_BUDGET); assertEqual(second.Financeur, 'IDEX');
+      assertTrue(first.Exporte_le > 0 && first.Exporte_le === second.Exporte_le, 'toutes les lignes du fichier portent le même instant');
+      const journal = await grist('Import_Journal');
+      const load = journal.find(r => r.Operation === 'chargement');
+      assertTrue(!!load && /^CHARGEMENT-/.test(load.Lot), 'le chargement est journalisé');
+      assertEqual(JSON.parse(load.Apres).fichier, 'financements_test.xlsx'); assertEqual(JSON.parse(load.Apres).exporte_le, first.Exporte_le);
+      // La page enchaîne sur le rapprochement du journal chargé.
+      await waitFor(() => document.querySelectorAll('.ih-row').length === 1, 'le projet du fichier est rapproché');
+      assertEqual(rowCategory(FICTIF), 'new');
+      assertTrue(!!byId('ih-pick'), '« Charger un autre fichier » reste proposé');
+    });
+
+    it('annuler le chargement retire ses lignes et ramène la page à l\'invitation de départ', async function () {
+      await emptySetup();
+      pick(xlsxFile('bon', 'financements_test.xlsx'));
+      await waitFor(() => byId('ih-upload-confirm'), 'aperçu');
+      click('ih-upload-confirm');
+      await waitFor(() => document.querySelectorAll('.ih-row').length === 1, 'journal chargé');
+      const lot = (await grist('Import_Journal')).find(r => r.Operation === 'chargement').Lot;
+      document.querySelector('[data-ih-box="lots"] summary').click();
+      document.querySelector(`[data-ih-undo="${lot}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor(() => document.querySelector(`[data-ih-undo-confirm="${lot}"]`), 'demande de confirmation');
+      assertIncludes(document.querySelector('.ih-undo').textContent, '2 lignes seront retirées');
+      document.querySelector(`[data-ih-undo-confirm="${lot}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor(() => byId('ih-pick') && !document.querySelector('.ih-row'), 'page revenue à l\'invitation');
+      assertEqual((await grist('Import_Financements')).length, 0);
+      assertTrue((await grist('Import_Journal')).find(r => r.Operation === 'chargement').Annule === true, 'le journal marque le chargement annulé');
+    });
+
+    it('colonne absente : le fichier n\'est pas chargé et la colonne est nommée', async function () {
+      await emptySetup();
+      const mark = window.__TEST_CALLS__.length;
+      pick(xlsxFile('sans_colonne', 'incomplet.xlsx'));
+      await waitFor(() => document.querySelector('.ih-banner.is-error'), 'erreur affichée');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'il manque 1 colonne');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Consommé AE');
+      assertFalse(!!byId('ih-upload-confirm')); assertFalse(window.__TEST_CALLS__.slice(mark).some(call => call.type === 'AddRecord'));
+    });
+
+    it('valeur illisible : ligne et colonne sont dites, rien n\'est chargé', async function () {
+      await emptySetup();
+      pick(xlsxFile('illisible', 'abime.xlsx'));
+      await waitFor(() => document.querySelector('.ih-banner.is-error'), 'erreur affichée');
+      const text = document.querySelector('.ih-banner').textContent;
+      assertIncludes(text, '2 valeurs illisibles'); assertIncludes(text, 'Ligne 2'); assertIncludes(text, 'Consommé AE'); assertIncludes(text, 'abc');
+      assertFalse(!!byId('ih-upload-confirm'));
+    });
+
+    it('un fichier qui n\'est pas un classeur Excel : message clair', async function () {
+      await emptySetup();
+      pick(new File(['pas un classeur'], 'notes.xlsx'));
+      await waitFor(() => document.querySelector('.ih-banner.is-error'), 'erreur affichée');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'n\'est pas un classeur Excel');
+    });
+
+    it('si Grist refuse l\'ajout des lignes, l\'erreur est dite et le chargement vide n\'encombre pas la liste des lots actifs', async function () {
+      await emptySetup();
+      pick(xlsxFile('bon', 'financements_test.xlsx'));
+      await waitFor(() => byId('ih-upload-confirm'), 'aperçu');
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[0] === 'AddRecord' && action[1] === 'Import_Financements')) throw new Error('droits insuffisants');
+        return original.apply(this, arguments);
+      };
+      try { click('ih-upload-confirm'); await waitFor(() => /Chargement impossible/.test(byId('ih-root').textContent), 'erreur de chargement'); } finally { window.grist.docApi.applyUserActions = original; }
+      assertIncludes(byId('ih-root').textContent, 'droits insuffisants');
+      assertEqual((await grist('Import_Financements')).length, 0);
+      assertTrue((await grist('Import_Journal')).filter(r => r.Operation === 'chargement').every(r => r.Annule === true), 'le lot sans ligne est marqué annulé');
     });
   });
 })();

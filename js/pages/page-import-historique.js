@@ -28,7 +28,7 @@
       mappings: { programmes: [], structures: [] }, mappingChoice: { programmes: new Map(), structures: new Map() }, decisions: new Map(),
       filter: 'all', search: '', detail: [], totals: null, journal: [], tables: {}, plan: null, simulatedAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null,
-      prepared: []
+      prepared: [], upload: null
     };
   }
   function resetState() { Object.assign(state, freshState()); }
@@ -78,9 +78,9 @@
   async function prepare() {
     await CoreGrist.ready();
     const done = [];
-    if (await CoreGrist.ensureTable(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`table ${L.SOURCE_TABLE} créée (${L.SOURCE_COLUMNS.length} colonnes : les 24 de l'export, plus Cle_ligne et Exporte_le)`);
-    else if (await CoreGrist.ensureColumns(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`colonnes manquantes ajoutées à ${L.SOURCE_TABLE}`);
-    if (await CoreGrist.ensureTable(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS)) done.push(`table ${L.JOURNAL_TABLE} créée`);
+    if (await CoreGrist.ensureTable(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`table ${L.SOURCE_TABLE} (${L.SOURCE_COLUMNS.length} colonnes)`);
+    else if (await CoreGrist.ensureColumns(L.SOURCE_TABLE, L.SOURCE_COLUMNS)) done.push(`colonnes ajoutées à ${L.SOURCE_TABLE}`);
+    if (await CoreGrist.ensureTable(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS)) done.push(`table ${L.JOURNAL_TABLE}`);
     else await CoreGrist.ensureColumns(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS);
     if (done.length) state.prepared = state.prepared.concat(done);
   }
@@ -288,13 +288,16 @@
       const done = lot.annules === lot.total;
       let extra = '';
       if (undo && undo.lot === lot.lot) {
-        extra = `<div class="ih-undo"><p>${plural(undo.plan.actions.length, 'action sera défaite', 'actions seront défaites')}${undo.plan.skipped.length ? `, ${plural(undo.plan.skipped.length, 'ligne laissée', 'lignes laissées')} (${esc(Array.from(new Set(undo.plan.skipped.map(s => s.why))).join(' ; '))})` : ''}.</p>
+        extra = `<div class="ih-undo"><p>${undo.kind === 'chargement' ? plural(undo.plan.actions.length, 'ligne sera retirée de ' + L.SOURCE_TABLE, 'lignes seront retirées de ' + L.SOURCE_TABLE) + '. Les projets déjà écrits à partir de ce fichier restent : annule d\'abord leur lot.' : plural(undo.plan.actions.length, 'action sera défaite', 'actions seront défaites')}${undo.plan.skipped.length ? `, ${plural(undo.plan.skipped.length, 'ligne laissée', 'lignes laissées')} (${esc(Array.from(new Set(undo.plan.skipped.map(s => s.why))).join(' ; '))})` : ''}.</p>
           <button type="button" class="btn btn-primary" data-ih-undo-confirm="${esc(lot.lot)}"${undo.plan.actions.length ? '' : ' disabled'}>Confirmer l'annulation</button> <button type="button" class="btn btn-secondary" data-ih-undo-cancel>Garder</button></div>`;
       }
-      return `<li><span class="ih-mono">${esc(lot.lot)}</span> <span class="ih-muted">· ${plural(lot.ajouts, 'ajout', 'ajouts')}, ${plural(lot.modifs, 'modification', 'modifications')}${lot.annules ? `, ${lot.annules} annulé${lot.annules > 1 ? 's' : ''}` : ''}</span>
-        ${done ? '<span class="ih-tag is-ok">annulé</span>' : `<button type="button" class="btn btn-secondary" data-ih-undo="${esc(lot.lot)}">Annuler ce lot</button>`}${extra}</li>`;
+      const label = lot.kind === 'chargement'
+        ? `fichier ${esc((lot.info && lot.info.fichier) || '')}, ${plural((lot.info && lot.info.lignes) || 0, 'ligne', 'lignes')}`
+        : `${plural(lot.ajouts, 'ajout', 'ajouts')}, ${plural(lot.modifs, 'modification', 'modifications')}${lot.annules ? `, ${lot.annules} annulé${lot.annules > 1 ? 's' : ''}` : ''}`;
+      return `<li><span class="ih-mono">${esc(lot.lot)}</span> <span class="ih-muted">· ${label}</span>
+        ${done ? '<span class="ih-tag is-ok">annulé</span>' : `<button type="button" class="btn btn-secondary" data-ih-undo="${esc(lot.lot)}">${lot.kind === 'chargement' ? 'Annuler ce chargement' : 'Annuler ce lot'}</button>`}${extra}</li>`;
     }).join('');
-    return boxHtml('lots', 'Lots écrits', plural(lots.length, 'lot', 'lots'), `<ul class="ih-lots">${rows}</ul>`, !!undo);
+    return boxHtml('lots', 'Lots écrits et fichiers chargés', plural(lots.length, 'lot', 'lots'), `<ul class="ih-lots">${rows}</ul>`, !!undo);
   }
 
   function resultHtml() {
@@ -306,18 +309,100 @@
       if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(e.error.message || String(e.error))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
       return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.</div>`;
     }
-    if (r.kind === 'undone') return `<div class="ih-banner is-ok" role="status"><strong>✓ Lot annulé.</strong> ${plural(r.done, 'action défaite', 'actions défaites')}${r.skipped ? `, ${plural(r.skipped, 'ligne laissée', 'lignes laissées')} car modifiée${r.skipped > 1 ? 's' : ''} depuis` : ''}.</div>`;
+    if (r.kind === 'loaded') return `<div class="ih-banner is-ok" role="status"><strong>✓ Fichier chargé.</strong> ${plural(r.count, 'ligne ajoutée', 'lignes ajoutées')} à ${L.SOURCE_TABLE} (${esc(r.lot)}, annulable plus bas). Vérifie le rapprochement, puis simule.</div>`;
+    if (r.kind === 'undone') return `<div class="ih-banner is-ok" role="status"><strong>${r.unit ? '✓ Chargement annulé.' : '✓ Lot annulé.'}</strong> ${r.unit ? plural(r.done, 'ligne retirée', 'lignes retirées') : plural(r.done, 'action défaite', 'actions défaites')}${r.skipped ? `, ${plural(r.skipped, 'ligne laissée', 'lignes laissées')} car modifiée${r.skipped > 1 ? 's' : ''} depuis` : ''}.</div>`;
     return `<div class="ih-banner is-error" role="alert">${esc(r.message)}</div>`;
   }
 
   function preparedHtml() {
-    return state.prepared.length ? `<div class="ih-prepared" role="status"><strong>Préparé automatiquement dans Grist :</strong> ${state.prepared.map(esc).join(' ; ')}.</div>` : '';
+    return state.prepared.length ? `<div class="ih-prepared" role="status"><strong>Créé dans Grist :</strong> ${state.prepared.map(esc).join(', ')}.</div>` : '';
+  }
+
+  // ----------------------------------------------------------------------------------------------------------
+  // Chargement du fichier Excel (lu dans le navigateur, ajouté à Import_Financements)
+  // ----------------------------------------------------------------------------------------------------------
+
+  function uploadHtml() {
+    const u = state.upload;
+    if (!u) return '';
+    const again = '<button type="button" class="btn btn-secondary" id="ih-pick">Choisir un autre fichier</button>';
+    if (u.phase === 'reading') return `<p class="ih-muted" role="status">Lecture de ${esc(u.name)}…</p>`;
+    if (u.phase === 'writing') return `<p class="ih-muted" role="status">Chargement de ${esc(u.name)} dans Grist…</p>`;
+    if (u.phase === 'error') {
+      let why;
+      if (u.message) why = esc(u.message);
+      else if (u.missing && u.missing.length) why = `il manque ${plural(u.missing.length, 'colonne', 'colonnes')} : ${u.missing.map(m => '« ' + esc(m) + ' »').join(', ')}.`;
+      else if (u.errorCount) why = `${plural(u.errorCount, 'valeur illisible', 'valeurs illisibles')}. ${u.errors.map(e => `Ligne ${e.line}, « ${esc(e.column)} » : ${esc(e.value)}`).join(' ; ')}${u.errorCount > u.errors.length ? ' ; …' : ''}`;
+      else why = 'aucune ligne avec un N° OPE.';
+      return `<div class="ih-banner is-error" role="alert"><strong>Fichier non chargé</strong> (${esc(u.name)}) : ${why}<p>${again}</p></div>`;
+    }
+    const notes = [];
+    if (u.ignored) notes.push(`${plural(u.ignored, 'ligne sans N° OPE ignorée', 'lignes sans N° OPE ignorées')}`);
+    if (u.unknown && u.unknown.length) notes.push(`colonnes non utilisées : ${u.unknown.map(esc).join(', ')}`);
+    if (state.total) notes.push(`la table contient déjà ${plural(state.total, 'ligne', 'lignes')} : les nouvelles versions remplacent les anciennes`);
+    return `<div class="ih-upload"><p><strong>${esc(u.name)}</strong> <span class="ih-muted">· feuille ${esc(u.sheet)}</span></p>
+      <p>${plural(u.records.length, 'ligne', 'lignes')} · ${plural(u.projets, 'projet', 'projets')} · ${plural(u.opes, 'N° OPE', 'N° OPE')}${notes.length ? `<br><span class="ih-muted">${notes.join(' · ')}</span>` : ''}</p>
+      <p><button type="button" class="btn btn-primary" id="ih-upload-confirm">Charger ces lignes dans Grist</button> <button type="button" class="btn btn-secondary" id="ih-upload-cancel">Annuler</button></p></div>`;
+  }
+
+  let fileInput = null;
+  function ensureFileInput() {
+    if (fileInput && fileInput.isConnected) return fileInput;
+    const host = $('view-import-historique') || document.body;
+    fileInput = document.createElement('input');
+    fileInput.type = 'file'; fileInput.id = 'ih-file'; fileInput.hidden = true;
+    fileInput.accept = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    fileInput.addEventListener('change', () => { const file = fileInput.files && fileInput.files[0]; if (file) readFile(file); fileInput.value = ''; });
+    host.appendChild(fileInput);
+    return fileInput;
+  }
+
+  async function readFile(file) {
+    state.upload = { phase: 'reading', name: file.name }; state.result = null; render();
+    try {
+      const book = await global.XlsxReader.read(await file.arrayBuffer(), 'Reporting');
+      const parsed = L.readExport(book.rows, new Date(), global.XlsxReader.excelDateToUnix);
+      const failed = parsed.missing.length || parsed.errorCount || !parsed.records.length;
+      state.upload = Object.assign({ phase: failed ? 'error' : 'ready', name: file.name, sheet: book.sheetName }, parsed);
+    } catch (err) { state.upload = { phase: 'error', name: file.name, message: err.message || String(err) }; }
+    render();
+  }
+
+  async function loadFile() {
+    const u = state.upload;
+    if (!u || u.phase !== 'ready') return;
+    u.phase = 'writing'; render();
+    const docApi = CoreGrist.gristInstance.docApi;
+    let added = 0;
+    try {
+      await prepare();
+      const when = new Date();
+      const lot = 'CHARGEMENT-' + when.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      const journal = await docApi.applyUserActions([['AddRecord', L.JOURNAL_TABLE, null, { Lot: lot, Horodatage: when.toISOString(), Table_modifiee: L.SOURCE_TABLE, Ligne: 0, Operation: 'chargement', Avant: '', Annule: false,
+        Apres: JSON.stringify({ exporte_le: u.exporteLe, fichier: u.name, feuille: u.sheet, lignes: u.records.length }) }]]);
+      try {
+        for (let i = 0; i < u.records.length; i += L.CHUNK) {
+          await docApi.applyUserActions(u.records.slice(i, i + L.CHUNK).map(record => ['AddRecord', L.SOURCE_TABLE, null, record]));
+          added += Math.min(L.CHUNK, u.records.length - i);
+        }
+      } catch (err) {
+        if (!added) { try { await docApi.applyUserActions([['UpdateRecord', L.JOURNAL_TABLE, Number(journal.retValues[0]), { Annule: true }]]); } catch (ignored) { /* le lot reste listé, vide */ } }
+        throw new Error(`${added ? plural(added, 'ligne est passée', 'lignes sont passées') + ' avant l\'arrêt (chargement annulable plus bas) : ' : ''}${err.message || err}`);
+      }
+      state.result = { kind: 'loaded', count: added, lot };
+      state.upload = null;
+    } catch (err) {
+      state.result = { kind: 'error', message: 'Chargement impossible : ' + (err.message || err) };
+      state.upload = null;
+    }
+    CoreGrist.invalidateTable(L.SOURCE_TABLE); CoreGrist.invalidateTable(L.JOURNAL_TABLE);
+    await load();
   }
 
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail des dépenses absent';
-    return `<p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> projets · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d}</p>`;
+    return `<p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button></p>`;
   }
 
   function render() {
@@ -334,8 +419,9 @@
       return;
     }
     if (!state.total) {
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}
-        <div class="ih-empty"><p><strong>La table ${L.SOURCE_TABLE} est vide.</strong></p><p class="ih-muted">Dans Grist, ouvre cette table (page « Raw Data »), puis « Importer depuis un fichier » et choisis l'export Excel de tous les projets, en associant chaque colonne à son homonyme. Reviens ensuite ici et clique sur « Relire ».</p><button type="button" class="btn btn-primary" id="ih-reload">Relire</button></div>`;
+      const busy = state.upload && state.upload.phase !== 'error';
+      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}
+        ${busy ? '' : `<div class="ih-empty"><p><strong>Charge l'export Excel</strong></p><p class="ih-muted">Choisis le fichier d'export de tous les projets. Il est lu ici, dans ton navigateur, et ses lignes sont ajoutées à Grist. Tu pourras ensuite vérifier, simuler, puis écrire.</p><button type="button" class="btn btn-primary" id="ih-pick">Choisir le fichier Excel</button><p class="ih-muted">Les lignes arrivent autrement (formulaire) ? <button type="button" class="ih-link" id="ih-reload">Relire</button></p></div>`}`;
       return;
     }
     const c = counts();
@@ -344,7 +430,7 @@
     const body = state.entries.length
       ? `<div class="ih-head"><span>Projet de l'export</span><span>Rapprochement</span><span>Projet dans Grist</span><span>Accord</span></div>${visible.length ? visible.map(rowHtml).join('') : '<p class="ih-empty">Aucun projet ne correspond à ce filtre.</p>'}`
       : '<p class="ih-empty">Le journal ne contient aucune ligne rattachable (N° OPE manquant).</p>';
-    root.innerHTML = barHtml(c) + preparedHtml() + resultHtml() + summaryHtml()
+    root.innerHTML = barHtml(c) + preparedHtml() + uploadHtml() + resultHtml() + summaryHtml()
       + boxHtml('checks', 'Contrôles de l\'export', state.issues.length ? plural(state.issues.length, 'écart', 'écarts') + (blocked ? ` · ${plural(blocked, 'projet écarté', 'projets écartés')}` : '') : '7 sur 7 réussis', checksHtml(), false)
       + boxHtml('maps', 'Correspondances', `${plural(state.mappings.programmes.length, 'programme', 'programmes')}, ${plural(state.mappings.structures.length, 'structure', 'structures')}`, mappingsHtml(), mappingNeedsAttention())
       + `<div class="ih-list">${body}</div>` + simulationHtml() + lotsHtml();
@@ -395,7 +481,9 @@
 
   async function startUndo(lot) {
     await readGrist();
-    state.undo = { lot, plan: L.planUndo(state.journal, lot, state.tables) };
+    const isLoad = state.journal.some(row => row.Lot === lot && row.Operation === 'chargement');
+    if (isLoad) { try { state.rows = await CoreGrist.getTable(L.SOURCE_TABLE); } catch (err) { /* lecture déjà faite plus haut */ } }
+    state.undo = { lot, kind: isLoad ? 'chargement' : 'ecriture', plan: isLoad ? L.planUnload(state.journal, lot, state.rows) : L.planUndo(state.journal, lot, state.tables) };
     render();
   }
   async function confirmUndo(lot) {
@@ -404,7 +492,7 @@
     try {
       const actions = undo.plan.actions.concat(undo.plan.done.map(id => ['UpdateRecord', L.JOURNAL_TABLE, Number(id), { Annule: true }]));
       for (let i = 0; i < actions.length; i += L.CHUNK) await CoreGrist.gristInstance.docApi.applyUserActions(actions.slice(i, i + L.CHUNK));
-      state.result = { kind: 'undone', done: undo.plan.actions.length, skipped: undo.plan.skipped.length };
+      state.result = { kind: 'undone', done: undo.plan.actions.length, skipped: undo.plan.skipped.length, unit: undo.kind === 'chargement' };
     } catch (err) { state.result = { kind: 'error', message: 'Annulation impossible : ' + (err.message || err) }; }
     state.undo = null;
     await load();
@@ -461,6 +549,9 @@
     if (!button) return;
     if (button.id === 'ih-back') { global.SuiviApp?.showView('view-projects'); $('btn-projects')?.classList.add('active'); }
     else if (button.id === 'ih-reload') load();
+    else if (button.id === 'ih-pick') ensureFileInput().click();
+    else if (button.id === 'ih-upload-confirm') loadFile();
+    else if (button.id === 'ih-upload-cancel') { state.upload = null; render(); }
     else if (button.id === 'ih-simulate') simulate();
     else if (button.id === 'ih-confirm-all') confirmVisible();
     else if (button.id === 'ih-write') write();
@@ -487,7 +578,7 @@
   }
 
   async function open() {
-    wire();
+    wire(); ensureFileInput();
     if (global.SuiviApp && typeof global.SuiviApp.showView === 'function') global.SuiviApp.showView('view-import-historique');
     else { document.querySelectorAll('.view').forEach(view => view.classList.add('hidden')); $('view-import-historique')?.classList.remove('hidden'); }
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
