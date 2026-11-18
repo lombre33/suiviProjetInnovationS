@@ -2,6 +2,7 @@
 
 Lancer :  python -m unittest discover -s export-financier -v
 """
+import csv
 import datetime as dt
 import json
 import os
@@ -52,8 +53,7 @@ class FauxGrist:
             def do_GET(self):
                 faux.requetes.append(("GET", self.path, None))
                 if self.path == "%s/api/s/%s/forms/4" % (faux.prefixe, CLE):
-                    cols = faux.colonnes if faux.colonnes is not None else (
-                        [c for _, c, _ in eg.COLONNES] + [eg.COLONNE_CLE, eg.COLONNE_DATE_ENVOI])
+                    cols = faux.colonnes if faux.colonnes is not None else [c for _, c, _ in eg.COLONNES]
                     self._repondre(200, {"formTableId": faux.table, "formTitle": "Export",
                                          "formFieldsById": {str(i): {"colId": c} for i, c in enumerate(cols)}})
                 else:
@@ -102,48 +102,68 @@ def ligne(**surcharge):
 
 class TestConversion(unittest.TestCase):
     def test_champs_texte_nombre_date(self):
-        c = eg.champs_pour_grist(ligne(), exporte_le=1700000000)
+        c = eg.champs_pour_grist(ligne())
         self.assertEqual(c["N_OPE"], "FICTIF-0002")
         self.assertEqual(c["Montant_attribue"], 30000)
         self.assertEqual(c["Part_du_projet"], 0.4)
         # 2022-01-01 à minuit UTC
         self.assertEqual(c["Date_debut"], 1640995200)
         self.assertEqual(c["Date_fin"], 1767139200)
-        self.assertEqual(c["Exporte_le"], 1700000000)
 
     def test_valeurs_vides_non_envoyees(self):
-        c = eg.champs_pour_grist(ligne(), exporte_le=1)
+        c = eg.champs_pour_grist(ligne())
         self.assertNotIn("Statuts", c)
         self.assertNotIn("Consomme_AE", c)
 
-    def test_cle_de_ligne(self):
-        c = eg.champs_pour_grist(ligne(), exporte_le=1)
-        self.assertEqual(c["Cle_ligne"], "FICTIF-0002|IDEX|CRB / SO / SSO")
+    def test_seules_les_24_colonnes_de_l_export_sont_envoyees(self):
+        c = eg.champs_pour_grist(ligne(**{e: "x" for e, _, t in eg.COLONNES if t == "Text"}))
+        self.assertEqual(len(eg.COLONNES), 24)
+        self.assertLessEqual(set(c), {col for _, col, _ in eg.COLONNES})
+        # la clé de ligne et la date d'envoi sont calculées par Grist, jamais par le script
+        self.assertNotIn("Cle_ligne", c)
+        self.assertNotIn("Exporte_le", c)
+
+    def test_cellules_vides_des_tableaux_pandas_et_types_numpy(self):
+        nan = float("nan")
+        c = eg.champs_pour_grist(ligne(**{"Consommé AE": nan, "Statuts": nan, "Date fin": nan}))
+        self.assertNotIn("Consomme_AE", c)
+        self.assertNotIn("Statuts", c)
+        self.assertNotIn("Date_fin", c)
+        json.dumps(c, allow_nan=False)  # NaN n'est pas du JSON valide : jamais envoyé
+
+        class Entier(int):  # imite numpy.int64, que json ne sait pas écrire
+            pass
+
+        from decimal import Decimal
+        c = eg.champs_pour_grist(ligne(**{"Consommé AE": Decimal("12.5"), "Consommé CP": Entier(7)}))
+        self.assertEqual(c["Consomme_AE"], 12.5)
+        self.assertEqual(c["Consomme_CP"], 7)
+        json.dumps(c, allow_nan=False)
 
     def test_ligne_sans_numero_ope_ignoree(self):
-        self.assertIsNone(eg.champs_pour_grist(ligne(**{"N° OPE": "  "}), exporte_le=1))
-        prets, ignorees = eg.preparer([ligne(), ligne(**{"N° OPE": None})], exporte_le=1)
+        self.assertIsNone(eg.champs_pour_grist(ligne(**{"N° OPE": "  "})))
+        prets, ignorees = eg.preparer([ligne(), ligne(**{"N° OPE": None})])
         self.assertEqual((len(prets), ignorees), (1, 1))
 
     def test_numero_en_nombre_devient_texte_sans_decimale(self):
-        c = eg.champs_pour_grist(ligne(**{"N° décision": 4521.0}), exporte_le=1)
+        c = eg.champs_pour_grist(ligne(**{"N° décision": 4521.0}))
         self.assertEqual(c["N_decision"], "4521")
 
     def test_nombres_a_la_francaise_et_dates_texte(self):
-        c = eg.champs_pour_grist(ligne(**{"Montant attribué": "1 234,50 €", "Date fin": "31/12/2025"}), exporte_le=1)
+        c = eg.champs_pour_grist(ligne(**{"Montant attribué": "1 234,50 €", "Date fin": "31/12/2025"}))
         self.assertEqual(c["Montant_attribue"], 1234.5)
         self.assertEqual(c["Date_fin"], 1767139200)
 
     def test_valeur_illisible_signalee_avec_la_ligne(self):
         with self.assertRaises(eg.EnvoiGristError) as e:
-            eg.preparer([ligne(**{"Consommé CP": "beaucoup"})], exporte_le=1)
+            eg.preparer([ligne(**{"Consommé CP": "beaucoup"})])
         self.assertIn("Consommé CP", str(e.exception))
         self.assertIn("ligne 2", str(e.exception))
 
     def test_entetes_tolerants(self):
         # « º » à la place de « ° », espace insécable, accents décomposés
         autre = {"Nº OPE": "X-1", "Financeur": "IDEX", "Établissement": "Etab"}
-        c = eg.champs_pour_grist(autre, exporte_le=1)
+        c = eg.champs_pour_grist(autre)
         self.assertEqual(c["N_OPE"], "X-1")
         self.assertEqual(c["Etablissement"], "Etab")
 
@@ -174,12 +194,11 @@ class TestEnvoi(unittest.TestCase):
     def test_envoi_par_lots_vers_la_table_du_formulaire(self):
         lignes = [ligne(**{"N° OPE": "FICTIF-%04d" % i}) for i in range(250)]
         with FauxGrist(org="equipe") as g:
-            bilan = eg.pousser(lignes, g.lien(), exporte_le=1700000000, taille_lot=100, journal=lambda *_: None)
+            bilan = eg.pousser(lignes, g.lien(), taille_lot=100, journal=lambda *_: None)
             posts = [r for r in g.requetes if r[0] == "POST"]
             self.assertEqual([len(p[2]["records"]) for p in posts], [100, 100, 50])
             self.assertEqual(len(g.lignes), 250)
             self.assertEqual(bilan, {"envoyees": 250, "ignorees": 0, "lots": 3, "table": "Import_Financements"})
-            self.assertTrue(all(c["Exporte_le"] == 1700000000 for c in g.lignes))
 
     def test_le_script_ne_fait_que_lire_la_definition_et_ajouter(self):
         with FauxGrist() as g:
@@ -246,7 +265,7 @@ class TestEnvoi(unittest.TestCase):
 class TestClasseur(unittest.TestCase):
     def test_export_d_exemple_de_bout_en_bout(self):
         with FauxGrist() as g:
-            bilan = eg.pousser_xlsx(EXEMPLE, g.lien(), exporte_le=1700000000, journal=lambda *_: None)
+            bilan = eg.pousser_xlsx(EXEMPLE, g.lien(), journal=lambda *_: None)
             self.assertEqual(bilan["envoyees"], 2)
             par_ope = {c["N_OPE"]: c for c in g.lignes}
             self.assertEqual(set(par_ope), {"FICTIF-0001", "FICTIF-0002"})
@@ -283,6 +302,19 @@ class TestClasseur(unittest.TestCase):
 
     def test_ligne_de_commande_dry_run(self):
         self.assertEqual(eg.main([EXEMPLE, "--dry-run"]), 0)
+
+    def test_modele_csv_a_jour_avec_les_colonnes_du_module(self):
+        # Le CSV commité sert à créer la table dans Grist : ses en-têtes doivent être les identifiants du module.
+        with open(os.path.join(ICI, "exemple", "Import_Financements_modele.csv"), encoding="utf-8", newline="") as f:
+            lignes = list(csv.reader(f))
+        self.assertEqual(lignes[0], [c for _, c, _ in eg.COLONNES])
+        self.assertEqual(len(lignes), 3)
+        # et il se régénère à l'identique depuis le classeur d'exemple
+        with tempfile.TemporaryDirectory() as dossier:
+            sortie = os.path.join(dossier, "modele.csv")
+            self.assertEqual(eg.main([EXEMPLE, "--modele-csv", sortie]), 0)
+            with open(sortie, encoding="utf-8", newline="") as f:
+                self.assertEqual(list(csv.reader(f)), lignes)
 
 
 if __name__ == "__main__":

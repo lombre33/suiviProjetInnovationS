@@ -10,28 +10,39 @@ comme le fait FormPlus : pas de clé API, seulement le lien du formulaire.
     de chaque ligne (voir LISEZMOI.md).
   - Rien n'est jamais modifié ni supprimé dans Grist par ce module.
 
-Deux façons de l'utiliser.
+Trois façons de l'utiliser.
 
-1. À la fin de ton script d'export, une ligne :
+1. Depuis le script d'export, sans passer par l'Excel : il fournit ses lignes (une liste de dicts
+   dont les clés sont les en-têtes de l'export : "N° OPE", "Consommé CP", ...) :
 
-       from envoi_grist import pousser_xlsx
-       pousser_xlsx("financements_InnovationS_2026-11-18.xlsx")
+       from envoi_grist import pousser
+       pousser(lignes)
 
    Le lien du formulaire est lu dans la variable d'environnement
    GRIST_LIEN_FORMULAIRE_EXPORT (ou passé avec lien="...").
 
-2. En ligne de commande :
+2. Depuis un classeur déjà produit (reprise de l'historique, essais) :
+
+       from envoi_grist import pousser_xlsx
+       pousser_xlsx("financements_InnovationS_2026-11-18.xlsx")
+
+3. En ligne de commande :
 
        python envoi_grist.py financements_InnovationS_2026-11-18.xlsx --dry-run
        python envoi_grist.py financements_InnovationS_2026-11-18.xlsx --lien "https://.../forms/<clé>/<section>"
+
+Seules les 24 colonnes de l'export sont envoyées. La clé de ligne et la date d'envoi sont
+calculées par Grist (voir LISEZMOI.md).
 
 Bibliothèque standard seulement, plus openpyxl pour lire le classeur (déjà utilisé par
 le script d'export).
 """
 import argparse
 import calendar
+import csv
 import datetime as dt
 import json
+import numbers
 import os
 import re
 import sys
@@ -74,15 +85,6 @@ COLONNES = [
     ("Établissement", "Etablissement", "Text"),
 ]
 
-# Colonnes ajoutées par ce module (absentes de l'Excel).
-COLONNE_CLE = "Cle_ligne"        # Text : identifie une ligne d'une exportation à l'autre
-COLONNE_DATE_ENVOI = "Exporte_le"  # DateTime : l'instant du lancement, le même pour toutes les lignes
-
-# Ce qui identifie une ligne d'un export à l'autre (en-têtes Excel). À confirmer sur
-# l'export réel : si un même N° OPE peut porter plusieurs lignes budgétaires ou plusieurs
-# financeurs, ils doivent faire partie de la clé.
-CLE_LIGNE = ("N° OPE", "Financeur", "Ligne budgétaire")
-
 # En-tête qui doit être rempli pour qu'une ligne soit envoyée.
 ENTETE_OBLIGATOIRE = "N° OPE"
 
@@ -99,12 +101,17 @@ def _norme(texte):
     """Compare des en-têtes sans se soucier des accents composés, des espaces insécables
     ni de la variante « º » du signe « ° »."""
     t = unicodedata.normalize("NFC", str(texte))
-    t = t.replace(" ", " ").replace("º", "°")
+    t = t.replace("\u00a0", " ").replace("\u00ba", "\u00b0")
     return re.sub(r"\s+", " ", t).strip()
 
 
+def _vide(valeur):
+    """None, NaN (pandas/numpy) et NaT : une cellule sans valeur."""
+    return valeur is None or valeur != valeur
+
+
 def _en_texte(valeur):
-    if valeur is None:
+    if _vide(valeur):
         return None
     if isinstance(valeur, float) and valeur.is_integer():
         valeur = int(valeur)
@@ -113,11 +120,13 @@ def _en_texte(valeur):
 
 
 def _en_nombre(valeur, contexte):
-    if valeur is None or isinstance(valeur, bool):
+    if _vide(valeur) or isinstance(valeur, bool):
         return None
-    if isinstance(valeur, (int, float)):
-        return valeur
-    t = str(valeur).replace(" ", "").replace(" ", "").replace("€", "").replace(",", ".").strip()
+    if isinstance(valeur, numbers.Integral):
+        return int(valeur)
+    if isinstance(valeur, (numbers.Real, numbers.Number)):
+        return float(valeur)  # float, numpy.float64, Decimal
+    t = str(valeur).replace("\u00a0", "").replace(" ", "").replace("€", "").replace(",", ".").strip()
     if not t:
         return None
     try:
@@ -132,7 +141,7 @@ def _en_secondes_utc(d):
 
 def _en_date(valeur, contexte):
     """Une colonne Date de Grist attend des secondes depuis 1970, à minuit UTC."""
-    if valeur is None:
+    if _vide(valeur):
         return None
     if isinstance(valeur, (dt.datetime, dt.date)):
         return _en_secondes_utc(valeur)
@@ -147,11 +156,7 @@ def _en_date(valeur, contexte):
     raise EnvoiGristError("Date illisible dans %s : %r" % (contexte, valeur))
 
 
-def _maintenant():
-    return int(time.time())
-
-
-def champs_pour_grist(ligne, exporte_le, numero=None):
+def champs_pour_grist(ligne, numero=None):
     """Transforme une ligne de l'export (dict { en-tête Excel : valeur }) en champs Grist.
 
     Les valeurs vides ne sont pas envoyées. Renvoie None pour une ligne sans N° OPE.
@@ -172,9 +177,6 @@ def champs_pour_grist(ligne, exporte_le, numero=None):
             valeur = _en_texte(brut)
         if valeur is not None:
             champs[col] = valeur
-    cle = "|".join(_en_texte(ligne.get(_norme(e))) or "" for e in CLE_LIGNE)
-    champs[COLONNE_CLE] = cle
-    champs[COLONNE_DATE_ENVOI] = exporte_le
     return champs
 
 
@@ -287,12 +289,11 @@ def table_du_formulaire(api, section):
 # Envoi
 # ---------------------------------------------------------------------------
 
-def preparer(lignes, exporte_le=None):
+def preparer(lignes):
     """Renvoie (champs prêts pour Grist, nombre de lignes ignorées faute de N° OPE)."""
-    exporte_le = exporte_le or _maintenant()
     prets, ignorees = [], 0
     for i, ligne in enumerate(lignes, start=2):  # la ligne 1 de la feuille porte les en-têtes
-        champs = champs_pour_grist(ligne, exporte_le, numero=i)
+        champs = champs_pour_grist(ligne, numero=i)
         if champs is None:
             ignorees += 1
         else:
@@ -300,7 +301,7 @@ def preparer(lignes, exporte_le=None):
     return prets, ignorees
 
 
-def pousser(lignes, lien=None, *, exporte_le=None, taille_lot=TAILLE_LOT, dry_run=False, journal=print):
+def pousser(lignes, lien=None, *, taille_lot=TAILLE_LOT, dry_run=False, journal=print):
     """Dépose les lignes de l'export (dicts { en-tête Excel : valeur }) dans le formulaire Grist.
 
     Renvoie un petit compte rendu { envoyees, ignorees, lots, table }.
@@ -309,7 +310,7 @@ def pousser(lignes, lien=None, *, exporte_le=None, taille_lot=TAILLE_LOT, dry_ru
     if not lien and not dry_run:
         raise EnvoiGristError("Pas de lien de formulaire : passe lien=... ou renseigne la variable %s."
                               % VARIABLE_LIEN)
-    prets, ignorees = preparer(lignes, exporte_le)
+    prets, ignorees = preparer(lignes)
     if ignorees:
         journal("Attention : %d ligne(s) sans N° OPE ignorée(s)." % ignorees)
     if not prets:
@@ -324,7 +325,7 @@ def pousser(lignes, lien=None, *, exporte_le=None, taille_lot=TAILLE_LOT, dry_ru
 
     cible = analyser_lien(lien)
     table, colonnes_formulaire = table_du_formulaire(cible["api"], cible["section"])
-    attendues = [c for _, c, _ in COLONNES] + [COLONNE_CLE, COLONNE_DATE_ENVOI]
+    attendues = [c for _, c, _ in COLONNES]
     absentes = [c for c in attendues if c not in colonnes_formulaire]
     if absentes:
         journal("Remarque : le formulaire n'affiche pas %s ; Grist les accepte si la table les contient."
@@ -353,6 +354,29 @@ def pousser_xlsx(chemin, lien=None, *, feuille=FEUILLE_PAR_DEFAUT, **options):
     return pousser(lignes, lien, **options)
 
 
+def ecrire_modele_csv(lignes, chemin_csv, nombre=2):
+    """Écrit un CSV dont les en-têtes sont les identifiants Grist exacts, avec quelques lignes d'exemple.
+
+    L'importer dans Grist (Ajouter une nouvelle table, Importer depuis un fichier) crée la table
+    `Import_Financements` avec les bons identifiants de colonnes et les bons types ; les lignes
+    d'exemple se suppriment ensuite.
+    """
+    prets, _ = preparer(lignes[:nombre])
+    colonnes = [c for _, c, _ in COLONNES]
+    types = {c: t for _, c, t in COLONNES}
+    with open(chemin_csv, "w", encoding="utf-8", newline="") as f:
+        sortie = csv.writer(f)
+        sortie.writerow(colonnes)
+        for champs in prets:
+            ligne = []
+            for c in colonnes:
+                v = champs.get(c)
+                if v is not None and types[c] == "Date":
+                    v = dt.datetime.fromtimestamp(v, dt.timezone.utc).strftime("%Y-%m-%d")
+                ligne.append("" if v is None else v)
+            sortie.writerow(ligne)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Envoie l'export financier InnovationS dans Grist (formulaire publié).")
     ap.add_argument("fichier", help="classeur Excel produit par le script d'export")
@@ -360,8 +384,15 @@ def main(argv=None):
     ap.add_argument("--feuille", default=FEUILLE_PAR_DEFAUT)
     ap.add_argument("--lot", type=int, default=TAILLE_LOT, help="lignes par envoi (défaut %d)" % TAILLE_LOT)
     ap.add_argument("--dry-run", action="store_true", help="prépare les lignes sans rien envoyer")
+    ap.add_argument("--modele-csv", metavar="SORTIE.csv",
+                    help="écrit un modèle CSV de la table Import_Financements (2 lignes d'exemple) et s'arrête")
     a = ap.parse_args(argv)
     try:
+        if a.modele_csv:
+            lignes, _ = lire_xlsx(a.fichier, a.feuille)
+            ecrire_modele_csv(lignes, a.modele_csv)
+            print("Modèle écrit : %s" % a.modele_csv)
+            return 0
         bilan = pousser_xlsx(a.fichier, a.lien, feuille=a.feuille, taille_lot=a.lot, dry_run=a.dry_run)
     except EnvoiGristError as e:
         print("ERREUR : %s" % e, file=sys.stderr)
