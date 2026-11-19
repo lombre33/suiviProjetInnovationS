@@ -109,7 +109,7 @@
   function change(chg, attrs, value) {
     const el = q(`[data-chg="${chg}"]` + Object.keys(attrs || {}).map(k => `[data-${k}="${attrs[k]}"]`).join(''));
     if (!el) throw new Error(`Champ introuvable : ${chg}`);
-    el.value = value;
+    setValue(el, value); // champ date jj/mm/aaaa : setValue accepte l'ISO (la frappe réelle est couverte par suite-date-input.js)
     fire(el, 'change');
   }
   const calls = (type, table) => window.__TEST_CALLS__.filter(c => c.type === type && c.table === table);

@@ -42,10 +42,11 @@
     window.AdministratifUrgency.setClock(() => NOW);
     try { return await fn(); } finally { window.AdministratifUrgency.setClock(); window.AdministratifConv.closePopover(); }
   }
+  // Choix fait dans le calendrier du champ (DateInput) : il pose la valeur puis émet « change » avec detail.picked.
   async function pickDate(iso) {
     const input = popoverEl().querySelector('.admin-pop-date-input');
     setValue(input, iso);
-    fire(input, 'change');
+    input.dispatchEvent(new CustomEvent('change', { bubbles: true, detail: { picked: true } }));
     await wait(0);
   }
   async function dragCardTo(card, panel) {
@@ -120,13 +121,13 @@
     Object.entries(ACTIONS).forEach(([label, { column, acronym, act }]) => {
       it(`${label} : la date du jour part dans la même écriture et le champ l'affiche`, async function () {
         await load();
-        assertEqual(stampInput(acronym).value, '', 'prérequis : jamais renseignée');
+        assertEqual(dateIso(stampInput(acronym)), '', 'prérequis : jamais renseignée');
         await withClock(act);
         const writes = writesOf(column);
         assertEqual(writes.length, 1, 'la colonne modifiée est écrite une seule fois');
         assertEqual(writes[0].fields[STAMP], epochOf(TODAY), 'la date du jour (minuit UTC) part avec la modification');
         assertEqual(writesOf(STAMP).length, 1, 'jamais d\'écriture séparée de la date');
-        assertEqual(stampInput(acronym).value, TODAY, 'le champ de la carte affiche la date du jour');
+        assertEqual(dateIso(stampInput(acronym)), TODAY, 'le champ de la carte affiche la date du jour');
         assertEqual(projectRow(acronym)[STAMP], epochOf(TODAY), 'et la valeur locale est à jour');
       });
     });
@@ -142,15 +143,15 @@
       await load();
       await withClock(async () => { fire(convCard('INNOVX').querySelector('[data-nextstep-project]'), 'blur'); await wait(0); });
       assertEqual(updates().length, 0, 'aucune écriture');
-      assertEqual(stampInput('INNOVX').value, '', 'la date n\'a pas bougé');
+      assertEqual(dateIso(stampInput('INNOVX')), '', 'la date n\'a pas bougé');
     });
 
     it('une date plus ancienne (saisie à la main ou précédente) est remise à la date du jour par la modification suivante', async function () {
       await load({ dates: { INNOVX: '2026-10-05' } });
-      assertEqual(stampInput('INNOVX').value, '2026-10-05');
+      assertEqual(dateIso(stampInput('INNOVX')), '2026-10-05');
       await withClock(() => editText(convCard('INNOVX').querySelector('[data-nextstep-project]'), 'Nouvelle étape'));
       assertEqual(writesOf('next_step')[0].fields[STAMP], epochOf(TODAY));
-      assertEqual(stampInput('INNOVX').value, TODAY);
+      assertEqual(dateIso(stampInput('INNOVX')), TODAY);
     });
 
     it('déjà à la date du jour : la modification ne réécrit pas la date', async function () {
@@ -165,7 +166,7 @@
       await load({ dates: { NOTIFY: '2026-10-05' } });
       await withClock(() => editText(convCard('INNOVX').querySelector('[data-nextstep-project]'), 'Nouvelle étape'));
       assertEqual(writesOf(STAMP).map(c => c.id).join(','), String(projectRow('INNOVX').id), 'une seule ligne écrite : INNOVX');
-      assertEqual(stampInput('NOTIFY').value, '2026-10-05');
+      assertEqual(dateIso(stampInput('NOTIFY')), '2026-10-05');
     });
   });
 
@@ -182,7 +183,7 @@
       const writes = writesOf(STAMP);
       assertEqual(writes.length, 1, 'une seule écriture');
       assertDeepEqual(writes[0].fields, { [STAMP]: epochOf('2026-11-10') }, 'la date saisie, et rien d\'autre');
-      assertEqual(stampInput('INNOVX').value, '2026-11-10');
+      assertEqual(dateIso(stampInput('INNOVX')), '2026-11-10');
     });
 
     it('vider la date à la main l\'efface (null) sans qu\'elle soit reposée aussitôt', async function () {
@@ -191,7 +192,7 @@
       const writes = writesOf(STAMP);
       assertEqual(writes.length, 1);
       assertEqual(writes[0].fields[STAMP], null);
-      assertEqual(stampInput('INNOVX').value, '');
+      assertEqual(dateIso(stampInput('INNOVX')), '');
     });
 
     it('une saisie manuelle juste après un commentaire l\'emporte (même si l\'écriture du commentaire n\'a pas encore reçu de réponse)', async function () {
@@ -204,7 +205,7 @@
           const comment = convCard('INNOVX').querySelector('[data-comment-project]');
           setValue(comment, 'Relance faite');
           fire(comment, 'blur'); // clic sur le champ voisin « Dernière action » : le commentaire part, daté d'aujourd'hui
-          assertEqual(stampInput('INNOVX').value, TODAY, 'la date du jour est déjà affichée');
+          assertEqual(dateIso(stampInput('INNOVX')), TODAY, 'la date du jour est déjà affichée');
           await changeStamp('INNOVX', '2026-11-10'); // saisie manuelle avant la réponse de Grist
           releases.forEach(release => release());
           await wait(10);
@@ -215,7 +216,7 @@
       assertEqual(stored[STAMP][at], epochOf('2026-11-10'), 'la dernière écriture, celle de la saisie manuelle, fait foi dans Grist');
       assertEqual(stored.comentaire_general_Suivi_projet[at], 'Relance faite', 'le commentaire est bien enregistré aussi');
       assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-11-10'), 'valeur locale identique');
-      assertEqual(stampInput('INNOVX').value, '2026-11-10');
+      assertEqual(dateIso(stampInput('INNOVX')), '2026-11-10');
     });
   });
 
@@ -230,7 +231,8 @@
 
     it('la carte Notifications affiche le champ « Dernière action », avec la date enregistrée et son infobulle', async function () {
       await load({ dates: { INNOVX: '2026-10-05' } });
-      assertEqual(notifInput('INNOVX').value, '2026-10-05');
+      assertEqual(dateIso(notifInput('INNOVX')), '2026-10-05');
+      assertEqual(notifInput('INNOVX').value, '05/10/2026', 'le champ affiche la date en jj/mm/aaaa, jamais en mm/jj/aaaa');
       assertIncludes(notifInput('INNOVX').title, 'automatiquement');
       assertEqual(notifCard('INNOVX').querySelector('.admin-lastaction .admin-field-label').textContent.trim(), 'Dernière action');
     });
@@ -242,8 +244,8 @@
       assertEqual(writes.length, 1);
       assertEqual(writes[0].fields[STAMP], epochOf(TODAY), 'la date du jour part avec le commentaire');
       assertEqual(writesOf(STAMP).length, 1, 'jamais d\'écriture séparée');
-      assertEqual(notifInput('INNOVX').value, TODAY, 'la carte Notifications affiche la date');
-      assertEqual(stampInput('INNOVX').value, TODAY, 'et la carte Conventions du même projet aussi');
+      assertEqual(dateIso(notifInput('INNOVX')), TODAY, 'la carte Notifications affiche la date');
+      assertEqual(dateIso(stampInput('INNOVX')), TODAY, 'et la carte Conventions du même projet aussi');
     });
 
     it('faire avancer une notification (Suivant →) date la dernière action dans le MÊME appel Grist que le changement d\'étape', async function () {
@@ -255,7 +257,7 @@
       assertEqual(batches.length, 1, 'un seul appel à Grist');
       assertDeepEqual(batches[0].map(a => [a[0], a[1]]), [['UpdateRecord', 'Notifications'], ['UpdateRecord', 'Projets']], 'la notification avance, le projet est daté');
       assertDeepEqual(batches[0][1][3], { [STAMP]: epochOf(TODAY) }, 'seule la date est écrite sur Projets');
-      assertEqual(notifInput('INNOVX')?.value ?? stampInput('INNOVX').value, TODAY, 'la date est affichée après le rendu');
+      assertEqual(dateIso(notifInput('INNOVX') || stampInput('INNOVX')), TODAY, 'la date est affichée après le rendu');
       assertEqual(projectRow('INNOVX')[STAMP], epochOf(TODAY), 'valeur locale à jour');
     });
 
@@ -277,7 +279,7 @@
       try {
         await withClock(async () => { fireMouse(notifCard('INNOVX').querySelector('[data-advance-notif]'), 'click'); await wait(0); });
       } finally { api.applyUserActions = original; }
-      assertEqual(notifInput('INNOVX').value, '2026-10-05');
+      assertEqual(dateIso(notifInput('INNOVX')), '2026-10-05');
       assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-10-05'));
       assertTrue(!!cardIn('admin-col-notif', 'INNOVX').querySelector('[data-advance-notif]'), 'la carte est toujours là');
     });
@@ -332,7 +334,7 @@
       try {
         await withClock(() => editText(convCard('INNOVX').querySelector('[data-nextstep-project]'), 'Nouvelle étape'));
       } finally { api.applyUserActions = original; }
-      assertEqual(stampInput('INNOVX').value, '2026-10-05', 'l\'ancienne date réapparaît');
+      assertEqual(dateIso(stampInput('INNOVX')), '2026-10-05', 'l\'ancienne date réapparaît');
       assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-10-05'), 'valeur locale restaurée');
       assertEqual(window.__TEST_CALLS__.filter(c => c.type === 'UpdateRecord').length, 0, 'rien n\'a atteint Grist');
     });
@@ -344,7 +346,7 @@
       try {
         await withClock(async () => { fireMouse(convCard('INNOVX').querySelectorAll('.admin-partner-pill')[0], 'click'); await wait(0); });
       } finally { api.applyUserActions = original; }
-      assertEqual(stampInput('INNOVX').value, '2026-10-05');
+      assertEqual(dateIso(stampInput('INNOVX')), '2026-10-05');
       assertEqual(projectRow('INNOVX')[STAMP], epochOf('2026-10-05'));
     });
   });

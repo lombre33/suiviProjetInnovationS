@@ -220,7 +220,7 @@
     } else if (options && options.length) {
       control = `<select ${attrs}><option value="">Choisir…</option>${options.map(o => `<option value="${esc(o)}"${o === cell.v ? ' selected' : ''}>${esc(o)}${o === cell.hint ? ' · suggestion' : ''}</option>`).join('')}<option value="__none">Ne pas renseigner</option></select>`;
     } else if (cell.kind === 'start' || cell.kind === 'end') {
-      control = `<input type="date" ${attrs} value="${esc(cell.v || '')}">`;
+      control = DateInput.markup({ cls: 'ih-in', iso: cell.v || '', aria: L.KIND_LABEL[cell.kind], attrs: `data-ih-in="${id}" data-ih-type="cell"` });
     } else {
       control = `<input type="text" ${attrs} value="${esc(cell.v || '')}">`;
     }
@@ -573,7 +573,10 @@
 
   // Une valeur choisie ou saisie dans l'éditeur ouvert. Renvoie false quand le choix n'est pas fini (l'éditeur reste ouvert).
   function commit(editor) {
-    const type = editor.getAttribute('data-ih-type'), id = editor.getAttribute('data-ih-in'), value = editor.value;
+    // Champ date jj/mm/aaaa (DateInput) : la valeur échangée reste l'ISO ; une saisie fausse laisse l'éditeur ouvert.
+    const isDate = editor.hasAttribute('data-dp');
+    const type = editor.getAttribute('data-ih-type'), id = editor.getAttribute('data-ih-in'), value = isDate ? DateInput.iso(editor) : editor.value;
+    if (value === null) return false;
     if (type === 'status') {
       const key = editor.getAttribute('data-ih-row');
       if (value === '') return false;
@@ -600,6 +603,7 @@
   function onChange(event) {
     const target = event.target;
     if (target.matches('[data-ih-in]')) {
+      if (target.hasAttribute('data-dp') && DateInput.iso(target) === null) return; // saisie à moitié tapée : le champ est signalé, on ne le réaffiche pas
       if (commit(target)) state.editing = null;
       recompute(); render();
     } else if (target.matches('[data-ih-all]')) {
@@ -627,7 +631,7 @@
 
   function onClick(event) {
     const target = event.target;
-    if (target.closest('select, input, label')) return;
+    if (target.closest('select, input, label, [data-dp-open]')) return;
     const cell = target.closest('[data-ih-cell]');
     if (cell) {
       const id = cell.getAttribute('data-ih-cell');

@@ -93,7 +93,7 @@
   // Ouvre une cellule du tableau, y choisit une valeur (ou en tape une) comme le ferait l'utilisateur.
   const openCell = id => { const el = cellEl(id); assertTrue(!!el, 'cellule ' + id); el.click(); };
   const inEl = id => document.querySelector(`[data-ih-in="${id}"]`);
-  const pickIn = (id, value) => { const el = inEl(id); assertTrue(!!el, 'éditeur ' + id); el.value = value; fire(el, 'change'); };
+  const pickIn = (id, value) => { const el = inEl(id); assertTrue(!!el, 'éditeur ' + id); setValue(el, value); fire(el, 'change'); };
   const fixCell = (id, value) => { openCell(id); pickIn(id, value); };
   // Règle les 3 anomalies de départ : GAMMA confirmé, programme fictif non renseigné, structure inconnue non renseignée.
   const fixAll = () => {
@@ -683,6 +683,19 @@
       assertEqual(cellEl(KEY.alpha + '|name').textContent.trim(), 'Projet Alpha (export)');
       openCell(KEY.alpha + '|name'); pickIn(KEY.alpha + '|name', 'Projet Alpha');
       assertTrue(cellEl(KEY.alpha + '|name').classList.contains('c-same'), 'Grist gardé : plus d\'écart');
+    });
+
+    it('l\'éditeur de date est un champ jj/mm/aaaa : une saisie à moitié tapée ne change rien, une date complète tapée est prise', async function () {
+      await setup();
+      openCell(KEY.fictif + '|end');
+      const editor = inEl(KEY.fictif + '|end');
+      assertEqual(editor.type, 'text', 'plus de champ date natif');
+      assertEqual(editor.placeholder, 'jj/mm/aaaa');
+      editor.value = '30/06'; fire(editor, 'input'); fire(editor, 'change');
+      assertTrue(!!inEl(KEY.fictif + '|end'), 'l\'éditeur reste ouvert sur une saisie incomplète');
+      assertEqual(inEl(KEY.fictif + '|end').value, '30/06', 'ce qui est tapé n\'est pas effacé');
+      editor.value = '30062030'; fire(editor, 'input'); fire(editor, 'change');
+      assertEqual(cellEl(KEY.fictif + '|end').textContent.trim(), '30/06/2030', 'date complète : jour 30, mois 06');
     });
 
     it('la même valeur invalide sur plusieurs projets : la case « appliquer aux autres » règle tout, ou une seule cellule', async function () {

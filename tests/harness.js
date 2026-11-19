@@ -73,7 +73,15 @@
   // Sets an <input>/<textarea> value the way a user typing would, for code that
   // reads .value directly (no framework binding involved in this app).
   global.setValue = function (el, value) {
+    // Champ date jj/mm/aaaa (DateInput) : les suites écrivent la date en ISO, le champ l'affiche en jj/mm/aaaa.
+    // La vraie frappe au clavier (masque, saisie à moitié tapée, calendrier) est couverte par suite-date-input.js.
+    if (el && el.hasAttribute && el.hasAttribute('data-dp') && /^\d{4}-\d{2}-\d{2}$/.test(String(value))) { window.DateInput.setIso(el, value); return; }
     el.value = value;
+  };
+
+  // Date ISO (AAAA-MM-JJ) d'un champ date jj/mm/aaaa : '' si vide, null si la saisie est fausse ou incomplète.
+  global.dateIso = function (el) {
+    return window.DateInput.iso(el);
   };
 
   // For blur handlers that defer their cleanup with setTimeout(fn, 150) (so a

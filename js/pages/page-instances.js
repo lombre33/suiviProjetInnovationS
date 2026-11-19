@@ -328,7 +328,7 @@
     // heure de début (+ date de la séance) ; heure et salle disparaissent quand le bandeau est replié
     h += '<div class="rel bhide"><button type="button" class="tp" title="Date et heure de début" aria-label="Heure de début" ' + da('menu', { v: 'heure' }) + '>' + ic('clock', 's') + esc(s.heure) + '<span class="muted">→ ' + L.hhmm(V.endMin) + '</span></button>';
     if (isOpen('heure')) {
-      h += timeMenu('heure', s.heure, 'heure', '', 6 * 60, 20 * 60, false, '<div class="mform" style="grid-column:1/-1"><input type="date" class="dp" aria-label="Date de la séance" value="' + esc(s.date) + '" data-chg="seance-date"></div>');
+      h += timeMenu('heure', s.heure, 'heure', '', 6 * 60, 20 * 60, false, '<div class="mform" style="grid-column:1/-1">' + DateInput.markup({ cls: 'dp', iso: s.date, aria: 'Date de la séance', attrs: 'data-chg="seance-date"' }) + '</div>');
     }
     h += '</div>';
     // heures de début proposées d'un clic (CTO : 9h00 ou 10h45) : écrites dans Suivi_Instance.Heure, comme le sélecteur d'heure
@@ -653,7 +653,7 @@
     const s = V.s, inv = kind === 'invitation';
     const date = inv ? s.mailInvitationLe : s.mailCrLe, model = inv ? V.cfg.modInvitation : V.cfg.modCr;
     let h = '<div class="card">' + ic(inv ? 'mail' : 'send') + '<span class="tag proj plain" title="Modèle Publipostage+ (GFS)">' + esc(model || '— Choisir —') + '</span><span class="sp"></span>'
-      + '<input type="date" class="dp" aria-label="' + (inv ? "Date d'envoi du mail d'invitation" : "Date d'envoi du mail du compte rendu") + '" value="' + esc(date) + '" data-chg="' + (inv ? 'inv-date' : 'crm-date') + '">'
+      + DateInput.markup({ cls: 'dp', iso: date, aria: inv ? "Date d'envoi du mail d'invitation" : "Date d'envoi du mail du compte rendu", attrs: 'data-chg="' + (inv ? 'inv-date' : 'crm-date') + '"' })
       + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da(inv ? 'inv-today' : 'crm-today') + '>' + ic('calCheck') + '</button></div>';
     if (inv) {
       const nWritten = s.guests.filter(g => g.ecritLe).length;
@@ -1033,7 +1033,7 @@
       + '<span class="tag-soft" data-inv-model title="' + esc(modelName ? 'Modèle à ouvrir dans l\'explorateur de GFS (Publipostage+, type e-mail)' : 'Choisissez le modèle dans le paramétrage de l\'instance') + '">' + esc(modelName ? 'Modèle : ' + modelName : 'Aucun modèle choisi') + '</span>' + status
       + (plein ? '<span class="tag-soft ' + (V.s.guests.length && nWritten === V.s.guests.length ? 'ok' : '') + '">' + nWritten + '/' + V.s.guests.length + ' invitations écrites</span>' : '')
       + '<span class="sp"></span>'
-      + (plein ? '<input type="date" class="dp" aria-label="Date d\'envoi du mail d\'invitation" value="' + esc(V.s.mailInvitationLe) + '" data-chg="inv-date">'
+      + (plein ? DateInput.markup({ cls: 'dp', iso: V.s.mailInvitationLe, aria: "Date d'envoi du mail d'invitation", attrs: 'data-chg="inv-date"' })
         + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('inv-today') + '>' + ic('calCheck') + '</button>' : '');
     const crBar = sub
       + '<div class="seg" role="group" aria-label="Affichage du compte rendu">'
@@ -1329,11 +1329,13 @@
     'pt-duree': (el, V) => write([upd('Instance_Points', el.dataset.id, { Duree_min: Math.max(0, Math.round(Number(el.value) || 0)) })], { defer: true }),
     'pt-url': (el, V) => write(setLinkOps(V, el.dataset.id, el.value.trim() ? 'externe' : '', el.value.trim()), { defer: true }),
     'g-comm': (el, V) => write([upd('Instance_Invites', el.dataset.id, { Commentaire: el.value })], { defer: true }),
-    'inv-date': (el, V) => write(setInvitationDate(V, el.value), { defer: true }),
-    'crm-date': (el, V) => write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(el.value) })], { defer: true }),
+    // Champs date jj/mm/aaaa (DateInput) : iso() vaut null pour une saisie incomplète ou fausse (champ signalé), alors rien n'est écrit.
+    'inv-date': (el, V) => { const iso = DateInput.iso(el); if (iso !== null) write(setInvitationDate(V, iso), { defer: true }); },
+    'crm-date': (el, V) => { const iso = DateInput.iso(el); if (iso !== null) write([upd('Suivi_Instance', V.s.id, { Mail_CR_le: gristDay(iso) })], { defer: true }); },
     'seance-date': (el, V) => {
-      if (!el.value) return;
-      write([upd('Suivi_Instance', V.s.id, { date: gristDay(el.value), Heure: L.parisToEpoch(el.value, V.s.heure) })], { defer: true });
+      const iso = DateInput.iso(el);
+      if (!iso) return;
+      write([upd('Suivi_Instance', V.s.id, { date: gristDay(iso), Heure: L.parisToEpoch(iso, V.s.heure) })], { defer: true });
     },
     'cfg-mod': (el, V) => cfgWrite(V, { [el.dataset.f]: el.value.trim() })
   };
@@ -1401,7 +1403,7 @@
       if (next && next !== e.target) { next.click(); const on = rootEl().querySelector('.in-instsw [aria-checked="true"]'); if (on) on.focus(); }
     } else if (e.target.matches && e.target.matches('input[data-filter]') && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
       menuKeyNav(e, e.target);
-    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([type="date"]), textarea[data-chg]')) {
+    } else if (e.key === 'Enter' && e.target.matches && e.target.matches('input[data-chg]:not([data-dp]), textarea[data-chg]')) {
       onEnter(e);
     }
   }

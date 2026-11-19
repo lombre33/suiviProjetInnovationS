@@ -18,7 +18,7 @@
   // Injecte le CSS réel, affiche l'application et l'onglet Conventions le temps de `fn`, puis remet tout comme avant.
   async function withLayout(fn, { width = WIDE } = {}) {
     const styles = [];
-    for (const href of ['../style.css', '../kanban.css', '../css/administratif.css']) {
+    for (const href of ['../style.css', '../kanban.css', '../css/administratif.css', '../css/date-input.css']) {
       const style = document.createElement('style');
       style.textContent = await (await fetch(href, { cache: 'no-store' })).text();
       document.head.appendChild(style);

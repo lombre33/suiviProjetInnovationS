@@ -333,7 +333,9 @@
   function field(parent, labelText, id, type = 'text', required = false) {
     const w = document.createElement('div');
     w.className = 'cp-field';
-    w.innerHTML = `<label for="${id}">${esc(labelText)}${required ? ' *' : ''}</label><input id="${id}" type="${type}">`;
+    // Les dates sont des champs texte jj/mm/aaaa (DateInput) : le champ natif suivait la langue du navigateur (mm/jj/aaaa).
+    const control = type === 'date' ? global.DateInput.markup({ id }) : `<input id="${id}" type="${type}">`;
+    w.innerHTML = `<label for="${id}">${esc(labelText)}${required ? ' *' : ''}</label>${control}`;
     withHelp(w.querySelector('label'), id.replace(/^cp-/, ''));
     parent.appendChild(w);
     return w.querySelector('input');
@@ -876,9 +878,23 @@
     return global.CoreUtils.gristDateToInput(value);
   }
 
+  // Secondes epoch (minuit UTC) d'un champ DateInput ; null si le champ est vide (une saisie fausse est refusée avant, cf. invalidDateIssue).
   function dateFieldValue(input) {
-    if (!input || !input.value) return null;
-    return Math.floor(new Date(`${input.value}T00:00:00Z`).getTime() / 1000);
+    const iso = global.DateInput.iso(input);
+    if (!iso) return null;
+    return Math.floor(new Date(`${iso}T00:00:00Z`).getTime() / 1000);
+  }
+
+  // Une date à moitié tapée (« 19/11 ») est refusée plutôt que lue comme un champ vide : l'enregistrement
+  // effacerait sinon la date déjà en base sans que rien ne le dise.
+  const DATE_FIELDS = [
+    ['Date_limite_financement', 'Date limite de financement'],
+    ['Date_debut_Projet', 'Date de début du projet'],
+    ['Date_de_fin_Projet', 'Date de fin du projet']
+  ];
+  function invalidDateIssue(m) {
+    const bad = DATE_FIELDS.filter(([key]) => global.DateInput.iso(m.querySelector('#cp-' + key)) === null).map(([, label]) => label);
+    return bad.length ? `Date non valide (jj/mm/aaaa attendu) : ${bad.join(', ')}.` : '';
   }
 
   // Un id de référence Grist vide vaut 0 (jamais null) : sans ce garde-fou, un
@@ -998,7 +1014,7 @@
   // laisser les champs du dernier projet ouvert (la modale est réutilisée, pas recréée).
   function populateModal(m, refs, record) {
     const set = (id, names) => { const el = m.querySelector('#' + id); if (el) el.value = text(valueOf(record, names)); };
-    const setDate = (key) => { const el = m.querySelector('#cp-' + key); if (el) el.value = dateInputValue(valueOf(record, [key])); };
+    const setDate = (key) => { const el = m.querySelector('#cp-' + key); if (el) global.DateInput.setIso(el, dateInputValue(valueOf(record, [key]))); };
 
     set('cp-Projet', ['Projet']);
     set('cp-Acronyme', ['Acronyme']);
@@ -1117,7 +1133,7 @@
       { tab: 'porteurs', label: 'VP porteur', ok: hasId(refs.VP_porteur_signataire_notif) },
       { tab: 'porteurs', label: 'Accompagnateur', ok: hasId(refs.Accompagnateur) },
       { tab: 'dates', label: 'Instance rattachée', ok: hasId(refs.Instance_ratachee) },
-      { tab: 'dates', label: 'Date limite de financement', ok: !!refs.Date_limite_financement.value },
+      { tab: 'dates', label: 'Date limite de financement', ok: !!global.DateInput.iso(refs.Date_limite_financement) },
       { tab: 'dates', label: 'Action ligne OPE', ok: !!refs.Action_Ligne_OPE_a_faire.value },
       { tab: 'budget', label: 'Budget (le total ne peut pas être à 0)', ok: budgetTotal() !== 0 }
     ];
@@ -1160,6 +1176,12 @@
     if (conventionIssue) {
       m.querySelector('#cp-project-error').textContent = conventionIssue;
       m._setActiveTab('budget');
+      return;
+    }
+    const dateIssue = invalidDateIssue(m);
+    if (dateIssue) {
+      m.querySelector('#cp-project-error').textContent = dateIssue;
+      m._setActiveTab('dates');
       return;
     }
     // Un seul enregistrement à la fois : un second clic (ou Entrée) avant la réponse de Grist créerait

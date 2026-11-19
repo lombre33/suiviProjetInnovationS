@@ -304,6 +304,8 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-card{border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface)}
 .in-dp{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:12.5px;font-weight:700}
 .in-dp:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.in-root [data-dp-wrap]{flex:none;width:148px}
+.in-mform [data-dp-wrap]{width:100%}
 .in-tchip{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 13px 0 8px;border-radius:999px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-weight:700;font-size:12.5px}
 .in-tchip:hover{background:var(--sunken)}
 .in-tchip.in-on{background:var(--ok-s);border-color:var(--ok-sb);color:var(--ok)}

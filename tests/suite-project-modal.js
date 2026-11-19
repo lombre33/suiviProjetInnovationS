@@ -181,9 +181,10 @@
       const base = tables.Projets.find(p => p.Acronyme === 'INNOVX');
       const record = { ...base, Date_limite_financement: 1805500800, Date_debut_Projet: 1798675200, Date_de_fin_Projet: 1830297600 };
       window.ProjectModal.open(record);
-      assertEqual(modalEl().querySelector('#cp-Date_limite_financement').value, '2027-03-20');
-      assertEqual(modalEl().querySelector('#cp-Date_debut_Projet').value, '2026-12-31');
-      assertEqual(modalEl().querySelector('#cp-Date_de_fin_Projet').value, '2028-01-01');
+      // Affichage jj/mm/aaaa (le champ natif suivait la langue du navigateur : mm/jj/aaaa chez Antoine, 19/11/2026).
+      assertEqual(modalEl().querySelector('#cp-Date_limite_financement').value, '20/03/2027');
+      assertEqual(modalEl().querySelector('#cp-Date_debut_Projet').value, '31/12/2026');
+      assertEqual(modalEl().querySelector('#cp-Date_de_fin_Projet').value, '01/01/2028');
     });
 
     it('envoie UpdateRecord (pas AddRecord) avec l\'id existant lors de l\'enregistrement', async function () {

@@ -464,10 +464,11 @@
     window.AdministratifUrgency.setClock(() => date);
     try { return await fn(); } finally { window.AdministratifUrgency.setClock(); }
   }
+  // Choix fait dans le calendrier du champ (DateInput) : il pose la valeur puis émet « change » avec detail.picked.
   async function pickDate(iso) {
     const input = popoverEl().querySelector('.admin-pop-date-input');
     setValue(input, iso);
-    fire(input, 'change');
+    input.dispatchEvent(new CustomEvent('change', { bubbles: true, detail: { picked: true } }));
     await wait(0);
   }
 
@@ -483,7 +484,7 @@
       assertTrue(!!transmitBtn(card, 'mail') && !!transmitBtn(card, 'paper'));
       assertEqual(card.querySelector('.admin-done-badge').textContent, 'Signée');
       assertEqual(document.querySelectorAll('#admin-col-conv .admin-transmit').length, 1, 'absent de toutes les autres étapes');
-      assertEqual(document.querySelectorAll('#admin-col-conv input[type="date"][data-transmise-project]').length, 0, 'plus de champ date en clair');
+      assertEqual(document.querySelectorAll('#admin-col-conv input[data-dp][data-transmise-project]').length, 0, 'plus de champ date en clair');
     });
 
     it('en vue « cartes », la phrase « Transmise au porteur le » reste visible devant les icônes', async function () {
@@ -641,23 +642,24 @@
       assertIncludes(document.getElementById('toast').textContent, 'boom');
     });
 
-    // Au clavier, <input type=date> déclenche « change » à chaque segment complet : taper 15
-    // donne d'abord le 01. Le popover ne doit ni enregistrer ni se fermer à ce moment-là.
-    const typeKey = (input, key) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-    const typeDate = (input, iso, key) => { typeKey(input, key); setValue(input, iso); fire(input, 'change'); };
+    // Champ texte jj/mm/aaaa (DateInput) : on tape, le masque pose les barres obliques, « change » n'arrive qu'à la sortie.
+    // Le popover ne doit ni enregistrer ni se fermer tant que la date n'est pas complète et validée (Entrée, sortie ou clic ailleurs).
+    const typeText = (input, text) => { input.value = text; fire(input, 'input'); };
     const mailWrites = () => projectWrites('Transmise_signee_au_porteur_le');
 
-    it('au clavier : un segment tapé n\'enregistre rien et ne ferme pas ; Entrée enregistre la date COMPLÈTE', async function () {
+    it('au clavier : une saisie à moitié tapée n\'enregistre rien et ne ferme pas ; Entrée enregistre la date COMPLÈTE', async function () {
       await loadFixtureState();
       fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
       const input = popoverEl().querySelector('.admin-pop-date-input');
-      typeDate(input, '2026-11-01', '1'); // le jour est devenu « 01 » en attendant le « 5 »
+      typeText(input, '15');
+      typeText(input, '15/11');
+      fireKey(input, 'Enter'); // incomplète : rien ne part
       await wait(0);
-      assertEqual(mailWrites().length, 0, 'la date intermédiaire n\'est pas écrite');
+      assertEqual(mailWrites().length, 0, 'la date incomplète n\'est pas écrite');
       assertTrue(!!popoverEl(), 'le popover reste ouvert pour finir de taper');
-      typeDate(input, '2026-11-15', '5');
+      typeText(input, '15/11/2026');
       await wait(0);
-      assertEqual(mailWrites().length, 0);
+      assertEqual(mailWrites().length, 0, 'terminer de taper n\'écrit pas encore : Entrée valide');
       fireKey(input, 'Enter');
       await wait(0);
       assertEqual(mailWrites().length, 1, 'une seule écriture');
@@ -669,31 +671,48 @@
     it('au clavier : quitter le popover (clic à l\'extérieur) enregistre la date tapée ; Échap l\'abandonne', async function () {
       await loadFixtureState();
       fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
-      typeDate(popoverEl().querySelector('.admin-pop-date-input'), '2026-12-02', '2');
+      typeText(popoverEl().querySelector('.admin-pop-date-input'), '02/12/2026');
       fireMouse(document.body, 'mousedown');
       await wait(0);
       assertFalse(!!popoverEl());
       assertEqual(mailWrites().length, 1, 'la saisie en attente est enregistrée à la fermeture');
       assertEqual(mailWrites()[0].fields.Transmise_signee_au_porteur_le, epochOf('2026-12-02'));
       fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'paper'), 'click');
-      typeDate(popoverEl().querySelector('.admin-pop-date-input'), '2026-12-09', '9');
+      typeText(popoverEl().querySelector('.admin-pop-date-input'), '09/12/2026');
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await wait(0);
       assertFalse(!!popoverEl());
       assertEqual(projectWrites('Transmise_signee_au_porteur_papier_le').length, 0, 'Échap abandonne la saisie');
     });
 
-    it('un choix fait à la souris (calendrier) est enregistré tout de suite, même après avoir tapé au clavier', async function () {
+    it('au clavier : une date complète puis effacée à moitié avant de quitter n\'enregistre rien', async function () {
       await loadFixtureState();
       fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
       const input = popoverEl().querySelector('.admin-pop-date-input');
-      typeKey(input, '3');
-      input.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-      setValue(input, '2026-11-20');
-      fire(input, 'change');
+      typeText(input, '02/12/2026');
+      typeText(input, '02/12/202'); // un chiffre retiré : la date n'est plus complète
+      fireMouse(document.body, 'mousedown');
+      await wait(0);
+      assertEqual(mailWrites().length, 0, 'seule la saisie complète au moment de partir est enregistrée');
+    });
+
+    it('un choix fait à la souris dans le calendrier du champ est enregistré tout de suite, sans fermer le popover avant', async function () {
+      await loadFixtureState();
+      fireMouse(transmitBtn(lastStageCard('SIGNEX'), 'mail'), 'click');
+      const input = popoverEl().querySelector('.admin-pop-date-input');
+      typeText(input, '3'); // une saisie commencée au clavier ne gêne pas le choix à la souris
+      fireMouse(popoverEl().querySelector('[data-dp-open]'), 'click');
+      const calendar = document.querySelector('.dp-pop');
+      assertTrue(!!calendar, 'le calendrier s\'ouvre');
+      const day = calendar.querySelector('.dp-day:not(.is-out)[data-dp-day$="-20"]');
+      fireMouse(day, 'mousedown');
+      assertTrue(!!popoverEl(), 'un clic dans le calendrier ne ferme pas le popover');
+      fireMouse(day, 'click');
       await wait(0);
       assertEqual(mailWrites().length, 1);
+      assertEqual(mailWrites()[0].fields.Transmise_signee_au_porteur_le, epochOf(day.getAttribute('data-dp-day')));
       assertFalse(!!popoverEl());
+      assertFalse(!!document.querySelector('.dp-pop'), 'le calendrier est refermé avec le choix');
     });
 
     it('une réponse tardive de Grist ne ferme pas le popover ouvert entre-temps', async function () {
@@ -761,7 +780,8 @@
       Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
       window.renderAdministratif();
       const input = () => cardByAcronym(panelIn('admin-col-conv', 'Convention en redaction'), 'INNOVX').querySelector('[data-lastaction-project]');
-      assertEqual(input().value, '2026-10-20');
+      assertEqual(input().value, '20/10/2026', 'affichée en jj/mm/aaaa');
+      assertEqual(dateIso(input()), '2026-10-20');
       setValue(input(), '2026-11-02');
       fire(input(), 'change');
       await wait(0);
@@ -1276,7 +1296,6 @@
       window.renderAdministratif();
     }
     const withUb = (acronym, ub, extra = {}) => withProject(acronym, { convention_statut_UB: ub, ...extra });
-    const typeKey = (input, key) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 
     it('« Relu » affiche V1 disponible puis Relu par Hélène & Antoine, sous la pastille UB seulement (pas sous les partenaires)', async function () {
       await loadFixtureState(); // CONVENTIX : UB « Relu », deux partenaires
@@ -1393,7 +1412,7 @@
       assertEqual(stepWrites('relu')[0].fields.convention_UB_relu_le, epochOf('2026-11-10'));
       assertEqual(stepBtn(anyCard('CONVENTIX'), 'relu').querySelector('.admin-step-date').textContent, '10/11');
       fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
-      assertEqual(popoverEl().querySelector('.admin-pop-date-input').value, '2026-11-10', 'le popover reprend la date enregistrée');
+      assertEqual(popoverEl().querySelector('.admin-pop-date-input').value, '10/11/2026', 'le popover reprend la date enregistrée, en jj/mm/aaaa');
       fireMouse(popoverEl().querySelector('[data-pop-clear]'), 'click');
       await wait(0);
       assertEqual(stepWrites('relu')[1].fields.convention_UB_relu_le, null);
@@ -1404,18 +1423,18 @@
       await withUb('CONVENTIX', 'Relu');
       fireMouse(stepBtn(anyCard('CONVENTIX'), 'v1'), 'click');
       const input = popoverEl().querySelector('.admin-pop-date-input');
-      typeKey(input, '1'); setValue(input, '2026-11-01'); fire(input, 'change');
+      input.value = '15/11'; fire(input, 'input'); fire(input, 'change');
       await wait(0);
-      assertEqual(stepWrites('v1').length, 0, 'segment intermédiaire non écrit');
+      assertEqual(stepWrites('v1').length, 0, 'date incomplète non écrite');
       assertTrue(!!popoverEl());
-      typeKey(input, '5'); setValue(input, '2026-11-15'); fire(input, 'change');
+      input.value = '15/11/2026'; fire(input, 'input'); fire(input, 'change');
       fireKey(input, 'Enter');
       await wait(0);
       assertEqual(stepWrites('v1').length, 1);
       assertEqual(stepWrites('v1')[0].fields.convention_UB_v1_le, epochOf('2026-11-15'));
       fireMouse(stepBtn(anyCard('CONVENTIX'), 'relu'), 'click');
-      typeKey(popoverEl().querySelector('.admin-pop-date-input'), '9');
-      setValue(popoverEl().querySelector('.admin-pop-date-input'), '2026-11-19'); fire(popoverEl().querySelector('.admin-pop-date-input'), 'change');
+      const other = popoverEl().querySelector('.admin-pop-date-input');
+      other.value = '19/11/2026'; fire(other, 'input'); fire(other, 'change');
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await wait(0);
       assertEqual(stepWrites('relu').length, 0, 'Échap abandonne la saisie');

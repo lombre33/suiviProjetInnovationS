@@ -249,6 +249,7 @@
     // Dossier du widget pour js/components/pdf-viewer.js : pdf.js (signature/vendor/pdfjs) est chargé à la demande.
     window.SUIVI_ROOT = location.origin + '/';
     await loadScript('../js/components/help-tooltip.js');
+    await loadScript('../js/components/date-input.js');
     await loadScript('../js/components/pdf-viewer.js');
     await loadScript('../js/components/project-modal.js');
     await loadScript('../js/components/poste-modal.js');
@@ -286,6 +287,7 @@
     // Test suites, one per audited feature.
     await loadScript('suite-kanban.js');
     await loadScript('suite-help-tooltip.js');
+    await loadScript('suite-date-input.js');
     await loadScript('suite-project-modal.js');
     await loadScript('suite-project-modal-complements.js');
     await loadScript('suite-project-modal-cofinancement.js');

@@ -1,0 +1,28 @@
+/* Saisie de date jj/mm/aaaa (js/components/date-input.js). Les accroches sont des attributs data-dp-* : la page Instances
+   préfixe toutes les classes de son balisage, seules les classes du calendrier (créé en JS, sur <body>) sont libres. */
+[data-dp-wrap] { position:relative; display:block; min-width:0; }
+[data-dp-wrap] > input[data-dp] { width:100%; padding-right:30px; font-variant-numeric:tabular-nums; }
+[data-dp-wrap] > input[data-dp][data-dp-bad] { border-color:var(--danger,#d84343); box-shadow:0 0 0 3px var(--danger-soft,#fbe9e9); }
+[data-dp-open] { position:absolute; top:50%; right:4px; transform:translateY(-50%); display:flex; align-items:center; justify-content:center; width:24px; height:24px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--text-muted,#667085); cursor:pointer; opacity:.7; transition:opacity .12s ease, background .12s ease, color .12s ease; }
+[data-dp-open]:hover, [data-dp-open]:focus-visible { opacity:1; background:var(--accent-soft,#e8f0fe); color:var(--accent,#2f6fed); }
+[data-dp-open]:focus-visible { outline:2px solid var(--accent,#2f6fed); outline-offset:1px; }
+
+/* Le calendrier est posé sur <body>, au-dessus des modales (1000-1010) et des popovers (60). */
+.dp-pop { position:fixed; z-index:1100; box-sizing:border-box; width:252px; padding:10px; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); background:var(--surface,#fff); color:var(--text,#1b2430); font:13px/1.2 'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif; box-shadow:0 14px 32px -8px rgba(9,16,35,.35), 0 2px 8px rgba(9,16,35,.12); }
+.dp-head { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px; }
+.dp-title { flex:1; text-align:center; font-size:13px; font-weight:800; text-transform:capitalize; }
+.dp-nav { display:flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border:0; border-radius:7px; background:transparent; color:var(--text-muted,#667085); font-size:18px; line-height:1; cursor:pointer; }
+.dp-nav:hover { background:var(--surface-sunken,#eef1f6); color:var(--text,#1b2430); }
+.dp-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+.dp-dow { text-align:center; padding:3px 0 5px; font-size:10.5px; font-weight:800; color:var(--text-faint,#98a2b3); text-decoration:none; cursor:default; }
+.dp-day { display:flex; align-items:center; justify-content:center; height:30px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--text,#1b2430); font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums; cursor:pointer; }
+.dp-day:hover { background:var(--accent-soft,#e8f0fe); }
+.dp-day.is-out { color:var(--text-faint,#98a2b3); font-weight:500; }
+.dp-day.is-today { border-color:var(--accent,#2f6fed); }
+.dp-day.is-sel { background:var(--accent,#2f6fed); border-color:var(--accent,#2f6fed); color:#fff; font-weight:800; }
+.dp-day:focus-visible, .dp-nav:focus-visible, .dp-link:focus-visible { outline:2px solid var(--accent,#2f6fed); outline-offset:1px; }
+.dp-foot { display:flex; justify-content:space-between; margin-top:6px; padding-top:6px; border-top:1px solid var(--border,#dde2ea); }
+.dp-link { padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--accent,#2f6fed); font-size:12px; font-weight:700; cursor:pointer; }
+.dp-link:hover { background:var(--accent-soft,#e8f0fe); }
+@media (prefers-reduced-motion: no-preference) { .dp-pop { animation:dp-in .1s ease-out; } }
+@keyframes dp-in { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:none; } }

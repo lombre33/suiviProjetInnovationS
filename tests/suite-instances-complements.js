@@ -23,7 +23,7 @@
   function change(chg, a, value) {
     const el = q(`[data-chg="${chg}"]` + attrs(a));
     if (!el) throw new Error(`Champ introuvable : ${chg}`);
-    el.value = value;
+    setValue(el, value); // champ date jj/mm/aaaa : setValue accepte l'ISO (la frappe réelle est couverte par suite-date-input.js)
     fire(el, 'change');
   }
   const step = key => click('step', { v: key });
@@ -80,6 +80,20 @@
       click('reopen');
       assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).Mail_CR_le, null, 'la date d\'envoi est effacée');
       await waitFor(() => !/Envoyé le/.test(text('.in-panel .in-stt')), 'étape rouverte');
+    });
+
+    it('les dates des séances et des mails s\'affichent en jj/mm/aaaa ; une date à moitié tapée n\'écrit rien, une date complète tapée s\'écrit', async function () {
+      await setup();
+      click('menu', { v: 'heure' }); // la date de la séance se change dans le menu de l'heure
+      const field = q('[data-chg="seance-date"]');
+      assertEqual(field.value, '23/11/2026', 'la séance n°14 du 23 novembre s\'affiche jour d\'abord');
+      assertEqual(field.type, 'text', 'plus de champ date natif (mm/jj/aaaa selon le navigateur)');
+      const before = calls('UpdateRecord', 'Suivi_Instance').length;
+      field.value = '24/11'; fire(field, 'input'); fire(field, 'change');
+      await wait(30);
+      assertEqual(calls('UpdateRecord', 'Suivi_Instance').length, before, 'saisie incomplète : rien n\'est écrit');
+      field.value = '24112026'; fire(field, 'input'); fire(field, 'change');
+      await waitFor(() => lastFields('UpdateRecord', 'Suivi_Instance', 2) && lastFields('UpdateRecord', 'Suivi_Instance', 2).date === gd('2026-11-24'), 'date de la séance tapée');
     });
 
     it('mail d\'invitation : rouvrir l\'étape efface la date d\'envoi mais laisse les invités déjà marqués « écrits »', async function () {

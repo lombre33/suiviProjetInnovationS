@@ -288,7 +288,7 @@
   function syncLastActionInput(project) {
     const iso = CoreUtils.gristDateToInput(project[LAST_ACTION_FIELD]);
     document.querySelectorAll('#admin-col-notif [data-lastaction-project], #admin-col-conv [data-lastaction-project]').forEach(input => {
-      if (input.dataset.lastactionProject === String(project.id) && input !== document.activeElement && input.value !== iso) input.value = iso;
+      if (input.dataset.lastactionProject === String(project.id) && input !== document.activeElement && DateInput.iso(input) !== iso) DateInput.setIso(input, iso);
     });
   }
   async function writeProjectColumn(project, column, value) {
@@ -777,13 +777,13 @@
     const iso = CoreUtils.gristDateToInput(readField(project, column));
     const help = spec.help ? (window.HelpTooltip?.markup(homeRowFor(project, column).table, column) || '') : '';
     const html = `<div class="admin-pop-date"><span class="admin-field-label">${escape(spec.label)}${help}</span>` +
-      `<input type="date" class="admin-pop-date-input" value="${escape(iso)}" aria-label="${escape(spec.aria)}">` +
+      DateInput.markup({ cls: 'admin-pop-date-input', iso, aria: spec.aria }) +
       `<div class="admin-pop-actions"><button type="button" class="admin-pop-btn" data-pop-today>Aujourd'hui</button>` +
       `${iso ? '<button type="button" class="admin-pop-btn is-danger" data-pop-clear>Effacer</button>' : ''}</div>` +
       `${spec.visaMail && window.VisaMail ? '<button type="button" class="admin-pop-link" data-pop-visa-settings>Mail de demande de visa : choisir le modèle…</button>' : ''}</div>`;
     openPopover(anchor, `${kind}:${project.id}`, spec.aria, html, el => {
       const input = el.querySelector('input');
-      let typed = false, pending = null;
+      let pending = null;
       const save = async value => {
         pending = null;
         if (popover.el === el) popover.flush = null;
@@ -797,20 +797,26 @@
       const commit = async value => {
         if (await save(value) && popover.el === el) closePopover(true);
       };
-      // Au clavier, le champ date déclenche « change » à chaque segment complet (taper 15
-      // donne d'abord le 01) : on attend Entrée ou la fermeture du popover. Un choix fait
-      // à la souris (calendrier, Aujourd'hui, Effacer) est enregistré tout de suite.
-      // Vider un segment à la main vide la valeur le temps de la saisie : seul « Effacer »
-      // supprime la date.
-      input.addEventListener('keydown', event => {
-        if (event.key === 'Enter') { event.preventDefault(); if (input.value) commit(input.value); }
-        else if (/^(?:\d|Backspace|Delete)$/.test(event.key)) typed = true;
+      // Champ texte jj/mm/aaaa (DateInput) : « change » n'arrive qu'à la sortie du champ, à Entrée ou au choix dans le calendrier.
+      // Une date complète tapée est mise de côté tout de suite (enregistrée à la fermeture du popover, même si le clic qui
+      // le ferme part avant la sortie du champ) ; Entrée et un choix dans le calendrier l'enregistrent aussitôt.
+      // Vider le champ à la main n'efface rien : seul « Effacer » supprime la date.
+      input.addEventListener('input', () => {
+        const value = DateInput.iso(input);
+        pending = value || null;
+        popover.flush = pending ? () => { if (pending) save(pending); } : null;
       });
-      input.addEventListener('pointerdown', () => { typed = false; });
-      input.addEventListener('change', () => {
-        if (!input.value) return;
-        if (!typed) { commit(input.value); return; }
-        pending = input.value;
+      input.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const value = DateInput.iso(input);
+        if (value) commit(value);
+      });
+      input.addEventListener('change', event => {
+        const value = DateInput.iso(input);
+        if (!value) return;
+        if (event.detail && event.detail.picked) { commit(value); return; }
+        pending = value;
         popover.flush = () => { if (pending) save(pending); };
       });
       el.querySelector('[data-pop-today]').addEventListener('click', () => commit(todayIso()));
@@ -1357,7 +1363,7 @@
   function lastActionBlock(project, headed) {
     const help = headed ? '' : window.HelpTooltip?.markup(homeRowFor(project, LAST_ACTION_FIELD).table, LAST_ACTION_FIELD) || '';
     return `<label class="admin-lastaction">${headed ? '<span class="visually-hidden">Dernière action</span>' : `<span class="admin-field-label">Dernière action${help}</span>`}` +
-      `<input type="date" data-lastaction-project="${escape(project.id)}" title="Mise à jour automatiquement à chaque modification de cette carte ; modifiable à la main" value="${escape(CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)))}"></label>`;
+      DateInput.markup({ iso: CoreUtils.gristDateToInput(readField(project, LAST_ACTION_FIELD)), aria: 'Dernière action', attrs: `data-lastaction-project="${escape(project.id)}" title="Mise à jour automatiquement à chaque modification de cette carte ; modifiable à la main"` }) + `</label>`;
   }
 
   // Une icône par canal : grise tant qu'aucune date n'est saisie, bleue + date une fois fait.
@@ -1745,7 +1751,8 @@
     [root, document.getElementById('admin-col-notif')].forEach(host => host && host.addEventListener('change', event => {
       const input = closest(event, '[data-lastaction-project]');
       const project = input && projectById(input.dataset.lastactionProject);
-      if (project) saveDateColumn(project, LAST_ACTION_FIELD, input.value, 'de la dernière action');
+      const iso = input && DateInput.iso(input); // null : saisie incomplète ou fausse (champ signalé), rien n'est écrit
+      if (project && iso !== null) saveDateColumn(project, LAST_ACTION_FIELD, iso, 'de la dernière action');
     }));
     root.addEventListener('keydown', event => {
       const input = closest(event, '[data-link-input]');
@@ -1766,7 +1773,7 @@
   // à Échap, et suivi de l'ancre quand la page défile ou se redimensionne.
   function initPopoverListeners() {
     document.addEventListener('mousedown', event => {
-      if (!popover.el || popover.el.contains(event.target)) return;
+      if (!popover.el || popover.el.contains(event.target) || DateInput.owns(event.target)) return;
       const anchor = closestFrom(event.target, '[data-pop-anchor]');
       if (anchor && anchor.dataset.popAnchor === popover.key) return;
       closePopover();
@@ -1774,7 +1781,7 @@
     // Navigation au clavier : quitter le popover (Maj+Tab, Tab) le referme, sinon il resterait
     // flottant au-dessus d'une autre vue. Sa propre ancre ne le ferme pas (interrupteur).
     document.addEventListener('focusin', event => {
-      if (!popover.el || popover.el.contains(event.target)) return;
+      if (!popover.el || popover.el.contains(event.target) || DateInput.owns(event.target)) return;
       const anchor = closestFrom(event.target, '[data-pop-anchor]');
       if (anchor && anchor.dataset.popAnchor === popover.key) return;
       closePopover();
