@@ -65,7 +65,7 @@
   const NOTIF_SIGNEES = { tableId: 'Projets', colId: 'Notifications_Signees' };
   // Session de la vue « Relecture & envoi » : projet affiché, projets cochés, mail lu depuis le modèle Publipostage+ (une lecture par projet et par
   // modèle), nœud du courrier (PDF signé ou aperçu) conservé d'un rendu à l'autre, noms des modèles proposés dans le paramétrage.
-  const newRev = () => ({ active: 0, checked: {}, busy: false, models: undefined, mail: { key: '', status: '', draft: null, error: null, nonce: 0 }, doc: { key: '', node: null, handle: null, nonce: 0 } });
+  const newRev = () => ({ active: 0, checked: {}, busy: false, models: undefined, mail: { key: '', status: '', draft: null, error: null, nonce: 0 }, doc: { key: '', node: null, handle: null, nonce: 0, watch: null, reader: null, readerNonce: -1, ctx: null, want: false, dock: false, busy: false, poll: null, last: '' } });
 
   let todayOverride = null;
   const todayIso = () => todayOverride || (L.parisParts(Date.now() / 1000) || {}).date || new Date().toISOString().slice(0, 10);
@@ -819,7 +819,7 @@
     let h = '<div class="rpane rmail"><div class="rhead">' + ic('mail', 's') + '<strong>E-mail</strong><span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule : le modèle se modifie dans GFS">' + ic('eye', 'xs') + 'Mode lecture</span>'
       + (model ? '<span class="psub rmodel" title="Modèle e-mail de Publipostage+">' + esc(model) + '</span>' : '') + '<span class="sp"></span>'
       + (model ? '<label class="rzim" title="Zimbra lit le lien du brouillon autrement : le widget l\'adapte"><input type="checkbox" ' + (S.prefs.messagerie === 'zimbra' ? 'checked ' : '') + 'data-chg="rev-zimbra">Zimbra</label>' : '')
-      + '<button type="button" class="ibtn" title="Relire les données des projets et le modèle" aria-label="Relire les données" ' + da('rev-refresh') + '>' + ic('refresh', 's') + '</button>' + bigButton('mail') + '</div>';
+      + '<button type="button" class="ibtn" title="Relire les données des projets et le modèle" aria-label="Relire les données" ' + da('rev-refresh') + '>' + ic('refresh', 's') + '</button>' + editModelButton('mail', model) + bigButton('mail') + '</div>';
     if (!model) return h + vemptyHtml('Aucun modèle de mail choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type e-mail de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>') + '</div>';
     if (mail.status === 'loading' || !mail.status) return h + vemptyHtml('Lecture du modèle…') + '</div>';
     if (mail.status === 'error') return h + vemptyHtml('Mail indisponible', reviewErrorText(mail.error)) + '</div>';
@@ -843,11 +843,13 @@
     }
     return '<div class="rpane rdoc"><div class="rhead">' + ic('fileLines', 's') + '<strong>' + (signed ? 'Notification signée' : 'Courrier de notification') + '</strong>'
       + (signed ? '<span class="rbadge ok">' + ic('clip', 'xs') + 'PJ signée</span>' : '<span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule, jusqu\'au dépôt de la notification signée">' + ic('eye', 'xs') + 'Publipostage+ · lecture</span>') + '<span class="sp"></span>'
-      + (signed && cur.fileId ? '<button type="button" class="ibtn" title="Télécharger la notification signée" aria-label="Télécharger la notification signée" ' + da('rev-download') + '>' + ic('download', 's') + '</button>' : '') + bigButton('doc') + '</div>'
+      + (signed && cur.fileId ? '<button type="button" class="ibtn" title="Télécharger la notification signée" aria-label="Télécharger la notification signée" ' + da('rev-download') + '>' + ic('download', 's') + '</button>' : '') + (signed ? '' : editModelButton('doc', V.cfg.modCourrier)) + bigButton('doc') + '</div>'
       + '<div class="rdocbody" data-slot="rev-doc"></div>'
       + '<div class="rfoot"><span class="psub">' + (signed ? 'PJ de la colonne « Notifications signées »' : 'Aperçu Publipostage+ · à faire signer') + '</span><span class="sp"></span><span class="psub rfile">' + esc(fileName) + '</span></div></div>';
   }
 
+  // « Modifier le modèle » (maquette validée) : ouvre le modèle de ce volet dans Publipostage+ (page Rédaction, en Édition) pour le projet affiché ; « Retour » ramène ici.
+  const editModelButton = (kind, model) => '<button type="button" class="pillbtn ghost editbtn" ' + (model ? '' : 'disabled ') + 'title="' + (model ? 'Ouvrir le modèle « ' + esc(model) + ' » dans Publipostage+ pour le modifier' : 'Aucun modèle choisi : voir le paramétrage de l\'instance') + '" aria-label="Modifier le modèle" ' + da('rev-edit-model', { v: kind }) + '>' + ic('pencil', 's') + '<span class="elabel">Modifier le modèle</span></button>';
   // Agrandir le mail ou le courrier : les deux icônes sont dans le bouton et la classe du conteneur (.in-big-mail / .in-big-doc) montre la bonne, si bien que le
   // bouton bascule sans nouveau rendu (rien ne se relit, le courrier garde son nœud) : seul le CSS change.
   const BIG_LABEL = { mail: 'le mail', doc: 'le courrier' };
@@ -874,17 +876,20 @@
     const avail = wrap.clientWidth - 24;
     if (avail > 0) host.style.zoom = String(Math.max(0.2, Math.min(1.5, avail / width)));
   }
-  function releaseDoc() {
+  function releaseDoc(full) {
     const d = S.ui && S.ui.rev && S.ui.rev.doc; if (!d) return;
     if (d.handle) { d.handle.destroy(); d.handle = null; }
     if (d.watch) { d.watch.disconnect(); d.watch = null; }
     if (d.node && d.node.parentNode) d.node.remove();
-    d.node = null; d.key = '';
+    d.node = null; d.key = ''; d.want = false; d.dock = false; d.ctx = null;
+    if (full) { if (d.reader) { d.reader.destroy(); d.reader = null; } clearInterval(d.poll); d.poll = null; }
+    placeDock();
   }
-  function showDoc(node, res) {
+  function showDoc(node, res, notice) {
     node.replaceChildren();
-    if (res.issues.length) {
+    if (res.issues.length || notice) {
       const warn = document.createElement('ul'); warn.className = 'in-rissues'; warn.setAttribute('role', 'status');
+      if (notice) { const li = document.createElement('li'); li.textContent = notice; warn.appendChild(li); }
       res.issues.forEach(x => { const li = document.createElement('li'); li.textContent = global.VisaMail.issueText(x); warn.appendChild(li); });
       node.appendChild(warn);
     }
@@ -896,6 +901,80 @@
     wrap.appendChild(host); node.appendChild(wrap);
     fitSheet(node);
   }
+  const sayIn = (node, title, detail, extra) => { node.innerHTML = withPrefix(vemptyHtml(title, detail, extra)); };
+
+  // --- Le courrier lu par Publipostage+ lui-même (demande d'Antoine du 23/11/2026 : « pourquoi ne pas juste inclure le mode lecture épurée de PP ? ») ---
+  // L'iframe de Publipostage+ (js/components/pp-reader.js : même pont que la page Rédaction, mode Lecture épurée) vit dans un « dock » hors du rendu, posé par-dessus
+  // le volet du courrier : un nœud qu'on déplace recharge son iframe, or le rendu de la page recrée tout. Changer de projet n'envoie à Publipostage+ que la ligne à
+  // présenter (select by) : rien ne se recharge. Si la lecture épurée échoue (page d'une autre origine, modèle absent de sa liste, délai), le volet se rabat sur
+  // l'aperçu simplifié du widget (VisaMail.prepareDocument), avec la raison.
+  const reader = { on: true, target: null, opts: {} };
+  const readerReady = () => !!(reader.on && global.PpReader && global.GristBridge && global.PageRedaction && global.PageRedaction.resolveLinked && global.VisaMail && global.VisaMail.findModel);
+  const dockEl = () => { const root = rootEl(); return root && root.querySelector('[data-region="dock"]'); };
+  // Cale le dock sur le volet du courrier (ou le masque : autre étape, notification signée, lecture pas prête, page masquée).
+  function placeDock() {
+    const dock = dockEl(), root = rootEl(), wrap = root && root.querySelector('.in-wrap'), d = S && S.ui && S.ui.rev && S.ui.rev.doc;
+    if (!dock) return;
+    const slot = d && d.node && d.node.parentNode, rect = d && d.dock && slot && slot.isConnected ? slot.getBoundingClientRect() : null;
+    if (!rect || rect.width < 2 || rect.height < 2 || !wrap) { if (dock.classList.contains('on')) dock.classList.remove('on'); return; }
+    const base = wrap.getBoundingClientRect();
+    const box = [Math.round(rect.left - base.left - wrap.clientLeft), Math.round(rect.top - base.top - wrap.clientTop), Math.round(rect.width), Math.round(rect.height)];
+    const sig = box.join('/');
+    if (d.last !== sig) { d.last = sig; dock.style.left = box[0] + 'px'; dock.style.top = box[1] + 'px'; dock.style.width = box[2] + 'px'; dock.style.height = box[3] + 'px'; }
+    if (!dock.classList.contains('on')) dock.classList.add('on');
+    dock.classList.toggle('busy', !!d.busy);
+  }
+  function onReaderChange(phase, note) {
+    const d = S.ui.rev.doc, c = d.ctx;
+    if (!d.want || !c || d.node !== c.node) return; // ce n'est plus le courrier affiché (autre étape, notification signée)
+    if (phase === 'ready') { d.dock = true; c.node.replaceChildren(); placeDock(); }
+    else if (phase === 'loading') { d.dock = false; placeDock(); sayIn(c.node, 'Ouverture de Publipostage+ en lecture…', note); }
+    else if (phase === 'failed') { d.dock = false; placeDock(); ownPreview(c, note); }
+  }
+  function ensureReader(d) {
+    if (d.reader) return d.reader;
+    d.readerNonce = d.nonce;
+    d.reader = global.PpReader.create(Object.assign({}, reader.opts, {
+      container: dockEl(), target: reader.target || (() => global.PageRedaction.resolveTarget()), onChange: onReaderChange
+    }));
+    if (!d.poll) d.poll = setInterval(placeDock, 500); // un décalage de mise en page sans redimensionnement du volet (bandeau replié, défilement) est rattrapé
+    return d.reader;
+  }
+  function openReader(c) {
+    const d = S.ui.rev.doc;
+    if (d.reader && d.readerNonce !== d.nonce) { d.reader.destroy(); d.reader = null; d.dock = false; } // « Relire » : on repart d'une iframe neuve
+    if (d.reader && d.reader.phase === 'failed') { ownPreview(c, d.reader.note); return; } // le repli reste en place jusqu'au prochain « Relire »
+    d.dock = !!(d.reader && d.reader.phase === 'ready'); // déjà ouverte : le courrier reste affiché pendant que la nouvelle ligne est envoyée
+    d.busy = d.dock;
+    if (!d.dock) sayIn(c.node, 'Ouverture de Publipostage+ en lecture…');
+    placeDock();
+    const stale = () => d.ctx !== c;
+    Promise.all([global.VisaMail.findModel(c.model, { cache: true }), global.PageRedaction.resolveLinked({ id: c.cur.id })]).then(([found, linked]) => {
+      if (stale()) return;
+      d.busy = false;
+      if (!found) { d.dock = false; placeDock(); ownPreview(c, 'modèle introuvable'); return; }
+      ensureReader(d).show({ table: linked.table, rowId: linked.rowId, modelId: found.id });
+      placeDock();
+    }).catch(err => {
+      if (stale()) return;
+      d.busy = false; d.dock = false; placeDock();
+      ownPreview(c, err && err.message ? err.message : 'lecture impossible');
+    });
+  }
+  // L'aperçu du widget : seul courrier affiché sans Publipostage+ (pas de lecteur, ou lecture épurée en échec : `why` dit pourquoi).
+  function ownPreview(c, why) {
+    const d = S.ui.rev.doc, { node, key, cur, model } = c;
+    const notice = why ? 'La lecture épurée de Publipostage+ est indisponible (' + why + ') : aperçu simplifié du courrier.' : '';
+    if (!global.VisaMail || !global.VisaMail.prepareDocument) { sayIn(node, 'Aperçu indisponible', 'Le module de lecture des modèles n\'est pas chargé.'); return; }
+    const args = { project: { id: cur.id }, modelName: model, now: () => new Date(), cache: true };
+    const ready = global.VisaMail.peek && global.VisaMail.peek('doc', args);
+    if (ready) { showDoc(node, ready, notice); return; } // déjà préparé : le courrier s'affiche sur-le-champ, sans « Lecture du modèle… »
+    sayIn(node, 'Lecture du modèle…');
+    global.VisaMail.prepareDocument(args).then(res => {
+      if (d.key !== key || d.node !== node) return;
+      showDoc(node, res, notice);
+    }).catch(err => { if (d.key === key && d.node === node) sayIn(node, 'Courrier indisponible', reviewErrorText(err)); });
+  }
   function syncReviewDoc() {
     const root = rootEl(), V = S.view, d = S.ui.rev.doc;
     const slot = root && root.querySelector('[data-slot="rev-doc"]');
@@ -903,32 +982,30 @@
     const cur = V.rev.cur, signed = cur.state !== 'draft', model = V.cfg.modCourrier;
     if (!d.node) { d.node = document.createElement('div'); d.node.className = 'in-rdocview'; } // (≠ du volet, de classe in-rdoc : même nom = même style)
     if (d.node.parentNode !== slot) slot.appendChild(d.node);
-    if (!d.watch && typeof ResizeObserver === 'function') { d.watch = new ResizeObserver(() => fitSheet(d.node)); d.watch.observe(d.node); } // volet élargi, agrandi ou fenêtre redimensionnée
+    if (!d.watch && typeof ResizeObserver === 'function') { // volet élargi, agrandi, fenêtre redimensionnée ou page décalée : la feuille se re-zoome, le dock se recale
+      d.watch = new ResizeObserver(() => { fitSheet(d.node); placeDock(); });
+      d.watch.observe(d.node);
+      const main = root.querySelector('[data-region="main"]'); if (main) d.watch.observe(main);
+    }
     warmReview(V);
     const key = signed ? 'pdf:' + cur.id + ':' + cur.fileId + ':' + d.nonce : 'pp:' + cur.id + ':' + model + ':' + d.nonce;
-    if (d.key === key) return;
+    if (d.key === key) { placeDock(); return; }
     if (d.handle) { d.handle.destroy(); d.handle = null; }
     d.key = key;
     const node = d.node;
     node.replaceChildren();
-    const say = (title, detail, extra) => { node.innerHTML = withPrefix(vemptyHtml(title, detail, extra)); };
+    d.want = false; d.dock = false; d.busy = false; d.ctx = null; placeDock();
     if (signed) {
-      if (!cur.fileId) { say('Pas de notification signée', 'La colonne « Notifications signées » du projet est vide.'); return; }
-      if (!global.PdfViewer || !global.PdfViewer.mount || !global.CoreAttachments) { say('Visionneuse indisponible', 'Le bouton de téléchargement ouvre le fichier.'); return; }
+      if (!cur.fileId) { sayIn(node, 'Pas de notification signée', 'La colonne « Notifications signées » du projet est vide.'); return; }
+      if (!global.PdfViewer || !global.PdfViewer.mount || !global.CoreAttachments) { sayIn(node, 'Visionneuse indisponible', 'Le bouton de téléchargement ouvre le fichier.'); return; }
       const cell = { tableId: NOTIF_SIGNEES.tableId, colId: NOTIF_SIGNEES.colId, rowId: cur.id };
       d.handle = global.PdfViewer.mount(node, { load: () => global.CoreAttachments.fetchBytes(cur.fileId, cell) });
       return;
     }
-    if (!model) { say('Aucun modèle de courrier choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type document de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>'); return; }
-    if (!global.VisaMail || !global.VisaMail.prepareDocument) { say('Aperçu indisponible', 'Le module de lecture des modèles n\'est pas chargé.'); return; }
-    const args = { project: { id: cur.id }, modelName: model, now: () => new Date(), cache: true };
-    const ready = global.VisaMail.peek && global.VisaMail.peek('doc', args);
-    if (ready) { showDoc(node, ready); return; } // déjà préparé : le courrier s'affiche sur-le-champ, sans « Lecture du modèle… »
-    say('Lecture du modèle…');
-    global.VisaMail.prepareDocument(args).then(res => {
-      if (d.key !== key || d.node !== node) return;
-      showDoc(node, res);
-    }).catch(err => { if (d.key === key && d.node === node) say('Courrier indisponible', reviewErrorText(err)); });
+    if (!model) { sayIn(node, 'Aucun modèle de courrier choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type document de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>'); return; }
+    const c = d.ctx = { node, key, cur, model };
+    if (readerReady()) { d.want = true; openReader(c); return; }
+    ownPreview(c, '');
   }
   // Les autres notifications de la séance se préparent en arrière-plan, une à la fois et en laissant la main à la page : passer d'un projet à l'autre est alors
   // immédiat (les lectures de Grist sont déjà en mémoire, il ne reste que le remplissage des variables). Relancé quand le mail, le courrier ou les données changent.
@@ -1098,7 +1175,7 @@
   function ensureSkeleton(root) {
     if (root.querySelector('[data-region="main"]')) return;
     root.className = 'in-root';
-    root.innerHTML = '<div class="in-wrap"><div data-region="main"></div><div data-region="viewer"></div></div>';
+    root.innerHTML = '<div class="in-wrap"><div data-region="main"></div><div data-region="viewer"></div><div class="in-ppdock" data-region="dock" aria-label="Courrier lu par Publipostage+"></div></div>';
   }
   function buildMain() {
     if (!S.loaded) return withPrefix('<div class="loading">' + esc(S.error || 'Chargement…') + '</div>');
@@ -1638,6 +1715,15 @@
       savePrefs();
     },
     'rev-refresh': () => { S.ui.rev.focusSel = '[data-act="rev-refresh"]'; refreshReview(); },
+    // « Modifier le modèle » : la page Rédaction (Publipostage+ en Édition) ouvre le modèle du volet pour le projet affiché ; « Retour » revient à la relecture.
+    'rev-edit-model': (el, V) => {
+      const kind = el.dataset.v, name = kind === 'mail' ? V.cfg.modNotif : (kind === 'doc' ? V.cfg.modCourrier : ''), cur = V.rev && V.rev.cur;
+      if (!name || !cur || !global.PageRedaction || !global.PageRedaction.open || !global.VisaMail || !global.VisaMail.findModel) return;
+      global.VisaMail.findModel(name, { cache: true }).then(found => {
+        if (!found) { toast('Le modèle « ' + name + ' » n\'est plus dans Publipostage+.', true); return; }
+        global.PageRedaction.open(cur.id, { modelId: found.id, from: 'view-instances', crumb: 'Instances · Relecture & envoi ·' });
+      }).catch(err => toast('Modèles de Publipostage+ illisibles : ' + (err && err.message ? err.message : 'erreur inconnue'), true));
+    },
     'rev-open': (el, V) => {
       const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
       if (!cur || cur.state === 'draft' || S.ui.rev.mail.status !== 'ok' || !d) return;
@@ -1848,11 +1934,11 @@
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
   global.renderInstances = function () { if (S.loaded) { S.ui.rev.mail.nonce++; S.ui.rev.doc.nonce++; if (global.VisaMail && global.VisaMail.clearCache) global.VisaMail.clearCache(); rebuild(); render(); } }; // données rechargées : le mail et le courrier se relisent
   global.InstancesPage = {
-    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setWarm: on => { warmEnabled = !!on; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
+    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setWarm: on => { warmEnabled = !!on; }, _setReader: (on, opts) => { reader.on = !!on; reader.target = opts && opts.target || null; reader.opts = opts && opts.pace || {}; }, _reader: () => S.ui.rev.doc.reader, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
-      releaseDoc(); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
+      releaseDoc(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }

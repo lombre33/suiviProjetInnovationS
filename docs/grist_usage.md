@@ -484,6 +484,25 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   **Dès que `Notifications_Signees` est remplie**, le volet n'ouvre plus la version Publipostage+ mais la pièce jointe (visionneuse
   pdf.js du widget, `PdfViewer.mount`, lue avec la preuve d'accès sur la cellule `Projets/Notifications_Signees/<ligne>`) ; le
   volet n'est pas relu à chaque rendu (case cochée, clic).
+- **Courrier lu par Publipostage+ lui-même (23/11/2026)** : pour une notification « À signer », le volet n'affiche plus un rendu refait par le widget (variables
+  vides, mise en page défaite) mais le **mode « Lecture épurée » de Publipostage+** (`js/components/pp-reader.js`, `PpReader`) : une iframe de Publipostage+ pontée par
+  `GristBridge` (comme la page Rédaction), pilotée comme `keepReadMode` — liste des modèles (`#template-select` + évènement `change`), ligne « Lecture épurée »
+  du menu puis clic sur « Mode lecture ». Le document est celui que compose Publipostage+ : conditions, textes conditionnels, valeurs calculées, macro-modèles, page,
+  marges, logos. **Changer de projet ne recharge rien** : l'iframe vit dans un **dock** (`<div data-region="dock">`) hors du rendu, posé par-dessus le volet
+  (`placeDock` : position mesurée, recalée par `ResizeObserver`, redimensionnement, sondage 500 ms), parce qu'un nœud déplacé recharge son iframe et que
+  `render()` recrée tout ; seule la **ligne envoyée** change (`bridge.select(ligne, table)`, ~40 ms en local). L'iframe se crée à la première
+  notification « À signer » et reste (masquée sur une notification signée : visionneuse PDF) ; elle repart neuve à « Relire » et au retour de « Modifier le modèle »
+  (`nonce`). Modèle cherché par son nom (`VisaMail.findModel` → id de ligne), table et ligne par `PageRedaction.resolveLinked` (même choix de table que
+  la Rédaction : Notifications puis Projets). **Repli** : si la lecture épurée échoue (page d'une autre origine, modèle absent de la liste de Publipostage+ — échec
+  après ~2 s —, délai de 30 s), le volet affiche l'aperçu simplifié du widget (`prepareDocument`) avec la raison en bandeau ; aucun nouvel essai à chaque projet,
+  « Relire » réessaie. Le **mail** reste lu par `VisaMail.prepare` (texte brut pour le `mailto:`). À la première ouverture de Publipostage+ sur un poste, son
+  écran « Nouveautés » apparaît une fois (même origine : s'il a déjà été fermé ailleurs, il ne revient pas).
+- **« Modifier le modèle » (23/11/2026, maquette)** : sur l'en-tête du mail et du courrier (crayon seul tant que le volet fait moins de 640 px, avec son libellé au-delà),
+  grisé sans modèle choisi, absent d'une notification signée. Ouvre la page **Rédaction** pour le projet affiché avec le modèle du volet
+  (`PageRedaction.open(projet, { modelId, from: 'view-instances', crumb })`) : publipostage+ s'ouvre sur ce modèle **en Édition** (liste + `change`, puis clic sur « Mode édition »
+  au besoin ; la personne qui agit reprend la main ; le mode Lecture par défaut n'est pas appliqué). « ← Retour » ramène aux Instances (et non à Administratif), relit
+  Publipostage+ (`VisaMail.clearCache`, `renderInstances`) et retire l'iframe de la Rédaction (la prochaine ouverture depuis Administratif repart en Lecture). Le diagnostic de
+  la Rédaction a une ligne « Modèle demandé par une autre page ».
 - **« Tout générer (n) »** (sous la liste, pour les courriers cochés) ouvre les courriers dans **une page à imprimer, un par feuille**
   (impression ou « Enregistrer en PDF ») : le widget ne pilote pas l'export PDF de Publipostage+. Il n'enregistre ni ne marque rien.
 - **Noms de Publipostage+ (23/11/2026)** : l'app passe ses tables et ses colonnes à l'anglais (traducteur `js/schema-columns.js` de son dépôt, qui
@@ -525,9 +544,9 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
 - Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
   `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`, `Preferences_Widget.Inst_notif_large`. Non validé dans un vrai Grist (le proxy de ce projet
   n'atteint ni Publipostage+ ni les pièces jointes). Code : `notifReviewState`, `pickReviewItem` (`instances-logic.js`), `reviewHtml`,
-  `ensureMail`, `syncReviewDoc`, `generateLetters` (`page-instances.js`), `prepareDocument`, `listDocumentModels` (`visa-mail.js`),
+  `ensureMail`, `syncReviewDoc`, `openReader`, `placeDock`, `generateLetters` (`page-instances.js`), `PpReader` (`pp-reader.js`), `findModel`, `prepareDocument`, `listDocumentModels` (`visa-mail.js`),
   `PdfViewer.mount` (`pdf-viewer.js`), bloc « Étape Notifications — vue Relecture & envoi » de `css/instances.css`, tests
-  `tests/suite-instances-relecture.js`.
+  `tests/suite-instances-relecture.js`, `tests/suite-pp-reader.js` (faux Publipostage+ : `?reading=1`, `?models=`), `tests/suite-redaction.js` (ouverture d'un modèle). `node tests/run-headless.js --only=<texte>` ne joue que les suites dont le nom contient ce texte.
 
 ## Lignes_OPE
 

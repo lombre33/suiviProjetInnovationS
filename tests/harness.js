@@ -105,7 +105,10 @@
 
   global.runAllTests = async function () {
     const results = [];
+    // ?only=<texte> : ne joue que les suites dont le nom contient ce texte (mise au point d'une suite sans rejouer les 60 s des autres ; `node tests/run-headless.js --only=<texte>`).
+    const only = new URLSearchParams(location.search).get('only');
     for (const suite of suites) {
+      if (only && !suite.name.includes(only)) continue;
       for (const test of suite.tests) {
         try {
           if (typeof global.__resetMockGrist === 'function') {

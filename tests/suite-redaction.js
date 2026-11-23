@@ -1429,4 +1429,86 @@
       } finally { resetPage(); }
     });
   });
+  // « Modifier le modèle » de la vue Relecture & envoi des Instances : la page s'ouvre sur un modèle précis, en Édition, et « Retour » ramène à la vue d'origine.
+  describe('Rédaction — ouverture d\'un modèle précis depuis une autre page (Instances)', function () {
+    const editWidget = (query = '') => `${fakeWidget()}?templates=1&modeui=1&reading=1&models=7:Courrier,9:Autre${query}`;
+    const fastPace = () => { window.PageRedaction.readModeTickMs = 15; window.PageRedaction.readModeGiveUpMs = 4000; };
+    const FROM = { modelId: 9, from: 'view-instances', crumb: 'Instances · Relecture & envoi ·' };
+    async function openEditing(opts) {
+      byId('view-instances').classList.remove('hidden');
+      byId('view-administratif').classList.add('hidden');
+      await window.PageRedaction.open(10, opts || FROM);
+    }
+
+    it('ouvre le modèle demandé (liste de publipostage+ + évènement change) et le garde en Édition, sans forcer le mode Lecture', async function () {
+      await withPage(editWidget('&modelsAfter=60&attachAfter=40&finalAfter=250'), async () => {
+        fastPace();
+        await openEditing();
+        await waitFor(() => nested() && nested().opened && nested().opened.includes('9'), 'modèle 9 ouvert', 6000);
+        await wait(400); // le switchMode final de démarrage est passé
+        assertDeepEqual(nested().opened, ['9'], 'le bon modèle, une seule fois');
+        assertEqual(nested().mode, 'edit', 'Édition : le mode Lecture par défaut n\'est pas forcé');
+        assertFalse(nested().modeSwitches.includes('read'), 'aucun clic sur « Mode lecture »');
+        assertEqual(byId('redaction-project').textContent, 'INNOVX');
+        assertEqual(document.querySelector('#view-redaction .redaction-crumb-path').textContent, 'Instances · Relecture & envoi ·');
+        assertFalse(byId('view-redaction').classList.contains('hidden'));
+        assertTrue(byId('view-instances').classList.contains('hidden'));
+      });
+    });
+
+    it('si publipostage+ était resté en Lecture, le bouton « Mode édition » est recliqué ; une fois le modèle ouvert en Édition, plus rien n\'est touché', async function () {
+      await withPage(editWidget('&attachAfter=40&finalAfter=100'), async () => {
+        fastPace();
+        await openEditing();
+        await waitFor(() => nested() && nested().opened && nested().opened.includes('9') && nested().modeSwitches.includes('edit'), 'modèle ouvert', 6000);
+        await wait(300);
+        window.PageRedaction.frame.contentDocument.getElementById('btn-mode-read').click(); // passé en Lecture (par script, pas par une action de la personne)
+        assertEqual(nested().mode, 'read');
+        await openEditing(); // même iframe : le modèle est déjà ouvert, seul le mode est à rétablir
+        await waitFor(() => nested().mode === 'edit', 'Édition rétablie', 4000);
+        assertDeepEqual(nested().opened, ['9'], 'le modèle n\'est pas rouvert');
+        const switches = nested().modeSwitches.length;
+        await wait(300);
+        assertEqual(nested().modeSwitches.length, switches, 'plus aucun clic une fois l\'Édition tenue');
+      });
+    });
+
+    it('« Retour » ramène à la vue d\'origine (pas à Administratif), relit les modèles d\'Instances et recrée l\'iframe : la prochaine ouverture depuis Administratif repart en Lecture', async function () {
+      await withPage(editWidget('&attachAfter=40&finalAfter=100'), async () => {
+        fastPace();
+        await openEditing();
+        await waitFor(() => nested() && nested().opened && nested().opened.includes('9'), 'modèle ouvert', 6000);
+        const calls = [], realClear = window.VisaMail.clearCache, realRender = window.renderInstances;
+        window.VisaMail.clearCache = () => { calls.push('clearCache'); };
+        window.renderInstances = () => { calls.push('renderInstances'); };
+        try {
+          await window.PageRedaction.close();
+        } finally { window.VisaMail.clearCache = realClear; window.renderInstances = realRender; }
+        assertFalse(byId('view-instances').classList.contains('hidden'), 'retour à Instances');
+        assertTrue(byId('view-redaction').classList.contains('hidden'));
+        assertTrue(byId('view-administratif').classList.contains('hidden'), 'pas Administratif');
+        assertDeepEqual(calls, ['clearCache', 'renderInstances'], 'le modèle a pu changer : la relecture relit Publipostage+');
+        assertEqual(window.PageRedaction.frame, null, 'iframe retirée');
+        // Ouverture ordinaire ensuite (depuis Administratif) : crumb par défaut, Lecture par défaut.
+        byId('view-administratif').classList.remove('hidden');
+        useWidget(editWidget('&attachAfter=40&finalAfter=100'));
+        await clickRedact('NOTIFY');
+        await waitFor(() => nested() && nested().mode === 'read' && nested().modeSwitches.includes('edit'), 'Lecture par défaut rétablie', 6000);
+        assertEqual(document.querySelector('#view-redaction .redaction-crumb-path').textContent, 'Administratif · Notifications ·');
+        assertDeepEqual(nested().opened, [], 'aucun modèle imposé à l\'ouverture ordinaire');
+      });
+    });
+
+    it('un modèle absent de la liste : journalisé (diagnostic), la page reste utilisable', async function () {
+      await withPage(editWidget('&attachAfter=40&finalAfter=100'), async () => {
+        fastPace();
+        window.PageRedaction.readModeGiveUpMs = 600;
+        await openEditing({ modelId: 99, from: 'view-instances', crumb: 'Instances ·' });
+        await wait(1200);
+        fireMouse(byId('redaction-status'), 'click');
+        assertIncludes(byId('redaction-log').textContent, 'Modèle demandé par une autre page : modèle #99 introuvable');
+        assertDeepEqual(nested().opened || [], [], 'aucun autre modèle n\'est ouvert à la place');
+      });
+    });
+  });
 })();

@@ -3,7 +3,7 @@
  * Lance la suite tests/index.html en headless (sans navigateur interactif) et
  * affiche le résultat en console avec un code de sortie 0/1.
  *
- * Usage : node tests/run-headless.js [--port 8532]
+ * Usage : node tests/run-headless.js [--port 8532] [--only=<texte> : seulement les suites dont le nom contient ce texte]
  *
  * Dépendance : Playwright, non incluse dans ce dépôt (le widget lui-même reste
  * zéro-dépendance). Ce script tente de le résoudre :
@@ -81,7 +81,8 @@ async function main() {
       page.on('console', msg => browserLogs.push(`[console.${msg.type()}] ${msg.text()}`));
       page.on('pageerror', err => browserLogs.push(`[pageerror] ${err.message}`));
 
-      await page.goto(`${baseUrl}/tests/index.html`, { waitUntil: 'load' });
+      const only = (process.argv.find(a => a.startsWith('--only=')) || '').slice('--only='.length);
+      await page.goto(`${baseUrl}/tests/index.html${only ? '?only=' + encodeURIComponent(only) : ''}`, { waitUntil: 'load' });
       await page.waitForSelector('#test-summary', { timeout: 180000 }); // la suite grossit : 60 s sont devenues justes (≈ 75 s en local)
 
       const summary = await page.$eval('#test-summary', el => ({

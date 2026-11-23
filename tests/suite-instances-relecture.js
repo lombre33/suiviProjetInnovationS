@@ -65,11 +65,13 @@
     fields: { to: 'porteur' + id + '@exemple.fr', cc: 'direction@exemple.fr', bcc: '', subject: 'Notification de financement ' + id }, bodyText: 'Bonjour,\nVoici la notification du projet ' + id + '.'
   });
   function stubVisa(overrides) {
-    const V = window.VisaMail, keys = ['prepare', 'prepareDocument', 'openLink', 'listEmailModels', 'listDocumentModels', 'modelOverview'];
+    const V = window.VisaMail, keys = ['prepare', 'prepareDocument', 'peek', 'openLink', 'listEmailModels', 'listDocumentModels', 'modelOverview']; // (peek : un test le simule, il ne doit pas fuir sur les suivants)
     const view = document.getElementById('view-instances'), wasHidden = view.classList.contains('hidden');
     const host = document.getElementById('app-dom'), hostStyle = host.getAttribute('style');
     const original = {}; keys.forEach(k => { original[k] = V[k]; });
     const log = { prepare: [], doc: [], links: [] };
+    if (V.clearCache) V.clearCache(); // la mémoire de VisaMail (partagée par tout le module) ne doit rien garder d'un test précédent
+    window.InstancesPage._setReader(false); // le courrier lu par Publipostage+ (iframe pilotée) est testé à part : ici, l'aperçu du widget
     window.InstancesPage._setWarm(false); // la préparation en arrière-plan des autres projets fausserait les décomptes de lectures (testée à part)
     Object.assign(V, {
       prepare: async args => { log.prepare.push(args); return DRAFT(args.project.id); },
@@ -80,7 +82,7 @@
       modelOverview: async () => ({ mail: ['Autre mail', 'Notification mail'], letter: ['Courrier notification'], macros: [], total: 3, counts: { email: 2, document: 1 } })
     }, overrides || {});
     return { log, restore() {
-      window.InstancesPage._setWarm(true); Object.assign(V, original); view.classList.toggle('hidden', wasHidden);
+      window.InstancesPage._setWarm(true); window.InstancesPage._setReader(true); Object.assign(V, original); if (V.clearCache) V.clearCache(); view.classList.toggle('hidden', wasHidden);
       if (hostStyle == null) host.removeAttribute('style'); else host.setAttribute('style', hostStyle);
     } };
   }
@@ -699,6 +701,174 @@
         assertIncludes(text('.in-rdoc, .in-panel'), 'Aucun projet relié');
         assertFalse(!!q('.in-rev'));
       } finally { visa.restore(); }
+    });
+  });
+
+  // Le courrier lu par Publipostage+ lui-même (demande d'Antoine du 23/11/2026) : l'iframe de Publipostage+ vit dans un « dock » hors du rendu, posé sur le volet du
+  // courrier ; changer de projet n'envoie que la ligne. Le faux publipostage+ (tests/fake-publipostage.html) joue la lecture épurée ; VisaMail.findModel et
+  // PageRedaction.resolveLinked sont simulés (le choix de la table est testé avec la page Rédaction).
+  describe('Instances — Relecture : courrier lu par Publipostage+ (lecture épurée)', function () {
+    const fakeUrl = query => ({ url: `${location.origin}/tests/fake-publipostage.html?templates=1&modeui=1&reading=1${query || ''}`, origin: location.origin });
+    const PACE = { tickMs: 15, watchMs: 30, giveUpMs: 4000, absentTicks: 8 };
+    const dock = () => q('[data-region="dock"]');
+    const dockFrame = () => dock() && dock().querySelector('iframe');
+    const nestedIn = () => dockFrame().contentWindow.__NESTED__;
+    const slotText = () => text('.in-rdoc .in-rdocview');
+
+    // `reader` : { query (du faux publipostage+), modelId (renvoyé par findModel ; null = modèle introuvable) }.
+    function withReader(visa, reader) {
+      reader = reader || {};
+      const VM = window.VisaMail, PR = window.PageRedaction, saved = { findModel: VM.findModel, resolveLinked: PR.resolveLinked, open: PR.open };
+      const opens = [], found = [];
+      VM.findModel = async name => { found.push(name); return reader.modelId === null ? null : { id: reader.modelId || 7, name, type: 'document' }; };
+      PR.resolveLinked = async project => ({ table: 'Projets', rowId: project.id, why: 'test', info: {} });
+      PR.open = (id, opts) => { opens.push({ id, opts }); return Promise.resolve(); };
+      window.InstancesPage._setReader(true, { target: () => fakeUrl(reader.query || '&models=7:Courrier,9:Autre&attachAfter=20&finalAfter=100'), pace: PACE });
+      return { opens, found, restore() { Object.assign(VM, saved); PR.resolveLinked = saved.resolveLinked; PR.open = saved.open; visa.restore(); } };
+    }
+    // Deux notifications « à signer » (INNOVX 10 et NOTIFY 11) et une signée (CONVENTIX 12).
+    const twoDrafts = { tables: tables => { tables.Notifications.find(n => n.Projet === 11).notifications_Statut = '1) Information projet saisies'; } };
+    const ready = async label => {
+      await waitFor(() => dock() && dock().classList.contains('on') && nestedIn().mode === 'read', label || 'courrier lu par publipostage+', 6000);
+      await wait(150); // le switchMode final de démarrage est passé : la lecture épurée tient
+    };
+
+    it('le courrier est lu par Publipostage+ (lecture épurée) dans une iframe posée sur le volet ; l\'aperçu du widget ne sert pas', async function () {
+      const visa = stubVisa(), r = withReader(visa), undoCss = await useCss();
+      try {
+        await openReview(twoDrafts);
+        await ready();
+        assertEqual(dock().querySelectorAll('iframe').length, 1);
+        assertTrue(dockFrame().contentDocument.body.classList.contains('pp-clean-reading'), 'lecture épurée de Publipostage+');
+        assertDeepEqual(nestedIn().opened, ['7']);
+        assertDeepEqual(r.found, ['Courrier notification'], 'le modèle du courrier de l\'instance est cherché dans la liste de Publipostage+');
+        assertTrue(nestedIn().normal.some(e => e.record.id === 10), 'le projet affiché est la ligne présentée à publipostage+');
+        assertEqual(visa.log.doc.length, 0, 'aucun aperçu refait par le widget');
+        assertFalse(!!sheetHost(), 'pas de feuille du widget sous l\'iframe');
+        const slot = q('.in-rdoc .in-rdocbody').getBoundingClientRect(), d = dock().getBoundingClientRect();
+        assertTrue(Math.abs(slot.left - d.left) <= 1 && Math.abs(slot.top - d.top) <= 1 && Math.abs(slot.width - d.width) <= 1 && Math.abs(slot.height - d.height) <= 1, 'le dock recouvre exactement le volet du courrier');
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('changer de projet dans la colonne de gauche ne recharge pas le courrier : seule la ligne envoyée à Publipostage+ change', async function () {
+      const visa = stubVisa(), r = withReader(visa), undoCss = await useCss();
+      try {
+        await openReview(twoDrafts);
+        await ready();
+        const frame = dockFrame(), doc = frame.contentDocument;
+        click('rev-pick', { id: 11 });
+        await waitFor(() => nestedIn().normal.some(e => e.record.id === 11), 'la ligne du projet cliqué arrive dans publipostage+');
+        assertTrue(dockFrame() === frame && frame.contentDocument === doc, 'même iframe, pas de rechargement');
+        assertEqual(dock().querySelectorAll('iframe').length, 1);
+        assertDeepEqual(nestedIn().opened, ['7'], 'le modèle n\'est pas rouvert');
+        assertTrue(frame.contentDocument.body.classList.contains('pp-clean-reading'), 'toujours en lecture épurée');
+        assertTrue(dock().classList.contains('on'), 'le courrier reste affiché pendant le changement');
+        assertEqual(visa.log.doc.length, 0);
+        click('rev-pick', { id: 10 });
+        await waitFor(() => nestedIn().normal.filter(e => e.record.id === 10).length >= 2, 'retour au premier projet');
+        assertTrue(dockFrame() === frame, 'toujours la même iframe');
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('notification signée : le dock se masque pour la visionneuse PDF ; revenir à une notification à signer le rend, sans recharger', async function () {
+      const visa = stubVisa(), r = withReader(visa), undoCss = await useCss();
+      try {
+        await openReview(twoDrafts);
+        await ready();
+        const frame = dockFrame();
+        click('rev-pick', { id: 12 });
+        await waitFor(() => !dock().classList.contains('on'), 'dock masqué sur une notification signée');
+        assertTrue(!!q('.in-rdoc .in-rdocview') && !sheetHost(), 'la pièce jointe signée a sa place dans le volet');
+        click('rev-pick', { id: 11 });
+        await waitFor(() => dock().classList.contains('on'), 'dock revenu');
+        assertTrue(dockFrame() === frame, 'l\'iframe n\'a pas été recréée');
+        await waitFor(() => nestedIn().normal.some(e => e.record.id === 11), 'ligne envoyée');
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('agrandir le courrier : le dock suit le volet (même iframe), sans nouveau rendu', async function () {
+      const visa = stubVisa(), r = withReader(visa), undoCss = await useCss();
+      try {
+        await openReview(twoDrafts);
+        await ready();
+        const frame = dockFrame(), before = dock().getBoundingClientRect().width;
+        click('rev-big', { v: 'doc' });
+        await waitFor(() => dock().getBoundingClientRect().width > before + 40, 'dock élargi avec le volet');
+        const slot = q('.in-rdoc .in-rdocbody').getBoundingClientRect(), d = dock().getBoundingClientRect();
+        assertTrue(Math.abs(slot.width - d.width) <= 1 && Math.abs(slot.left - d.left) <= 1, 'toujours calé sur le volet');
+        assertTrue(dockFrame() === frame);
+        click('rev-big', { v: 'doc' });
+        await waitFor(() => Math.abs(dock().getBoundingClientRect().width - before) <= 1, 'dock revenu à sa taille');
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('lecture épurée impossible (modèle absent de la liste de Publipostage+) : repli sur l\'aperçu du widget, avec la raison ; aucun nouvel essai à chaque projet', async function () {
+      const visa = stubVisa(), r = withReader(visa, { modelId: 99 }), undoCss = await useCss();
+      try {
+        await openReview(twoDrafts);
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu du widget en repli', 6000);
+        assertIncludes(slotText(), 'lecture épurée de Publipostage+ est indisponible');
+        assertIncludes(slotText(), 'pas dans la liste');
+        assertIncludes(sheetHost().shadowRoot.textContent, 'courrier du projet 10');
+        assertFalse(dock().classList.contains('on'), 'le dock est masqué');
+        const frames = dock().querySelectorAll('iframe').length;
+        click('rev-pick', { id: 11 });
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot.textContent.includes('projet 11'), 'aperçu du projet suivant');
+        assertEqual(dock().querySelectorAll('iframe').length, frames, 'pas de nouvelle iframe tant qu\'on ne relit pas');
+        // « Relire » : on réessaie avec une iframe neuve.
+        window.VisaMail.findModel = async name => ({ id: 7, name, type: 'document' });
+        click('rev-refresh');
+        await ready('lecture épurée après « Relire »');
+        assertEqual(dock().querySelectorAll('iframe').length, 1);
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('publipostage+ introuvable (VisaMail.findModel absent) : l\'aperçu du widget sert, comme avant', async function () {
+      const visa = stubVisa(), r = withReader(visa), undoCss = await useCss();
+      try {
+        window.VisaMail.findModel = undefined;
+        await openReview(twoDrafts);
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu du widget');
+        assertFalse(slotText().includes('indisponible'), 'pas d\'avertissement : aucun lecteur n\'a été tenté');
+        assertEqual(dock().querySelectorAll('iframe').length, 0);
+      } finally { r.restore(); undoCss(); }
+    });
+
+    it('« Modifier le modèle » : sur le mail et sur le courrier, ouvre la page Rédaction sur ce modèle pour le projet affiché, « Retour » ramène ici', async function () {
+      const visa = stubVisa(), r = withReader(visa, { query: '&models=7:Courrier' });
+      try {
+        await openReview(twoDrafts);
+        await waitFor(() => q('.in-rmail [data-act="rev-edit-model"]') && q('.in-rdoc [data-act="rev-edit-model"]'), 'boutons');
+        assertEqual(q('.in-rdoc [data-act="rev-edit-model"]').getAttribute('aria-label'), 'Modifier le modèle');
+        assertIncludes(q('.in-rdoc [data-act="rev-edit-model"]').title, 'Courrier notification');
+        assertIncludes(q('.in-rmail [data-act="rev-edit-model"]').title, 'Notification mail');
+        click('rev-edit-model', { v: 'doc' });
+        await waitFor(() => r.opens.length === 1, 'ouverture de la page Rédaction');
+        assertEqual(r.opens[0].id, 10);
+        assertEqual(r.opens[0].opts.modelId, 7);
+        assertEqual(r.opens[0].opts.from, 'view-instances');
+        assertIncludes(r.opens[0].opts.crumb, 'Instances');
+        click('rev-edit-model', { v: 'mail' });
+        await waitFor(() => r.opens.length === 2, 'seconde ouverture');
+        assertEqual(r.found[r.found.length - 1], 'Notification mail', 'le modèle du mail est cherché, pas celui du courrier');
+        click('rev-pick', { id: 11 });
+        await waitFor(() => text('.in-rbody').includes('projet 11'), 'projet suivant');
+        click('rev-edit-model', { v: 'doc' });
+        await waitFor(() => r.opens.length === 3, 'ouverture pour l\'autre projet');
+        assertEqual(r.opens[2].id, 11, 'le projet affiché est celui qui est ouvert');
+      } finally { r.restore(); }
+    });
+
+    it('« Modifier le modèle » : grisé quand aucun modèle n\'est choisi ; absent du courrier d\'une notification signée (la PJ ne se modifie pas)', async function () {
+      const visa = stubVisa(), r = withReader(visa);
+      try {
+        await openReview({ models: false });
+        await waitFor(() => q('.in-rmail [data-act="rev-edit-model"]'), 'bouton du mail');
+        assertTrue(q('.in-rmail [data-act="rev-edit-model"]').disabled && q('.in-rdoc [data-act="rev-edit-model"]').disabled, 'sans modèle, les deux sont grisés');
+        click('rev-pick', { id: 12 });
+        assertFalse(!!q('.in-rdoc [data-act="rev-edit-model"]'), 'notification signée : pas de bouton sur le courrier');
+        assertEqual(r.opens.length, 0);
+      } finally { r.restore(); }
     });
   });
 

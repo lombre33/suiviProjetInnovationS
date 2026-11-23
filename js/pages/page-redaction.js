@@ -50,6 +50,8 @@
   const ui = {
     frame: null, bridge: null, target: null, readyTimer: null, timedOut: false, projectId: null, needsReload: false,
     readModeTimer: null, readModeNote: null,
+    from: null,       // la vue d'où l'on vient (« Retour » y ramène) : null = Administratif ; d'autres pages ouvrent la rédaction d'un modèle (cf. open)
+    editTimer: null, editNote: null, // pilotage de l'ouverture d'un modèle précis en Édition (cf. openInEditor)
     vars: newVars(),
     linked: null,     // {table, rowId, why, missing} : la ligne présentée à publipostage+ (cf. resolveLinked)
     info: null,       // promesse de loadInfo() : lue une fois par ouverture de la page (« Recharger » la relit)
@@ -306,7 +308,8 @@
       ...varsLines(),
       `État : ${state ? (PHASE_LABELS[state.phase] || state.phase) : 'non démarré'}`,
       ...(hint ? [hint] : []),
-      `Mode Lecture par défaut : ${ui.readModeNote || 'non démarré'}`,
+      `Mode Lecture par défaut : ${ui.readModeNote || (ui.wantEdit ? 'non appliqué (modèle ouvert pour être modifié)' : 'non démarré')}`,
+      ...(ui.editNote ? [`Modèle demandé par une autre page : ${ui.editNote}`] : []),
       ''
     ];
     const entries = ui.bridge ? ui.bridge.getLog().slice(-60).map(e => `${e.at.slice(11, 19)} ${e.kind.padEnd(6)} ${e.text}`) : [];
@@ -560,7 +563,7 @@
       onWrite: () => { ui.needsReload = true; flushReload(); scheduleTemplateAnalysis(); }
     });
     frame.src = ui.target.url;
-    keepReadMode(frame);
+    if (!ui.wantEdit) keepReadMode(frame); // un modèle ouvert pour être modifié reste en Édition
     watchTemplate(frame);
     ui.readyTimer = setTimeout(() => {
       if (ui.bridge && !ui.bridge.getState().ready && ui.bridge.getState().phase !== 'rejected') {
@@ -612,16 +615,65 @@
     renderDiag();
   }
 
+  // --- Ouvrir un modèle précis pour le modifier (bouton « Modifier le modèle » de la vue Relecture & envoi des Instances) ---
+  // Même pilotage que keepReadMode, en sens inverse : le modèle est demandé à la liste de publipostage+ (#template-select, évènement `change` : le chemin
+  // ordinaire) et son mode Édition est rétabli (le bouton « Mode édition » est cliqué s'il n'est pas actif). Dès que la personne agit dans publipostage+,
+  // plus rien n'est forcé. Sans effet, et journalisé, si la page est d'une autre origine.
+  const EDIT_BUTTON_ID = 'btn-mode-edit';
+  function setEditNote(note) {
+    if (ui.editNote === note) return;
+    ui.editNote = note;
+    renderDiag();
+  }
+  function openInEditor(modelId) {
+    clearInterval(ui.editTimer);
+    setEditNote(`en attente de publipostage+ (modèle #${modelId})`);
+    const startedAt = Date.now();
+    let acted = false, listened = null;
+    const onAct = () => { acted = true; };
+    const stop = note => { clearInterval(ui.editTimer); ui.editTimer = null; setEditNote(note); };
+    ui.editTimer = setInterval(() => {
+      const frame = ui.frame;
+      if (!frame || !frame.isConnected) { stop('iframe retirée'); return; }
+      const doc = frameDocument(frame);
+      if (!doc) { stop('page imbriquée d\'une autre origine : son interface ne se pilote pas'); return; }
+      if (doc !== listened) { listened = doc; ['pointerdown', 'keydown'].forEach(type => doc.addEventListener(type, onAct, true)); }
+      if (acted) { stop('arrêté : la personne agit dans publipostage+'); return; }
+      if (!ui.bridge || !ui.bridge.getState().ready) return;
+      const state = window.PpReader ? window.PpReader.selectModel(frame, modelId) : 'foreign';
+      if (state === 'foreign') { stop('pilotage indisponible (js/components/pp-reader.js non chargé)'); return; }
+      if (state === 'waiting' || state === 'absent') {
+        if (Date.now() - startedAt >= api.readModeGiveUpMs) stop(`modèle #${modelId} introuvable dans la liste de publipostage+ (délai dépassé)`);
+        return;
+      }
+      const edit = doc.getElementById(EDIT_BUTTON_ID);
+      if (edit && !edit.classList.contains('active')) edit.click(); // sans effet tant que publipostage+ n'a pas branché son bouton : prochain passage
+      if (state === 'ok' && (!edit || edit.classList.contains('active'))) stop(`modèle #${modelId} ouvert en Édition`);
+    }, api.readModeTickMs);
+  }
+
+  const DEFAULT_CRUMB_PATH = 'Administratif · Notifications ·';
   // Retourne la promesse de l'ouverture (la vue, elle, s'affiche tout de suite).
-  function open(projectId) {
+  // options (facultatif) : { modelId : le modèle à ouvrir pour le modifier (Édition), from : l'id de la vue où « Retour » ramène (défaut Administratif),
+  //   crumb : le début du fil d'ariane }.
+  function open(projectId, options) {
     const project = findProject(projectId);
     if (!project) { window.CoreUtils?.showToast('Projet introuvable', true); return Promise.resolve(); }
+    const opts = options && typeof options === 'object' ? options : {};
     ui.projectId = project.id;
+    ui.from = opts.from || null;
+    ui.wantEdit = opts.modelId != null;
+    ui.editNote = null;
+    if (ui.wantEdit) { clearInterval(ui.readModeTimer); ui.readModeTimer = null; } // le pilotage du mode Lecture d'une ouverture précédente ne doit pas défaire l'Édition
     setCrumb(project);
+    const path = document.querySelector('#view-redaction .redaction-crumb-path');
+    if (path) path.textContent = opts.crumb || DEFAULT_CRUMB_PATH;
     showOnly(REDACTION_VIEW_ID);
     renderDiag();
     const token = ++ui.openToken;
-    ui.opening = present(project, token).catch(err => {
+    ui.opening = present(project, token).then(() => {
+      if (token === ui.openToken && ui.wantEdit && ui.frame) openInEditor(opts.modelId);
+    }).catch(err => {
       console.error('Ouverture de la page Rédaction échouée :', err);
       window.CoreUtils?.showToast(`Impossible d'ouvrir publipostage+ : ${err.message}`, true);
     });
@@ -657,7 +709,21 @@
 
   function close() {
     closeVars();
-    showOnly(ADMIN_VIEW_ID);
+    clearInterval(ui.editTimer);
+    ui.editTimer = null;
+    ui.editNote = null;
+    const from = ui.from;
+    ui.from = null;
+    ui.wantEdit = false;
+    showOnly(from || ADMIN_VIEW_ID);
+    // Revenu d'une autre page (Instances : « Modifier le modèle ») : le modèle a pu changer, la page relit ses lectures de Publipostage+.
+    if (from) {
+      window.VisaMail?.clearCache?.();
+      window.renderInstances?.();
+      const reload = flushReload();
+      dropFrame(); // elle était en Édition sur un autre modèle : la prochaine ouverture depuis Administratif repart de l'iframe neuve, en Lecture
+      return reload;
+    }
     return flushReload();
   }
 
@@ -718,7 +784,7 @@
   }
 
   const api = {
-    open, close, reset, resolveTarget,
+    open, close, reset, resolveTarget, resolveLinked,
     setTable: storeChoice, forgetTable: forgetChoice, // le choix du sélecteur, sans passer par l'interface (tests)
     readyTimeoutMs: 10000, // délai avant d'afficher "ne répond pas" (modifiable, notamment par les tests)
     // Pas et durée du pilotage du mode Lecture (cf. keepReadMode) : le démarrage de publipostage+ charge TipTap depuis esm.sh puis

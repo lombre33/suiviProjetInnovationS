@@ -357,7 +357,12 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 }
 .in-root *,.in-root *::before,.in-root *::after{box-sizing:border-box}
 .in-root{display:block}
-.in-wrap{display:flex;flex-direction:column;gap:12px}
+.in-wrap{position:relative;display:flex;flex-direction:column;gap:12px}
+/* Dock de Publipostage+ (lecture épurée du courrier) : hors du rendu, posé par-dessus le volet du courrier par JS (placeDock) ; invisible tant qu'il n'est pas prêt. */
+.in-ppdock{position:absolute;z-index:2;left:0;top:0;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none;background:#fff;transition:opacity .12s}
+.in-ppdock.on{visibility:visible;pointer-events:auto}
+.in-ppdock.busy{opacity:.55}
+.in-ppdock iframe{display:block;width:100%;height:100%;border:0}
 .in-loading{padding:40px;text-align:center;color:var(--muted);font-weight:600}
 
 /* Visionneuse du compte rendu (PDF GFS) */
@@ -506,6 +511,11 @@ select.in-inp{padding-right:28px}
 .in-inp.in-mfield{flex:1 1 180px;width:0;min-width:170px;max-width:260px;text-overflow:ellipsis}
 .in-rzim{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
 .in-rzim input{margin:0;accent-color:var(--accent)}
+/* « Modifier le modèle » : un crayon seul tant que le volet est étroit (l'en-tête reste sur une ligne), avec son libellé dès que la place le permet. */
+.in-rpane{container:rpane / inline-size}
+.in-editbtn{flex:none;padding:0 9px;gap:0}
+.in-editbtn .in-elabel{display:none}
+@container rpane (min-width: 640px){.in-editbtn{padding:0 14px;gap:7px}.in-editbtn .in-elabel{display:inline}}
 .in-rdocbody{position:relative;flex:1 1 auto;min-height:420px;background:var(--sunken)}
 .in-rdocview{position:absolute;inset:0;overflow:auto;padding:0}
 .in-rdocview>.in-rissues{position:sticky;top:0;z-index:1}

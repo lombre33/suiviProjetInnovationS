@@ -714,6 +714,19 @@
     catch (err) { throw Object.assign(codedError('models-table-missing', `Table des modèles introuvable dans le document (${err.message})`), { detail: err.message }); }
     return read.rows.map(modelOf).filter(model => model.type !== 'reglages' && model.name.trim());
   }
+  // Le modèle de ce nom (identifiant de sa ligne, type) : ce qu'il faut pour demander à Publipostage+ de l'ouvrir (la liste #template-select porte les identifiants).
+  // Plusieurs modèles de même nom : le premier, comme partout ailleurs. null quand aucun ne porte ce nom. `cache` : la mémoire partagée de la vue Relecture & envoi.
+  async function findModel(name, options) {
+    const reads = options && options.cache ? sharedCache().reads : null;
+    const rows = table => {
+      if (!reads) return CoreGrist.getTable(table);
+      if (!reads.has(table)) reads.set(table, CoreGrist.getTable(table));
+      return reads.get(table);
+    };
+    const found = (await loadModels({ rows })).find(model => model.name === name);
+    return found ? { id: found.id, name: found.name, type: found.type } : null;
+  }
+
   // Les noms des modèles de type « e-mail » (Publipostage+), par ordre alphabétique.
   async function listEmailModels() {
     const env = { rows: name => CoreGrist.getTable(name) };
@@ -961,7 +974,7 @@
 
   global.VisaMail = {
     CLIENTS, MODELS_TABLE, SAFE_URL_LENGTH,
-    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, issueText, openLink, peek, clearCache,
+    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, findModel, issueText, openLink, peek, clearCache,
     // Exposés pour les tests.
     buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate, sanitizeHtml
   };

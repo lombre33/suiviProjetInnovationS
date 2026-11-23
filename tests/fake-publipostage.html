@@ -12,10 +12,19 @@
   // grist.ready() ci-dessous : chez publipostage+ le <select> est dans le HTML de la page, donc présent dès que le widget se dit prêt.
   (function () {
     if (!new URLSearchParams(location.search).has('templates')) return;
+    var params = new URLSearchParams(location.search);
     var select = document.createElement('select');
     select.id = 'template-select';
     select.innerHTML = '<option value="">— Nouveau modèle —</option>';
     document.body.appendChild(select);
+    // ?models=7:Courrier,9:Autre : options de la liste, ajoutées ?modelsAfter=ms après le chargement (la vraie liste se remplit de façon asynchrone).
+    if (params.get('models')) setTimeout(function () {
+      params.get('models').split(',').forEach(function (pair) {
+        var at = pair.indexOf(':'), option = document.createElement('option');
+        option.value = pair.slice(0, at); option.textContent = pair.slice(at + 1);
+        select.appendChild(option);
+      });
+    }, Number(params.get('modelsAfter') || 0));
   })();
 </script>
 <!-- Widget imbriqué de test. Il charge le VRAI client grist-plugin-api de Grist (vendor/, cf. vendor/README.md) et s'abonne comme le
@@ -57,10 +66,24 @@
     document.body.appendChild(edit);
     document.body.appendChild(read);
     function switchMode(mode) {
+      // ?reading=1 : la lecture épurée de publipostage+ (js/clean-reading.js) : classe de <body> posée par le bouton Mode lecture une fois la ligne « Lecture épurée » cochée.
+      if (params.has('reading')) document.body.classList.toggle('pp-clean-reading', mode === 'read' && !!nested.cleanChosen);
       nested.mode = mode;
       nested.modeSwitches.push(mode);
       edit.classList.toggle('active', mode === 'edit');
       read.classList.toggle('active', mode === 'read');
+    }
+    if (params.has('reading')) {
+      // Menu du bouton Mode lecture (index.html de publipostage+ : #v2-read-flyout, lignes .v2-hover-row[data-read-choice]) ; modèle ouvert noté à chaque évènement change.
+      nested.cleanChosen = false; nested.opened = [];
+      var fly = document.createElement('div');
+      fly.id = 'v2-read-flyout';
+      fly.innerHTML = '<div class="v2-hover-row" data-read-choice="standard">Lecture</div><div class="v2-hover-row" data-read-choice="clean">Lecture épurée</div>';
+      document.body.appendChild(fly);
+      fly.querySelector('[data-read-choice="clean"]').addEventListener('click', function () { nested.cleanChosen = true; });
+      fly.querySelector('[data-read-choice="standard"]').addEventListener('click', function () { nested.cleanChosen = false; });
+      var picker = document.getElementById('template-select');
+      if (picker) picker.addEventListener('change', function () { nested.opened.push(picker.value); });
     }
     setTimeout(function () {
       edit.addEventListener('click', function () { switchMode('edit'); });
