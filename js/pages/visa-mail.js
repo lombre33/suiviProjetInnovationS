@@ -676,6 +676,17 @@
     return names.sort((a, b) => a.localeCompare(b, 'fr')).map(name => ({ name }));
   }
 
+  // Ce que le widget voit dans Publipostage_Modeles, pour proposer les modèles dans un paramétrage et dire quoi en cas de liste vide :
+  // les noms des modèles e-mail et document, le nombre de modèles lus et leur répartition par type. Lève 'models-table-missing' si la table manque.
+  async function modelOverview() {
+    const env = { rows: name => CoreGrist.getTable(name) };
+    const models = await loadModels(env);
+    const namesOf = type => Array.from(new Set(models.filter(model => model.type === type).map(model => model.name))).sort((a, b) => a.localeCompare(b, 'fr'));
+    const counts = {};
+    models.forEach(model => { counts[model.type] = (counts[model.type] || 0) + 1; });
+    return { mail: namesOf(MAIL_TYPE), letter: namesOf(DOCUMENT_TYPE), total: models.length, counts };
+  }
+
   // Les lignes d'où lire une variable : la fiche Notifications du projet d'abord (la table de la vue Publipostage+ habituelle), puis le projet.
   async function contextsFor(env, projectRow) {
     const contexts = [];
@@ -770,7 +781,7 @@
 
   global.VisaMail = {
     CLIENTS, MODELS_TABLE, SAFE_URL_LENGTH,
-    prepare, prepareDocument, listEmailModels, listDocumentModels, issueText, openLink,
+    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, issueText, openLink,
     // Exposés pour les tests.
     buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate, sanitizeHtml
   };

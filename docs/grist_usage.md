@@ -486,6 +486,13 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   volet n'est pas relu à chaque rendu (case cochée, clic).
 - **« Tout générer (n) »** (sous la liste, pour les courriers cochés) ouvre les courriers dans **une page à imprimer, un par feuille**
   (impression ou « Enregistrer en PDF ») : le widget ne pilote pas l'export PDF de Publipostage+. Il n'enregistre ni ne marque rien.
+- **Choix des modèles (23/11/2026, correction)** : les quatre modèles du paramétrage de l'instance (invitation, envoi du CR, mail et
+  courrier de notification) se choisissent dans une **liste déroulante lue dans `Publipostage_Modeles`** (`VisaMail.modelOverview` :
+  type `email` pour les trois mails, `document` pour le courrier, ligne `reglages` exclue) ; la liste native (`datalist`) ne s'ouvrait pas
+  au clic et l'ancienne source (`GFS_Fichiers`, les PDF que GFS garde) ne contient pas de modèles. Un modèle enregistré mais absent de la
+  table reste affiché « (introuvable dans Publipostage+) ». Table absente ou aucun modèle de ce type : champ libre, et sous les champs le
+  widget dit ce qu'il a vu (« la table Publipostage_Modeles n'existe pas dans ce document » ou « Aucun modèle de type e-mail trouvé
+  (4 modèles lus : document 3, presentation 1) »).
 - Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
   `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`. Non validé dans un vrai Grist (le proxy de ce projet
   n'atteint ni Publipostage+ ni les pièces jointes). Code : `notifReviewState`, `pickReviewItem` (`instances-logic.js`), `reviewHtml`,

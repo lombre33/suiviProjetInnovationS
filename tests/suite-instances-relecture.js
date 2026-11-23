@@ -65,7 +65,7 @@
     fields: { to: 'porteur' + id + '@exemple.fr', cc: 'direction@exemple.fr', bcc: '', subject: 'Notification de financement ' + id }, bodyText: 'Bonjour,\nVoici la notification du projet ' + id + '.'
   });
   function stubVisa(overrides) {
-    const V = window.VisaMail, keys = ['prepare', 'prepareDocument', 'openLink', 'listEmailModels', 'listDocumentModels'];
+    const V = window.VisaMail, keys = ['prepare', 'prepareDocument', 'openLink', 'listEmailModels', 'listDocumentModels', 'modelOverview'];
     const view = document.getElementById('view-instances'), wasHidden = view.classList.contains('hidden');
     const host = document.getElementById('app-dom'), hostStyle = host.getAttribute('style');
     const original = {}; keys.forEach(k => { original[k] = V[k]; });
@@ -75,7 +75,8 @@
       prepareDocument: async args => { log.doc.push(args); return { html: '<p>Madame, Monsieur, courrier du projet ' + args.project.id + '</p>', issues: [], modelName: args.modelName }; },
       openLink: url => { log.links.push(url); },
       listEmailModels: async () => [{ name: 'Notification mail' }, { name: 'Autre mail' }],
-      listDocumentModels: async () => [{ name: 'Courrier notification' }]
+      listDocumentModels: async () => [{ name: 'Courrier notification' }],
+      modelOverview: async () => ({ mail: ['Autre mail', 'Notification mail'], letter: ['Courrier notification'], total: 3, counts: { email: 2, document: 1 } })
     }, overrides || {});
     return { log, restore() {
       Object.assign(V, original); view.classList.toggle('hidden', wasHidden);
@@ -464,21 +465,83 @@
       } finally { visa.restore(); }
     });
 
-    it('paramétrage : les deux modèles des notifications se proposent depuis Publipostage+ et s\'enregistrent dans Instances', async function () {
+    it('paramétrage : les quatre modèles (invitation, CR, mail et courrier de notification) se choisissent dans une liste lue dans Publipostage+', async function () {
       const visa = stubVisa();
+      try {
+        await setup(relectureOpts({ models: false, rows: d => { d.Instances[0].Modele_invitation = ''; } }));
+        click('settings-open');
+        await waitFor(() => q('select[data-f="Modele_notification"]'), 'listes de modèles');
+        const options = f => qa('select[data-f="' + f + '"] option').map(o => o.value);
+        assertDeepEqual(options('Modele_invitation'), ['', 'Autre mail', 'Notification mail'], 'invitation : les modèles e-mail');
+        assertDeepEqual(options('Modele_CR'), ['', 'Autre mail', 'Notification mail'], 'envoi du CR : les modèles e-mail');
+        assertDeepEqual(options('Modele_notification'), ['', 'Autre mail', 'Notification mail']);
+        assertDeepEqual(options('Modele_courrier_notification'), ['', 'Courrier notification'], 'courrier : les modèles de type document');
+        assertFalse(!!q('datalist'), 'plus de liste native, qui ne s\'ouvre pas au clic');
+        assertEqual(text('.in-dlg .in-rnote') || '', '', 'aucun avertissement quand tout est lu');
+        const choose = (f, value) => { const el = q('select[data-f="' + f + '"]'); el.value = value; fire(el, 'change'); };
+        choose('Modele_notification', 'Autre mail');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_notification, 'Autre mail');
+        choose('Modele_courrier_notification', 'Courrier notification');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_courrier_notification, 'Courrier notification');
+        choose('Modele_invitation', 'Notification mail');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_invitation, 'Notification mail');
+        choose('Modele_notification', '');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_notification, '', 'le choix se vide');
+      } finally { visa.restore(); }
+    });
+
+    it('paramétrage : un modèle déjà enregistré mais disparu de Publipostage+ reste visible, marqué « introuvable »', async function () {
+      const visa = stubVisa();
+      try {
+        await setup(relectureOpts({ rows: d => { d.Instances[0].Modele_notification = 'Ancien modèle'; } }));
+        click('settings-open');
+        await waitFor(() => q('select[data-f="Modele_notification"]'), 'listes de modèles');
+        const select = q('select[data-f="Modele_notification"]');
+        assertEqual(select.value, 'Ancien modèle');
+        assertIncludes(select.selectedOptions[0].textContent, 'introuvable dans Publipostage+');
+      } finally { visa.restore(); }
+    });
+
+    it('paramétrage : table Publipostage_Modeles absente → champ libre et la cause est écrite sous les champs', async function () {
+      const visa = stubVisa({ modelOverview: async () => { throw Object.assign(new Error('x'), { code: 'models-table-missing' }); } });
       try {
         await setup(relectureOpts({ models: false }));
         click('settings-open');
-        await waitFor(() => qa('#in-modeles-notif-mail option').length === 2, 'modèles lus');
-        assertDeepEqual(qa('#in-modeles-notif-mail option').map(o => o.value), ['Notification mail', 'Autre mail']);
-        assertDeepEqual(qa('#in-modeles-notif-lettre option').map(o => o.value), ['Courrier notification']);
-        const mailInput = q('input[data-f="Modele_notification"]');
-        setValue(mailInput, 'Autre mail'); fire(mailInput, 'change');
-        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_notification, 'Autre mail');
-        const letterInput = q('input[data-f="Modele_courrier_notification"]');
-        setValue(letterInput, 'Courrier notification'); fire(letterInput, 'change');
-        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_courrier_notification, 'Courrier notification');
+        await waitFor(() => q('.in-rnote.in-warn'), 'avertissement');
+        assertIncludes(text('.in-rnote.in-warn'), 'la table Publipostage_Modeles n\'existe pas dans ce document');
+        assertEqual(qa('.in-rnote.in-warn').length, 2, 'sous chacun des deux groupes de modèles');
+        ['Modele_invitation', 'Modele_CR', 'Modele_notification', 'Modele_courrier_notification'].forEach(f => assertTrue(!!q('input[type="text"][data-f="' + f + '"]'), f + ' : champ libre'));
+        const input = q('input[data-f="Modele_notification"]');
+        setValue(input, 'Mon modèle'); fire(input, 'change');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_notification, 'Mon modèle');
       } finally { visa.restore(); }
+    });
+
+    it('paramétrage : des modèles lus mais aucun de ce type → le nombre lu et leur répartition par type sont dits', async function () {
+      const visa = stubVisa({ modelOverview: async () => ({ mail: [], letter: ['Courrier notification'], total: 4, counts: { document: 3, presentation: 1 } }) });
+      try {
+        await setup(relectureOpts({ models: false }));
+        click('settings-open');
+        await waitFor(() => q('.in-rnote.in-warn'), 'avertissement');
+        assertIncludes(text('.in-rnote.in-warn'), 'Aucun modèle de type e-mail trouvé dans Publipostage+ (4 modèles lus : document 3, presentation 1)');
+        assertTrue(!!q('select[data-f="Modele_courrier_notification"]'), 'le courrier a sa liste');
+        assertTrue(!!q('input[type="text"][data-f="Modele_notification"]'), 'le mail garde un champ libre');
+      } finally { visa.restore(); }
+    });
+
+    it('paramétrage, sans simulation : la liste vient de la vraie table Publipostage_Modeles du document (réglages exclus, types séparés)', async function () {
+      await setup(relectureOpts({ models: false }));
+      const rows = [
+        { id: 1, Nom: 'Notification', TypeModele: 'email' }, { id: 2, Nom: 'Courrier', TypeModele: 'document' }, { id: 3, Nom: 'Réglages', TypeModele: 'reglages' },
+        { id: 4, Nom: 'Diapo', TypeModele: 'presentation' }, { id: 5, Nom: 'Accord', TypeModele: 'email' }
+      ];
+      const table = { id: rows.map(r => r.id) };
+      ['Nom', 'TypeModele', 'Contenu', 'Objet', 'Destinataires', 'Cc', 'Cci'].forEach(k => { table[k] = rows.map(r => r[k] || ''); });
+      window.__mockSetTable('Publipostage_Modeles', table);
+      click('settings-open');
+      await waitFor(() => q('select[data-f="Modele_notification"]'), 'listes de modèles');
+      assertDeepEqual(qa('select[data-f="Modele_notification"] option').map(o => o.value), ['', 'Accord', 'Notification']);
+      assertDeepEqual(qa('select[data-f="Modele_courrier_notification"] option').map(o => o.value), ['', 'Courrier']);
     });
 
     it('un projet sans lien avec la séance : « Aucun projet relié » à la place des trois volets', async function () {

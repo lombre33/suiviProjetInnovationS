@@ -778,9 +778,9 @@
     const R = S.ui.rev;
     if (R.models !== undefined || !global.VisaMail) return;
     R.models = null; // lecture en cours
-    Promise.all([global.VisaMail.listEmailModels(), global.VisaMail.listDocumentModels()])
-      .then(([mails, letters]) => { R.models = { mail: mails.map(x => x.name), letter: letters.map(x => x.name) }; if (S.ui.settings) render(); })
-      .catch(() => { R.models = { mail: [], letter: [] }; });
+    global.VisaMail.modelOverview()
+      .then(o => { R.models = o; if (S.ui.settings) render(); })
+      .catch(err => { R.models = { mail: [], letter: [], total: 0, counts: {}, error: err }; if (S.ui.settings) render(); });
   }
 
   function notifVueSeg(V) {
@@ -995,18 +995,33 @@
       + '<div class="rel"><button type="button" class="addb" title="Ajouter un invité permanent" aria-label="Ajouter un invité permanent" ' + da('menu', { v: 'permpick' }) + '>' + ic('plus', 'xs') + '</button>'
       + (isOpen('permpick') ? '<div class="menu">' + filterInput('Rechercher une personne…') + pick(m.people.filter(pp => cfg.permanents.indexOf(pp.id) < 0), 'cfg-perm-add') + '</div>' : '') + '</div></div></div>';
     h += compositionSettingsHtml(V);
+    // Modèles Publipostage+ (table Publipostage_Modeles) : une liste déroulante quand le widget les a lus ; sinon un champ libre, et ce que le
+    // widget a vu est dit sous le champ (table absente, aucun modèle de ce type…).
+    const mods = S.ui.rev.models;
+    const modelField = (f, value, ph, kind) => {
+      const list = mods && !mods.error ? mods[kind] : [];
+      if (!list.length) return '<input type="text" class="inp mfield" placeholder="' + esc(ph) + '" aria-label="' + esc(ph) + '" value="' + esc(value) + '" data-chg="cfg-mod" data-f="' + f + '">';
+      return '<select class="inp mfield" aria-label=""' + esc(ph) + '" data-chg="cfg-mod" data-f="' + f + '"><option value="">— ' + esc(ph) + ' —</option>'
+        + (!value || list.indexOf(value) >= 0 ? '' : '<option value="' + esc(value) + '" selected>' + esc(value) + ' (introuvable dans Publipostage+)</option>')
+        + list.map(n => '<option value="' + esc(n) + '"' + (n === value ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>';
+    };
+    const modelsNotice = kinds => {
+      if (!mods) return '<div class="psub rnote">Lecture des modèles de Publipostage+…</div>';
+      if (mods.error) return '<div class="psub rnote warn" role="status">Modèles de Publipostage+ illisibles : ' + esc(reviewErrorText(mods.error)) + '. Tapez le nom du modèle.</div>';
+      const KIND = { mail: 'e-mail', letter: 'document' };
+      const empty = kinds.filter(k => !mods[k].length).map(k => KIND[k]);
+      if (!empty.length) return '';
+      const counts = Object.keys(mods.counts).map(t => t + ' ' + mods.counts[t]).join(', ');
+      return '<div class="psub rnote warn" role="status">Aucun modèle de type ' + empty.join(' ni ') + ' trouvé dans Publipostage+ (' + (mods.total ? mods.total + ' modèle' + (mods.total > 1 ? 's' : '') + ' lu' + (mods.total > 1 ? 's' : '') + ' : ' + esc(counts) : 'table vide') + '). Tapez le nom du modèle.</div>';
+    };
     h += '<div class="fgrp">' + lbl('Modèles de mail', 'Modele_invitation', 'Modele_CR') + '<div class="rowf">' + ic('mail')
-      + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'invitation" aria-label="Modèle d\'invitation" value="' + esc(cfg.modInvitation) + '" data-chg="cfg-mod" data-f="Modele_invitation">'
-      + ic('send') + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'envoi du compte rendu" aria-label="Modèle d\'envoi du compte rendu" value="' + esc(cfg.modCr) + '" data-chg="cfg-mod" data-f="Modele_CR">'
-      + '<datalist id="in-modeles">' + m.gfs.map(f => '<option value="' + esc(f.nom) + '"></option>').join('') + '</datalist></div></div>';
+      + modelField('Modele_invitation', cfg.modInvitation, 'Modèle d\'invitation', 'mail')
+      + ic('send') + modelField('Modele_CR', cfg.modCr, 'Modèle d\'envoi du compte rendu', 'mail') + '</div>' + modelsNotice(['mail']) + '</div>';
     // Notifications : le mail (modèle e-mail de Publipostage+) et le courrier (modèle document) lus par la vue « Relecture & envoi ».
     if (cfg.steps.indexOf('notifs') >= 0) {
-      const names = S.ui.rev.models || { mail: [], letter: [] };
       h += '<div class="fgrp">' + lbl('Modèles des notifications', 'Modele_notification', 'Modele_courrier_notification') + '<div class="rowf">' + ic('mail')
-        + '<input type="text" class="inp" list="in-modeles-notif-mail" placeholder="Modèle du mail de notification" aria-label="Modèle du mail de notification" value="' + esc(cfg.modNotif) + '" data-chg="cfg-mod" data-f="Modele_notification">'
-        + ic('fileLines') + '<input type="text" class="inp" list="in-modeles-notif-lettre" placeholder="Modèle du courrier de notification" aria-label="Modèle du courrier de notification" value="' + esc(cfg.modCourrier) + '" data-chg="cfg-mod" data-f="Modele_courrier_notification">'
-        + '<datalist id="in-modeles-notif-mail">' + names.mail.map(n => '<option value="' + esc(n) + '"></option>').join('') + '</datalist>'
-        + '<datalist id="in-modeles-notif-lettre">' + names.letter.map(n => '<option value="' + esc(n) + '"></option>').join('') + '</datalist></div></div>';
+        + modelField('Modele_notification', cfg.modNotif, 'Modèle du mail de notification', 'mail')
+        + ic('fileLines') + modelField('Modele_courrier_notification', cfg.modCourrier, 'Modèle du courrier de notification', 'letter') + '</div>' + modelsNotice(['mail', 'letter']) + '</div>';
     }
     return h + '</div></div></div>';
   }

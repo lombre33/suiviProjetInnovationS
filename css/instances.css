@@ -493,6 +493,10 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-rpj .in-ic{color:var(--muted);flex:none}
 .in-rissues{margin:0;padding:8px 12px 8px 28px;background:var(--warn-s);border-bottom:1px solid var(--warn-sb);color:var(--warn);font-size:12px;font-weight:700}
 .in-rbody{flex:1 1 auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55;color:var(--text)}
+.in-rnote{margin-top:6px;line-height:1.4}
+.in-rnote.in-warn{color:var(--warning)}
+select.in-inp{padding-right:28px}
+.in-inp.in-mfield{flex:1 1 180px;width:0;min-width:170px;max-width:260px;text-overflow:ellipsis}
 .in-rzim{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
 .in-rzim input{margin:0;accent-color:var(--accent)}
 .in-rdocbody{position:relative;flex:1 1 auto;min-height:420px;background:var(--sunken)}

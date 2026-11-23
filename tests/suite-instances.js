@@ -2987,10 +2987,9 @@
       assertDeepEqual(lastFields('UpdateRecord', 'Instances', 1).Invites_permanents, ['L', 1, 4]);
     });
 
-    it('modèles de mail : proposés depuis GFS, enregistrés dans Instances', async function () {
+    it('modèles de mail : un champ libre tant que Publipostage+ n\'est pas lu, enregistré dans Instances', async function () {
       await setup();
       click('settings-open');
-      assertEqual(qa('#in-modeles option').length, 2);
       change('cfg-mod', { f: 'Modele_CR' }, 'Envoi du compte rendu');
       assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_CR, 'Envoi du compte rendu');
     });
