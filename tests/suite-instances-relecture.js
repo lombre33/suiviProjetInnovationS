@@ -503,12 +503,12 @@
     });
 
     it('paramétrage : table Publipostage_Modeles absente → champ libre et la cause est écrite sous les champs', async function () {
-      const visa = stubVisa({ modelOverview: async () => { throw Object.assign(new Error('x'), { code: 'models-table-missing' }); } });
+      const visa = stubVisa({ modelOverview: async () => { throw Object.assign(new Error('x'), { code: 'models-table-missing', detail: 'Publipostage_Templates : Table not found ; Publipostage_Modeles : Table not found' }); } });
       try {
         await setup(relectureOpts({ models: false }));
         click('settings-open');
         await waitFor(() => q('.in-rnote.in-warn'), 'avertissement');
-        assertIncludes(text('.in-rnote.in-warn'), 'la table Publipostage_Modeles n\'existe pas dans ce document');
+        assertIncludes(text('.in-rnote.in-warn'), 'la table des modèles de Publipostage+ n\'a pas pu être lue (Publipostage_Templates : Table not found ; Publipostage_Modeles : Table not found)');
         assertEqual(qa('.in-rnote.in-warn').length, 2, 'sous chacun des deux groupes de modèles');
         ['Modele_invitation', 'Modele_CR', 'Modele_notification', 'Modele_courrier_notification'].forEach(f => assertTrue(!!q('input[type="text"][data-f="' + f + '"]'), f + ' : champ libre'));
         const input = q('input[data-f="Modele_notification"]');

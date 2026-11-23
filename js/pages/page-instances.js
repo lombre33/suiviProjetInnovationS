@@ -754,7 +754,7 @@
   //  - « Tout générer (n) » : ouvre les courriers cochés (« À signer ») dans une page à imprimer ou à enregistrer en PDF, pour les faire signer.
   // ---------------------------------------------------------------------------------------------
   const reviewErrorText = err => (!err ? 'erreur inconnue'
-    : err.code === 'models-table-missing' ? 'la table Publipostage_Modeles n\'existe pas dans ce document'
+    : err.code === 'models-table-missing' ? 'la table des modèles de Publipostage+ n\'a pas pu être lue (' + (err.detail || err.message) + ')'
       : err.code === 'model-missing' ? err.message + ' : choisissez-en un autre dans le paramétrage de l\'instance'
         : err.message || 'erreur inconnue');
   const vemptyHtml = (title, detail, extra) => '<div class="vempty"><span>' + esc(title) + '</span>' + (detail ? '<span class="muted">' + esc(detail) + '</span>' : '') + (extra || '') + '</div>';

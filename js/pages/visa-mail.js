@@ -25,8 +25,12 @@
 (function (global) {
   'use strict';
 
-  const MODELS_TABLE = 'Publipostage_Modeles';
-  const LINKS_TABLE = 'Publipostage_LiensTables';
+  // Publipostage+ passe ses tables et ses colonnes à l'anglais (traducteur `schema-columns.js` de l'app, nov. 2026) : un document peut porter les noms
+  // d'avant (« Publipostage_Modeles », « Nom », « Contenu »…) ou les nouveaux (« Publipostage_Templates », « Name », « Content »…), colonne par colonne.
+  // Les deux sont lus, l'anglais d'abord (comme l'app quand un document porte les deux).
+  const MODELS_TABLES = ['Publipostage_Templates', 'Publipostage_Modeles'];
+  const LINKS_TABLES = ['Publipostage_TableLinks', 'Publipostage_LiensTables'];
+  const MODELS_TABLE = MODELS_TABLES[0];
   const MAIL_TYPE = 'email';
   const DOCUMENT_TYPE = 'document';
   const SAFE_URL_LENGTH = 2000;
@@ -254,13 +258,25 @@
     return schema;
   }
 
+  // Une colonne sous son nom anglais ou, à défaut, sous son nom d'avant (un document peut mêler les deux).
+  const field = (row, english, legacy) => text(row[english] !== undefined ? row[english] : row[legacy]);
+  // La première des tables qui se lit : { name, rows }. Aucune ne se lit : lève l'erreur de la dernière, avec le nom de chacune.
+  async function readFirst(rows, names) {
+    const failures = [];
+    for (const name of names) {
+      try { return { name, rows: await rows(name) }; }
+      catch (err) { failures.push(`${name} : ${(err && err.message) || err}`); }
+    }
+    throw Object.assign(new Error(failures.join(' ; ')), { failures });
+  }
+
   // Règles « Tables liées » : { 'Cible|Source' → règle }. `TableSource` vide : le lien commun à toutes les tables.
   const pairKey = (target, source) => `${target}|${source || ''}`;
   function buildRules(rows) {
     const rules = new Map();
     rows.forEach(row => {
-      rules.set(pairKey(row.TableCible, row.TableSource), {
-        mode: row.Mode, colonneCible: text(row.ColonneCible), colonneSource: text(row.ColonneSource)
+      rules.set(pairKey(field(row, 'TargetTable', 'TableCible'), field(row, 'SourceTable', 'TableSource')), {
+        mode: row.Mode, colonneCible: field(row, 'TargetColumn', 'ColonneCible'), colonneSource: field(row, 'SourceColumn', 'ColonneSource')
       });
     });
     return rules;
@@ -277,7 +293,7 @@
     try { schema = buildSchema(await rows('_grist_Tables'), await rows('_grist_Tables_column')); }
     catch (err) { schema = schemaFromStartup(); }
     let rules = new Map();
-    try { rules = buildRules(await rows(LINKS_TABLE)); } catch (err) { /* aucune règle : colonnes Référence seulement */ }
+    try { rules = buildRules((await readFirst(rows, LINKS_TABLES)).rows); } catch (err) { /* aucune règle : colonnes Référence seulement */ }
     return { rows, schema, rules, now: (options && options.now) || (() => new Date()) };
   }
   const columnInfo = (env, table, column) => (env.schema.get(table) && env.schema.get(table).get(column)) || null;
@@ -651,14 +667,14 @@
   // ───────────────────────── API ─────────────────────────
 
   const modelOf = row => ({
-    id: row.id, name: text(row.Nom), type: text(row.TypeModele) || 'document', content: text(row.Contenu),
-    subject: text(row.Objet), to: text(row.Destinataires), cc: text(row.Cc), bcc: text(row.Cci)
+    id: row.id, name: field(row, 'Name', 'Nom'), type: field(row, 'TemplateType', 'TypeModele') || 'document', content: field(row, 'Content', 'Contenu'),
+    subject: field(row, 'Subject', 'Objet'), to: field(row, 'To', 'Destinataires'), cc: text(row.Cc), bcc: field(row, 'Bcc', 'Cci')
   });
   async function loadModels(env) {
-    let rows;
-    try { rows = await env.rows(MODELS_TABLE); }
-    catch (err) { throw codedError('models-table-missing', `Table ${MODELS_TABLE} introuvable dans le document`); }
-    return rows.map(modelOf).filter(model => model.type !== 'reglages' && model.name.trim());
+    let read;
+    try { read = await readFirst(env.rows, MODELS_TABLES); }
+    catch (err) { throw Object.assign(codedError('models-table-missing', `Table des modèles introuvable dans le document (${err.message})`), { detail: err.message }); }
+    return read.rows.map(modelOf).filter(model => model.type !== 'reglages' && model.name.trim());
   }
   // Les noms des modèles de type « e-mail » (Publipostage+), par ordre alphabétique.
   async function listEmailModels() {

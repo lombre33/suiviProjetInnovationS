@@ -266,6 +266,85 @@
     });
   });
 
+  // Publipostage+ passe ses tables et ses colonnes à l'anglais (traducteur de l'app, nov. 2026) : un document porte les noms d'avant ou les nouveaux, colonne par colonne.
+  describe('Mail et courrier — documents aux noms anglais de Publipostage+ (Publipostage_Templates, Name, Content, TemplateType…)', function () {
+    const EN = 'Publipostage_Templates', LINKS_EN = 'Publipostage_TableLinks';
+    function installEnglish(models) {
+      const rows = models.map((model, index) => Object.assign({ id: index + 1, TemplateType: 'email', Content: '', Subject: '', To: '', Cc: '', Bcc: '' }, model));
+      const table = { id: rows.map(row => row.id) };
+      ['Name', 'TemplateType', 'Content', 'Subject', 'To', 'Cc', 'Bcc'].forEach(key => { table[key] = rows.map(row => row[key]); });
+      window.__mockSetTable(EN, table);
+    }
+    async function setupEnglish(models) {
+      installSchema();
+      await installProjects();
+      installEnglish(models);
+    }
+
+    it('le mail se prépare d\'après un modèle de Publipostage_Templates : objet, destinataire, copie cachée, corps', async function () {
+      await setupEnglish([{ Name: MODEL, Subject: 'Visa - #Projets.Acronyme', To: '#Projets.Porteur_1.Email', Cc: 'cc@example.org', Bcc: 'cci@example.org', Content: `<p>Projet ${badge('Projets', 'Projet')}</p>` }]);
+      const draft = await prepareFor(CONVENTIX);
+      const mail = parse(draft.url);
+      assertEqual(mail.to, 'alice.martin@example.org');
+      assertEqual(mail.params.cc, 'cc@example.org');
+      assertEqual(mail.params.bcc, 'cci@example.org');
+      assertEqual(mail.params.subject, 'Visa - CONVENTIX');
+      assertEqual(mail.params.body, 'Projet Projet Convention');
+      assertEqual(draft.issues.length, 0, JSON.stringify(draft.issues));
+    });
+
+    it('les listes proposent les modèles anglais : e-mails, documents, réglages exclus ; le décompte par type est celui de TemplateType', async function () {
+      await setupEnglish([
+        { Name: 'Visa UB' }, { Name: 'Courrier', TemplateType: 'document' }, { Name: 'Réglages', TemplateType: 'reglages' }, { Name: 'Diapo', TemplateType: 'presentation' }, { Name: 'Accord' }
+      ]);
+      assertDeepEqual((await window.VisaMail.listEmailModels()).map(model => model.name), ['Accord', 'Visa UB']);
+      assertDeepEqual((await window.VisaMail.listDocumentModels()).map(model => model.name), ['Courrier']);
+      const overview = await window.VisaMail.modelOverview();
+      assertDeepEqual(overview.mail, ['Accord', 'Visa UB']);
+      assertDeepEqual(overview.letter, ['Courrier']);
+      assertEqual(overview.total, 4);
+      assertDeepEqual(overview.counts, { email: 2, document: 1, presentation: 1 });
+    });
+
+    it('un document qui porte les deux jeux de noms : les anglais l\'emportent (comme dans l\'app) ; les noms d\'avant servent s\'ils manquent', async function () {
+      await setupEnglish([{ Name: 'Modèle anglais' }]);
+      installModels([{ Nom: 'Modèle ancien', Contenu: '<p>x</p>' }]);
+      assertDeepEqual((await window.VisaMail.listEmailModels()).map(model => model.name), ['Modèle anglais']);
+      window.__mockSetTable(EN, { id: [], Name: [], TemplateType: [], Content: [], Subject: [], To: [], Cc: [], Bcc: [] });
+      assertDeepEqual((await window.VisaMail.listEmailModels()).map(model => model.name), [], 'la table anglaise, même vide, fait foi');
+    });
+
+    it('colonnes mêlées (document en cours de renommage) : « Name » anglais avec « Contenu » et « Objet » d\'avant', async function () {
+      installSchema();
+      await installProjects();
+      window.__mockSetTable(EN, { id: [1], Name: [MODEL], TypeModele: ['email'], Contenu: [`<p>${badge('Projets', 'Acronyme')}</p>`], Objet: ['Sujet #Projets.Acronyme'], Destinataires: ['a@example.org'], Cc: [''], Cci: [''] });
+      const mail = parse((await prepareFor(CONVENTIX)).url);
+      assertEqual(mail.params.subject, 'Sujet CONVENTIX');
+      assertEqual(mail.params.body, 'CONVENTIX');
+      assertEqual(mail.to, 'a@example.org');
+    });
+
+    it('les règles « Tables liées » se lisent aussi sous leurs noms anglais (Publipostage_TableLinks : TargetTable, SourceColumn…)', async function () {
+      await setupEnglish([{ Name: MODEL, Content: `<p>${badge('Programmes', 'Programme')} / ${badge('Etablissements', 'Acronyme')}</p>` }]);
+      window.__mockSetTable(LINKS_EN, {
+        id: [1, 2], TargetTable: ['Programmes', 'Etablissements'], SourceTable: ['', ''], Mode: ['match', 'singleton'], TargetColumn: ['id', ''], SourceColumn: ['Programme', '']
+      });
+      assertEqual(parse((await prepareFor(CONVENTIX)).url).params.body, 'Programme A / UBX');
+      assertEqual(parse((await prepareFor(NOTIFY)).url).params.body, 'Programme B / UBX');
+    });
+
+    it('aucune des deux tables ne se lit : « models-table-missing », avec le nom de chacune et la cause de chaque lecture', async function () {
+      installSchema();
+      const original = window.grist.docApi.fetchTable;
+      window.grist.docApi.fetchTable = async name => { if (name === EN || name === 'Publipostage_Modeles') throw new Error('Table not found "' + name + '"'); return original(name); };
+      let error = null;
+      try { await window.VisaMail.modelOverview(); } catch (err) { error = err; } finally { window.grist.docApi.fetchTable = original; }
+      assertEqual(error && error.code, 'models-table-missing');
+      assertIncludes(error.detail, 'Publipostage_Templates : Table not found "Publipostage_Templates"');
+      assertIncludes(error.detail, 'Publipostage_Modeles : Table not found "Publipostage_Modeles"');
+    });
+  });
+
   describe('Courrier (modèle « document » de Publipostage+) — aperçu en lecture pour la relecture des notifications', function () {
     const DOC = 'Courrier notification';
     const prepareDoc = (id, name) => window.VisaMail.prepareDocument({ project: { id }, modelName: name || DOC });

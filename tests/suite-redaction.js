@@ -710,6 +710,18 @@
       }, null);
     });
 
+    it('document aux noms anglais de Publipostage+ (Publipostage_TableLinks, TargetTable…) : les règles de liaison sont lues de même', async function () {
+      await withPage(fakeWidget(), async () => {
+        installDocument();
+        window.__mockSetTable('Publipostage_TableLinks', { id: [1, 2], TargetTable: ['Projets', 'Structures'], Mode: ['match', 'singleton'], TargetColumn: ['id', ''], SourceColumn: ['Projet', ''], SourceTable: ['Notifications', ''] });
+        await presented('NOTIFY');
+        openLog();
+        await waitFor(() => logText().includes('Projets : id de Projets = Projet de la table présentée'), 'règle « match » lue sous ses noms anglais');
+        assertIncludes(logText(), 'Structures : une seule ligne');
+        assertFalse(logText().includes('table absente'), 'la table anglaise compte comme présente');
+      }, null);
+    });
+
     it('sans table de règles dans le document, le journal dit qu\'elle est absente (publipostage+ la crée au premier besoin) ; vide : « aucune »', async function () {
       await withPage(fakeWidget(), async () => {
         installDocument();
@@ -971,6 +983,18 @@
         fireMouse(pill(), 'click');
         assertTrue(panel().hidden, 'un second clic referme le panneau');
         assertEqual(pill().getAttribute('aria-expanded'), 'false');
+      });
+    });
+
+    it('document aux noms anglais de Publipostage+ (Publipostage_Templates : Name, Content, TemplateType) : le modèle est analysé de même', async function () {
+      const content = para(badge('Projets', 'Acronyme'), badge('Projets', 'Description_rapide_projet'));
+      await openWithTemplates(null, async () => {
+        window.__mockSetTable('Publipostage_Templates', { id: [1], Name: ['Courrier'], Content: [content], HeaderFooter: [''], TemplateType: ['document'] });
+        selectTemplate(1);
+        await waitFor(() => !pill().hidden, 'pastille affichée');
+        assertEqual(byId('redaction-vars-count').textContent, '1');
+        openLog();
+        assertIncludes(logText(), 'Modèle affiché : « Courrier » (#1)');
       });
     });
 

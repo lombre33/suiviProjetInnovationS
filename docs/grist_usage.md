@@ -486,12 +486,20 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   volet n'est pas relu à chaque rendu (case cochée, clic).
 - **« Tout générer (n) »** (sous la liste, pour les courriers cochés) ouvre les courriers dans **une page à imprimer, un par feuille**
   (impression ou « Enregistrer en PDF ») : le widget ne pilote pas l'export PDF de Publipostage+. Il n'enregistre ni ne marque rien.
+- **Noms de Publipostage+ (23/11/2026)** : l'app passe ses tables et ses colonnes à l'anglais (traducteur `js/schema-columns.js` de son dépôt, qui
+  renomme les documents à la première lecture). Le widget lit **les deux jeux de noms, colonne par colonne, l'anglais d'abord** (`visa-mail.js` :
+  `MODELS_TABLES`, `LINKS_TABLES`, `readFirst`, `field` ; `page-redaction.js` : `readFirstTable`, `column`) : `Publipostage_Templates` ou
+  `Publipostage_Modeles` (`Name`/`Nom`, `Content`/`Contenu`, `TemplateType`/`TypeModele`, `Subject`/`Objet`, `To`/`Destinataires`, `Cc`, `Bcc`/`Cci`,
+  `HeaderFooter`) ; `Publipostage_TableLinks` ou `Publipostage_LiensTables` (`TargetTable`/`TableCible`, `TargetColumn`/`ColonneCible`,
+  `SourceColumn`/`ColonneSource`, `SourceTable`/`TableSource`, `Mode`). Les valeurs de type (`email`, `document`, `reglages`) ne changent pas. Quand
+  aucune table des modèles ne se lit, l'erreur `models-table-missing` porte `detail` : le nom de chaque table essayée et la cause de chaque lecture,
+  affichée dans le paramétrage et dans le popover de la demande de visa.
 - **Choix des modèles (23/11/2026, correction)** : les quatre modèles du paramétrage de l'instance (invitation, envoi du CR, mail et
-  courrier de notification) se choisissent dans une **liste déroulante lue dans `Publipostage_Modeles`** (`VisaMail.modelOverview` :
+  courrier de notification) se choisissent dans une **liste déroulante lue dans la table des modèles de Publipostage+** (`VisaMail.modelOverview` :
   type `email` pour les trois mails, `document` pour le courrier, ligne `reglages` exclue) ; la liste native (`datalist`) ne s'ouvrait pas
   au clic et l'ancienne source (`GFS_Fichiers`, les PDF que GFS garde) ne contient pas de modèles. Un modèle enregistré mais absent de la
   table reste affiché « (introuvable dans Publipostage+) ». Table absente ou aucun modèle de ce type : champ libre, et sous les champs le
-  widget dit ce qu'il a vu (« la table Publipostage_Modeles n'existe pas dans ce document » ou « Aucun modèle de type e-mail trouvé
+  widget dit ce qu'il a vu (« la table des modèles de Publipostage+ n'a pas pu être lue (Publipostage_Templates : … ; Publipostage_Modeles : …) » ou « Aucun modèle de type e-mail trouvé
   (4 modèles lus : document 3, presentation 1) »).
 - Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
   `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`. Non validé dans un vrai Grist (le proxy de ce projet
@@ -805,8 +813,10 @@ Sur la ligne de la sous-étape *Demande de visa* (statut de l'UB « en cours de 
 ouvre un brouillon rempli dans la messagerie (`mailto:`), d'après un **modèle e-mail de Publipostage+** (GFS
 n'est pas ouvert). Code : `js/pages/visa-mail.js` (logique) et `js/pages/page-administratif.js` (bouton, fenêtre).
 
-- **Lecture seule** : tables `Publipostage_Modeles` (lignes `TypeModele = email` : `Nom`, `Contenu`, `Objet`,
-  `Destinataires`, `Cc`, `Cci`) et `Publipostage_LiensTables` (règles de liaison). Rien n'y est écrit ; elles ne sont
+- **Lecture seule** : table des modèles de Publipostage+ (lignes de type `email` ; noms d'avant `Publipostage_Modeles` :
+  `Nom`, `Contenu`, `Objet`, `Destinataires`, `Cc`, `Cci`, ou noms anglais `Publipostage_Templates` : `Name`, `Content`,
+  `Subject`, `To`, `Cc`, `Bcc` — les deux sont lus, voir « Noms de Publipostage+ » plus haut) et table des règles de
+  liaison (`Publipostage_LiensTables` ou `Publipostage_TableLinks`). Rien n'y est écrit ; elles ne sont
   lues qu'au clic (aucun appel de plus au démarrage).
 - **Modèle retenu par utilisateur** : `Preferences_Widget.Mail_visa_modele` (nom du modèle, pas un identifiant ;
   même principe que `Instances.Modele_invitation`) et `Mail_visa_client` (`zimbra` ou vide), colonnes auto-créées.

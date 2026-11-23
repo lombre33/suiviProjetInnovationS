@@ -848,7 +848,7 @@
     }
   }
   const visaMailErrorText = err => err.code === 'models-table-missing'
-    ? "Aucun modèle de mail : la table Publipostage_Modeles n'existe pas dans ce document."
+    ? `Aucun modèle de mail : la table des modèles de Publipostage+ n'a pas pu être lue (${err.detail || err.message}).`
     : `Mail de demande de visa impossible (${err.message})`;
   let visaMailBusy = false;
   async function startVisaMail(anchor, project) {

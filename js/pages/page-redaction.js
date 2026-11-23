@@ -29,6 +29,8 @@
   const DEFAULT_REF_COLUMN = 'Projet';
   // Table du document où publipostage+ range ses règles de liaison (js/grist-api.js de publipostage+ : LINKS_TABLE_NAME).
   const LINKS_TABLE = 'Publipostage_LiensTables';
+  // Publipostage+ passe ses tables et ses colonnes à l'anglais (nov. 2026) : un document porte les noms d'avant ou les nouveaux, colonne par colonne.
+  const LINKS_TABLES = ['Publipostage_TableLinks', LINKS_TABLE];
   // Choix de la table présentée (sélecteur de la rangée du haut) : par navigateur, dans localStorage (peut être indisponible).
   const TABLE_CHOICE_KEY = 'suiviProjetInnovationS:redactionTable';
   // Clé, dans les options de CE widget, sous laquelle Grist persiste les options de publipostage+ (modèles, réglages...).
@@ -97,6 +99,16 @@
     return api.fetchTable(name);
   }
   const readTableOrNull = name => readTable(name).catch(() => null);
+  // La première de ces tables qui se lit (l'anglais d'abord) ; lève l'erreur de la dernière quand aucune ne se lit.
+  async function readFirstTable(names) {
+    let last = null;
+    for (const name of names) {
+      try { return await readTable(name); } catch (err) { last = err; }
+    }
+    throw last || new Error('table introuvable');
+  }
+  const readLinksOrNull = () => readFirstTable(LINKS_TABLES).catch(() => null);
+  const column = (data, english, legacy) => (data[english] !== undefined ? data[english] : data[legacy]) || [];
 
   // Adresse du widget d'une section « personnalisée » : Grist range sa définition dans _grist_Views_section.options, un JSON
   // { customView: "<JSON sérialisé>" } dont l'url est celle du widget (grist-core, ViewSectionRec.ts : customDef ← options.customView).
@@ -120,7 +132,9 @@
     return api && api.listTables ? Promise.resolve(api.listTables()).catch(() => null) : Promise.resolve(null);
   };
   const rulesFrom = links => (links && Array.isArray(links.id)
-    ? links.id.map((id, i) => ({ table: links.TableCible[i], mode: links.Mode[i], cible: links.ColonneCible[i], source: links.ColonneSource[i] }))
+    ? links.id.map((id, i) => ({
+      table: column(links, 'TargetTable', 'TableCible')[i], mode: links.Mode[i], cible: column(links, 'TargetColumn', 'ColonneCible')[i], source: column(links, 'SourceColumn', 'ColonneSource')[i]
+    }))
     : null);
 
   // Ce que le document dit de publipostage+ et des tables reliées aux projets. Chaque lecture est indépendante : une table de
@@ -131,10 +145,10 @@
   //  - rules : le mappage de publipostage+ (Publipostage_LiensTables), pour le journal de diagnostic.
   async function loadInfo() {
     const [tables, columns, sections, links, listed] = await Promise.all(
-      ['_grist_Tables', '_grist_Tables_column', '_grist_Views_section', LINKS_TABLE].map(readTableOrNull).concat(listTablesOrNull()));
+      ['_grist_Tables', '_grist_Tables_column', '_grist_Views_section'].map(readTableOrNull).concat(readLinksOrNull(), listTablesOrNull()));
     const info = emptyInfo();
     const targetKey = siteKey(resolveTarget().url);
-    if (Array.isArray(listed)) info.linksTable = listed.includes(LINKS_TABLE) ? 'present' : 'absent';
+    if (Array.isArray(listed)) info.linksTable = LINKS_TABLES.some(name => listed.includes(name)) ? 'present' : 'absent';
     const tableIdByRef = new Map();
     const summaryRefs = new Set(); // tables de résumé : Grist les repère par summarySourceTable (leur colonne de regroupement est une copie)
     if (tables && Array.isArray(tables.id)) {
@@ -172,7 +186,7 @@
   async function refreshRules() {
     const info = ui.linked && ui.linked.info;
     if (!info) return;
-    const rules = rulesFrom(await readTableOrNull(LINKS_TABLE));
+    const rules = rulesFrom(await readLinksOrNull());
     if (rules) info.rules = rules;
   }
 
@@ -378,6 +392,7 @@
   // l'autre : aucun signalement (jamais d'erreur), et le journal dit pourquoi. Seul ce qui est enregistré est analysé : l'auto-enregistrement
   // de publipostage+ passe par le pont (onWrite), qui relance l'analyse.
   const TEMPLATES_TABLE = 'Publipostage_Modeles';
+  const TEMPLATES_TABLES = ['Publipostage_Templates', TEMPLATES_TABLE];
   const TEMPLATE_SELECT_ID = 'template-select';
 
   function setVarsNote(note) {
@@ -419,7 +434,9 @@
     };
     if (!templateId) { done(null, '', 'aucun modèle ouvert (nouveau modèle)'); return; }
     try {
-      const [data, info] = await Promise.all([readTable(TEMPLATES_TABLE), getInfo()]);
+      const [raw, info] = await Promise.all([readFirstTable(TEMPLATES_TABLES), getInfo()]);
+      // Les noms d'avant (Nom, Contenu, TypeModele) ou les nouveaux (Name, Content, TemplateType) : lus colonne par colonne.
+      const data = { id: raw.id, Nom: column(raw, 'Name', 'Nom'), Contenu: column(raw, 'Content', 'Contenu'), HeaderFooter: raw.HeaderFooter, TypeModele: column(raw, 'TemplateType', 'TypeModele') };
       const at = (data.id || []).findIndex(id => String(id) === String(templateId));
       if (at === -1) { done(null, '', `modèle #${templateId} introuvable dans ${TEMPLATES_TABLE}`); return; }
       const name = String((data.Nom && data.Nom[at]) || '');
