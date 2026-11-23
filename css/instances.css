@@ -459,3 +459,45 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-gsec.in-spec{color:var(--viol);background:#f6f3ff}
 .in-gsec.in-usual{border-top:1px solid var(--border)}
 .in-gsec .in-ic{color:var(--viol)}
+
+/* Étape Notifications — vue « Relecture & envoi » : liste à cocher | e-mail (Publipostage+ en lecture) | courrier (aperçu Publipostage+, puis PJ signée).
+   Le sélecteur « Suivi | Relecture & envoi » prend place dans l'en-tête du panneau : aucune ligne de plus. */
+.in-ph .in-seg{align-self:center}
+.in-nbadge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:800;box-sizing:border-box}
+.in-rev{display:flex;flex-wrap:wrap;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.in-rpane{box-sizing:border-box;display:flex;flex-direction:column;min-height:520px;min-width:0;border-top:1px solid var(--border);border-left:1px solid var(--border);margin:-1px 0 0 -1px;background:var(--surface)}
+.in-rpane.in-rlist{flex:0 1 290px;min-width:250px}
+.in-rpane.in-rmail{flex:1 1 380px;min-width:290px}
+.in-rpane.in-rdoc{flex:0 1 380px;min-width:290px}
+.in-rhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px}
+.in-rfoot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--border);margin-top:auto;background:var(--surface)}
+.in-rcb{width:16px;height:16px;margin:0;accent-color:var(--accent);flex:none;cursor:pointer}
+.in-rcb:disabled{cursor:default}
+.in-rbadge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap;border:1px solid transparent}
+.in-rbadge.in-viol{background:var(--viol-s);border-color:var(--viol-sb);color:var(--viol)}
+.in-rbadge.in-ok{background:var(--ok-s);border-color:var(--ok-sb);color:var(--ok)}
+.in-rmodel{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.in-rrows{list-style:none;margin:0;padding:0;flex:1 1 auto}
+.in-rrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--sunken)}
+.in-rrow.in-on{background:var(--accent-s)}
+.in-rlead{display:inline-flex;width:16px;justify-content:center;color:var(--muted);flex:none}
+.in-rlead.in-ok{color:var(--ok)}
+.in-rpick{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:var(--text);font:inherit}
+.in-rpick{border-radius:6px;outline-offset:2px}
+.in-rpick strong{font-size:13px}
+.in-rpick .in-psub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.in-rfields{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 14px;padding:11px 12px;border-bottom:1px solid var(--border);align-items:baseline;font-size:12.5px}
+.in-rfields .in-k{color:var(--muted);font-size:12px;font-weight:700}
+.in-rfields .in-v{min-width:0;overflow-wrap:anywhere}
+.in-rpj{display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+.in-rpj .in-ic{color:var(--muted);flex:none}
+.in-rissues{margin:0;padding:8px 12px 8px 28px;background:var(--warn-s);border-bottom:1px solid var(--warn-sb);color:var(--warn);font-size:12px;font-weight:700}
+.in-rbody{flex:1 1 auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55;color:var(--text)}
+.in-rzim{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
+.in-rzim input{margin:0;accent-color:var(--accent)}
+.in-rdocbody{position:relative;flex:1 1 auto;min-height:420px;background:var(--sunken)}
+.in-rdocview{position:absolute;inset:0;overflow:auto;padding:0}
+.in-rdocview>.in-rissues{position:sticky;top:0;z-index:1}
+.in-rdocview>div:not(.in-vempty){padding:12px}
+.in-rfile{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.in-rdocview .pdfv-pages{padding:12px}

@@ -56,14 +56,21 @@
   }
   const ODJ_VUES = ['timing', 'type']; // vue de l'ordre du jour : ordre de passage (défaut) ou groupée par type de décision
   const CR_PDF_COLUMN = 'CR_PDF';
+  // Étape Notifications : « Suivi » (le tableau d'avancement) ou « Relecture & envoi » (liste, mail et courrier côte à côte). Retenu par utilisateur
+  // dans Inst_notif_vue ; la messagerie de la personne (Zimbra ou standard) dans Inst_messagerie.
+  const NOTIF_VUES = ['suivi', 'relecture'];
+  const NOTIF_SIGNEES = { tableId: 'Projets', colId: 'Notifications_Signees' };
+  // Session de la vue « Relecture & envoi » : projet affiché, projets cochés, mail lu depuis le modèle Publipostage+ (une lecture par projet et par
+  // modèle), nœud du courrier (PDF signé ou aperçu) conservé d'un rendu à l'autre, noms des modèles proposés dans le paramétrage.
+  const newRev = () => ({ active: 0, checked: {}, busy: false, models: undefined, mail: { key: '', status: '', draft: null, error: null, nonce: 0 }, doc: { key: '', node: null, handle: null, nonce: 0 } });
 
   let todayOverride = null;
   const todayIso = () => todayOverride || (L.parisParts(Date.now() / 1000) || {}).date || new Date().toISOString().slice(0, 10);
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }, prefsRowId: null, personId: 0,
-    ui: { menu: null, settings: false, subs: {}, repShown: false }
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '' }, prefsRowId: null, personId: 0,
+    ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() }
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -80,6 +87,7 @@
     peopleAdd: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M19 8v6M16 11h6"/>',
     project: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M8 7v6M12 7v10M16 7v4"/>',
     clip: '<path d="M21 11l-9 9a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8"/>',
+    refresh: '<path d="M20 12a8 8 0 11-2.3-5.7M20 4v5h-5"/>', copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>',
     warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>', star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
     ask: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1-1.5 2M12 17h.01"/>', no: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
     dots: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
@@ -187,6 +195,8 @@
       if (ODJ_VUES.indexOf(text(row.Inst_odj_vue)) >= 0) S.prefs.odjVue = text(row.Inst_odj_vue);
       S.prefs.cadre = parseCadre(text(row.Inst_cadre));
       S.prefs.invTri = L.GUEST_TRI.test(text(row.Inst_tri_invites)) ? text(row.Inst_tri_invites) : '';
+      S.prefs.notifVue = NOTIF_VUES.indexOf(text(row.Inst_notif_vue)) >= 0 ? text(row.Inst_notif_vue) : 'suivi';
+      S.prefs.messagerie = text(row.Inst_messagerie) === 'zimbra' ? 'zimbra' : '';
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -196,7 +206,8 @@
     try {
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
-        Inst_etape: S.prefs.etape, Inst_vue_ensemble: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri
+        Inst_etape: S.prefs.etape, Inst_vue_ensemble: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri,
+        Inst_notif_vue: S.prefs.notifVue, Inst_messagerie: S.prefs.messagerie
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -266,7 +277,17 @@
     V.rep = L.repVisibility(s.guests, S.ui.repShown); // colonne « Réponse » : masquée quand l'appel est fait pour tous (un tri par réponse ne s'applique alors pas, la colonne étant invisible)
     V.guestOrder = L.sortGuests(s.guests, !V.rep.column && /^reponse:/.test(S.prefs.invTri) ? '' : S.prefs.invTri, g => personOf(m, g.personneId).name, g => personOf(m, g.personneId).gradeKind);
     V.firstStart = g => L.firstStartOf(V.schedAll, g.id);
+    V.rev = V.view === 'notifs' && S.prefs.notifVue === 'relecture' ? reviewModel(V) : null;
     return V;
+  }
+  // Vue « Relecture & envoi » : les projets reliés à la séance, avec l'état de leur notification (voir L.notifReviewState), et celui qui est affiché.
+  function reviewModel(V) {
+    const m = V.m;
+    const items = V.ctx.projectIds.map(id => {
+      const pr = projectOf(m, id), first = V.schedAll.find(r => r.p.projets.indexOf(id) >= 0);
+      return { id, acro: pr.acro, titre: pr.titre, state: L.notifReviewState(pr), signees: pr.signees || [], fileId: (pr.signees || [])[(pr.signees || []).length - 1] || 0, porteur: pr.porteurId ? personOf(m, pr.porteurId).name : '', when: first ? L.hhmm(first.start) : '' };
+    });
+    return { items, cur: L.pickReviewItem(items, S.ui.rev.active), drafts: items.filter(i => i.state === 'draft') };
   }
   const progressOf = (m, se, active) => active.filter(x => L.isValid(x.key, { seance: se, validations: se.validations })).length + '/' + active.length;
   const hasLink = (type, link) => !!(type && link);
@@ -722,12 +743,208 @@
     return h + '</div>';
   }
 
+
+  // ---------------------------------------------------------------------------------------------
+  // Notifications : vue « Relecture & envoi » (Antoine, 23/11/2026) — liste à cocher | e-mail | courrier, côte à côte.
+  //  - Le mail est lu dans le modèle e-mail de Publipostage+ de l'instance (VisaMail.prepare : texte brut, comme le mailto: l'impose), jamais deviné ;
+  //    « Ouvrir dans ma messagerie » ouvre le brouillon, « Copier » copie l'objet et le corps. Aucune pièce jointe possible : le PDF se glisse à la main.
+  //  - Le courrier est l'aperçu du modèle « document » de Publipostage+ tant que la colonne PJ « Notifications signées » du projet est vide ; dès qu'elle
+  //    est remplie (le document signé que dépose Antoine), c'est cette pièce jointe qui s'ouvre (visionneuse PDF du widget), plus la version Publipostage+.
+  //  - La page n'écrit rien dans Notifications : le statut « Transmise au porteur » reste posé à la main dans Grist.
+  //  - « Tout générer (n) » : ouvre les courriers cochés (« À signer ») dans une page à imprimer ou à enregistrer en PDF, pour les faire signer.
+  // ---------------------------------------------------------------------------------------------
+  const reviewErrorText = err => (!err ? 'erreur inconnue'
+    : err.code === 'models-table-missing' ? 'la table Publipostage_Modeles n\'existe pas dans ce document'
+      : err.code === 'model-missing' ? err.message + ' : choisissez-en un autre dans le paramétrage de l\'instance'
+        : err.message || 'erreur inconnue');
+  const vemptyHtml = (title, detail, extra) => '<div class="vempty"><span>' + esc(title) + '</span>' + (detail ? '<span class="muted">' + esc(detail) + '</span>' : '') + (extra || '') + '</div>';
+
+  // Lit le mail du projet affiché dans son modèle ; une lecture par (projet, modèle, messagerie), relancée par le bouton « Relire ».
+  function ensureMail(V) {
+    const R = S.ui.rev.mail, cur = V.rev && V.rev.cur, model = V.cfg.modNotif;
+    if (!cur || !model || !global.VisaMail) return;
+    const key = [cur.id, model, S.prefs.messagerie, R.nonce].join('|');
+    if (R.key === key) return;
+    R.key = key; R.status = 'loading'; R.draft = null; R.error = null;
+    global.VisaMail.prepare({ project: { id: cur.id }, modelName: model, client: S.prefs.messagerie, now: () => new Date() }).then(draft => {
+      if (R.key !== key) return;
+      R.status = 'ok'; R.draft = draft; render();
+    }).catch(err => {
+      if (R.key !== key) return;
+      R.status = 'error'; R.error = err; render();
+    });
+  }
+  function ensureModelNames() {
+    const R = S.ui.rev;
+    if (R.models !== undefined || !global.VisaMail) return;
+    R.models = null; // lecture en cours
+    Promise.all([global.VisaMail.listEmailModels(), global.VisaMail.listDocumentModels()])
+      .then(([mails, letters]) => { R.models = { mail: mails.map(x => x.name), letter: letters.map(x => x.name) }; if (S.ui.settings) render(); })
+      .catch(() => { R.models = { mail: [], letter: [] }; });
+  }
+
+  function notifVueSeg(V) {
+    const n = V.ctx.projectIds.filter(id => L.notifReviewState(projectOf(V.m, id)) !== 'sent').length, on = S.prefs.notifVue;
+    const btn = (key, inner) => '<button type="button" class="' + (on === key ? 'on' : '') + '" aria-pressed="' + (on === key ? 'true' : 'false') + '" ' + da('notif-vue', { v: key }) + '>' + inner + '</button>';
+    return '<div class="seg" role="group" aria-label="Affichage des notifications">' + btn('suivi', 'Suivi') + btn('relecture', 'Relecture &amp; envoi' + (n ? '<span class="nbadge">' + n + '</span>' : '')) + '</div>';
+  }
+
+  function reviewListPane(V) {
+    const R = S.ui.rev, rv = V.rev, cur = rv.cur;
+    const nChecked = rv.drafts.filter(i => R.checked[i.id]).length, all = rv.drafts.length > 0 && nChecked === rv.drafts.length;
+    let h = '<div class="rpane rlist"><div class="rhead"><input type="checkbox" class="rcb" ' + (all ? 'checked ' : '') + (rv.drafts.length ? '' : 'disabled ') + 'data-chg="rev-all" aria-label="Cocher toutes les notifications à signer"><strong>Notifications de la séance</strong></div><ul class="rrows">';
+    rv.items.forEach(i => {
+      const lab = L.NOTIF_REVIEW_LABEL[i.state], on = i.id === cur.id;
+      const lead = i.state === 'draft'
+        ? '<input type="checkbox" class="rcb" ' + (R.checked[i.id] ? 'checked ' : '') + 'data-chg="rev-check" data-id="' + i.id + '" aria-label="Cocher ' + esc(i.acro) + '">'
+        : '<span class="rlead ' + (i.state === 'signed' ? 'ok' : '') + '" title="' + esc(lab.tip) + '">' + ic(i.state === 'signed' ? 'clip' : 'check', 's') + '</span>';
+      h += '<li class="rrow' + (on ? ' on' : '') + '">' + lead + '<button type="button" class="rpick" aria-pressed="' + (on ? 'true' : 'false') + '" ' + da('rev-pick', { id: i.id }) + '><strong>' + esc(i.acro) + '</strong><span class="psub">' + esc([i.porteur, i.when].filter(Boolean).join(' · ')) + '</span></button>'
+        + '<span class="nst ' + (i.state === 'signed' ? 'ok' : (i.state === 'draft' ? 'cur' : 'grey')) + '" title="' + esc(lab.tip) + '">' + lab.short + '</span></li>';
+    });
+    return h + '</ul><div class="rfoot"><span class="psub">' + (nChecked ? plural(nChecked, 'cochée', 'cochées') : 'Aucune cochée') + '</span><span class="sp"></span>'
+      + '<button type="button" class="pillbtn ghost" ' + (nChecked && !R.busy ? '' : 'disabled ') + 'title="Ouvre les courriers cochés dans une page à imprimer ou à enregistrer en PDF, pour les faire signer" ' + da('rev-generate') + '>' + ic('fileLines', 's') + (R.busy ? 'Préparation…' : 'Tout générer (' + nChecked + ')') + '</button></div></div>';
+  }
+
+  function reviewMailPane(V) {
+    const R = S.ui.rev, mail = R.mail, cur = V.rev.cur, model = V.cfg.modNotif, signed = cur.state !== 'draft';
+    ensureMail(V);
+    let h = '<div class="rpane rmail"><div class="rhead">' + ic('mail', 's') + '<strong>E-mail</strong><span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule : le modèle se modifie dans GFS">' + ic('eye', 'xs') + 'Mode lecture</span>'
+      + (model ? '<span class="psub rmodel" title="Modèle e-mail de Publipostage+">' + esc(model) + '</span>' : '') + '<span class="sp"></span>'
+      + (model ? '<label class="rzim" title="Zimbra lit le lien du brouillon autrement : le widget l\'adapte"><input type="checkbox" ' + (S.prefs.messagerie === 'zimbra' ? 'checked ' : '') + 'data-chg="rev-zimbra">Zimbra</label>' : '')
+      + '<button type="button" class="ibtn" title="Relire les données des projets et le modèle" aria-label="Relire les données" ' + da('rev-refresh') + '>' + ic('refresh', 's') + '</button></div>';
+    if (!model) return h + vemptyHtml('Aucun modèle de mail choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type e-mail de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>') + '</div>';
+    if (mail.status === 'loading' || !mail.status) return h + vemptyHtml('Lecture du modèle…') + '</div>';
+    if (mail.status === 'error') return h + vemptyHtml('Mail indisponible', reviewErrorText(mail.error)) + '</div>';
+    const d = mail.draft, f = d.fields;
+    const row = (k, v) => '<span class="k">' + k + '</span><span class="v">' + v + '</span>';
+    h += '<div class="rfields">' + row('À', f.to ? esc(f.to) : '<span class="muted">—</span>') + (f.cc ? row('Cc', esc(f.cc)) : '') + (f.bcc ? row('Cci', esc(f.bcc)) : '') + row('Objet', '<strong>' + esc(f.subject) + '</strong>')
+      + row('Pièce jointe', '<span class="rpj">' + ic('clip', 's') + 'À glisser manuellement dans l\'email depuis Zimbra</span>') + '</div>';
+    if (d.issues.length) h += '<ul class="rissues" role="status">' + d.issues.map(x => '<li>' + esc(global.VisaMail.issueText(x)) + '</li>').join('') + '</ul>';
+    h += '<pre class="rbody">' + esc(d.bodyText) + '</pre><div class="rfoot"><button type="button" class="pillbtn" ' + (signed ? '' : 'disabled ') + 'title="' + (signed ? 'Ouvre le brouillon dans votre messagerie' : 'Disponible une fois la notification signée') + '" ' + da('rev-open') + '>' + ic('mail', 's') + 'Ouvrir dans ma messagerie</button>'
+      + '<button type="button" class="pillbtn ghost" ' + (signed ? '' : 'disabled ') + 'title="' + (signed ? 'Copie l\'objet et le corps du mail' : 'Disponible une fois la notification signée') + '" ' + da('rev-copy') + '>' + ic('copy', 's') + 'Copier</button>'
+      + (signed ? '' : '<span class="psub">Disponible une fois la notification signée</span>') + '</div></div>';
+    return h;
+  }
+
+  function reviewDocPane(V) {
+    const cur = V.rev.cur, signed = cur.state !== 'draft';
+    let fileName = '';
+    if (signed && cur.fileId && global.CoreAttachments) {
+      fileName = global.CoreAttachments.nameOf(cur.fileId);
+      if (!fileName) global.CoreAttachments.ensureNames([cur.fileId]).then(changed => { if (changed) render(); });
+    }
+    return '<div class="rpane rdoc"><div class="rhead">' + ic('fileLines', 's') + '<strong>' + (signed ? 'Notification signée' : 'Courrier de notification') + '</strong>'
+      + (signed ? '<span class="rbadge ok">' + ic('clip', 'xs') + 'PJ signée</span>' : '<span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule, jusqu\'au dépôt de la notification signée">' + ic('eye', 'xs') + 'Publipostage+ · lecture</span>') + '<span class="sp"></span>'
+      + (signed && cur.fileId ? '<button type="button" class="ibtn" title="Télécharger la notification signée" aria-label="Télécharger la notification signée" ' + da('rev-download') + '>' + ic('download', 's') + '</button>' : '') + '</div>'
+      + '<div class="rdocbody" data-slot="rev-doc"></div>'
+      + '<div class="rfoot"><span class="psub">' + (signed ? 'PJ de la colonne « Notifications signées »' : 'Aperçu Publipostage+ · à faire signer') + '</span><span class="sp"></span><span class="psub rfile">' + esc(fileName) + '</span></div></div>';
+  }
+
+  function reviewHtml(V) {
+    if (!V.rev.items.length) return vemptyHtml('Aucun projet relié', 'Reliez les projets à notifier aux points de l\'ordre du jour : ils apparaissent ici.');
+    return '<div class="rev">' + reviewListPane(V) + reviewMailPane(V) + reviewDocPane(V) + '</div>';
+  }
+
+  // Le volet « courrier » vit hors du rendu (le PDF ne se relit pas à chaque clic) : son nœud est remis dans le nouvel emplacement après chaque rendu.
+  const SHEET_CSS = ':host{display:block}.sheet{box-sizing:border-box;max-width:660px;min-height:420px;margin:0 auto;padding:28px 32px;background:#fff;color:#1b2430;font:13px/1.5 Georgia,"Times New Roman",serif;box-shadow:0 1px 3px rgba(9,16,35,.18),0 6px 16px -8px rgba(9,16,35,.25)}.sheet p{margin:0 0 .7em}.sheet table{border-collapse:collapse;width:100%}.sheet td,.sheet th{border:1px solid #c9d0db;padding:4px 6px}.sheet img{max-width:100%}';
+  function releaseDoc() {
+    const d = S.ui && S.ui.rev && S.ui.rev.doc; if (!d) return;
+    if (d.handle) { d.handle.destroy(); d.handle = null; }
+    if (d.node && d.node.parentNode) d.node.remove();
+    d.node = null; d.key = '';
+  }
+  function syncReviewDoc() {
+    const root = rootEl(), V = S.view, d = S.ui.rev.doc;
+    const slot = root && root.querySelector('[data-slot="rev-doc"]');
+    if (!slot || !V || !V.rev || !V.rev.cur) { releaseDoc(); return; }
+    const cur = V.rev.cur, signed = cur.state !== 'draft', model = V.cfg.modCourrier;
+    if (!d.node) { d.node = document.createElement('div'); d.node.className = 'in-rdocview'; } // (≠ du volet, de classe in-rdoc : même nom = même style)
+    if (d.node.parentNode !== slot) slot.appendChild(d.node);
+    const key = signed ? 'pdf:' + cur.id + ':' + cur.fileId + ':' + d.nonce : 'pp:' + cur.id + ':' + model + ':' + d.nonce;
+    if (d.key === key) return;
+    if (d.handle) { d.handle.destroy(); d.handle = null; }
+    d.key = key;
+    const node = d.node;
+    node.replaceChildren();
+    const say = (title, detail, extra) => { node.innerHTML = withPrefix(vemptyHtml(title, detail, extra)); };
+    if (signed) {
+      if (!cur.fileId) { say('Pas de notification signée', 'La colonne « Notifications signées » du projet est vide.'); return; }
+      if (!global.PdfViewer || !global.PdfViewer.mount || !global.CoreAttachments) { say('Visionneuse indisponible', 'Le bouton de téléchargement ouvre le fichier.'); return; }
+      const cell = { tableId: NOTIF_SIGNEES.tableId, colId: NOTIF_SIGNEES.colId, rowId: cur.id };
+      d.handle = global.PdfViewer.mount(node, { load: () => global.CoreAttachments.fetchBytes(cur.fileId, cell) });
+      return;
+    }
+    if (!model) { say('Aucun modèle de courrier choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type document de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>'); return; }
+    if (!global.VisaMail || !global.VisaMail.prepareDocument) { say('Aperçu indisponible', 'Le module de lecture des modèles n\'est pas chargé.'); return; }
+    say('Lecture du modèle…');
+    global.VisaMail.prepareDocument({ project: { id: cur.id }, modelName: model, now: () => new Date() }).then(res => {
+      if (d.key !== key || d.node !== node) return;
+      node.replaceChildren();
+      if (res.issues.length) {
+        const warn = document.createElement('ul'); warn.className = 'in-rissues'; warn.setAttribute('role', 'status');
+        res.issues.forEach(x => { const li = document.createElement('li'); li.textContent = global.VisaMail.issueText(x); warn.appendChild(li); });
+        node.appendChild(warn);
+      }
+      const host = document.createElement('div');
+      const shadow = host.attachShadow({ mode: 'open' }); // les styles du modèle ne sortent pas, ceux de la page n'y entrent pas
+      shadow.innerHTML = '<style>' + SHEET_CSS + '</style><div class="sheet">' + res.html + '</div>';
+      node.appendChild(host);
+    }).catch(err => { if (d.key === key && d.node === node) say('Courrier indisponible', reviewErrorText(err)); });
+  }
+
+  const copyText = value => {
+    const fallback = () => {
+      const area = document.createElement('textarea');
+      area.value = value; area.setAttribute('readonly', ''); area.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(area); area.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      area.remove(); return ok;
+    };
+    if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) return global.navigator.clipboard.writeText(value).then(() => true, () => fallback());
+    return Promise.resolve(fallback());
+  };
+  // Les courriers cochés (modèle « document ») dans une page à imprimer, un par feuille. La fenêtre s'ouvre tout de suite (geste de la personne) pour
+  // que le navigateur ne la bloque pas ; elle se remplit une fois les courriers lus.
+  const printPage = (docs, title) => '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4;margin:20mm}body{margin:0;font:12pt/1.45 Georgia,"Times New Roman",serif;color:#000}.letter{break-after:page;page-break-after:always}.letter:last-child{break-after:auto;page-break-after:auto}.letter table{border-collapse:collapse;width:100%}.letter td,.letter th{border:1px solid #888;padding:3pt 5pt}.letter img{max-width:100%}</style></head><body>'
+    + docs.map(x => '<section class="letter">' + x.html + '</section>').join('') + '</body></html>';
+  async function generateLetters(V) {
+    const R = S.ui.rev, rv = V.rev; if (!rv || R.busy) return;
+    const items = rv.drafts.filter(i => R.checked[i.id]);
+    if (!items.length) return;
+    if (!V.cfg.modCourrier) { toast('Choisissez d\'abord le modèle du courrier dans le paramétrage de l\'instance.', true); return; }
+    if (!global.VisaMail || !global.VisaMail.prepareDocument) return;
+    const win = global.open('', '_blank');
+    if (win) { try { win.opener = null; win.document.title = 'Courriers de notification'; win.document.body.textContent = 'Préparation des courriers…'; } catch (err) { /* fenêtre d'une autre origine : sans importance */ } }
+    R.busy = true; render();
+    try {
+      const docs = [];
+      for (const item of items) docs.push(await global.VisaMail.prepareDocument({ project: { id: item.id }, modelName: V.cfg.modCourrier, now: () => new Date() }));
+      if (!win) { toast('Le navigateur a bloqué la fenêtre des courriers : autorisez les fenêtres pour ce widget.', true); return; }
+      win.document.open(); win.document.write(printPage(docs, V.inst.nom + ' n°' + V.s.num + ' — courriers de notification')); win.document.close();
+      win.focus();
+      setTimeout(() => { try { win.print(); } catch (err) { /* la personne imprime depuis l'onglet */ } }, 400);
+      const flagged = docs.filter(x => x.issues.length).length;
+      toast(plural(docs.length, 'courrier ouvert', 'courriers ouverts') + ' pour impression ou PDF' + (flagged ? ' (' + plural(flagged, 'à vérifier', 'à vérifier') + ' : variable sans valeur ou élément non évalué)' : '') + '.');
+    } catch (err) {
+      if (win) win.close();
+      toast('Courriers impossibles : ' + reviewErrorText(err), true);
+    } finally { R.busy = false; render(); }
+  }
+  // Relit Projets et Notifications (la notification signée vient peut-être d'être déposée dans Grist) et relance la lecture du mail et du courrier.
+  async function refreshReview() {
+    const R = S.ui.rev; R.mail.nonce++; R.doc.nonce++;
+    try {
+      for (const name of ['Projets', 'Notifications']) global.CoreState.setTable(name, await global.CoreGrist.getTable(name));
+    } catch (err) { console.warn('Relecture des notifications :', err.message); }
+    rebuild(); render();
+  }
+
   function panelHtml(V) {
     const stepKey = V.stepKey;
     const statusText = V.curDone ? (L.validatedInfo(stepKey, V.ctx, V.nameOf) || 'Validé') : (stepKey === V.firstOpen ? 'En cours' : 'À venir');
     const canValidate = V.missing.length === 0;
     let h = '<section class="panel" aria-live="polite"><div class="ph"><h2>' + (V.stepIdx + 1) + ' · ' + esc(V.curStep.label) + '</h2><span class="stt ' + (V.curDone ? 'ok' : (stepKey === V.firstOpen ? 'cur' : '')) + '">' + (V.curDone ? ic('check', 's') : '') + esc(statusText) + '</span>'
-      + (stepKey === 'cr' ? crFoldHtml(V) : '') + '<span class="sp"></span>'
+      + (stepKey === 'cr' ? crFoldHtml(V) : '') + (stepKey === 'notifs' ? notifVueSeg(V) : '') + '<span class="sp"></span>'
       + (V.alerts.length ? '<span class="alert-pill" title="' + esc(V.alerts.join(' · ')) + '">' + ic('warn', 's') + V.alerts.length + '</span>' : '')
       + (!V.curDone && !V.dateStep ? '<button type="button" class="rbtn primary" title="' + esc(canValidate ? "Valider l'étape" : 'À compléter : ' + V.missing.join(', ')) + '" aria-label="Valider l\'étape" ' + (canValidate ? '' : 'disabled ') + da('validate') + '>' + ic('check') + '</button>' : '')
       + (V.curDone ? '<button type="button" class="rbtn" title="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" aria-label="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" ' + da('reopen') + '>' + ic('reopen') + '</button>' : '') + '</div>';
@@ -736,7 +953,7 @@
     else if (stepKey === 'invitation') h += dateCard(V, 'invitation');
     else if (stepKey === 'cr') h += crHtml(V);
     else if (stepKey === 'crmail') h += dateCard(V, 'crmail');
-    else h += notifsHtml(V);
+    else h += V.rev ? reviewHtml(V) : notifsHtml(V);
     return h + '</section>';
   }
 
@@ -782,6 +999,15 @@
       + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'invitation" aria-label="Modèle d\'invitation" value="' + esc(cfg.modInvitation) + '" data-chg="cfg-mod" data-f="Modele_invitation">'
       + ic('send') + '<input type="text" class="inp" list="in-modeles" placeholder="Modèle d\'envoi du compte rendu" aria-label="Modèle d\'envoi du compte rendu" value="' + esc(cfg.modCr) + '" data-chg="cfg-mod" data-f="Modele_CR">'
       + '<datalist id="in-modeles">' + m.gfs.map(f => '<option value="' + esc(f.nom) + '"></option>').join('') + '</datalist></div></div>';
+    // Notifications : le mail (modèle e-mail de Publipostage+) et le courrier (modèle document) lus par la vue « Relecture & envoi ».
+    if (cfg.steps.indexOf('notifs') >= 0) {
+      const names = S.ui.rev.models || { mail: [], letter: [] };
+      h += '<div class="fgrp">' + lbl('Modèles des notifications', 'Modele_notification', 'Modele_courrier_notification') + '<div class="rowf">' + ic('mail')
+        + '<input type="text" class="inp" list="in-modeles-notif-mail" placeholder="Modèle du mail de notification" aria-label="Modèle du mail de notification" value="' + esc(cfg.modNotif) + '" data-chg="cfg-mod" data-f="Modele_notification">'
+        + ic('fileLines') + '<input type="text" class="inp" list="in-modeles-notif-lettre" placeholder="Modèle du courrier de notification" aria-label="Modèle du courrier de notification" value="' + esc(cfg.modCourrier) + '" data-chg="cfg-mod" data-f="Modele_courrier_notification">'
+        + '<datalist id="in-modeles-notif-mail">' + names.mail.map(n => '<option value="' + esc(n) + '"></option>').join('') + '</datalist>'
+        + '<datalist id="in-modeles-notif-lettre">' + names.letter.map(n => '<option value="' + esc(n) + '"></option>').join('') + '</datalist></div></div>';
+    }
     return h + '</div></div></div>';
   }
 
@@ -807,17 +1033,28 @@
     } else if (S.ui.settings) h += settingsHtml(V);
     return fillHelp(withPrefix(h + '</div>'));
   }
+  // Sélecteur du contrôle de la vue « Relecture & envoi » (ou de son sélecteur) qui a le focus, pour le lui rendre après un rendu.
+  function reviewFocusSel(el) {
+    if (!el || !el.closest || !el.closest('.in-rev, .in-seg[aria-label="Affichage des notifications"]')) return '';
+    const d = el.dataset || {}, kind = d.act ? 'act' : (d.chg ? 'chg' : '');
+    if (!kind) return '';
+    return '[data-' + kind + '="' + d[kind] + '"]' + (d.id ? '[data-id="' + d.id + '"]' : '') + (d.v ? '[data-v="' + d.v + '"]' : '');
+  }
   function render() {
     const root = rootEl(); if (!root) return;
     clearTimeout(renderTimer); renderTimer = null;
     ensureSkeleton(root);
     const main = root.querySelector('[data-region="main"]');
     const active = document.activeElement;
+    // Case ou bouton de la relecture des notifications : le rendu les recrée (aussi quand le mail finit de se lire), le focus clavier revient dessus.
+    const back = S.ui.rev.focusSel || reviewFocusSel(active); S.ui.rev.focusSel = '';
     main.innerHTML = buildMain();
     const focus = main.querySelector('[data-autofocus]');
     if (focus && active && !main.contains(active)) focus.focus();
+    const again = back && main.querySelector(back); if (again) again.focus();
     autosizeTitles();
     renderViewer();
+    syncReviewDoc();
     syncCadre();
   }
 
@@ -1305,12 +1542,28 @@
       writeCr([r ? upd('Instance_Relectures', r.id, fields) : addOp('Instance_Relectures', Object.assign({ Seance: V.s.id, Personne: pid }, fields))],
         crAutoValidationOps(V, !!V.s.v0, id => (id === pid ? v : (V.s.relectures[id] || {}).statut)));
     },
-    // notifications
+    // notifications : vue « Relecture & envoi »
+    'notif-vue': el => { if (NOTIF_VUES.indexOf(el.dataset.v) < 0) return; S.prefs.notifVue = el.dataset.v; S.ui.menu = null; S.ui.rev.focusSel = '[data-act="notif-vue"][data-v="' + el.dataset.v + '"]'; render(); savePrefs(); },
+    'rev-pick': el => { S.ui.rev.active = Number(el.dataset.id); S.ui.rev.focusSel = '[data-act="rev-pick"][data-id="' + Number(el.dataset.id) + '"]'; render(); },
+    'rev-refresh': () => { S.ui.rev.focusSel = '[data-act="rev-refresh"]'; refreshReview(); },
+    'rev-open': (el, V) => {
+      const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
+      if (!cur || cur.state === 'draft' || S.ui.rev.mail.status !== 'ok' || !d) return;
+      global.VisaMail.openLink(d.url);
+      toast('Brouillon ouvert pour ' + cur.acro + ' : glissez la pièce jointe dans le mail.');
+    },
+    'rev-copy': (el, V) => {
+      const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
+      if (!cur || cur.state === 'draft' || S.ui.rev.mail.status !== 'ok' || !d) return;
+      copyText((d.fields.subject ? d.fields.subject + '\n\n' : '') + d.bodyText).then(ok => toast(ok ? 'Objet et corps du mail copiés.' : 'Copie impossible : sélectionnez le texte à la main.', !ok));
+    },
+    'rev-generate': (el, V) => generateLetters(V),
+    'rev-download': (el, V) => { const cur = V.rev && V.rev.cur; if (cur && cur.fileId) global.CoreAttachments.open(cur.fileId, { tableId: NOTIF_SIGNEES.tableId, colId: NOTIF_SIGNEES.colId, rowId: cur.id }); },
     'vp-toggle': () => setMenu('vpconfirm'),
     'vp-cancel': () => { S.ui.menu = null; render(); },
     'vp-confirm': (el, V) => confirmVp(V),
     // paramétrage
-    'settings-open': () => { S.ui.settings = true; S.ui.menu = null; render(); },
+    'settings-open': () => { S.ui.settings = true; S.ui.menu = null; ensureModelNames(); render(); },
     'settings-close': () => { S.ui.settings = false; S.ui.menu = null; render(); },
     'cfg-dur': (el, V) => { S.ui.menu = null; cfgWrite(V, { Duree_min: Number(el.dataset.v) }); },
     'cfg-step': (el, V) => {
@@ -1337,7 +1590,10 @@
       if (!iso) return;
       write([upd('Suivi_Instance', V.s.id, { date: gristDay(iso), Heure: L.parisToEpoch(iso, V.s.heure) })], { defer: true });
     },
-    'cfg-mod': (el, V) => cfgWrite(V, { [el.dataset.f]: el.value.trim() })
+    'cfg-mod': (el, V) => cfgWrite(V, { [el.dataset.f]: el.value.trim() }),
+    'rev-check': el => { S.ui.rev.checked[Number(el.dataset.id)] = el.checked; S.ui.rev.focusSel = '[data-chg="rev-check"][data-id="' + Number(el.dataset.id) + '"]'; render(); },
+    'rev-all': (el, V) => { if (!V.rev) return; V.rev.drafts.forEach(i => { S.ui.rev.checked[i.id] = el.checked; }); S.ui.rev.focusSel = '[data-chg="rev-all"]'; render(); },
+    'rev-zimbra': el => { S.prefs.messagerie = el.checked ? 'zimbra' : ''; S.ui.rev.focusSel = '[data-chg="rev-zimbra"]'; render(); savePrefs(); }
   };
 
   function currentView() { return S.loaded && S.model && S.model.instances.length ? computeView() : null; }
@@ -1498,12 +1754,13 @@
 
   global.loadInstancesUserPreferences = loadInstancesUserPreferences;
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
-  global.renderInstances = function () { if (S.loaded) { rebuild(); render(); } };
+  global.renderInstances = function () { if (S.loaded) { S.ui.rev.mail.nonce++; S.ui.rev.doc.nonce++; rebuild(); render(); } }; // données rechargées : le mail et le courrier se relisent
   global.InstancesPage = {
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '' }; S.prefsRowId = null; S.personId = 0; S.ui = { menu: null, settings: false, subs: {}, repShown: false };
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '' }; S.prefsRowId = null; S.personId = 0;
+      releaseDoc(); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }

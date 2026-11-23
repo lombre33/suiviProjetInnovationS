@@ -266,6 +266,92 @@
     });
   });
 
+  describe('Courrier (modèle « document » de Publipostage+) — aperçu en lecture pour la relecture des notifications', function () {
+    const DOC = 'Courrier notification';
+    const prepareDoc = (id, name) => window.VisaMail.prepareDocument({ project: { id }, modelName: name || DOC });
+
+    it('liste seulement les modèles de type « document », sans doublon, par ordre alphabétique', async function () {
+      await setup([
+        { Nom: 'Courrier B', TypeModele: 'document' }, { Nom: 'Accord', TypeModele: 'document' }, { Nom: 'Courrier B', TypeModele: 'document' },
+        { Nom: 'Un mail', TypeModele: 'email' }, { Nom: 'Réglages', TypeModele: 'reglages' }
+      ]);
+      assertDeepEqual((await window.VisaMail.listDocumentModels()).map(model => model.name), ['Accord', 'Courrier B']);
+    });
+
+    it('remplace les bulles de variables par les valeurs du projet, en gardant la mise en forme du modèle', async function () {
+      await setup([{
+        Nom: DOC, TypeModele: 'document',
+        Contenu: `<h1>Notification</h1><p>Projet <strong>${badge('Projets', 'Acronyme')}</strong> porté par ${badge('Projets', 'Porteur_1')}.</p>` +
+          `<p>Début : ${badge('Projets', 'Date_debut_Projet')} - montant : ${badge('Projets', 'Montant_attribue_Total')}</p>`
+      }]);
+      const res = await prepareDoc(CONVENTIX);
+      const holder = document.createElement('div'); holder.innerHTML = res.html;
+      assertEqual(holder.querySelector('h1').textContent, 'Notification');
+      assertEqual(holder.querySelector('strong').textContent, 'CONVENTIX');
+      const words = holder.textContent.replace(/[\u00a0\u202f]/g, ' '); // le nombre français s'écrit avec une espace insécable
+      assertIncludes(words, 'porté par Alice M. (affichée).');
+      assertIncludes(words, 'Début : 01/12/2026 - montant : 25 000,5');
+      assertEqual(holder.querySelector('.var-badge'), null, 'plus aucune bulle de variable');
+      assertEqual(res.modelName, DOC);
+      assertEqual(res.issues.length, 0, JSON.stringify(res.issues));
+    });
+
+    it('les variables sans valeur et ce que le widget n\'évalue pas (conditions, calculs) sont signalés, jamais devinés', async function () {
+      await setup([{
+        Nom: DOC, TypeModele: 'document',
+        Contenu: `<p>${badge('Projets', 'Inexistante')}</p><p>${badge('Projets', 'Acronyme', jsonAttr('data-condition', { mode: 'all', rules: [] }))}</p>` +
+          '<p><span class="calc-badge" data-formula="1+1">1+1</span></p>'
+      }]);
+      const res = await prepareDoc(CONVENTIX);
+      assertDeepEqual(res.issues.find(issue => issue.kind === 'unresolved').keys, ['Projets.Inexistante']);
+      const unsupported = res.issues.find(issue => issue.kind === 'unsupported');
+      assertTrue(!!unsupported);
+      assertIncludes(window.VisaMail.issueText(unsupported), 'conditions');
+      assertIncludes(window.VisaMail.issueText(unsupported), 'calculs');
+    });
+
+    it('lit aussi les colonnes de la fiche Notifications du projet (la table de la vue Publipostage+ habituelle)', async function () {
+      await setup([{ Nom: DOC, TypeModele: 'document', Contenu: `<p>${badge('Notifications', 'notifications_Statut')}</p>` }]);
+      assertIncludes((await prepareDoc(NOTIFY)).html, '5) envoyée pour signature VP');
+    });
+
+    it('modèle absent, ou de type e-mail : erreur « model-missing » ; projet inconnu : « project-missing »', async function () {
+      await setup([{ Nom: 'Un mail', TypeModele: 'email', Contenu: '<p>x</p>' }, { Nom: DOC, TypeModele: 'document', Contenu: '<p>x</p>' }]);
+      for (const name of ['Introuvable', 'Un mail']) {
+        let error = null;
+        try { await prepareDoc(CONVENTIX, name); } catch (err) { error = err; }
+        assertEqual(error && error.code, 'model-missing', name);
+      }
+      let missing = null;
+      try { await prepareDoc(9999); } catch (err) { missing = err; }
+      assertEqual(missing && missing.code, 'project-missing');
+    });
+
+    it('le HTML du modèle est nettoyé avant d\'être affiché : ni script, ni cadre, ni gestionnaire d\'événement, ni lien javascript:', async function () {
+      await setup([{
+        Nom: DOC, TypeModele: 'document',
+        Contenu: '<p onclick="alert(1)">Texte</p><script>alert(2)</script><iframe src="https://exemple.fr"></iframe><style>p{color:red}</style>' +
+          '<a href="javascript:alert(3)">piège</a><a href=" JaVa\tScript:alert(4)">piège 2</a><img src="https://exemple.fr/a.png" onerror="alert(5)"><a href="https://exemple.fr">sûr</a>'
+      }]);
+      const holder = document.createElement('div'); holder.innerHTML = (await prepareDoc(CONVENTIX)).html;
+      assertEqual(holder.querySelector('script, iframe, style'), null);
+      assertFalse(holder.innerHTML.includes('onclick') || holder.innerHTML.includes('onerror'), holder.innerHTML);
+      const hrefs = Array.from(holder.querySelectorAll('a')).map(a => a.getAttribute('href'));
+      assertDeepEqual(hrefs, [null, null, 'https://exemple.fr']);
+      assertEqual(holder.querySelector('img').getAttribute('src'), 'https://exemple.fr/a.png', 'une image normale reste');
+      assertEqual(holder.querySelector('p').textContent, 'Texte');
+    });
+
+    it('sanitizeHtml : data:text/html retiré des liens et des sources, data:image conservé', function () {
+      const root = document.createElement('div');
+      root.innerHTML = '<a href="data:text/html;base64,AAAA">x</a><img src="data:image/png;base64,AAAA"><form action="javascript:x()"><input></form>';
+      window.VisaMail.sanitizeHtml(root);
+      assertEqual(root.querySelector('a').getAttribute('href'), null);
+      assertEqual(root.querySelector('img').getAttribute('src'), 'data:image/png;base64,AAAA');
+      assertEqual(root.querySelector('form'), null);
+    });
+  });
+
   describe('Mail de demande de visa — enveloppe de la sous-étape « Visa » (page Administratif)', function () {
     const anyCard = acronym => Array.from(document.querySelectorAll('#admin-col-conv .admin-card'))
       .find(card => card.querySelector('.admin-card-identity .project-acronym')?.textContent === acronym);

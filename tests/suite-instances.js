@@ -402,7 +402,7 @@
       ['PDF_notification', 'PDF_signe'].forEach(id => assertEqual(exportCols.find(c => c.id === id).type, 'Attachments'));
       assertEqual(exportCols.find(c => c.id === 'Signee_le').type, 'DateTime:Europe/Paris');
       const addedInstances = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Instances').map(c => c.colId);
-      assertDeepEqual(addedInstances, ['Heure_debut', 'Duree_min', 'Etapes_actives', 'Relecteurs_CR', 'Invites_permanents', 'Modele_invitation', 'Modele_CR']);
+      assertDeepEqual(addedInstances, ['Heure_debut', 'Duree_min', 'Etapes_actives', 'Relecteurs_CR', 'Invites_permanents', 'Modele_invitation', 'Modele_CR', 'Modele_notification', 'Modele_courrier_notification']);
       const addedSeance = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance').map(c => c.colId);
       assertDeepEqual(addedSeance, ['Mail_invitation_le', 'CR_V0_le', 'CR_V0_par', 'CR_PDF', 'Mail_CR_le']);
       assertEqual(window.__TEST_CALLS__.find(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance' && c.colId === 'CR_PDF').colInfo.type, 'Attachments', 'la version PDF du compte rendu est une colonne de pièces jointes');
@@ -3009,7 +3009,7 @@
 
     it('les colonnes de Instances créées par la page portent une description (source des bulles d\'aide)', function () {
       const cols = window.InstancesData.INSTANCES_COLUMNS;
-      assertEqual(cols.length, 7);
+      assertEqual(cols.length, 9);
       assertTrue(cols.every(c => !!c.description), 'chaque colonne ajoutée à Instances a sa description');
     });
   });

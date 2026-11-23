@@ -28,6 +28,7 @@
   const MODELS_TABLE = 'Publipostage_Modeles';
   const LINKS_TABLE = 'Publipostage_LiensTables';
   const MAIL_TYPE = 'email';
+  const DOCUMENT_TYPE = 'document';
   const SAFE_URL_LENGTH = 2000;
   const TRIGGER = '#';
   const CLIENTS = ['standard', 'zimbra'];
@@ -667,6 +668,14 @@
     return names.sort((a, b) => a.localeCompare(b, 'fr')).map(name => ({ name }));
   }
 
+  // Les noms des modèles de type « document » (le courrier), par ordre alphabétique.
+  async function listDocumentModels() {
+    const env = { rows: name => CoreGrist.getTable(name) };
+    const models = (await loadModels(env)).filter(model => model.type === DOCUMENT_TYPE);
+    const names = Array.from(new Set(models.map(model => model.name)));
+    return names.sort((a, b) => a.localeCompare(b, 'fr')).map(name => ({ name }));
+  }
+
   // Les lignes d'où lire une variable : la fiche Notifications du projet d'abord (la table de la vue Publipostage+ habituelle), puis le projet.
   async function contextsFor(env, projectRow) {
     const contexts = [];
@@ -719,10 +728,50 @@
     return { url, fields: { to, cc, bcc, subject }, bodyText, length: check.length, issues, modelName: model.name };
   }
 
+  // ───────────────────────── Aperçu d'un courrier (modèle de type « document ») ─────────────────────────
+
+  // Le HTML d'un modèle est écrit par l'éditeur de Publipostage+ ; il est tout de même nettoyé avant d'être affiché dans la page : ni script,
+  // ni cadre, ni formulaire, ni feuille de style, aucun gestionnaire d'événement, aucun lien « javascript: ».
+  const DROPPED_TAGS = 'script, style, iframe, object, embed, link, meta, base, form, noscript, template';
+  function sanitizeHtml(root) {
+    root.querySelectorAll(DROPPED_TAGS).forEach(node => node.remove());
+    root.querySelectorAll('*').forEach(node => {
+      Array.from(node.attributes).forEach(attribute => {
+        const name = attribute.name.toLowerCase();
+        const value = attribute.value.trim().toLowerCase().replace(/[\u0000-\u001f\s]+/g, '');
+        if (name.startsWith('on')) node.removeAttribute(attribute.name);
+        else if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action' || name === 'formaction') && /^(?:javascript|vbscript|data:text\/html)/.test(value)) node.removeAttribute(attribute.name);
+      });
+    });
+    return root;
+  }
+  // Le courrier d'un projet d'après un modèle de type « document » : variables remplacées, HTML nettoyé. Même résolution que le mail (ce que le
+  // widget ne sait pas évaluer — conditions, boucles, calculs — est signalé dans `issues`, jamais deviné) : c'est un aperçu à relire, le PDF
+  // officiel reste celui que produit Publipostage+.
+  // Rend { html, issues, modelName }. Erreurs (`error.code`) : 'models-table-missing', 'model-missing', 'project-missing'.
+  async function prepareDocument({ project, modelName, now }) {
+    const env = await createEnv({ now });
+    const model = (await loadModels(env)).find(item => item.type === DOCUMENT_TYPE && item.name === modelName);
+    if (!model) throw codedError('model-missing', `Modèle « ${modelName} » introuvable parmi les modèles de document`);
+    const projectRow = (await env.rows('Projets')).find(row => row.id === Number(project.id));
+    if (!projectRow) throw codedError('project-missing', 'Projet introuvable dans Grist');
+    const contexts = await contextsFor(env, projectRow);
+    const report = newReport();
+    const root = parseHtml(model.content);
+    await substituteIn(root, env, contexts, report, {});
+    sanitizeHtml(root);
+    const holder = document.createElement('div');
+    holder.appendChild(root);
+    const issues = [];
+    if (report.unresolved.size) issues.push({ kind: 'unresolved', keys: Array.from(report.unresolved) });
+    if (report.unsupported.size) issues.push({ kind: 'unsupported', labels: Array.from(report.unsupported).map(key => FEATURE_LABELS[key] || key) });
+    return { html: holder.innerHTML, issues, modelName: model.name };
+  }
+
   global.VisaMail = {
     CLIENTS, MODELS_TABLE, SAFE_URL_LENGTH,
-    prepare, listEmailModels, issueText, openLink,
+    prepare, prepareDocument, listEmailModels, listDocumentModels, issueText, openLink,
     // Exposés pour les tests.
-    buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate
+    buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate, sanitizeHtml
   };
 }(window));

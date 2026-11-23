@@ -244,6 +244,28 @@
     return { key: 'none', cls: 'todo', short: 'À mettre à dispo', label: 'Non mise à disposition', tip: 'Pas encore mise à disposition du VP' };
   }
 
+  // --- Notifications : relecture et envoi (étape « Notifications », vue « Relecture & envoi ») ---
+  // État d'une notification, lu dans Grist (la page n'écrit rien ici) :
+  //   « sent »   statut « 7) Transmise au porteur » (ou plus) : déjà partie ;
+  //   « signed » la colonne PJ « Notifications_Signees » du projet contient un fichier : c'est la notification signée (critère d'Antoine,
+  //              23/11/2026 : pas de signature électronique pour l'instant, il dépose lui-même le document signé) ;
+  //   « draft »  sinon : le courrier se relit d'après le modèle Publipostage+ en attendant la signature.
+  // `project` : { signees: [numéros de pièces jointes], notif: libellé du statut Notifications }.
+  const NOTIF_SENT_STAGE = 7;
+  function notifReviewState(project) {
+    if (notifNum(project && project.notif) >= NOTIF_SENT_STAGE) return 'sent';
+    return project && project.signees && project.signees.length ? 'signed' : 'draft';
+  }
+  const NOTIF_REVIEW_LABEL = {
+    draft: { short: 'À signer', tip: 'Colonne « Notifications signées » vide : aperçu du courrier d\'après le modèle Publipostage+' },
+    signed: { short: 'Signée', tip: 'Colonne « Notifications signées » remplie : le courrier signé s\'ouvre à la place' },
+    sent: { short: 'Transmise', tip: 'Statut « Transmise au porteur » déjà posé dans Grist' }
+  };
+  // Projet affiché dans la relecture : celui qui est demandé s'il est dans la liste, sinon le premier.
+  function pickReviewItem(items, wantedId) {
+    return items.find(i => i.id === Number(wantedId)) || items[0] || null;
+  }
+
   // --- Validation des étapes ---
   // ctx : { seance, cfg, sched, conflicts, guests, relectures, validations, endMin, personName, projectVp }
   function isValid(key, ctx) {
@@ -459,7 +481,7 @@
     findCompositionTable, detectComposition, matchesSearch, gradeKind, sortGuests, nextGuestTri, GUEST_TRI, hasAnswered, repVisibility,
     STEPS, ALL_STEP_KEYS, DATE_STEPS, CHOICES, choiceKey, INSTANCE_RULES, normName, instanceRule, groupSeances,
     toMin, hhmm, durTxt, DUREES, fmtDate, fmtShort, addDaysIso, gristDateToIso, isoToGristDate, parisParts, parisToEpoch,
-    notifNum, stripOrdinal, shortName, initials, cut,
+    notifNum, stripOrdinal, shortName, initials, cut, notifReviewState, NOTIF_REVIEW_LABEL, pickReviewItem,
     schedule, scheduleWithSubs, allPoints, dureeOf, subsAllFilled, subsTotal, NATURE_ORDER, groupByNature, guestClash, computeConflicts, firstStartOf, horaireState, vpState,
     isValid, validatedInfo, stepConditions
   };

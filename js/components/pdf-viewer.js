@@ -64,14 +64,18 @@
 
   let current = null; // une seule visionneuse à la fois
 
-  function close() {
-    const session = current;
-    if (!session) return;
-    current = null;
+  // Libère tout ce qu'une session tient (rendus en cours, observateur, document pdf.js) ; sert à la fenêtre comme à l'affichage intégré.
+  function release(session) {
     session.closed = true;
     session.observer?.disconnect();
     session.pages.forEach(page => { try { page.task?.cancel(); } catch (err) { /* déjà terminé */ } });
     try { session.pdf?.destroy(); } catch (err) { /* déjà détruit */ }
+  }
+  function close() {
+    const session = current;
+    if (!session) return;
+    current = null;
+    release(session);
     doc.removeEventListener('keydown', session.onKey, true);
     session.overlay.remove();
     if (session.opener && session.opener.isConnected && session.opener.focus) session.opener.focus({ preventScroll: true });
@@ -279,6 +283,20 @@
     return session;
   }
 
+  // Affichage INTÉGRÉ : le même rendu, sans fenêtre ni barre d'outils, dans un élément de la page (le volet « courrier » de la page
+  // Instances). `host` est l'élément qui défile : les pages s'y rangent à sa largeur (le texte et le zoom de la fenêtre ne s'y affichent pas).
+  // Rend { destroy() } : à appeler avant de vider ou de retirer l'élément, sinon les rendus en cours continuent en arrière-plan.
+  // Plusieurs affichages intégrés peuvent coexister avec la fenêtre : chaque session est indépendante.
+  function mount(host, { load } = {}) {
+    const session = {
+      overlay: null, body: host, count: el('span'), zoomLabel: el('span'), zoomOut: el('button'), zoomIn: el('button'),
+      opener: null, pdf: null, pages: [], scale: 1, observer: null, closed: false, onKey: null
+    };
+    host.replaceChildren();
+    run(session, load);
+    return { destroy() { release(session); host.replaceChildren(); } };
+  }
+
   // Chargement anticipé (à appeler au repos, quand un PDF a des chances d'être ouvert) : le module pdf.js est lu, et le
   // fichier du worker (1,4 Mo) est préchargé dans le cache du navigateur, sans le lancer. Le premier clic ouvre alors
   // aussi vite que les suivants. Sans effet si déjà fait.
@@ -295,5 +313,5 @@
     } catch (err) { /* sans importance : le worker se chargera à l'ouverture */ }
   }
 
-  global.PdfViewer = { open, close, preload, isOpen: () => !!current, looksLikePdf };
+  global.PdfViewer = { open, mount, close, preload, isOpen: () => !!current, looksLikePdf };
 }(window));

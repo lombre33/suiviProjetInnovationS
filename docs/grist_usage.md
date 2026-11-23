@@ -464,6 +464,35 @@ la couleur de la ligne suit la présence constatée une fois l'appel fait (prés
 réponse) ; un tri par réponse enregistré ne s'applique pas tant que la colonne est masquée ; l'appel vaut réponse pour
 l'alerte « n'ont pas encore répondu » de l'étape et pour le jalon « Présence invités confirmée » (« x/y confirmés »).
 
+**Étape Notifications : vue « Relecture & envoi » (23/11/2026).** Dans l'en-tête du panneau de l'étape 6, un sélecteur
+**Suivi | Relecture & envoi (n)** (n = notifications pas encore transmises ; aucune ligne de plus) ; « Suivi » reste la vue par
+défaut, le choix est retenu par utilisateur (`Preferences_Widget.Inst_notif_vue`). La relecture a trois volets : la liste des
+projets de la séance à notifier | le **mail** | le **courrier**. **Lecture seule** : le widget n'écrit rien dans `Notifications`
+ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; seuls un toast et les préférences sont écrits.
+- **État d'une notification** (`L.notifReviewState`) : « Transmise » si `notifications_Statut` est « 7) » ou plus ; « Signée » si la
+  colonne PJ **`Projets.Notifications_Signees`** est remplie (c'est ce critère, pas le statut : « 6) Signée » sans fichier reste
+  « À signer ») ; sinon « À signer ». Seules les notifications « À signer » ont une case à cocher.
+- **Mail** : modèle de type e-mail de Publipostage+ choisi dans le paramétrage de l'instance (`Instances.Modele_notification`),
+  lu par `VisaMail.prepare` (même moteur que l'enveloppe « Demande de visa ») : À, Cc, objet, corps, points à vérifier. Aucune
+  pièce jointe n'est prévisualisée : la ligne dit « À glisser manuellement dans l'email depuis Zimbra » (`mailto:` ne joint rien).
+  « Ouvrir dans ma messagerie » et « Copier » sont grisés tant que la notification n'est pas signée. Case **Zimbra** (retenue par
+  utilisateur, `Inst_messagerie`) : adapte le lien pour Zimbra. Bouton « Relire » : relit `Projets`, `Notifications`, le modèle
+  (une notification signée déposée entre-temps passe alors de « À signer » à « Signée »).
+- **Courrier** : tant que la notification n'est pas signée, aperçu du modèle de type « document » de Publipostage+ choisi dans
+  `Instances.Modele_courrier_notification` (`VisaMail.prepareDocument` : variables remplacées, HTML nettoyé, Shadow DOM ; ce que le
+  widget n'évalue pas — conditions, boucles, calculs — est signalé, jamais deviné : le PDF officiel reste celui de Publipostage+).
+  **Dès que `Notifications_Signees` est remplie**, le volet n'ouvre plus la version Publipostage+ mais la pièce jointe (visionneuse
+  pdf.js du widget, `PdfViewer.mount`, lue avec la preuve d'accès sur la cellule `Projets/Notifications_Signees/<ligne>`) ; le
+  volet n'est pas relu à chaque rendu (case cochée, clic).
+- **« Tout générer (n) »** (sous la liste, pour les courriers cochés) ouvre les courriers dans **une page à imprimer, un par feuille**
+  (impression ou « Enregistrer en PDF ») : le widget ne pilote pas l'export PDF de Publipostage+. Il n'enregistre ni ne marque rien.
+- Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
+  `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`. Non validé dans un vrai Grist (le proxy de ce projet
+  n'atteint ni Publipostage+ ni les pièces jointes). Code : `notifReviewState`, `pickReviewItem` (`instances-logic.js`), `reviewHtml`,
+  `ensureMail`, `syncReviewDoc`, `generateLetters` (`page-instances.js`), `prepareDocument`, `listDocumentModels` (`visa-mail.js`),
+  `PdfViewer.mount` (`pdf-viewer.js`), bloc « Étape Notifications — vue Relecture & envoi » de `css/instances.css`, tests
+  `tests/suite-instances-relecture.js`.
+
 ## Lignes_OPE
 
 Table renommée côté Grist par Antoine (confirmé le 22/10/2026) ; s'appelait

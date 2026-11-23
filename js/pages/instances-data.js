@@ -33,7 +33,9 @@
     col('Relecteurs_CR', 'RefList:Annuaire', { description: "Personnes qui relisent chaque compte rendu de cette instance avant sa validation." }),
     col('Invites_permanents', 'RefList:Annuaire', { description: "Listing de base de l'instance, repris dans chaque nouvelle séance. Les personnes ajoutées sur un point restent propres à leur séance." }),
     col('Modele_invitation', 'Text', { description: "Nom du modèle de mail d'invitation (modèle de type e-mail de Publipostage+, rangé dans GFS)." }),
-    col('Modele_CR', 'Text', { description: "Nom du modèle de mail d'envoi du compte rendu (modèle de type e-mail de Publipostage+, rangé dans GFS)." })
+    col('Modele_CR', 'Text', { description: "Nom du modèle de mail d'envoi du compte rendu (modèle de type e-mail de Publipostage+, rangé dans GFS)." }),
+    col('Modele_notification', 'Text', { description: "Nom du modèle de mail des notifications de cette instance (modèle de type e-mail de Publipostage+). La vue « Relecture & envoi » de l'étape Notifications le remplit pour chaque projet." }),
+    col('Modele_courrier_notification', 'Text', { description: "Nom du modèle du courrier de notification (modèle de type document de Publipostage+). La vue « Relecture & envoi » l'affiche en lecture tant que la notification signée n'est pas déposée dans le projet." })
   ];
   const SEANCE_COLUMNS = [
     col('Mail_invitation_le', 'Date', { description: "Date d'envoi du mail d'invitation à la séance. Une date renseignée vaut validation de l'étape « Mail d'invitation »." }),
@@ -43,7 +45,7 @@
     col('Mail_CR_le', 'Date', { description: "Date d'envoi du mail du compte rendu. Une date renseignée vaut validation de l'étape « Envoi du compte rendu »." })
   ];
   const PREFS_COLUMNS = [
-    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue_ensemble', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text')
+    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue_ensemble', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text'), col('Inst_notif_vue', 'Text'), col('Inst_messagerie', 'Text')
   ];
 
   // --- Tables propres à la page (ordre = ordre de création : les références doivent exister) ---
@@ -213,7 +215,8 @@
     const peopleById = {}; people.forEach(p => { peopleById[p.id] = p; });
     const notifByProject = {};
     (env.notifications || []).forEach(n => { notifByProject[refId(n.Projet)] = text(n.notifications_Statut); });
-    const projects = (env.projets || []).filter(p => text(p.Acronyme).trim()).map(p => ({ id: p.id, acro: text(p.Acronyme).trim(), titre: text(p.Projet).trim(), notif: notifByProject[p.id] || text(p.Statut_Macro) }))
+    // signees : numéros des pièces jointes de la colonne « Notifications_Signees » (la notification signée, relue par la vue « Relecture & envoi »).
+    const projects = (env.projets || []).filter(p => text(p.Acronyme).trim()).map(p => ({ id: p.id, acro: text(p.Acronyme).trim(), titre: text(p.Projet).trim(), notif: notifByProject[p.id] || text(p.Statut_Macro), signees: refList(p.Notifications_Signees), porteurId: refId(p.Porteur_1) }))
       .sort((a, b) => a.acro.localeCompare(b.acro, 'fr'));
     const projectsById = {}; projects.forEach(p => { projectsById[p.id] = p; });
     const lieux = (raw.Lieux || []).map(r => ({ id: r.id, nom: lieuLabel(r), sub: lieuSub(r) })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
@@ -240,7 +243,7 @@
         steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),
         composition: (composition.byInstance[row.id] || []).slice(),
-        modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR),
+        modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR), modNotif: text(row.Modele_notification), modCourrier: text(row.Modele_courrier_notification),
         heuresChoix: rule && rule.heures ? rule.heures.slice() : [] // heures de début proposées d'un clic (CTO : 9h00 ou 10h45)
       };
       return { id: row.id, nom, cfg, seances: [], known: !!rule, principal: !!(rule && rule.principal) };
