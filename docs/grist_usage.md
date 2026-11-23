@@ -497,6 +497,9 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   après ~2 s —, délai de 30 s), le volet affiche l'aperçu simplifié du widget (`prepareDocument`) avec la raison en bandeau ; aucun nouvel essai à chaque projet,
   « Relire » réessaie. Le **mail** reste lu par `VisaMail.prepare` (texte brut pour le `mailto:`). À la première ouverture de Publipostage+ sur un poste, son
   écran « Nouveautés » apparaît une fois (même origine : s'il a déjà été fermé ailleurs, il ne revient pas).
+- **Largeur sur grand écran (23/11/2026, écran 1900×1080)** : le conteneur de l'appli (`.container`, 1280 px max dans `style.css`) prend toute la largeur tant que la page
+  Instances est affichée (`css/instances.css` : `.container:has(#view-instances:not(.hidden)){max-width:2560px}`, sans JavaScript) ; les autres pages gardent 1280 px. Les trois volets
+  de la relecture grandissent (liste fixe, mail 1, courrier 1,6) ; sous 1280 px rien ne change, et sur petit écran les volets passent à la ligne (liste + mail, puis le courrier dessous).
 - **« Modifier le modèle » (23/11/2026, maquette)** : sur l'en-tête du mail et du courrier (crayon seul tant que le volet fait moins de 640 px, avec son libellé au-delà),
   grisé sans modèle choisi, absent d'une notification signée. Ouvre la page **Rédaction** pour le projet affiché avec le modèle du volet
   (`PageRedaction.open(projet, { modelId, from: 'view-instances', crumb })`) : publipostage+ s'ouvre sur ce modèle **en Édition** (liste + `change`, puis clic sur « Mode édition »

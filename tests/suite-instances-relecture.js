@@ -872,6 +872,54 @@
     });
   });
 
+  describe('Instances — largeur sur grand écran (Antoine, 23/11/2026)', function () {
+    // Les feuilles de style ne sont pas chargées par la page de test : on pose celles de l'appli (sans l'@import des polices, bloqué ici) le temps du test.
+    async function withAppCss(fn) {
+      const read = async url => (await (await fetch(url, { cache: 'no-store' })).text()).replace(/^@import.*$/m, '');
+      const style = document.createElement('style');
+      style.textContent = (await read('../style.css')) + '\n' + (await read('../css/instances.css'));
+      document.head.appendChild(style);
+      const wrap = document.createElement('div');
+      wrap.innerHTML = '<div class="container"><section id="view-instances" class="view"></section><section class="view hidden"></section></div>';
+      wrap.style.cssText = 'position:absolute;left:0;top:0';
+      document.body.appendChild(wrap);
+      try { await fn(wrap, wrap.querySelector('.container'), wrap.querySelector('#view-instances')); } finally { wrap.remove(); style.remove(); }
+    }
+
+    it('écran 1900 px : le conteneur de l\'appli n\'est plus plafonné à 1280 px tant que la page Instances est affichée, et le redevient sur les autres pages', async function () {
+      await withAppCss(async (wrap, container, view) => {
+        wrap.style.width = '1900px';
+        assertEqual(Math.round(container.getBoundingClientRect().width), 1900, 'Instances affichée : toute la largeur');
+        view.classList.add('hidden');
+        assertEqual(Math.round(container.getBoundingClientRect().width), 1280, 'autre page : le plafond de 1280 px reste');
+      });
+    });
+
+    it('petit écran : le conteneur suit la largeur disponible, les volets passent à la ligne (liste et mail, puis le courrier dessous)', async function () {
+      await withAppCss(async (wrap, container) => {
+        wrap.style.width = '820px';
+        assertEqual(Math.round(container.getBoundingClientRect().width), 820);
+        wrap.style.width = '3200px';
+        assertEqual(Math.round(container.getBoundingClientRect().width), 2560, 'jamais plus de 2560 px : une largeur de lecture raisonnable');
+      });
+      const rev = document.createElement('div');
+      rev.className = 'in-root';
+      rev.style.cssText = 'position:absolute;left:0;top:0;width:700px';
+      rev.innerHTML = '<div class="in-rev"><div class="in-rpane in-rlist"></div><div class="in-rpane in-rmail"></div><div class="in-rpane in-rdoc"></div></div>';
+      const undo = await useCss();
+      document.body.appendChild(rev);
+      try {
+        const top = sel => Math.round(rev.querySelector(sel).getBoundingClientRect().top);
+        assertEqual(top('.in-rmail'), top('.in-rlist'), 'liste et mail côte à côte');
+        assertTrue(top('.in-rdoc') > top('.in-rmail'), 'le courrier passe sous la liste et le mail (700 px ne suffisent pas pour trois volets)');
+        rev.style.width = '1800px';
+        assertEqual(top('.in-rdoc'), top('.in-rlist'), 'à 1800 px les trois volets tiennent sur une ligne');
+        const w = sel => rev.querySelector(sel).getBoundingClientRect().width;
+        assertTrue(w('.in-rdoc') > w('.in-rmail'), 'le courrier est le plus large');
+      } finally { rev.remove(); undo(); }
+    });
+  });
+
   describe('Visionneuse PDF — affichage intégré (mount)', function () {
     it('un fichier illisible ou qui n\'est pas un PDF affiche son message dans l\'élément, sans fenêtre', async function () {
       const host = document.createElement('div');

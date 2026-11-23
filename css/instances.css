@@ -400,6 +400,10 @@ font-family:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--
 .in-root.in-plein .in-gframe{height:calc(100vh - 46px)}
 body.in-plein-body #header,body.in-plein-body #error-container{display:none}
 body.in-plein-body .container{max-width:none;padding:0;min-height:0}
+/* Grand écran (Antoine, 23/11/2026, écran 1900×1080) : le conteneur de l'appli plafonne à 1280 px (style.css) ; tant que la page Instances est affichée il prend toute
+   la largeur (la relecture des notifications — liste | mail | courrier — en profite : les volets grandissent). Sous 1280 px rien ne change : mêmes colonnes,
+   mêmes retours à la ligne et mêmes seuils (@media / @container) qu'avant. Au-delà de 2560 px la page garde une largeur de lecture raisonnable. */
+.container:has(#view-instances:not(.hidden)){max-width:2560px}
 
 /* Composition de l'instance : rappel dans l'étape Invités. */
 .in-compo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--accent-sb);border-radius:12px;background:var(--accent-s);font-size:12.5px;font-weight:600}
