@@ -2757,6 +2757,59 @@
       assertEqual(qa('.in-gsec').length, 0, 'sans invité spécifique, la liste est simple');
     });
 
+    it('tri des invités : à critère de présence égal, les VP d\'abord puis l\'ordre alphabétique (logique pure, dans les deux listes)', function () {
+      const names = { 1: 'Zoé VIDAL', 2: 'Alain BOYER', 3: 'Bruno CARON', 4: 'Chloé DUPUIS', 5: 'Paul ENGEL', 6: 'Yann FABRE', 7: 'Anne GIRARD' };
+      const kinds = { 1: 'vp', 3: 'vp', 6: 'dir', 7: 'dir' };
+      const nameOf = g => names[g.personneId], kindOf = g => kinds[g.personneId] || '';
+      const mk = (personneId, origine, reponse, appel) => ({ id: personneId, personneId, origine, reponse, appel: appel || '' });
+      const order = (guests, tri) => L.sortGuests(guests, tri, nameOf, kindOf).map(g => g.personneId);
+      // liste habituelle, tous « viendra » : les VP (Bruno, Zoé) d'abord, puis alphabétique (Alain, Chloé) — l'ordre d'origine ne compte plus
+      const usual = [mk(2, 'permanent', 'viendra'), mk(4, 'permanent', 'viendra'), mk(1, 'permanent', 'viendra'), mk(3, 'permanent', 'viendra')];
+      assertDeepEqual(order(usual, ''), [3, 1, 2, 4], 'VP (Bruno, Zoé), puis Alain, Chloé');
+      // le critère de présence reste au-dessus : un excusé non VP passe avant les VP qui viennent (excusés d'abord par défaut)
+      assertDeepEqual(order(usual.concat([mk(5, 'permanent', 'excuse')]), ''), [5, 3, 1, 2, 4], 'excusé (Paul), puis les VP qui viennent, puis les autres');
+      // un VP « à confirmer » reste après ceux qui viennent
+      assertDeepEqual(order(usual.concat([mk(7, 'permanent', 'attente')]), ''), [3, 1, 2, 4, 7]);
+      // tri choisi « Appel du jour » : présents, pas encore appelés, absents ; dans chaque groupe les VP d'abord puis alphabétique
+      const called = [mk(2, 'permanent', 'viendra', 'present'), mk(4, 'permanent', 'viendra', 'present'), mk(1, 'permanent', 'viendra', 'present'),
+        mk(3, 'permanent', 'viendra', 'absent'), mk(5, 'permanent', 'viendra', ''), mk(6, 'permanent', 'viendra', 'absent')];
+      assertDeepEqual(order(called, 'appel:asc'), [1, 2, 4, 5, 3, 6], 'présents (Zoé VP, Alain, Chloé), non appelé (Paul), absents (Bruno VP, puis Yann)');
+      assertDeepEqual(order(called, 'appel:desc'), [3, 6, 5, 1, 2, 4], 'absents d\'abord (Bruno VP, Yann), non appelé, présents (Zoé VP, Alain, Chloé)');
+      // tri choisi « Réponse »
+      const reps = [mk(2, 'permanent', 'viendra'), mk(1, 'permanent', 'attente'), mk(4, 'permanent', 'viendra'), mk(3, 'permanent', 'attente')];
+      assertDeepEqual(order(reps, 'reponse:asc'), [2, 4, 3, 1], 'viendra (Alain, Chloé), puis à confirmer (Bruno VP avant Zoé VP : alphabétique)');
+      // « Personne » reste purement alphabétique, VP ou pas
+      assertDeepEqual(order(usual, 'nom:asc'), [2, 3, 4, 1], 'Alain, Bruno, Chloé, Zoé');
+      // invités spécifiques : VP, puis directeur.trice.s, puis le reste (alphabétique à égalité)
+      const spec = [mk(5, 'point', 'viendra'), mk(7, 'point', 'viendra'), mk(2, 'point', 'viendra'), mk(1, 'point', 'viendra'), mk(6, 'point', 'viendra')];
+      assertDeepEqual(order(spec, ''), [1, 7, 6, 2, 5], 'VP (Zoé), directeur.trice.s (Anne, Yann : alphabétique), autres (Alain, Paul)');
+      assertDeepEqual(order(spec.concat(usual), '').slice(0, 5), [1, 7, 6, 2, 5], 'les spécifiques restent en tête, avant la liste habituelle');
+      // sans fonction de nom ni de grade : l'ordre d'origine départage comme avant
+      assertDeepEqual(L.sortGuests(usual, '').map(g => g.personneId), [2, 4, 1, 3]);
+    });
+
+    it('étape Invités : dans la liste habituelle, à présence égale les VP passent en premier, puis l\'ordre alphabétique (aussi avec le tri « Appel du jour »)', async function () {
+      await setup({
+        people: [{ id: 5, NOM: 'VIDAL', Prenom: 'Zoé', nom_et_Prenom: 'Zoé VIDAL', Email: '', Poste2: 7 }, { id: 6, NOM: 'ARNAUD', Prenom: 'Anna', nom_et_Prenom: 'Anna ARNAUD', Email: '', Poste2: 0 }],
+        tables: t => { t.Postes2.push({ id: 7, Nom_du_poste: 'VP Innovation', grade: 'VP' }); },
+        rows: d => {
+          d.Instance_Invites.push({ id: 5, Seance: 2, Personne: 5, Origine: 'Liste permanente', Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Reponse: 'Viendra', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' });
+          d.Instance_Invites.push({ id: 6, Seance: 2, Personne: 6, Origine: 'Liste permanente', Ecrit_le: null, Passage_envoye_le: null, Passage_envoye_heure: '', Reponse: 'Viendra', Dispo_de: '', Dispo_a: '', Commentaire: '', Appel: '' });
+        }
+      });
+      step('invites');
+      const shown = () => qa('.in-grow:not(.in-head) .in-pn').map(n => n.textContent.trim());
+      const row = name => qa('.in-grow:not(.in-head)').find(r => r.querySelector('.in-pname').textContent.includes(name));
+      assertDeepEqual(shown(), ['Chloé Petit', 'Zoé VIDAL', 'Alice Martin', 'Anna ARNAUD', 'Bob Durand'],
+        'spécifique en tête ; puis ceux qui viennent : la VP (Zoé) avant Alice et Anna (alphabétique) ; Bob (à confirmer) en dernier');
+      assertTrue(!!row('Zoé').querySelector('.in-gbadge.in-gvp'), 'la pastille VP est affichée');
+      click('g-appel', { id: 5, v: 'present' });
+      click('g-appel', { id: 6, v: 'present' });
+      await waitFor(() => calls('UpdateRecord', 'Instance_Invites').filter(c => 'Appel' in c.fields).length === 2, 'appels écrits');
+      click('g-sort', { v: 'appel' });
+      assertDeepEqual(shown(), ['Chloé Petit', 'Zoé VIDAL', 'Anna ARNAUD', 'Alice Martin', 'Bob Durand'], 'présents d\'abord (la VP, puis Anna), puis les non appelés (alphabétique)');
+    });
+
     it('étape Invités : la couleur de la ligne suit la présence prévue (vert = viendra, rouge = excusé, blanc par défaut), le VP n\'a que sa pastille', async function () {
       await withLayout(async () => {
         await setup({

@@ -417,27 +417,32 @@
   }
   // Invités : deux listes, d'abord ceux ajoutés sur un point (« spécifiques »), et parmi eux les VP, puis les directeur.trice.s
   // d'établissement ; `kindOf(guest)` donne 'vp' | 'dir' | ''. Un tri choisi par clic sur un en-tête s'applique ensuite dans chaque liste.
+  // Dans les deux listes, à critère de présence égal (réponse par défaut, ou le tri choisi : réponse / appel), les VP passent d'abord, puis
+  // l'ordre alphabétique (Antoine, 23/11/2026) ; le tri « Personne » reste purement alphabétique.
   function sortGuests(guests, tri, nameOf, kindOf) {
+    nameOf = nameOf || (() => '');
     const kindRank = g => { const k = kindOf ? kindOf(g) : ''; return k === 'vp' ? 0 : (k === 'dir' ? 1 : 2); };
+    const vpFirst = g => (kindOf && kindOf(g) === 'vp' ? 0 : 1);
     // Ordre par défaut de chaque liste (Antoine 12/11) : les VP puis directeur.trice.s d'abord (invités spécifiques seulement), puis les
-    // excusés, ceux qui viennent, et enfin les « à confirmer » ; l'ordre d'origine départage.
+    // excusés, ceux qui viennent, et enfin les « à confirmer » ; à égalité les VP, puis l'ordre alphabétique, puis l'ordre d'origine.
     const repRank = g => { const r = DEFAULT_REPONSE_RANK[g.reponse]; return r === undefined ? 2 : r; };
+    const byNameOf = (a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)), 'fr', { sensitivity: 'base' });
     const base = guests.map((g, i) => ({ g, i })).sort((a, b) => {
       if (a.g.origine !== b.g.origine) return a.g.origine === 'point' ? -1 : 1;
       if (a.g.origine === 'point' && kindRank(a.g) !== kindRank(b.g)) return kindRank(a.g) - kindRank(b.g);
-      return repRank(a.g) - repRank(b.g) || a.i - b.i;
+      return repRank(a.g) - repRank(b.g) || vpFirst(a.g) - vpFirst(b.g) || byNameOf(a.g, b.g) || a.i - b.i;
     });
     const m = GUEST_TRI.exec(tri || '');
     if (!m) return base.map(x => x.g);
     const key = m[1], sign = m[2] === 'desc' ? -1 : 1;
-    const byName = (x, y) => String(nameOf(x.g)).localeCompare(String(nameOf(y.g)), 'fr', { sensitivity: 'base' });
+    const byName = (x, y) => byNameOf(x.g, y.g);
     const rank = x => { const r = GUEST_RANK[key][key === 'reponse' ? x.g.reponse : (x.g.appel || '')]; return r === undefined ? 1 : r; };
     // Les deux listes restent séparées (spécifiques d'abord) : le tri choisi s'applique DANS chacune.
     const grp = x => (x.g.origine === 'point' ? 0 : 1);
     return base.sort((x, y) => {
       if (grp(x) !== grp(y)) return grp(x) - grp(y);
       if (key === 'nom') return sign * byName(x, y) || x.i - y.i;
-      return sign * (rank(x) - rank(y)) || (grp(x) === 0 ? kindRank(x.g) - kindRank(y.g) : 0) || byName(x, y) || x.i - y.i;
+      return sign * (rank(x) - rank(y)) || (grp(x) === 0 ? kindRank(x.g) - kindRank(y.g) : vpFirst(x.g) - vpFirst(y.g)) || byName(x, y) || x.i - y.i;
     }).map(x => x.g);
   }
   // Clic sur un en-tête : croissant, puis décroissant, puis retour à l'ordre d'origine ; un autre en-tête repart en croissant.

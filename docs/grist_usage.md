@@ -395,6 +395,13 @@ l'appel du jour) ; un invité qui change de réponse change donc de rang. Le tri
 en-tête (Personne, Réponse, Appel du jour) s'applique ensuite DANS chaque liste, jamais entre les deux.
 Code : `L.sortGuests`, `DEFAULT_REPONSE_RANK` (`instances-logic.js`), classes `gsec` (fin de `css/instances.css`).
 
+**VP d'abord dans chaque liste (23/11/2026).** À critère de présence égal (le rang de réponse par défaut, ou le tri choisi
+Réponse / Appel du jour), les **VP passent en premier**, puis l'**ordre alphabétique** sur le nom affiché (prénom d'abord), puis
+l'ordre d'origine ; vaut pour la liste habituelle comme pour les spécifiques (où les directeur.trice.s viennent juste après les VP).
+Le critère de présence reste au-dessus : un excusé passe avant un VP qui vient ; le tri « Personne » reste purement
+alphabétique. Le grade vient de `Postes2.grade` : un VP dont le poste n'a pas la valeur « VP » dans cette colonne n'est pas
+reconnu (ni pastille, ni tri).
+
 **Durée de l'instance (12/11/2026).** Le sélecteur de durée du paramétrage (`Instances.Duree_min`)
 propose tous les quarts d'heure de 30 min à 6 h, puis 7 h et 8 h (`L.DUREES` ; 1 h 45 pour un CTO) ;
 une durée déjà enregistrée hors de cette liste reste affichée et cochée. Tant que `Duree_min` est vide,
