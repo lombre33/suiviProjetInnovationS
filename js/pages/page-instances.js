@@ -59,6 +59,9 @@
   // Étape Notifications : « Suivi » (le tableau d'avancement) ou « Relecture & envoi » (liste, mail et courrier côte à côte). Retenu par utilisateur
   // dans Inst_notif_vue ; la messagerie de la personne (Zimbra ou standard) dans Inst_messagerie.
   const NOTIF_VUES = ['suivi', 'relecture'];
+  // Volet agrandi (retenu par utilisateur, Inst_notif_large) : '' (trois volets), 'mail' ou 'doc' (le courrier) ; l'autre volet se masque, la liste reste.
+  const NOTIF_LARGE = ['', 'mail', 'doc'];
+  let warmEnabled = true; // préparation des autres projets en arrière-plan (désactivée par les tests qui comptent les lectures)
   const NOTIF_SIGNEES = { tableId: 'Projets', colId: 'Notifications_Signees' };
   // Session de la vue « Relecture & envoi » : projet affiché, projets cochés, mail lu depuis le modèle Publipostage+ (une lecture par projet et par
   // modèle), nœud du courrier (PDF signé ou aperçu) conservé d'un rendu à l'autre, noms des modèles proposés dans le paramétrage.
@@ -69,7 +72,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '' }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() }
   };
 
@@ -197,6 +200,7 @@
       S.prefs.invTri = L.GUEST_TRI.test(text(row.Inst_tri_invites)) ? text(row.Inst_tri_invites) : '';
       S.prefs.notifVue = NOTIF_VUES.indexOf(text(row.Inst_notif_vue)) >= 0 ? text(row.Inst_notif_vue) : 'suivi';
       S.prefs.messagerie = text(row.Inst_messagerie) === 'zimbra' ? 'zimbra' : '';
+      S.prefs.notifLarge = NOTIF_LARGE.indexOf(text(row.Inst_notif_large)) >= 0 ? text(row.Inst_notif_large) : '';
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -207,7 +211,7 @@
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
         Inst_etape: S.prefs.etape, Inst_vue_ensemble: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri,
-        Inst_notif_vue: S.prefs.notifVue, Inst_messagerie: S.prefs.messagerie
+        Inst_notif_vue: S.prefs.notifVue, Inst_messagerie: S.prefs.messagerie, Inst_notif_large: S.prefs.notifLarge
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -766,7 +770,11 @@
     const key = [cur.id, model, S.prefs.messagerie, R.nonce].join('|');
     if (R.key === key) return;
     R.key = key; R.status = 'loading'; R.draft = null; R.error = null;
-    global.VisaMail.prepare({ project: { id: cur.id }, modelName: model, client: S.prefs.messagerie, now: () => new Date() }).then(draft => {
+    // `cache` : les lectures de Grist et les résultats déjà prêts sont gardés (Publipostage+ n'est relu qu'au bouton « Relire » ou quand les données changent).
+    const args = { project: { id: cur.id }, modelName: model, client: S.prefs.messagerie, now: () => new Date(), cache: true };
+    const ready = global.VisaMail.peek && global.VisaMail.peek('mail', args);
+    if (ready) { R.status = 'ok'; R.draft = ready; return; } // déjà lu : rien à attendre entre deux projets
+    global.VisaMail.prepare(args).then(draft => {
       if (R.key !== key) return;
       R.status = 'ok'; R.draft = draft; render();
     }).catch(err => {
@@ -780,7 +788,7 @@
     R.models = null; // lecture en cours
     global.VisaMail.modelOverview()
       .then(o => { R.models = o; if (S.ui.settings) render(); })
-      .catch(err => { R.models = { mail: [], letter: [], total: 0, counts: {}, error: err }; if (S.ui.settings) render(); });
+      .catch(err => { R.models = { mail: [], letter: [], macros: [], total: 0, counts: {}, error: err }; if (S.ui.settings) render(); });
   }
 
   function notifVueSeg(V) {
@@ -811,7 +819,7 @@
     let h = '<div class="rpane rmail"><div class="rhead">' + ic('mail', 's') + '<strong>E-mail</strong><span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule : le modèle se modifie dans GFS">' + ic('eye', 'xs') + 'Mode lecture</span>'
       + (model ? '<span class="psub rmodel" title="Modèle e-mail de Publipostage+">' + esc(model) + '</span>' : '') + '<span class="sp"></span>'
       + (model ? '<label class="rzim" title="Zimbra lit le lien du brouillon autrement : le widget l\'adapte"><input type="checkbox" ' + (S.prefs.messagerie === 'zimbra' ? 'checked ' : '') + 'data-chg="rev-zimbra">Zimbra</label>' : '')
-      + '<button type="button" class="ibtn" title="Relire les données des projets et le modèle" aria-label="Relire les données" ' + da('rev-refresh') + '>' + ic('refresh', 's') + '</button></div>';
+      + '<button type="button" class="ibtn" title="Relire les données des projets et le modèle" aria-label="Relire les données" ' + da('rev-refresh') + '>' + ic('refresh', 's') + '</button>' + bigButton('mail') + '</div>';
     if (!model) return h + vemptyHtml('Aucun modèle de mail choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type e-mail de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>') + '</div>';
     if (mail.status === 'loading' || !mail.status) return h + vemptyHtml('Lecture du modèle…') + '</div>';
     if (mail.status === 'error') return h + vemptyHtml('Mail indisponible', reviewErrorText(mail.error)) + '</div>';
@@ -835,23 +843,58 @@
     }
     return '<div class="rpane rdoc"><div class="rhead">' + ic('fileLines', 's') + '<strong>' + (signed ? 'Notification signée' : 'Courrier de notification') + '</strong>'
       + (signed ? '<span class="rbadge ok">' + ic('clip', 'xs') + 'PJ signée</span>' : '<span class="rbadge viol" title="Aperçu du modèle Publipostage+ en lecture seule, jusqu\'au dépôt de la notification signée">' + ic('eye', 'xs') + 'Publipostage+ · lecture</span>') + '<span class="sp"></span>'
-      + (signed && cur.fileId ? '<button type="button" class="ibtn" title="Télécharger la notification signée" aria-label="Télécharger la notification signée" ' + da('rev-download') + '>' + ic('download', 's') + '</button>' : '') + '</div>'
+      + (signed && cur.fileId ? '<button type="button" class="ibtn" title="Télécharger la notification signée" aria-label="Télécharger la notification signée" ' + da('rev-download') + '>' + ic('download', 's') + '</button>' : '') + bigButton('doc') + '</div>'
       + '<div class="rdocbody" data-slot="rev-doc"></div>'
       + '<div class="rfoot"><span class="psub">' + (signed ? 'PJ de la colonne « Notifications signées »' : 'Aperçu Publipostage+ · à faire signer') + '</span><span class="sp"></span><span class="psub rfile">' + esc(fileName) + '</span></div></div>';
   }
 
+  // Agrandir le mail ou le courrier : les deux icônes sont dans le bouton et la classe du conteneur (.in-big-mail / .in-big-doc) montre la bonne, si bien que le
+  // bouton bascule sans nouveau rendu (rien ne se relit, le courrier garde son nœud) : seul le CSS change.
+  const BIG_LABEL = { mail: 'le mail', doc: 'le courrier' };
+  const bigButton = kind => '<button type="button" class="ibtn bigbtn" title="' + (S.prefs.notifLarge === kind ? 'Réduire ' : 'Agrandir ') + BIG_LABEL[kind] + '" aria-label="' + (S.prefs.notifLarge === kind ? 'Réduire ' : 'Agrandir ') + BIG_LABEL[kind] + '" aria-pressed="' + (S.prefs.notifLarge === kind ? 'true' : 'false') + '" '
+    + da('rev-big', { v: kind }) + '><span class="bigon">' + ic('shrink', 's') + '</span><span class="bigoff">' + ic('expand', 's') + '</span></button>';
   function reviewHtml(V) {
     if (!V.rev.items.length) return vemptyHtml('Aucun projet relié', 'Reliez les projets à notifier aux points de l\'ordre du jour : ils apparaissent ici.');
-    return '<div class="rev">' + reviewListPane(V) + reviewMailPane(V) + reviewDocPane(V) + '</div>';
+    return '<div class="rev' + (S.prefs.notifLarge ? ' big-' + S.prefs.notifLarge : '') + '">' + reviewListPane(V) + reviewMailPane(V) + reviewDocPane(V) + '</div>';
   }
 
   // Le volet « courrier » vit hors du rendu (le PDF ne se relit pas à chaque clic) : son nœud est remis dans le nouvel emplacement après chaque rendu.
-  const SHEET_CSS = ':host{display:block}.sheet{box-sizing:border-box;max-width:660px;min-height:420px;margin:0 auto;padding:28px 32px;background:#fff;color:#1b2430;font:13px/1.5 Georgia,"Times New Roman",serif;box-shadow:0 1px 3px rgba(9,16,35,.18),0 6px 16px -8px rgba(9,16,35,.25)}.sheet p{margin:0 0 .7em}.sheet table{border-collapse:collapse;width:100%}.sheet td,.sheet th{border:1px solid #c9d0db;padding:4px 6px}.sheet img{max-width:100%}';
+  // La feuille garde la forme de la page de Publipostage+ (A4 par défaut, ses marges, son sens : js/pages/visa-mail.js `page`) à sa taille réelle ; c'est le
+  // zoom du conteneur qui l'ajuste à la largeur du volet (fitSheet), donc élargir ou agrandir le volet ne relit ni ne recompose rien.
+  const MM = 96 / 25.4;
+  const DEFAULT_PAGE = { widthMm: 210, heightMm: 297, margins: { top: 9.9, right: 9.9, bottom: 9.9, left: 9.9 } };
+  const sheetCss = page => {
+    const px = mm => Math.round(mm * MM * 10) / 10, m = page.margins;
+    return ':host{display:block}.sheet{position:relative;isolation:isolate;overflow:hidden;box-sizing:border-box;width:' + px(page.widthMm) + 'px;min-height:' + px(page.heightMm) + 'px;margin:0 auto;padding:' + [m.top, m.right, m.bottom, m.left].map(px).join('px ') + 'px;background:#fff;color:#1b2430;font:11pt/1.45 Georgia,"Times New Roman",serif;box-shadow:0 1px 3px rgba(9,16,35,.18),0 6px 16px -8px rgba(9,16,35,.25)}.sheet p{margin:0 0 .7em}.sheet table{border-collapse:collapse;width:100%}.sheet td,.sheet th{border:1px solid #c9d0db;padding:4px 6px}.sheet img{max-width:100%}.page-break-marker{margin:18px -' + px(m.right) + 'px 18px -' + px(m.left) + 'px;padding:3px 0;border-top:1px dashed #98a2b3;color:#98a2b3;font:10px/1.2 system-ui,sans-serif;text-align:center;text-transform:uppercase;letter-spacing:.08em}';
+  };
+  // Zoom de la feuille : la largeur utile du volet divisée par celle de la page (jamais plus de 1,5 fois sa taille réelle).
+  function fitSheet(node) {
+    const wrap = node && node.querySelector(':scope > .in-sheetwrap'), host = wrap && wrap.firstElementChild, width = host && Number(host.dataset.w);
+    if (!width) return;
+    const avail = wrap.clientWidth - 24;
+    if (avail > 0) host.style.zoom = String(Math.max(0.2, Math.min(1.5, avail / width)));
+  }
   function releaseDoc() {
     const d = S.ui && S.ui.rev && S.ui.rev.doc; if (!d) return;
     if (d.handle) { d.handle.destroy(); d.handle = null; }
+    if (d.watch) { d.watch.disconnect(); d.watch = null; }
     if (d.node && d.node.parentNode) d.node.remove();
     d.node = null; d.key = '';
+  }
+  function showDoc(node, res) {
+    node.replaceChildren();
+    if (res.issues.length) {
+      const warn = document.createElement('ul'); warn.className = 'in-rissues'; warn.setAttribute('role', 'status');
+      res.issues.forEach(x => { const li = document.createElement('li'); li.textContent = global.VisaMail.issueText(x); warn.appendChild(li); });
+      node.appendChild(warn);
+    }
+    const page = res.page || DEFAULT_PAGE;
+    const wrap = document.createElement('div'); wrap.className = 'in-sheetwrap';
+    const host = document.createElement('div'); host.dataset.w = String(Math.round(page.widthMm * MM));
+    const shadow = host.attachShadow({ mode: 'open' }); // les styles du modèle ne sortent pas, ceux de la page n'y entrent pas
+    shadow.innerHTML = '<style>' + sheetCss(page) + '</style><div class="sheet">' + res.html + '</div>';
+    wrap.appendChild(host); node.appendChild(wrap);
+    fitSheet(node);
   }
   function syncReviewDoc() {
     const root = rootEl(), V = S.view, d = S.ui.rev.doc;
@@ -860,6 +903,8 @@
     const cur = V.rev.cur, signed = cur.state !== 'draft', model = V.cfg.modCourrier;
     if (!d.node) { d.node = document.createElement('div'); d.node.className = 'in-rdocview'; } // (≠ du volet, de classe in-rdoc : même nom = même style)
     if (d.node.parentNode !== slot) slot.appendChild(d.node);
+    if (!d.watch && typeof ResizeObserver === 'function') { d.watch = new ResizeObserver(() => fitSheet(d.node)); d.watch.observe(d.node); } // volet élargi, agrandi ou fenêtre redimensionnée
+    warmReview(V);
     const key = signed ? 'pdf:' + cur.id + ':' + cur.fileId + ':' + d.nonce : 'pp:' + cur.id + ':' + model + ':' + d.nonce;
     if (d.key === key) return;
     if (d.handle) { d.handle.destroy(); d.handle = null; }
@@ -876,21 +921,34 @@
     }
     if (!model) { say('Aucun modèle de courrier choisi', 'Choisissez-le dans le paramétrage de l\'instance : un modèle de type document de Publipostage+.', '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>'); return; }
     if (!global.VisaMail || !global.VisaMail.prepareDocument) { say('Aperçu indisponible', 'Le module de lecture des modèles n\'est pas chargé.'); return; }
+    const args = { project: { id: cur.id }, modelName: model, now: () => new Date(), cache: true };
+    const ready = global.VisaMail.peek && global.VisaMail.peek('doc', args);
+    if (ready) { showDoc(node, ready); return; } // déjà préparé : le courrier s'affiche sur-le-champ, sans « Lecture du modèle… »
     say('Lecture du modèle…');
-    global.VisaMail.prepareDocument({ project: { id: cur.id }, modelName: model, now: () => new Date() }).then(res => {
+    global.VisaMail.prepareDocument(args).then(res => {
       if (d.key !== key || d.node !== node) return;
-      node.replaceChildren();
-      if (res.issues.length) {
-        const warn = document.createElement('ul'); warn.className = 'in-rissues'; warn.setAttribute('role', 'status');
-        res.issues.forEach(x => { const li = document.createElement('li'); li.textContent = global.VisaMail.issueText(x); warn.appendChild(li); });
-        node.appendChild(warn);
-      }
-      const host = document.createElement('div');
-      const shadow = host.attachShadow({ mode: 'open' }); // les styles du modèle ne sortent pas, ceux de la page n'y entrent pas
-      shadow.innerHTML = '<style>' + SHEET_CSS + '</style><div class="sheet">' + res.html + '</div>';
-      node.appendChild(host);
+      showDoc(node, res);
     }).catch(err => { if (d.key === key && d.node === node) say('Courrier indisponible', reviewErrorText(err)); });
   }
+  // Les autres notifications de la séance se préparent en arrière-plan, une à la fois et en laissant la main à la page : passer d'un projet à l'autre est alors
+  // immédiat (les lectures de Grist sont déjà en mémoire, il ne reste que le remplissage des variables). Relancé quand le mail, le courrier ou les données changent.
+  function warmReview(V) {
+    const R = S.ui.rev, VM = global.VisaMail;
+    if (!warmEnabled || !VM || !VM.peek || !V.rev || !V.rev.cur || R.warmKey === warmKeyOf(V)) return;
+    const key = R.warmKey = warmKeyOf(V), queue = V.rev.items.filter(i => i.id !== V.rev.cur.id);
+    const mailModel = V.cfg.modNotif, docModel = V.cfg.modCourrier, client = S.prefs.messagerie;
+    const step = () => {
+      if (S.ui.rev !== R || R.warmKey !== key) return;
+      const item = queue.shift(); if (!item) return;
+      const quiet = () => {};
+      const jobs = [];
+      if (mailModel) jobs.push(VM.prepare({ project: { id: item.id }, modelName: mailModel, client, now: () => new Date(), cache: true }).catch(quiet));
+      if (docModel && item.state === 'draft') jobs.push(VM.prepareDocument({ project: { id: item.id }, modelName: docModel, now: () => new Date(), cache: true }).catch(quiet));
+      Promise.all(jobs).then(() => setTimeout(step, 20));
+    };
+    setTimeout(step, 600);
+  }
+  const warmKeyOf = V => [V.rev.items.map(i => i.id + i.state).join(','), V.cfg.modNotif, V.cfg.modCourrier, S.prefs.messagerie, S.ui.rev.mail.nonce].join('|');
 
   const copyText = value => {
     const fallback = () => {
@@ -905,7 +963,7 @@
   };
   // Les courriers cochés (modèle « document ») dans une page à imprimer, un par feuille. La fenêtre s'ouvre tout de suite (geste de la personne) pour
   // que le navigateur ne la bloque pas ; elle se remplit une fois les courriers lus.
-  const printPage = (docs, title) => '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4;margin:20mm}body{margin:0;font:12pt/1.45 Georgia,"Times New Roman",serif;color:#000}.letter{break-after:page;page-break-after:always}.letter:last-child{break-after:auto;page-break-after:auto}.letter table{border-collapse:collapse;width:100%}.letter td,.letter th{border:1px solid #888;padding:3pt 5pt}.letter img{max-width:100%}</style></head><body>'
+  const printPage = (docs, title) => '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4;margin:20mm}body{margin:0;font:12pt/1.45 Georgia,"Times New Roman",serif;color:#000}.letter{break-after:page;page-break-after:always}.letter:last-child{break-after:auto;page-break-after:auto}.letter table{border-collapse:collapse;width:100%}.letter td,.letter th{border:1px solid #888;padding:3pt 5pt}.letter img{max-width:100%}.page-break-marker{break-after:page;page-break-after:always;height:0;overflow:hidden;font-size:0;line-height:0;color:transparent}</style></head><body>'
     + docs.map(x => '<section class="letter">' + x.html + '</section>').join('') + '</body></html>';
   async function generateLetters(V) {
     const R = S.ui.rev, rv = V.rev; if (!rv || R.busy) return;
@@ -933,6 +991,7 @@
   // Relit Projets et Notifications (la notification signée vient peut-être d'être déposée dans Grist) et relance la lecture du mail et du courrier.
   async function refreshReview() {
     const R = S.ui.rev; R.mail.nonce++; R.doc.nonce++;
+    if (global.VisaMail && global.VisaMail.clearCache) global.VisaMail.clearCache(); // les modèles et les projets sont relus
     try {
       for (const name of ['Projets', 'Notifications']) global.CoreState.setTable(name, await global.CoreGrist.getTable(name));
     } catch (err) { console.warn('Relecture des notifications :', err.message); }
@@ -1001,14 +1060,20 @@
     const modelField = (f, value, ph, kind) => {
       const list = mods && !mods.error ? mods[kind] : [];
       if (!list.length) return '<input type="text" class="inp mfield" placeholder="' + esc(ph) + '" aria-label="' + esc(ph) + '" value="' + esc(value) + '" data-chg="cfg-mod" data-f="' + f + '">';
-      return '<select class="inp mfield" aria-label=""' + esc(ph) + '" data-chg="cfg-mod" data-f="' + f + '"><option value="">— ' + esc(ph) + ' —</option>'
+      const opt = n => '<option value="' + esc(n) + '"' + (n === value ? ' selected' : '') + '>' + esc(n) + '</option>';
+      // Un courrier est un document ou un macro-modèle (un document assemblé de plusieurs) : rangés à part dès qu'il y en a.
+      const macros = kind === 'letter' ? (mods.macros || []).filter(n => list.indexOf(n) >= 0) : [];
+      const body = macros.length
+        ? '<optgroup label="Documents">' + list.filter(n => macros.indexOf(n) < 0).map(opt).join('') + '</optgroup><optgroup label="Macro-modèles">' + macros.map(opt).join('') + '</optgroup>'
+        : list.map(opt).join('');
+      return '<select class="inp mfield" aria-label="' + esc(ph) + '" data-chg="cfg-mod" data-f="' + f + '"><option value="">— ' + esc(ph) + ' —</option>'
         + (!value || list.indexOf(value) >= 0 ? '' : '<option value="' + esc(value) + '" selected>' + esc(value) + ' (introuvable dans Publipostage+)</option>')
-        + list.map(n => '<option value="' + esc(n) + '"' + (n === value ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>';
+        + body + '</select>';
     };
     const modelsNotice = kinds => {
       if (!mods) return '<div class="psub rnote">Lecture des modèles de Publipostage+…</div>';
       if (mods.error) return '<div class="psub rnote warn" role="status">Modèles de Publipostage+ illisibles : ' + esc(reviewErrorText(mods.error)) + '. Tapez le nom du modèle.</div>';
-      const KIND = { mail: 'e-mail', letter: 'document' };
+      const KIND = { mail: 'e-mail', letter: 'document ni macro-modèle' };
       const empty = kinds.filter(k => !mods[k].length).map(k => KIND[k]);
       if (!empty.length) return '';
       const counts = Object.keys(mods.counts).map(t => t + ' ' + mods.counts[t]).join(', ');
@@ -1560,6 +1625,18 @@
     // notifications : vue « Relecture & envoi »
     'notif-vue': el => { if (NOTIF_VUES.indexOf(el.dataset.v) < 0) return; S.prefs.notifVue = el.dataset.v; S.ui.menu = null; S.ui.rev.focusSel = '[data-act="notif-vue"][data-v="' + el.dataset.v + '"]'; render(); savePrefs(); },
     'rev-pick': el => { S.ui.rev.active = Number(el.dataset.id); S.ui.rev.focusSel = '[data-act="rev-pick"][data-id="' + Number(el.dataset.id) + '"]'; render(); },
+    // Agrandir le mail ou le courrier : la classe du conteneur change, rien d'autre (pas de rendu, aucune relecture) ; le zoom de la feuille suit le volet (ResizeObserver).
+    'rev-big': el => {
+      const kind = el.dataset.v; if (kind !== 'mail' && kind !== 'doc') return;
+      S.prefs.notifLarge = S.prefs.notifLarge === kind ? '' : kind;
+      const rev = rootEl().querySelector('.in-rev');
+      if (rev) { rev.classList.remove('in-big-mail', 'in-big-doc'); if (S.prefs.notifLarge) rev.classList.add('in-big-' + S.prefs.notifLarge); }
+      rootEl().querySelectorAll('[data-act="rev-big"]').forEach(btn => {
+        const on = btn.dataset.v === S.prefs.notifLarge, tip = (on ? 'Réduire ' : 'Agrandir ') + BIG_LABEL[btn.dataset.v];
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.setAttribute('title', tip); btn.setAttribute('aria-label', tip);
+      });
+      savePrefs();
+    },
     'rev-refresh': () => { S.ui.rev.focusSel = '[data-act="rev-refresh"]'; refreshReview(); },
     'rev-open': (el, V) => {
       const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
@@ -1769,12 +1846,12 @@
 
   global.loadInstancesUserPreferences = loadInstancesUserPreferences;
   // Appelée par js/app.js après un rechargement des tables du widget : recalcule seulement si la page est déjà chargée.
-  global.renderInstances = function () { if (S.loaded) { S.ui.rev.mail.nonce++; S.ui.rev.doc.nonce++; rebuild(); render(); } }; // données rechargées : le mail et le courrier se relisent
+  global.renderInstances = function () { if (S.loaded) { S.ui.rev.mail.nonce++; S.ui.rev.doc.nonce++; if (global.VisaMail && global.VisaMail.clearCache) global.VisaMail.clearCache(); rebuild(); render(); } }; // données rechargées : le mail et le courrier se relisent
   global.InstancesPage = {
-    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
+    open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setWarm: on => { warmEnabled = !!on; }, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '' }; S.prefsRowId = null; S.personId = 0;
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
       releaseDoc(); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');

@@ -431,6 +431,249 @@
     });
   });
 
+  describe('Courrier — macro-modèles de Publipostage+ (un document assemblé : positions fixes et conditionnelles)', function () {
+    const MACRO = 'Dossier complet';
+    const BREAK = 'page-break-marker';
+    const slots = list => JSON.stringify({ slots: list });
+    const fixed = modeleId => ({ type: 'fixed', modeleId });
+    const rule = (column, operator, value, modeleId) => ({ column, operator, value, modeleId });
+    // Les modèles portent les identifiants 1, 2, 3… dans l'ordre : 1 = « Lettre », 2 = « Annexe A », 3 = « Annexe B », 4 = le macro-modèle (ou plus).
+    const BASE = [
+      { Nom: 'Lettre', TypeModele: 'document', Contenu: `<p id="m1">Lettre ${badge('Projets', 'Acronyme')}</p>` },
+      { Nom: 'Annexe A', TypeModele: 'document', Contenu: '<p id="m2">Annexe A</p>' },
+      { Nom: 'Annexe B', TypeModele: 'document', Contenu: '<p id="m3">Annexe B</p>' }
+    ];
+    const withMacro = slotList => BASE.concat([{ Nom: MACRO, TypeModele: 'macro', Contenu: slots(slotList) }]);
+    const prepareMacro = id => window.VisaMail.prepareDocument({ project: { id }, modelName: MACRO });
+    const parts = html => { const holder = document.createElement('div'); holder.innerHTML = html; return { holder, ids: Array.from(holder.querySelectorAll('p[id]')).map(p => p.id), breaks: holder.querySelectorAll('.' + BREAK).length }; };
+
+    it('le macro-modèle est proposé comme courrier : dans la liste des documents et dans l\'aperçu des modèles, nommé à part', async function () {
+      await setup(withMacro([fixed(1)]).concat([{ Nom: 'Un mail', TypeModele: 'email' }]));
+      assertDeepEqual((await window.VisaMail.listDocumentModels()).map(model => model.name), ['Annexe A', 'Annexe B', MACRO, 'Lettre']);
+      const overview = await window.VisaMail.modelOverview();
+      assertDeepEqual(overview.letter, ['Annexe A', 'Annexe B', MACRO, 'Lettre']);
+      assertDeepEqual(overview.macros, [MACRO]);
+      assertDeepEqual(overview.mail, ['Un mail']);
+      assertDeepEqual(overview.counts, { document: 3, macro: 1, email: 1 });
+    });
+
+    it('positions fixes : les modèles sont mis l\'un après l\'autre, séparés par un saut de page, et leurs variables sont remplacées', async function () {
+      await setup(withMacro([fixed(1), fixed(2)]));
+      const res = await prepareMacro(CONVENTIX);
+      const doc = parts(res.html);
+      assertDeepEqual(doc.ids, ['m1', 'm2']);
+      assertEqual(doc.breaks, 1, 'un seul saut entre deux annexes');
+      assertEqual(doc.holder.querySelector('#m1').textContent, 'Lettre CONVENTIX');
+      assertEqual(res.issues.length, 0, JSON.stringify(res.issues));
+      assertTrue(res.macro);
+    });
+
+    it('position conditionnelle : la première règle qui convient donne le modèle ; sinon le modèle par défaut', async function () {
+      await setup(withMacro([{ type: 'conditional', rules: [rule('Acronyme', '=', 'CONVENTIX', 2), rule('Acronyme', 'contient', 'CON', 3)], defaultModeleId: 1 }]));
+      assertDeepEqual(parts((await prepareMacro(CONVENTIX)).html).ids, ['m2'], 'la 1re règle gagne');
+      assertDeepEqual(parts((await prepareMacro(NOTIFY)).html).ids, ['m1'], 'aucune règle : le modèle par défaut');
+    });
+
+    it('sans modèle par défaut ni règle qui convient : la position est omise, sans saut de page orphelin', async function () {
+      await setup(withMacro([fixed(1), { type: 'conditional', rules: [rule('Acronyme', '=', 'Autre', 2)] }, fixed(3)]));
+      const doc = parts((await prepareMacro(CONVENTIX)).html);
+      assertDeepEqual(doc.ids, ['m1', 'm3']);
+      assertEqual(doc.breaks, 1);
+    });
+
+    it('les modèles masqués (hiddenModeleIds) sont écartés de la position', async function () {
+      await setup(withMacro([{ type: 'conditional', rules: [rule('Acronyme', '=', 'CONVENTIX', 2)], defaultModeleId: 1, hiddenModeleIds: [2] }, fixed(3)]));
+      assertDeepEqual(parts((await prepareMacro(CONVENTIX)).html).ids, ['m3']);
+    });
+
+    it('règles sur un nombre, une date, un booléen, une liste et une valeur vide : la position retient l\'annexe 2 seulement si la règle convient', async function () {
+      await setup(withMacro([fixed(1)]));
+      await mutate('Projets', table => { const at = table.id.indexOf(CONVENTIX); table.Part_Idex[at] = true; table.Description_rapide_projet[at] = ''; });
+      const matches = async (column, operator, value) => {
+        installModels(withMacro([{ type: 'conditional', rules: [rule(column, operator, value, 2)] }]));
+        return parts((await prepareMacro(CONVENTIX)).html).ids.length === 1;
+      };
+      const cases = [
+        ['Montant_attribue_Total', '>', '20000', true], ['Montant_attribue_Total', '>', '25000,5', false], ['Montant_attribue_Total', '≥', '25000,5', true],
+        ['Montant_attribue_Total', '<', '30000', true], ['Montant_attribue_Total', '≤', '25000', false], ['Montant_attribue_Total', '=', '25000.5', true], ['Montant_attribue_Total', '≠', '25000.5', false],
+        ['Date_debut_Projet', '=', '01/12/2026', true], ['Date_debut_Projet', '=', '2026-12-01', true], ['Date_debut_Projet', '<', '2026-12-01', false],
+        ['Date_debut_Projet', '≥', '30/11/2026', true], ['Date_debut_Projet', '>', '31/12/2026', false],
+        ['Part_Idex', '=', 'oui', true], ['Part_Idex', '=', 'non', false], ['Part_Idex', '≠', 'non', true],
+        ['Partenaire_s_convention_reversement', '=', 'CNRS', true], ['Partenaire_s_convention_reversement', '=', 'UBX', false], ['Partenaire_s_convention_reversement', '≠', 'UBX', true],
+        ['Acronyme', 'contient', 'vent', true], ['Acronyme', 'contient', 'zzz', false], ['Acronyme', '=', 'conventix', false], ['Acronyme', '≠', 'AUTRE', true],
+        ['Description_rapide_projet', 'vide', '', true], ['Description_rapide_projet', 'non vide', '', false], ['Acronyme', 'non vide', '', true]
+      ];
+      for (const [column, operator, value, expected] of cases) assertEqual(await matches(column, operator, value), expected, `${column} ${operator} « ${value} »`);
+    });
+
+    it('une règle qui vise une colonne introuvable ne convient jamais et est signalée', async function () {
+      await setup(withMacro([{ type: 'conditional', rules: [rule('Colonne_fantome', '=', 'x', 2)], defaultModeleId: 1 }]));
+      const res = await prepareMacro(CONVENTIX);
+      assertDeepEqual(parts(res.html).ids, ['m1']);
+      assertDeepEqual(res.issues.find(issue => issue.kind === 'unresolved').keys, ['Colonne_fantome']);
+    });
+
+    it('une règle qualifiée « Table.Colonne » lit la fiche Notifications du projet', async function () {
+      await setup(withMacro([{ type: 'conditional', rules: [rule('Notifications.notifications_Statut', 'contient', 'signature VP', 2)], defaultModeleId: 1 }]));
+      assertDeepEqual(parts((await prepareMacro(NOTIFY)).html).ids, ['m2']);
+      assertDeepEqual(parts((await prepareMacro(CONVENTIX)).html).ids, ['m1'], 'ce projet n\'a pas de fiche Notifications');
+    });
+
+    it('ce que le widget ne sait pas évaluer est signalé : comparaison à une autre colonne, annexe qui n\'est pas un document', async function () {
+      // 1 Lettre, 2 Annexe A, 3 Annexe B, 4 le macro-modèle, 5 un e-mail : la position fixe 5 vise un modèle qui n'est pas un document.
+      await setup(withMacro([{ type: 'conditional', rules: [{ column: 'Acronyme', operator: '=', valueColumn: 'Projet', modeleId: 2 }], defaultModeleId: 1 }, fixed(5)]).concat([{ Nom: 'Un mail', TypeModele: 'email' }]));
+      const res = await prepareMacro(CONVENTIX);
+      assertDeepEqual(parts(res.html).ids, ['m1'], 'ni l\'annexe de la règle comparée, ni le mail, ne sont devinés');
+      const text = window.VisaMail.issueText(res.issues.find(issue => issue.kind === 'unsupported'));
+      assertIncludes(text, 'comparent deux colonnes');
+      assertIncludes(text, 'ne sont pas des documents');
+    });
+
+    it('une position qui vise un modèle supprimé : l\'annexe manque et c\'est dit', async function () {
+      await setup(withMacro([fixed(1), fixed(99)]));
+      const res = await prepareMacro(CONVENTIX);
+      assertDeepEqual(parts(res.html).ids, ['m1']);
+      const issue = res.issues.find(item => item.kind === 'macroModelMissing');
+      assertDeepEqual(issue.ids, ['99']);
+      assertIncludes(window.VisaMail.issueText(issue), '99');
+    });
+
+    it('un macro-modèle au JSON illisible ou sans position donne un courrier vide, sans erreur', async function () {
+      await setup(BASE.concat([{ Nom: MACRO, TypeModele: 'macro', Contenu: '{pas du json' }]));
+      assertEqual((await prepareMacro(CONVENTIX)).html, '');
+      installModels(BASE.concat([{ Nom: MACRO, TypeModele: 'macro', Contenu: '' }]));
+      assertEqual((await prepareMacro(CONVENTIX)).html, '');
+    });
+
+    it('le HTML des annexes est nettoyé comme celui d\'un document (aucun script)', async function () {
+      await setup([{ Nom: 'Piège', TypeModele: 'document', Contenu: '<p>ok</p><script>alert(1)</script>' }, { Nom: MACRO, TypeModele: 'macro', Contenu: slots([fixed(1)]) }]);
+      assertEqual(parts((await prepareMacro(CONVENTIX)).html).holder.querySelector('script'), null);
+    });
+
+    it('fonctionne aussi avec les noms anglais de Publipostage+ (Publipostage_Templates : Name, Content, TemplateType)', async function () {
+      installSchema();
+      await installProjects();
+      const rows = [
+        { id: 1, Name: 'Lettre', TemplateType: 'document', Content: `<p id="m1">Lettre ${badge('Projets', 'Acronyme')}</p>` },
+        { id: 2, Name: MACRO, TemplateType: 'macro', Content: slots([fixed(1)]) }
+      ];
+      const table = { id: rows.map(row => row.id) };
+      ['Name', 'TemplateType', 'Content'].forEach(key => { table[key] = rows.map(row => row[key]); });
+      window.__mockSetTable('Publipostage_Templates', table);
+      assertDeepEqual(parts((await prepareMacro(CONVENTIX)).html).ids, ['m1']);
+    });
+  });
+
+  describe('Courrier et mail — page du modèle (Margins) et mémoire des lectures pour passer d\'un projet à l\'autre', function () {
+    const DOC = 'Courrier notification';
+    const withMargins = margins => setup([{ Nom: DOC, TypeModele: 'document', Contenu: '<p>Corps</p>' }]).then(() => {
+      const table = { id: [1], Nom: [DOC], TypeModele: ['document'], Contenu: ['<p>Corps</p>'], Objet: [''], Destinataires: [''], Cc: [''], Cci: [''], Margins: [margins] };
+      window.__mockSetTable('Publipostage_Modeles', table);
+    });
+    const pageOf = async margins => { await withMargins(margins); return (await window.VisaMail.prepareDocument({ project: { id: CONVENTIX }, modelName: DOC })).page; };
+    const close = (a, b) => Math.abs(a - b) < 0.01;
+
+    it('sans réglage de marges : A4 portrait, marge par défaut de 28 pt', async function () {
+      const page = await pageOf('');
+      assertEqual(page.widthMm, 210); assertEqual(page.heightMm, 297);
+      ['top', 'right', 'bottom', 'left'].forEach(side => assertTrue(close(page.margins[side], 28 * 25.4 / 72), side));
+    });
+
+    it('marges en mm, format et sens du modèle (A5, paysage), valeurs aberrantes remplacées par la marge par défaut', async function () {
+      const page = await pageOf(JSON.stringify({ top: 20, right: 15.5, bottom: '', left: -3, orientation: 'landscape', format: 'A5' }));
+      assertEqual(page.widthMm, 210); assertEqual(page.heightMm, 148, 'A5 paysage');
+      assertEqual(page.margins.top, 20); assertEqual(page.margins.right, 15.5);
+      assertTrue(close(page.margins.bottom, 28 * 25.4 / 72), 'marge vide : défaut'); assertTrue(close(page.margins.left, 28 * 25.4 / 72), 'marge négative : défaut');
+    });
+
+    it('format libre « 190.5x338.7 », JSON illisible = A4, « selon chaque modèle » reste en portrait', async function () {
+      const slide = await pageOf(JSON.stringify({ format: '190.5x338.7', orientation: 'landscape' }));
+      assertEqual(slide.widthMm, 338.7); assertEqual(slide.heightMm, 190.5);
+      const broken = await pageOf('{pas du json');
+      assertEqual(broken.widthMm, 210);
+      const auto = await pageOf(JSON.stringify({ orientation: 'landscape', orientationAuto: true }));
+      assertEqual(auto.widthMm, 210, 'un macro-modèle « selon chaque modèle » : portrait');
+    });
+
+    it('un macro-modèle prend ses propres marges (elles priment sur celles des modèles assemblés)', async function () {
+      installSchema(); await installProjects();
+      window.__mockSetTable('Publipostage_Modeles', {
+        id: [1, 2], Nom: ['Lettre', 'Dossier'], TypeModele: ['document', 'macro'], Contenu: ['<p>Lettre</p>', JSON.stringify({ slots: [{ type: 'fixed', modeleId: 1 }] })],
+        Objet: ['', ''], Destinataires: ['', ''], Cc: ['', ''], Cci: ['', ''], Margins: [JSON.stringify({ top: 5 }), JSON.stringify({ top: 30, orientation: 'landscape' })]
+      });
+      const page = (await window.VisaMail.prepareDocument({ project: { id: CONVENTIX }, modelName: 'Dossier' })).page;
+      assertEqual(page.margins.top, 30); assertEqual(page.widthMm, 297);
+    });
+
+    // Les lectures de Grist (docApi.fetchTable) comptées par table.
+    function countReads() {
+      const original = window.grist.docApi.fetchTable, reads = {};
+      window.grist.docApi.fetchTable = async name => { reads[name] = (reads[name] || 0) + 1; return original(name); };
+      return { reads, restore() { window.grist.docApi.fetchTable = original; } };
+    }
+    const prepareMail = (id, extra) => window.VisaMail.prepare(Object.assign({ project: { id }, modelName: MODEL }, extra));
+
+    it('sans l\'option cache, chaque préparation relit les tables (comportement des autres pages)', async function () {
+      await setup();
+      window.VisaMail.clearCache();
+      const counter = countReads();
+      try {
+        await prepareMail(CONVENTIX); await prepareMail(CONVENTIX);
+        assertEqual(counter.reads.Projets, 2);
+        assertEqual(window.VisaMail.peek('mail', { project: { id: CONVENTIX }, modelName: MODEL }), undefined, 'rien n\'est gardé');
+      } finally { counter.restore(); }
+    });
+
+    it('avec cache : les tables ne sont lues qu\'une fois pour tous les projets, mail et courrier confondus', async function () {
+      await setup([{ Nom: MODEL, Contenu: '<p>Bonjour</p>' }, { Nom: 'Courrier', TypeModele: 'document', Contenu: `<p>${badge('Projets', 'Acronyme')}</p>` }]);
+      window.VisaMail.clearCache();
+      const counter = countReads();
+      try {
+        await Promise.all([prepareMail(CONVENTIX, { cache: true }), window.VisaMail.prepareDocument({ project: { id: CONVENTIX }, modelName: 'Courrier', cache: true })]);
+        await prepareMail(NOTIFY, { cache: true });
+        await window.VisaMail.prepareDocument({ project: { id: NOTIFY }, modelName: 'Courrier', cache: true });
+        ['Projets', '_grist_Tables', '_grist_Tables_column', 'Notifications'].forEach(name => assertEqual(counter.reads[name], 1, 'lecture de ' + name));
+        assertEqual(counter.reads.Publipostage_Modeles, 1, 'la table des modèles');
+      } finally { counter.restore(); window.VisaMail.clearCache(); }
+    });
+
+    it('peek rend un résultat déjà prêt, tout de suite ; clearCache l\'oublie et les tables se relisent', async function () {
+      await setup();
+      window.VisaMail.clearCache();
+      const args = { project: { id: CONVENTIX }, modelName: MODEL, cache: true };
+      assertEqual(window.VisaMail.peek('mail', args), undefined, 'rien avant la première lecture');
+      const draft = await prepareMail(CONVENTIX, { cache: true });
+      assertEqual(window.VisaMail.peek('mail', args), draft, 'le même résultat');
+      assertEqual(window.VisaMail.peek('mail', Object.assign({}, args, { project: { id: NOTIFY } })), undefined, 'un autre projet n\'est pas prêt');
+      assertEqual(window.VisaMail.peek('doc', args), undefined, 'ni un autre type');
+      window.VisaMail.clearCache();
+      assertEqual(window.VisaMail.peek('mail', args), undefined);
+      const counter = countReads();
+      try { await prepareMail(CONVENTIX, { cache: true }); assertEqual(counter.reads.Projets, 1, 'relue'); } finally { counter.restore(); window.VisaMail.clearCache(); }
+    });
+
+    it('une erreur n\'est jamais gardée : le modèle créé ensuite est trouvé à la lecture suivante', async function () {
+      await setup([{ Nom: 'Autre', Contenu: '<p>x</p>' }]);
+      window.VisaMail.clearCache();
+      let error = null;
+      try { await prepareMail(CONVENTIX, { cache: true }); } catch (err) { error = err; }
+      assertEqual(error && error.code, 'model-missing');
+      installModels([{ Nom: MODEL, Contenu: '<p>Bonjour</p>' }]);
+      window.VisaMail.clearCache(); // les modèles viennent d'être écrits : le bouton « Relire » vide la mémoire
+      assertEqual((await prepareMail(CONVENTIX, { cache: true })).modelName, MODEL);
+      window.VisaMail.clearCache();
+    });
+
+    it('revenir sur la fenêtre du widget (focus) vide la mémoire : on revient peut-être d\'une modification dans Grist', async function () {
+      await setup();
+      window.VisaMail.clearCache();
+      await prepareMail(CONVENTIX, { cache: true });
+      assertTrue(!!window.VisaMail.peek('mail', { project: { id: CONVENTIX }, modelName: MODEL }));
+      window.dispatchEvent(new Event('focus'));
+      assertEqual(window.VisaMail.peek('mail', { project: { id: CONVENTIX }, modelName: MODEL }), undefined);
+    });
+  });
+
   describe('Mail de demande de visa — enveloppe de la sous-étape « Visa » (page Administratif)', function () {
     const anyCard = acronym => Array.from(document.querySelectorAll('#admin-col-conv .admin-card'))
       .find(card => card.querySelector('.admin-card-identity .project-acronym')?.textContent === acronym);

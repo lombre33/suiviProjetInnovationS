@@ -70,19 +70,30 @@
     const host = document.getElementById('app-dom'), hostStyle = host.getAttribute('style');
     const original = {}; keys.forEach(k => { original[k] = V[k]; });
     const log = { prepare: [], doc: [], links: [] };
+    window.InstancesPage._setWarm(false); // la préparation en arrière-plan des autres projets fausserait les décomptes de lectures (testée à part)
     Object.assign(V, {
       prepare: async args => { log.prepare.push(args); return DRAFT(args.project.id); },
       prepareDocument: async args => { log.doc.push(args); return { html: '<p>Madame, Monsieur, courrier du projet ' + args.project.id + '</p>', issues: [], modelName: args.modelName }; },
       openLink: url => { log.links.push(url); },
       listEmailModels: async () => [{ name: 'Notification mail' }, { name: 'Autre mail' }],
       listDocumentModels: async () => [{ name: 'Courrier notification' }],
-      modelOverview: async () => ({ mail: ['Autre mail', 'Notification mail'], letter: ['Courrier notification'], total: 3, counts: { email: 2, document: 1 } })
+      modelOverview: async () => ({ mail: ['Autre mail', 'Notification mail'], letter: ['Courrier notification'], macros: [], total: 3, counts: { email: 2, document: 1 } })
     }, overrides || {});
     return { log, restore() {
-      Object.assign(V, original); view.classList.toggle('hidden', wasHidden);
+      window.InstancesPage._setWarm(true); Object.assign(V, original); view.classList.toggle('hidden', wasHidden);
       if (hostStyle == null) host.removeAttribute('style'); else host.setAttribute('style', hostStyle);
     } };
   }
+  // Le CSS de la page n'est pas chargé par la page de test : les tests qui jugent de l'affichage réel (volet masqué, zoom) le posent le temps du test.
+  async function useCss() {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = '../css/instances.css';
+    const loaded = new Promise((ok, ko) => { link.onload = ok; link.onerror = () => ko(new Error('css/instances.css introuvable')); });
+    document.head.appendChild(link);
+    await loaded;
+    return () => link.remove();
+  }
+  const sheetHost = () => q('.in-rdoc .in-rdocview .in-sheetwrap > div');
   async function makePdf(pages) {
     const pdf = await window.PDFLib.PDFDocument.create();
     for (let i = 0; i < (pages || 1); i++) pdf.addPage([300, 400]);
@@ -328,13 +339,135 @@
       const visa = stubVisa();
       try {
         await openReview();
-        await waitFor(() => q('.in-rdoc .in-rdocview') && q('.in-rdoc .in-rdocview').lastElementChild && q('.in-rdoc .in-rdocview').lastElementChild.shadowRoot, 'aperçu');
-        const sheet = q('.in-rdoc .in-rdocview').lastElementChild.shadowRoot;
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu');
+        const sheet = sheetHost().shadowRoot;
         assertIncludes(sheet.textContent, 'courrier du projet 10');
         assertEqual(visa.log.doc[0].modelName, 'Courrier notification');
         assertIncludes(text('.in-rdoc .in-rhead'), 'Courrier de notification');
         assertIncludes(text('.in-rdoc .in-rhead'), 'Publipostage+ · lecture');
         assertFalse(!!q('.in-rdoc [data-act="rev-download"]'), 'rien à télécharger : le PDF est celui que fera signer Antoine');
+      } finally { visa.restore(); }
+    });
+
+    it('courrier à signer : la feuille garde la forme d\'une page A4 (794 px de large), ajustée au volet par un zoom et non recomposée', async function () {
+      const visa = stubVisa(), dropCss = await useCss();
+      try {
+        await openReview();
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu');
+        const host = sheetHost();
+        assertEqual(host.dataset.w, '794', 'A4 : 210 mm à 96 ppp');
+        const css = host.shadowRoot.querySelector('style').textContent;
+        assertIncludes(css, 'width:793.7px');
+        assertIncludes(css, 'min-height:1122.5px');
+        assertIncludes(css, 'position:relative'); // les images posées « en absolu » par le modèle restent dans la feuille
+        const wrap = host.parentNode, zoom = Number(host.style.zoom);
+        assertTrue(zoom > 0.2 && zoom <= 1.5, 'zoom posé : ' + host.style.zoom);
+        assertTrue(Math.abs(zoom - (wrap.clientWidth - 24) / 794) < 0.02 || zoom === 1.5, 'la feuille occupe la largeur utile du volet : ' + zoom);
+      } finally { dropCss(); visa.restore(); }
+    });
+
+    it('courrier : la page de Publipostage+ (format, sens et marges du modèle) est reprise', async function () {
+      const page = { widthMm: 297, heightMm: 210, margins: { top: 20, right: 15, bottom: 20, left: 15 } };
+      const visa = stubVisa({ prepareDocument: async args => ({ html: '<p>Paysage</p>', issues: [], modelName: args.modelName, page }) });
+      try {
+        await openReview();
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu');
+        assertEqual(sheetHost().dataset.w, '1123', 'A4 paysage : 297 mm');
+        const css = sheetHost().shadowRoot.querySelector('style').textContent;
+        assertIncludes(css, 'padding:75.6px 56.7px 75.6px 56.7px');
+        assertIncludes(css, 'min-height:793.7px');
+      } finally { visa.restore(); }
+    });
+
+    it('agrandir le courrier : un simple changement de classe, sans nouveau rendu ni relecture ; le bouton replie, le choix est retenu', async function () {
+      const visa = stubVisa(), dropCss = await useCss();
+      try {
+        await openReview();
+        await waitFor(() => sheetHost() && sheetHost().shadowRoot, 'aperçu');
+        const rev = q('.in-rev'), mailPane = q('.in-rmail'), host = sheetHost(), reads = visa.log.doc.length + visa.log.prepare.length;
+        assertEqual(host.parentNode.parentNode, q('.in-rdocview'));
+        const before = host.style.zoom;
+        click('rev-big', { v: 'doc' });
+        assertTrue(rev.classList.contains('in-big-doc'), 'le conteneur porte la classe');
+        assertEqual(q('.in-rev'), rev, 'même conteneur : aucun rendu');
+        assertEqual(q('.in-rmail'), mailPane, 'le mail n\'a pas été recomposé');
+        assertEqual(sheetHost(), host, 'le courrier garde son nœud');
+        assertEqual(getComputedStyle(mailPane).display, 'none', 'le mail est masqué, la liste reste');
+        assertTrue(getComputedStyle(q('.in-rlist')).display !== 'none');
+        assertEqual(q('[data-act="rev-big"][data-v="doc"]').getAttribute('aria-pressed'), 'true');
+        assertIncludes(q('[data-act="rev-big"][data-v="doc"]').title, 'Réduire');
+        await waitFor(() => host.style.zoom !== before, 'zoom ajusté à la nouvelle largeur');
+        assertEqual(visa.log.doc.length + visa.log.prepare.length, reads, 'aucune relecture');
+        assertEqual(lastFields('UpdateRecord', 'Preferences_Widget').Inst_notif_large, 'doc', 'retenu par utilisateur');
+        click('rev-big', { v: 'doc' });
+        assertFalse(rev.classList.contains('in-big-doc'));
+        assertTrue(getComputedStyle(mailPane).display !== 'none');
+        assertEqual(lastFields('UpdateRecord', 'Preferences_Widget').Inst_notif_large, '');
+      } finally { dropCss(); visa.restore(); }
+    });
+
+    it('agrandir le mail masque le courrier ; agrandir l\'un après l\'autre bascule de l\'un à l\'autre', async function () {
+      const visa = stubVisa(), dropCss = await useCss();
+      try {
+        await openReview();
+        await waitFor(() => q('.in-rmail .in-rfields'), 'mail lu');
+        click('rev-big', { v: 'mail' });
+        assertTrue(q('.in-rev').classList.contains('in-big-mail'));
+        assertEqual(getComputedStyle(q('.in-rdoc')).display, 'none');
+        click('rev-big', { v: 'doc' });
+        assertTrue(q('.in-rev').classList.contains('in-big-doc') && !q('.in-rev').classList.contains('in-big-mail'));
+        assertEqual(q('[data-act="rev-big"][data-v="mail"]').getAttribute('aria-pressed'), 'false');
+      } finally { dropCss(); visa.restore(); }
+    });
+
+    it('le volet agrandi est retrouvé tel quel après un rendu (autre projet choisi)', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview();
+        await waitFor(() => q('.in-rmail .in-rfields'), 'mail lu');
+        click('rev-big', { v: 'mail' });
+        click('rev-pick', { id: 11 });
+        assertTrue(q('.in-rev').classList.contains('in-big-mail'), 'la classe est reposée par le rendu');
+        assertEqual(q('[data-act="rev-big"][data-v="mail"]').getAttribute('aria-pressed'), 'true');
+      } finally { visa.restore(); }
+    });
+
+    it('un projet déjà lu (mémoire de Publipostage+) s\'affiche sur-le-champ : ni « Lecture du modèle… », ni nouvelle lecture', async function () {
+      const ready = { url: 'mailto:pret@exemple.fr', modelName: 'Notification mail', length: 20, issues: [], fields: { to: 'pret@exemple.fr', cc: '', bcc: '', subject: 'Déjà lu' }, bodyText: 'Corps en mémoire' };
+      const doc = { html: '<p>Courrier en mémoire</p>', issues: [], modelName: 'Courrier notification' };
+      const visa = stubVisa({ peek: (kind, args) => (args.project.id === 11 ? (kind === 'mail' ? ready : doc) : undefined) });
+      try {
+        await openReview();
+        await waitFor(() => q('.in-rmail .in-rfields'), 'mail du premier projet');
+        const reads = visa.log.prepare.length + visa.log.doc.length;
+        click('rev-pick', { id: 11 });
+        assertIncludes(text('.in-rmail'), 'Corps en mémoire', 'le mail est là dès le rendu');
+        assertIncludes(text('.in-rmail'), 'Déjà lu');
+        assertEqual(visa.log.prepare.length + visa.log.doc.length, reads, 'aucune lecture pour ce projet');
+      } finally { visa.restore(); }
+    });
+
+    it('« Relire » vide la mémoire de Publipostage+ avant de relire', async function () {
+      let cleared = 0;
+      const visa = stubVisa({ clearCache: () => { cleared += 1; } });
+      try {
+        await openReview();
+        await waitFor(() => q('.in-rmail .in-rfields'), 'mail lu');
+        click('rev-refresh');
+        assertEqual(cleared, 1);
+      } finally { visa.restore(); }
+    });
+
+    it('les autres notifications de la séance se préparent en arrière-plan, une à la fois, pour passer de l\'une à l\'autre sans attendre', async function () {
+      const visa = stubVisa();
+      window.InstancesPage._setWarm(true);
+      try {
+        await openReview();
+        await waitFor(() => q('.in-rmail .in-rfields'), 'mail lu');
+        await waitFor(() => visa.log.prepare.some(call => call.project.id === 11) && visa.log.prepare.some(call => call.project.id === 12), 'les autres projets sont préparés', 5000);
+        assertTrue(visa.log.prepare.filter(call => call.project.id !== 10).every(call => call.cache === true), 'avec la mémoire partagée');
+        // Le courrier n'est préparé que pour les notifications encore « à signer » (10) : 11 est transmise, 12 est signée (sa pièce jointe remplace l'aperçu).
+        assertTrue(visa.log.doc.every(call => call.project.id === 10), 'aperçu du courrier : seulement le projet à signer');
       } finally { visa.restore(); }
     });
 
@@ -487,6 +620,21 @@
         assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_invitation, 'Notification mail');
         choose('Modele_notification', '');
         assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_notification, '', 'le choix se vide');
+      } finally { visa.restore(); }
+    });
+
+    it('paramétrage : les macro-modèles de Publipostage+ sont proposés pour le courrier, rangés à part des documents', async function () {
+      const visa = stubVisa({ modelOverview: async () => ({ mail: ['Notification mail'], letter: ['Courrier notification', 'Dossier complet'], macros: ['Dossier complet'], total: 4, counts: { email: 1, document: 2, macro: 1 } }) });
+      try {
+        await setup(relectureOpts({ models: false }));
+        click('settings-open');
+        await waitFor(() => q('select[data-f="Modele_courrier_notification"]'), 'listes de modèles');
+        const groups = qa('select[data-f="Modele_courrier_notification"] optgroup').map(g => g.label + ' : ' + Array.from(g.querySelectorAll('option')).map(o => o.value).join(', '));
+        assertDeepEqual(groups, ['Documents : Courrier notification', 'Macro-modèles : Dossier complet']);
+        assertEqual(qa('select[data-f="Modele_notification"] optgroup').length, 0, 'le mail reste une simple liste');
+        assertEqual(text('.in-dlg .in-rnote') || '', '', 'aucun avertissement');
+        const el = q('select[data-f="Modele_courrier_notification"]'); el.value = 'Dossier complet'; fire(el, 'change');
+        assertEqual(lastFields('UpdateRecord', 'Instances', 1).Modele_courrier_notification, 'Dossier complet');
       } finally { visa.restore(); }
     });
 

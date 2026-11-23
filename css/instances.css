@@ -466,9 +466,16 @@ body.in-plein-body .container{max-width:none;padding:0;min-height:0}
 .in-nbadge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:800;box-sizing:border-box}
 .in-rev{display:flex;flex-wrap:wrap;border:1px solid var(--border);border-radius:12px;overflow:hidden}
 .in-rpane{box-sizing:border-box;display:flex;flex-direction:column;min-height:520px;min-width:0;border-top:1px solid var(--border);border-left:1px solid var(--border);margin:-1px 0 0 -1px;background:var(--surface)}
-.in-rpane.in-rlist{flex:0 1 290px;min-width:250px}
-.in-rpane.in-rmail{flex:1 1 380px;min-width:290px}
-.in-rpane.in-rdoc{flex:0 1 380px;min-width:290px}
+.in-rpane.in-rlist{flex:0 1 250px;min-width:220px}
+.in-rpane.in-rmail{flex:1 1 320px;min-width:280px}
+.in-rpane.in-rdoc{flex:1.6 1 480px;min-width:340px}
+/* Volet agrandi (mail ou courrier) : l'autre volet se masque, la liste reste pour passer d'un projet à l'autre. Un simple changement de classe : rien ne se recompose. */
+.in-rev.in-big-mail .in-rpane.in-rdoc,.in-rev.in-big-doc .in-rpane.in-rmail{display:none}
+.in-rev.in-big-mail .in-rpane.in-rmail,.in-rev.in-big-doc .in-rpane.in-rdoc{flex:1 1 420px}
+.in-bigbtn .in-bigon{display:none}
+.in-rev.in-big-mail .in-rmail .in-bigbtn .in-bigon,.in-rev.in-big-doc .in-rdoc .in-bigbtn .in-bigon{display:inline-flex}
+.in-rev.in-big-mail .in-rmail .in-bigbtn .in-bigoff,.in-rev.in-big-doc .in-rdoc .in-bigbtn .in-bigoff{display:none}
+.in-bigbtn .in-bigoff{display:inline-flex}
 .in-rhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px}
 .in-rfoot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--border);margin-top:auto;background:var(--surface)}
 .in-rcb{width:16px;height:16px;margin:0;accent-color:var(--accent);flex:none;cursor:pointer}
@@ -503,5 +510,6 @@ select.in-inp{padding-right:28px}
 .in-rdocview{position:absolute;inset:0;overflow:auto;padding:0}
 .in-rdocview>.in-rissues{position:sticky;top:0;z-index:1}
 .in-rdocview>div:not(.in-vempty){padding:12px}
+.in-sheetwrap{box-sizing:border-box;overflow-x:hidden}
 .in-rfile{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .in-rdocview .pdfv-pages{padding:12px}

@@ -501,8 +501,29 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   table reste affiché « (introuvable dans Publipostage+) ». Table absente ou aucun modèle de ce type : champ libre, et sous les champs le
   widget dit ce qu'il a vu (« la table des modèles de Publipostage+ n'a pas pu être lue (Publipostage_Templates : … ; Publipostage_Modeles : …) » ou « Aucun modèle de type e-mail trouvé
   (4 modèles lus : document 3, presentation 1) »).
+- **Macro-modèles (23/11/2026)** : un modèle de type `macro` (un document assemblé : page de garde, annexes) est proposé pour le **courrier**, rangé
+  à part (« Macro-modèles ») dans la liste. Sa colonne `Content` porte du JSON `{ slots: [...] }` (`js/macro-templates.js` de Publipostage+) : une
+  position est `fixed` (un modèle, `modeleId` = id de ligne de la table des modèles) ou `conditional` (le modèle de la **première règle**
+  `{ column, operator, value, modeleId }` qui convient, sinon `defaultModeleId`) ; `hiddenModeleIds` écarte un modèle ; les fragments sont séparés
+  par un saut de page. Règles évaluées par `visa-mail.js` (`compareValues`, port réduit de `js/condition-rules.js`) : `=`, `≠`, `>`, `<`, `≥`, `≤`,
+  `contient`, `vide`, `non vide` sur texte, nombre (virgule décimale), date (jj/mm/aaaa ou aaaa-mm-jj), booléen (oui/non), liste (`=` = contient) ;
+  colonne nue (fiche Notifications d'abord, puis le projet) ou `Table.Colonne`. **Signalé, jamais deviné** : comparaison à une autre colonne
+  (`valueColumn`), annexe qui n'est pas un document, annexe dont le modèle n'existe plus, colonne de règle introuvable (la règle ne convient pas).
+- **Page du courrier (23/11/2026)** : la feuille garde la forme de la page du modèle (colonne `Margins` : marges en mm, `orientation`, `format`
+  A3 à A6 ou libre ; A4 portrait et marge de 28 pt sans réglage ; un macro-modèle prend ses propres marges) à sa taille réelle (794 px pour l'A4) ;
+  un **zoom CSS** l'ajuste à la largeur du volet (`fitSheet`, `ResizeObserver`), donc élargir le volet ne recompose rien. Les éléments en position
+  absolue du modèle (logo) restent dans la feuille (`position:relative; overflow:hidden`). Le volet courrier est plus large par défaut.
+- **Agrandir le mail ou le courrier (23/11/2026)** : bouton `rev-big` dans l'en-tête de chaque volet ; la classe `in-big-mail` / `in-big-doc` du
+  conteneur masque l'autre volet (la liste reste) : **aucun rendu, aucune relecture** (le courrier garde son nœud), la feuille se re-zoome seule.
+  Retenu par utilisateur : `Preferences_Widget.Inst_notif_large` (`''`, `mail` ou `doc`).
+- **Vitesse (23/11/2026)** : changer de projet relisait tout Grist (métadonnées, modèles, tables liées, projets), deux fois (mail et courrier). Avec
+  l'option `cache: true` (celle de cette vue), `VisaMail` garde 2 minutes les lectures de tables (réussies ou en échec) et les résultats prêts
+  (`peek(kind, args)` les rend sur-le-champ : pas de « Lecture du modèle… » entre deux projets) ; `clearCache()` les jette : bouton « Relire »,
+  données du widget rechargées (`renderInstances`), retour sur la fenêtre (`focus`, `visibilitychange`). Les lectures d'une préparation partent en
+  parallèle (avant : à la suite), et après l'affichage du projet courant les autres notifications de la séance se préparent en arrière-plan, une à
+  la fois (`warmReview`). Sans `cache`, tout se relit comme avant (Administratif, demande de visa).
 - Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
-  `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`. Non validé dans un vrai Grist (le proxy de ce projet
+  `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`, `Preferences_Widget.Inst_notif_large`. Non validé dans un vrai Grist (le proxy de ce projet
   n'atteint ni Publipostage+ ni les pièces jointes). Code : `notifReviewState`, `pickReviewItem` (`instances-logic.js`), `reviewHtml`,
   `ensureMail`, `syncReviewDoc`, `generateLetters` (`page-instances.js`), `prepareDocument`, `listDocumentModels` (`visa-mail.js`),
   `PdfViewer.mount` (`pdf-viewer.js`), bloc « Étape Notifications — vue Relecture & envoi » de `css/instances.css`, tests

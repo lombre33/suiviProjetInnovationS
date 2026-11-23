@@ -33,6 +33,7 @@
   const MODELS_TABLE = MODELS_TABLES[0];
   const MAIL_TYPE = 'email';
   const DOCUMENT_TYPE = 'document';
+  const MACRO_TYPE = 'macro';
   const SAFE_URL_LENGTH = 2000;
   const TRIGGER = '#';
   const CLIENTS = ['standard', 'zimbra'];
@@ -282,19 +283,54 @@
     return rules;
   }
 
-  // Environnement d'une préparation : lectures mémorisées pour toute la durée du clic (une table n'est lue qu'une fois).
+  // Mémoire partagée entre les préparations (option `cache: true`, celle de la vue Relecture & envoi) : changer de projet relisait tout Grist (les métadonnées,
+  // la table des modèles, les tables liées, les projets), deux fois (mail et courrier). Les lectures de tables (réussies ou en échec : une table absente le reste)
+  // et les résultats déjà prêts sont gardés CACHE_TTL_MS ; clearCache() les jette (bouton « Relire », retour sur la fenêtre du widget : on revient peut-être
+  // d'une modification dans Grist). Sans `cache`, chaque appel relit tout, comme avant : les autres pages ne sont pas concernées.
+  const CACHE_TTL_MS = 120000;
+  let shared = null;
+  function sharedCache() {
+    if (shared && Date.now() - shared.at > CACHE_TTL_MS) shared = null;
+    if (!shared) shared = { at: Date.now(), reads: new Map(), pending: new Map(), done: new Map() };
+    return shared;
+  }
+  function clearCache() { shared = null; }
+  if (global.addEventListener) {
+    global.addEventListener('focus', clearCache);
+    if (global.document) global.document.addEventListener('visibilitychange', () => { if (!global.document.hidden) clearCache(); });
+  }
+  // Un résultat de préparation mis en mémoire (kind : 'mail' ou 'doc') ; `peek` le lit sur-le-champ (rien à attendre : pas de volet « Lecture… » entre deux projets).
+  const resultKey = (kind, args) => [kind, args.project && args.project.id, args.modelName, args.client || ''].join('|');
+  function memoized(kind, args, compute) {
+    if (!args.cache) return compute();
+    const cache = sharedCache(), key = resultKey(kind, args);
+    if (cache.pending.has(key)) return cache.pending.get(key);
+    const promise = compute().then(value => { cache.done.set(key, value); return value; });
+    cache.pending.set(key, promise);
+    promise.catch(() => { cache.pending.delete(key); }); // une erreur n'est pas gardée : la lecture suivante réessaie
+    return promise;
+  }
+  function peek(kind, args) {
+    if (!shared || Date.now() - shared.at > CACHE_TTL_MS) return undefined;
+    return shared.done.get(resultKey(kind, args));
+  }
+
+  // Environnement d'une préparation : lectures mémorisées pour toute la durée du clic (une table n'est lue qu'une fois), ou celles de la mémoire partagée.
   async function createEnv(options) {
-    const reads = new Map();
+    const reads = options && options.cache ? sharedCache().reads : new Map();
     const rows = name => {
       if (!reads.has(name)) reads.set(name, CoreGrist.getTable(name));
       return reads.get(name);
     };
+    // Tout ce qu'une préparation lit presque toujours part en même temps : ces lectures s'attendaient l'une après l'autre. Une table absente
+    // (l'autre jeu de noms de Publipostage+, pas de fiche Notifications) échoue sans bruit ici ; la lecture qui la demande le revoit.
+    ['_grist_Tables', '_grist_Tables_column', 'Projets', 'Notifications'].concat(LINKS_TABLES, MODELS_TABLES).forEach(name => { rows(name).catch(() => {}); });
     let schema;
     try { schema = buildSchema(await rows('_grist_Tables'), await rows('_grist_Tables_column')); }
     catch (err) { schema = schemaFromStartup(); }
     let rules = new Map();
     try { rules = buildRules((await readFirst(rows, LINKS_TABLES)).rows); } catch (err) { /* aucune règle : colonnes Référence seulement */ }
-    return { rows, schema, rules, now: (options && options.now) || (() => new Date()) };
+    return { rows, schema, rules, targets: new Map(), now: (options && options.now) || (() => new Date()) };
   }
   const columnInfo = (env, table, column) => (env.schema.get(table) && env.schema.get(table).get(column)) || null;
 
@@ -330,7 +366,8 @@
     if (!ids.length) return reference.list ? [] : null;
     if (info.display && info.display in row) return decodeShown(row[info.display]);
     // Pas de colonne d'affichage lisible : le texte de la ligne référencée.
-    const target = new Map((await env.rows(reference.table)).map(r => [r.id, r]));
+    if (!env.targets.has(reference.table)) env.targets.set(reference.table, new Map((await env.rows(reference.table)).map(r => [r.id, r])));
+    const target = env.targets.get(reference.table);
     const labels = ids.map(id => (target.has(id) ? labelOfRow(target.get(id)) : ''));
     return reference.list ? labels : labels[0];
   }
@@ -585,7 +622,8 @@
 
   const FEATURE_LABELS = {
     condition: 'conditions', loop: 'boucles', calc: 'calculs', conditionalText: 'textes conditionnels',
-    chip: 'puces (nom ou e-mail de l\'utilisateur, n° de ligne…)', words: 'nombres en toutes lettres'
+    chip: 'puces (nom ou e-mail de l\'utilisateur, n° de ligne…)', words: 'nombres en toutes lettres',
+    macroRule: 'règles de macro-modèle qui comparent deux colonnes', macroSlotType: 'annexes de macro-modèle qui ne sont pas des documents (e-mail, présentation…)'
   };
   const newReport = () => ({ unresolved: new Set(), unsupported: new Set() });
   const jsonAttr = (el, name) => { try { const raw = el.getAttribute(name); return raw ? JSON.parse(raw) : null; } catch (err) { return null; } };
@@ -668,7 +706,7 @@
 
   const modelOf = row => ({
     id: row.id, name: field(row, 'Name', 'Nom'), type: field(row, 'TemplateType', 'TypeModele') || 'document', content: field(row, 'Content', 'Contenu'),
-    subject: field(row, 'Subject', 'Objet'), to: field(row, 'To', 'Destinataires'), cc: text(row.Cc), bcc: field(row, 'Bcc', 'Cci')
+    subject: field(row, 'Subject', 'Objet'), to: field(row, 'To', 'Destinataires'), cc: text(row.Cc), bcc: field(row, 'Bcc', 'Cci'), margins: text(row.Margins)
   });
   async function loadModels(env) {
     let read;
@@ -687,7 +725,7 @@
   // Les noms des modèles de type « document » (le courrier), par ordre alphabétique.
   async function listDocumentModels() {
     const env = { rows: name => CoreGrist.getTable(name) };
-    const models = (await loadModels(env)).filter(model => model.type === DOCUMENT_TYPE);
+    const models = (await loadModels(env)).filter(model => model.type === DOCUMENT_TYPE || model.type === MACRO_TYPE);
     const names = Array.from(new Set(models.map(model => model.name)));
     return names.sort((a, b) => a.localeCompare(b, 'fr')).map(name => ({ name }));
   }
@@ -700,7 +738,9 @@
     const namesOf = type => Array.from(new Set(models.filter(model => model.type === type).map(model => model.name))).sort((a, b) => a.localeCompare(b, 'fr'));
     const counts = {};
     models.forEach(model => { counts[model.type] = (counts[model.type] || 0) + 1; });
-    return { mail: namesOf(MAIL_TYPE), letter: namesOf(DOCUMENT_TYPE), total: models.length, counts };
+    // Le courrier est un document ou un macro-modèle (un document assemblé) ; `macros` : les noms de ces derniers, pour les ranger à part.
+    const macros = namesOf(MACRO_TYPE);
+    return { mail: namesOf(MAIL_TYPE), letter: Array.from(new Set(namesOf(DOCUMENT_TYPE).concat(macros))).sort((a, b) => a.localeCompare(b, 'fr')), macros, total: models.length, counts };
   }
 
   // Les lignes d'où lire une variable : la fiche Notifications du projet d'abord (la table de la vue Publipostage+ habituelle), puis le projet.
@@ -721,14 +761,16 @@
     unsupported: issue => `Le modèle contient des ${issue.labels.join(', ')} que le widget n'évalue pas : relisez le mail`,
     badAddress: issue => `Adresse qui ne ressemble pas à une adresse e-mail : ${issue.address}`,
     noRecipient: () => 'Le destinataire du modèle n\'a donné aucune adresse pour ce projet',
+    macroModelMissing: issue => `Une annexe du macro-modèle vise un modèle qui n'existe plus (${issue.ids.join(', ')}) : elle est absente de l'aperçu`,
     tooLong: issue => `Lien de ${issue.length} caractères (limite sûre : ${issue.limit}) : certaines messageries le tronqueront`
   };
   const issueText = issue => (ISSUE_TEXT[issue.kind] ? ISSUE_TEXT[issue.kind](issue) : issue.kind);
 
   // Prépare le brouillon d'un projet. Rend { url, fields, bodyText, length, issues, modelName }.
   // Erreurs (`error.code`) : 'models-table-missing', 'model-missing', 'project-missing'.
-  async function prepare({ project, modelName, client, now }) {
-    const env = await createEnv({ now });
+  const prepare = args => memoized('mail', args, () => prepareFresh(args));
+  async function prepareFresh({ project, modelName, client, now, cache }) {
+    const env = await createEnv({ now, cache });
     const model = (await loadModels(env)).find(item => item.type === MAIL_TYPE && item.name === modelName);
     if (!model) throw codedError('model-missing', `Modèle « ${modelName} » introuvable parmi les modèles e-mail`);
     const projectRow = (await env.rows('Projets')).find(row => row.id === Number(project.id));
@@ -755,6 +797,124 @@
     return { url, fields: { to, cc, bcc, subject }, bodyText, length: check.length, issues, modelName: model.name };
   }
 
+  // La page d'un modèle (colonne Margins, JSON de Publipostage+ : marges en mm, orientation, format) : A4 portrait et marge par défaut de 28 pt sans réglage.
+  // Un format libre s'écrit « 190.5x338.7 » (côté court d'abord).
+  const PAPER_MM = { A3: [297, 420], A4: [210, 297], A5: [148, 210], A6: [105, 148] };
+  const DEFAULT_MARGIN_MM = 28 * 25.4 / 72;
+  function pageOf(marginsJson) {
+    let raw = {};
+    try { const parsed = JSON.parse(marginsJson); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) raw = parsed; } catch (err) { /* aucun réglage lisible : A4 */ }
+    const custom = /^(\d{1,3}(?:\.\d)?)x(\d{1,3}(?:\.\d)?)$/.exec(String(raw.format || ''));
+    let [width, height] = PAPER_MM[raw.format] || (custom ? [Number(custom[1]), Number(custom[2])] : PAPER_MM.A4);
+    if (raw.orientation === 'landscape' && !raw.orientationAuto) [width, height] = [height, width];
+    const side = key => { const value = Number(raw[key]); return raw[key] !== '' && raw[key] != null && isFinite(value) && value >= 0 && value < Math.min(width, height) / 2 ? value : DEFAULT_MARGIN_MM; };
+    return { widthMm: width, heightMm: height, margins: { top: side('top'), right: side('right'), bottom: side('bottom'), left: side('left') } };
+  }
+
+  // ───────────────────────── Macro-modèles ─────────────────────────
+  // Un modèle de type « macro » est un seul document assemblé à partir d'autres modèles (page de garde, annexes) : sa colonne Content porte du JSON
+  // { slots: [...] } et non du HTML (js/macro-templates.js de Publipostage+). Une position est « fixed » (un modèle) ou « conditional » (le modèle de
+  // la première règle { column, operator, value, modeleId } qui convient, sinon defaultModeleId). Une même ligne alimente toutes les positions. Port
+  // réduit : les comparaisons courantes (js/condition-rules.js) sont évaluées, la comparaison à une AUTRE colonne est signalée, jamais devinée.
+  const PAGE_BREAK_HTML = '<div class="page-break-marker" contenteditable="false">Saut de page</div>';
+  function parseSlots(json) {
+    try { const parsed = JSON.parse(json); return parsed && Array.isArray(parsed.slots) ? parsed.slots : []; } catch (err) { return []; }
+  }
+  const isBlank = value => value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+  const BOOL_WORDS = { oui: true, vrai: true, true: true, 1: true, yes: true, non: false, faux: false, false: false, 0: false, no: false };
+  const toBool = word => { const key = String(word == null ? '' : word).trim().toLowerCase(); return Object.prototype.hasOwnProperty.call(BOOL_WORDS, key) ? BOOL_WORDS[key] : null; };
+  const COMPARE = { '=': (a, b) => a === b, '≠': (a, b) => a !== b, '>': (a, b) => a > b, '<': (a, b) => a < b, '≥': (a, b) => a >= b, '≤': (a, b) => a <= b };
+  const compare = (operator, a, b) => !!COMPARE[operator] && COMPARE[operator](a, b);
+  const textOfValue = value => String(isBlank(value) ? '' : value);
+  // Une date saisie dans la règle (« 26/09/2026 » ou « 2026-09-26 ») : son jour AAAA-MM-JJ, ou null.
+  function dayOfText(raw) {
+    const text0 = String(raw == null ? '' : raw).trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text0), fr = iso ? null : /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text0);
+    const [y, mo, d] = iso ? [+iso[1], +iso[2], +iso[3]] : fr ? [+fr[3], +fr[2], +fr[1]] : [0, 0, 0];
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return null;
+    return `${y}-${two(mo)}-${two(d)}`;
+  }
+  // Le jour d'une valeur de colonne Date ou Date et heure (secondes UTC, ou objet Date), dans le fuseau de la colonne.
+  function dayOfValue(value, type) {
+    const instant = value instanceof Date ? value : (typeof value === 'number' && isFinite(value) ? new Date(value * 1000) : null);
+    if (!instant || isNaN(instant.getTime())) return null;
+    const zone = dateTimeZoneOf(type) || instant.timezone;
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: validZone(zone), year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant); } catch (err) { return null; }
+  }
+  function compareValues(actual, operator, expected, rawType) {
+    const type = String(rawType || '');
+    if (operator === 'vide') return isBlank(actual);
+    if (operator === 'non vide') return !isBlank(actual);
+    if (Array.isArray(actual) && (operator === '=' || operator === '≠')) {
+      const holds = actual.some(item => compareValues(item, '=', expected, type));
+      return operator === '=' ? holds : !holds;
+    }
+    if (type === 'Bool' && (actual === true || actual === false) && (operator === '=' || operator === '≠')) {
+      const wanted = toBool(expected);
+      return wanted === null ? false : compare(operator, actual, wanted);
+    }
+    const isDateColumn = type === 'Date' || type.indexOf('DateTime') === 0 || actual instanceof Date;
+    if (isDateColumn) {
+      const day = dayOfValue(actual, type);
+      if (day === null) return isBlank(actual) && operator === '≠';
+      if (operator === 'contient') return day.indexOf(String(expected == null ? '' : expected).trim().toLowerCase()) !== -1;
+      const wanted = dayOfText(expected);
+      return !!wanted && compare(operator, day, wanted);
+    }
+    if (operator === 'contient') return textOfValue(actual).toLowerCase().indexOf(String(expected == null ? '' : expected).toLowerCase()) !== -1;
+    const decimal = typeof actual === 'number' && /^\s*[-+]?\d+,\d+\s*$/.test(String(expected)) ? String(expected).replace(',', '.') : expected;
+    const aNum = Number(actual), eNum = Number(decimal);
+    if (!isBlank(actual) && !isBlank(expected) && actual !== true && actual !== false && isFinite(aNum) && isFinite(eNum)) return compare(operator, aNum, eNum);
+    return compare(operator, textOfValue(actual).trim(), textOfValue(expected).trim());
+  }
+  // La valeur d'une colonne de règle : « Colonne » (la fiche Notifications du projet d'abord, puis le projet) ou « Table.Colonne ».
+  async function ruleOperand(env, contexts, rawColumn) {
+    const dot = String(rawColumn).indexOf('.');
+    if (dot >= 0) return resolveRaw(env, rawColumn.slice(0, dot), rawColumn.slice(dot + 1), contexts);
+    let first = null;
+    for (const context of contexts) {
+      const found = await resolveIn(env, context.table, rawColumn, context);
+      if (!found.error) return found;
+      first = first || found;
+    }
+    return first || { error: 'colonne introuvable' };
+  }
+  async function ruleHolds(env, contexts, report, rule) {
+    if (!rule || !rule.column) return false;
+    if (typeof rule.valueColumn === 'string') { report.unsupported.add('macroRule'); return false; }
+    const operand = await ruleOperand(env, contexts, rule.column);
+    if (operand.error) { report.unresolved.add(String(rule.column)); return false; }
+    const values = operand.multi && Array.isArray(operand.value) ? (operand.value.length ? operand.value : [null]) : [operand.value];
+    return values.some(value => compareValues(value, rule.operator, rule.value, operand.type));
+  }
+  async function pickSlotModelId(env, contexts, report, slot) {
+    if (!slot) return null;
+    let chosen = null;
+    if (slot.type === 'fixed') chosen = slot.modeleId;
+    else if (slot.type === 'conditional') {
+      chosen = slot.defaultModeleId;
+      for (const rule of Array.isArray(slot.rules) ? slot.rules : []) {
+        if (await ruleHolds(env, contexts, report, rule)) { chosen = rule.modeleId; break; }
+      }
+    }
+    if (chosen === undefined || chosen === null || chosen === '') return null;
+    const hidden = Array.isArray(slot.hiddenModeleIds) ? slot.hiddenModeleIds : [];
+    return hidden.some(id => String(id) === String(chosen)) ? null : chosen;
+  }
+  // Le HTML brut (variables pas encore remplacées) du macro-modèle pour cette ligne : un fragment par position retenue, séparés par un saut de page.
+  async function macroHtml(env, contexts, report, model, models, missing) {
+    const fragments = [];
+    for (const slot of parseSlots(model.content)) {
+      const id = await pickSlotModelId(env, contexts, report, slot);
+      if (id === null) continue;
+      const slotModel = models.find(item => String(item.id) === String(id));
+      if (!slotModel) { missing.push(String(id)); continue; }
+      if (slotModel.type !== DOCUMENT_TYPE) { report.unsupported.add('macroSlotType'); continue; }
+      fragments.push(slotModel.content);
+    }
+    return fragments.join(PAGE_BREAK_HTML);
+  }
+
   // ───────────────────────── Aperçu d'un courrier (modèle de type « document ») ─────────────────────────
 
   // Le HTML d'un modèle est écrit par l'éditeur de Publipostage+ ; il est tout de même nettoyé avant d'être affiché dans la page : ni script,
@@ -776,15 +936,18 @@
   // widget ne sait pas évaluer — conditions, boucles, calculs — est signalé dans `issues`, jamais deviné) : c'est un aperçu à relire, le PDF
   // officiel reste celui que produit Publipostage+.
   // Rend { html, issues, modelName }. Erreurs (`error.code`) : 'models-table-missing', 'model-missing', 'project-missing'.
-  async function prepareDocument({ project, modelName, now }) {
-    const env = await createEnv({ now });
-    const model = (await loadModels(env)).find(item => item.type === DOCUMENT_TYPE && item.name === modelName);
+  const prepareDocument = args => memoized('doc', args, () => prepareDocumentFresh(args));
+  async function prepareDocumentFresh({ project, modelName, now, cache }) {
+    const env = await createEnv({ now, cache });
+    const models = await loadModels(env);
+    const model = models.find(item => (item.type === DOCUMENT_TYPE || item.type === MACRO_TYPE) && item.name === modelName);
     if (!model) throw codedError('model-missing', `Modèle « ${modelName} » introuvable parmi les modèles de document`);
     const projectRow = (await env.rows('Projets')).find(row => row.id === Number(project.id));
     if (!projectRow) throw codedError('project-missing', 'Projet introuvable dans Grist');
     const contexts = await contextsFor(env, projectRow);
     const report = newReport();
-    const root = parseHtml(model.content);
+    const missing = [];
+    const root = parseHtml(model.type === MACRO_TYPE ? await macroHtml(env, contexts, report, model, models, missing) : model.content);
     await substituteIn(root, env, contexts, report, {});
     sanitizeHtml(root);
     const holder = document.createElement('div');
@@ -792,12 +955,13 @@
     const issues = [];
     if (report.unresolved.size) issues.push({ kind: 'unresolved', keys: Array.from(report.unresolved) });
     if (report.unsupported.size) issues.push({ kind: 'unsupported', labels: Array.from(report.unsupported).map(key => FEATURE_LABELS[key] || key) });
-    return { html: holder.innerHTML, issues, modelName: model.name };
+    if (missing.length) issues.push({ kind: 'macroModelMissing', ids: missing });
+    return { html: holder.innerHTML, issues, modelName: model.name, macro: model.type === MACRO_TYPE, page: pageOf(model.margins) };
   }
 
   global.VisaMail = {
     CLIENTS, MODELS_TABLE, SAFE_URL_LENGTH,
-    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, issueText, openLink,
+    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, issueText, openLink, peek, clearCache,
     // Exposés pour les tests.
     buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate, sanitizeHtml
   };
