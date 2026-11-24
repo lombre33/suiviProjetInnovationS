@@ -258,8 +258,16 @@ Lecture seule.
 | --- | --- | --- |
 | `Nom` | Formule | étiquette de l'instance (modale projet, filtre Kanban) |
 | `Instance` | Reference → `Instances` | repli d'étiquette, sans effet : `Instances` n'est pas chargée |
+| `date` | Date | prochain / dernier CTO du filtre Instance du Kanban ; instance la plus proche du pré-remplissage de la modale projet |
 
 Le code essaie aussi une clé `name` en minuscules, absente du schéma.
+
+**Filtres du Kanban Projets (24 novembre 2026).** Les champs Programme et Instance sont des champs de recherche : taper réduit la liste
+aux libellés qui contiennent le texte (sans casse ni accents), ↑/↓ choisissent une proposition, Entrée la coche, Échap efface la recherche puis ferme
+la liste ; seule la sélection cochée est retenue (`Filtre_programme`, `Filtre_instance`), jamais le texte tapé. Le filtre Instance place toujours en
+tête le **prochain CTO** (aujourd'hui compris) et le **dernier CTO**, avec une pastille, **même si aucun projet ne leur est rattaché** : sont des CTO
+les séances de `Suivi_Instance` dont le préfixe du `Nom` (avant le « # ») est « CTO Innovation » ou « CTO FARE » (`ProjectModal.isCtoSeance`, même règle
+que le pré-remplissage) ; une séance CTO sans `date` n'est jamais épinglée. Le reste de la liste est celui des instances rattachées à au moins un projet.
 
 **Page Instances (9 novembre 2026).** Une ligne de `Suivi_Instance` = une séance de la page
 « par instance » (`js/pages/page-instances.js`). Colonnes lues : `Instance`, `Numero` (Text),

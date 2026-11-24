@@ -1635,6 +1635,9 @@
   }
 
   global.ProjectModal = {
+    // Séance de Suivi_Instance de type CTO Innovation / CTO FARE : même règle que le pré-remplissage ci-dessus,
+    // réutilisée par le filtre Instance du Kanban (prochain / dernier CTO épinglés, 24/11/2026).
+    isCtoSeance: isEligibleInstanceType,
     // options.tab : onglet à afficher à l'ouverture (clé de TABS, ex. 'conventions') ; « Général » par défaut.
     open(record, options) {
       const m = createModal();

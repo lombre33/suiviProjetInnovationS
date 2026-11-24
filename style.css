@@ -83,6 +83,18 @@ button,input,select,textarea { font:inherit; }
    pour la décocher rapidement sans avoir à la rechercher. */
 .combo-list button.is-selected { background:var(--accent); color:#fff; }
 .combo-list button.is-selected:hover, .combo-list button.is-selected:focus { background:var(--accent-hover); color:#fff; }
+/* Navigation au clavier (↑/↓, Entrée) et saisie dans le champ : proposition surlignée ; valeurs épinglées
+   (prochain / dernier CTO, 24/11/2026) avec leur pastille, séparées du reste par un filet. */
+.combo-list button.is-active { box-shadow:inset 0 0 0 2px var(--accent); background:var(--surface-sunken); }
+.combo-list button.is-selected.is-active { background:var(--accent-hover); }
+.combo-list button.is-pinned { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.combo-list .combo-name { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.combo-list .combo-tag { flex:none; padding:1px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent-hover); font-size:11px; font-weight:700; white-space:nowrap; }
+.combo-list button.is-selected .combo-tag { background:rgba(255,255,255,.22); color:#fff; }
+.combo-list .combo-sep { display:block; height:1px; margin:4px 2px; background:var(--border); }
+/* Kanban Projets : listes assez larges pour qu'un nom de séance (« CTO Innovation#14 - 2026-12-06 ») et sa pastille tiennent sur une ligne. */
+#filter-programme-list, #filter-instance-list { right:auto; min-width:100%; width:max-content; max-width:min(420px, 92vw); }
+.combo-list .combo-empty { display:block; padding:8px 10px; color:var(--text-muted); font-size:13px; }
 
 .visually-hidden { position:absolute!important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 

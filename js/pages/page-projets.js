@@ -205,40 +205,95 @@
         (!wanted || normalized(value).includes(wanted)))
     )].sort((a, b) => a.localeCompare(b, 'fr'));
   }
+  // Filtre Instance — demande du 24/11/2026 : le prochain et le dernier CTO sont toujours en tête de liste,
+  // même si aucun projet ne leur est encore rattaché (règle « CTO » = celle du pré-remplissage de la modale
+  // projet : CTO Innovation / CTO FARE ; « prochain » = aujourd'hui compris, comme la page Instances).
+  const PINNED_TAGS = { next: 'Prochain CTO', last: 'Dernier CTO' };
+  function pinnedInstanceOptions() {
+    const logic = window.InstancesLogic, isCto = window.ProjectModal && window.ProjectModal.isCtoSeance;
+    if (!logic || !isCto) return [];
+    const today = (logic.parisParts(Date.now() / 1000) || {}).date;
+    if (!today) return [];
+    const seances = tableRows('Suivi_Instance').filter(isCto)
+      .map(row => ({ id: row.id, date: logic.gristDateToIso(row.date), label: text(row.Nom ?? row.name).trim() }))
+      .filter(seance => seance.label);
+    const grouped = logic.groupSeances(seances, today);
+    return [
+      grouped.next && { label: grouped.next.label, tag: PINNED_TAGS.next },
+      grouped.last && { label: grouped.last.label, tag: PINNED_TAGS.last }
+    ].filter(Boolean);
+  }
+  // Les deux filtres à liste à cases : leurs champs Grist, leurs libellés et, pour l'instance, les valeurs épinglées.
+  const COMBOS = {
+    'filter-programme': { fields: ['Programme', 'Programme_Axe_InnovationS'], placeholder: 'Tous les programmes', summaryLabel: 'programmes sélectionnés' },
+    'filter-instance': { fields: ['Instance_ratachee', 'Instance', 'Instances'], placeholder: 'Toutes les instances', summaryLabel: 'instances sélectionnées', pinned: pinnedInstanceOptions }
+  };
+  // État d'un champ à liste à cases : `typed` = l'utilisateur a tapé (le champ contient alors sa recherche, plus le
+  // résumé de la sélection) ; `active` = valeur surlignée au clavier ; `token` = numéro du dernier focus (voir blur).
+  const comboState = {};
+  const stateOf = id => comboState[id] || (comboState[id] = { typed: false, active: null, token: 0, justFocused: false });
   // Liste à cases : reste ouverte après chaque clic (pas de list.hidden=true)
   // pour cocher/décocher plusieurs valeurs d'affilée ; ne se ferme qu'au blur
   // du champ (setupMultiCombo). Les valeurs déjà cochées remontent en tête de
   // liste (demande du 03/11/2026) pour les décocher rapidement sans avoir à
   // les chercher dans la liste complète ; le fond bleu (.is-selected) indique
   // la sélection, remplace une ancienne case à cocher jugée peu lisible.
-  function renderMultiCombo(id, values, placeholder, summaryLabel) {
+  // Taper dans le champ réduit la liste aux libellés qui contiennent le texte
+  // (sans casse ni accents) — demande du 24/11/2026 ; sans frappe, le champ
+  // affiche le résumé de la sélection. Les valeurs épinglées passent avant tout.
+  function comboOptionHtml(value, selected, tag) {
+    const isSelected = selected.includes(value);
+    const classes = [isSelected ? 'is-selected' : '', tag ? 'is-pinned' : ''].filter(Boolean).join(' ');
+    const body = tag ? `<span class="combo-name">${escape(value)}</span><span class="combo-tag">${escape(tag)}</span>` : escape(value);
+    return `<button type="button" class="${classes}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}">${body}</button>`;
+  }
+  function renderMultiCombo(id) {
+    const config = COMBOS[id];
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
+    if (!config || !input || !list) return;
+    const state = stateOf(id);
     const selected = multiComboValues(id);
-    input.value = multiSummary(selected, summaryLabel);
-    const ordered = [...values].sort((a, b) => {
+    if (!state.typed) input.value = multiSummary(selected, config.summaryLabel);
+    const query = state.typed ? input.value : '';
+    const wanted = normalized(query);
+    const pinned = (config.pinned ? config.pinned() : []).filter(item => !wanted || normalized(`${item.label} ${item.tag}`).includes(wanted));
+    const pinnedLabels = new Set(pinned.map(item => item.label));
+    const ordered = options(config.fields, query).filter(value => !pinnedLabels.has(value)).sort((a, b) => {
       const aSelected = selected.includes(a), bSelected = selected.includes(b);
       return aSelected === bSelected ? 0 : (aSelected ? -1 : 1);
     });
-    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
-      ordered.map(value => {
-        const isSelected = selected.includes(value);
-        return `<button type="button" class="${isSelected ? 'is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}">${escape(value)}</button>`;
-      }).join('');
-    list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
-      event.preventDefault();
-      const value = button.dataset.value;
-      const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
-      input.dataset.selectedValues = encodeColumnList(next);
-      renderMultiCombo(id, values, placeholder, summaryLabel);
-      render();
-      saveUserPreferences();
-    }));
+    list.innerHTML =
+      (wanted ? '' : `<button type="button" data-value="">${escape(config.placeholder)}</button>`) +
+      pinned.map(item => comboOptionHtml(item.label, selected, item.tag)).join('') +
+      (pinned.length && ordered.length ? '<span class="combo-sep" role="separator"></span>' : '') +
+      ordered.map(value => comboOptionHtml(value, selected)).join('') +
+      (!pinned.length && !ordered.length ? '<span class="combo-empty">Aucun résultat</span>' : '');
+    const buttons = Array.from(list.querySelectorAll('[data-value]'));
+    // Pendant la frappe, la première proposition est surlignée : Entrée la coche.
+    if (state.typed && wanted && !buttons.some(b => b.dataset.value === state.active)) {
+      const first = buttons.find(b => b.dataset.value !== '');
+      state.active = first ? first.dataset.value : null;
+    }
+    buttons.forEach(button => {
+      button.classList.toggle('is-active', state.active != null && button.dataset.value === state.active);
+      button.addEventListener('mousedown', event => {
+        event.preventDefault();
+        toggleComboValue(id, button.dataset.value);
+      });
+    });
+  }
+  function toggleComboValue(id, value) {
+    const input = document.getElementById(id); if (!input) return;
+    const selected = multiComboValues(id);
+    const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+    input.dataset.selectedValues = encodeColumnList(next);
+    renderMultiCombo(id);
+    render();
+    saveUserPreferences();
   }
   function renderFilters() {
-    renderMultiCombo('filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes', 'programmes sélectionnés');
-    renderMultiCombo('filter-instance', options(['Instance_ratachee', 'Instance', 'Instances']), 'Toutes les instances', 'instances sélectionnées');
+    Object.keys(COMBOS).forEach(renderMultiCombo);
   }
   function render() {
     const board = document.getElementById('projects-kanban'); if (!board) return;
@@ -359,29 +414,68 @@
     const convention = !!project.Convention_de_reversement || !!project.Convention_de_reversement_le_cas_echeant;
     return `<button type="button" class="project-card" data-project-id="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}<span class="project-holder"><strong>Porteur :</strong> ${escape(holder)}</span><span class="project-holder"><strong>Accompagnateur :</strong> ${escape(accompanist)}</span><span class="project-substatus"><strong>Statut macro :</strong> ${escape(substatus)}</span>${convention ? '<span class="convention-badge">Convention</span>' : ''}</button>`;
   }
-  // Pas de saisie libre : le champ n'est qu'un déclencheur (lecture seule)
-  // qui ouvre la liste à cases au focus.
-  function setupMultiCombo(id, fieldNames, placeholder, summaryLabel) {
+  // Champ de recherche + liste à cases : au focus, la liste s'ouvre et le résumé est sélectionné (la première
+  // lettre tapée le remplace par la recherche) ; ↑/↓ choisissent une proposition, Entrée la coche, Échap efface
+  // la recherche puis ferme la liste ; au blur, le champ retrouve le résumé de la sélection.
+  function setupMultiCombo(id) {
+    const config = COMBOS[id];
     const input = document.getElementById(id);
     const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    input.readOnly = true;
-    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder, summaryLabel); });
-    input.addEventListener('blur', () => setTimeout(() => {
-      list.hidden = true;
-      input.value = multiSummary(multiComboValues(id), summaryLabel);
-    }, 150));
+    if (!config || !input || !list) return;
+    const state = stateOf(id);
+    const setOpen = open => { list.hidden = !open; input.setAttribute('aria-expanded', String(open)); };
+    const open = () => { setOpen(true); renderMultiCombo(id); };
+    list.setAttribute('aria-multiselectable', 'true');
+    setOpen(false);
+    input.addEventListener('focus', () => {
+      state.token += 1; state.typed = false; state.active = null; state.justFocused = true;
+      open();
+      if (input.select) input.select();
+    });
+    // Le clic qui donne le focus ne doit pas désélectionner le résumé (Firefox/Safari placent le curseur au relâchement).
+    input.addEventListener('mouseup', event => { if (state.justFocused) { state.justFocused = false; event.preventDefault(); } });
+    input.addEventListener('click', () => { if (list.hidden) open(); }); // liste fermée par Échap, champ resté actif
+    input.addEventListener('input', () => { state.typed = true; state.active = null; open(); });
+    // Saisir ou faire défiler la liste (barre de défilement comprise) ne doit pas retirer le focus du champ.
+    list.addEventListener('mousedown', event => event.preventDefault());
+    input.addEventListener('keydown', event => {
+      const buttons = () => Array.from(list.querySelectorAll('[data-value]'));
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (list.hidden) open();
+        const all = buttons(); if (!all.length) return;
+        const index = all.findIndex(b => b.dataset.value === state.active);
+        const next = event.key === 'ArrowDown' ? (index + 1) % all.length : (index - 1 + all.length) % all.length;
+        state.active = all[next].dataset.value;
+        all.forEach((b, i) => b.classList.toggle('is-active', i === next));
+        if (all[next].scrollIntoView) all[next].scrollIntoView({ block: 'nearest' });
+      } else if (event.key === 'Enter') {
+        if (!list.hidden && state.active != null) { event.preventDefault(); toggleComboValue(id, state.active); }
+      } else if (event.key === 'Escape') {
+        if (state.typed && input.value) { state.typed = false; state.active = null; renderMultiCombo(id); input.select && input.select(); }
+        else setOpen(false);
+      }
+    });
+    input.addEventListener('blur', () => {
+      const token = state.token;
+      setTimeout(() => {
+        if (state.token !== token) return; // le champ a repris le focus entre-temps : ne pas fermer sous la main de l'utilisateur
+        state.typed = false; state.active = null; state.justFocused = false;
+        setOpen(false);
+        input.value = multiSummary(multiComboValues(id), config.summaryLabel);
+      }, 150);
+    });
   }
   function init() {
     renderFilters();
-    setupMultiCombo('filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
-    setupMultiCombo('filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
+    Object.keys(COMBOS).forEach(setupMultiCombo);
     render();
     document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferencesSoon(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
       ['filter-programme', 'filter-instance'].forEach(id => {
         const input = document.getElementById(id);
         if (input) { input.value = ''; input.dataset.selectedValues = ''; }
+        const state = stateOf(id); state.typed = false; state.active = null;
       });
       const search = document.getElementById('filter-search');
       if (search) search.value = '';
