@@ -302,8 +302,9 @@
   }
   function mountBi(zone, rows) {
     dropBi();
-    zone.innerHTML = '<div class="db-bi"></div>';
+    zone.innerHTML = '<div class="db-bi"><button type="button" class="db-bi-reset" title="Rétablir les quatre graphiques d\'origine de Grist-BI (annule vos changements dans Grist-BI)">Rétablir les 4 graphiques</button></div>';
     const entry = { host: zone.firstChild, ctl: null, rows };
+    entry.host.querySelector('.db-bi-reset').addEventListener('click', () => { if (entry.ctl) entry.ctl.resetPreset(); });
     bi = entry;
     global.DashboardBi.mount(entry.host, { grist: gristApi(), rows, onStatus: status => onBiStatus(entry, status) })
       .then(ctl => {
@@ -321,13 +322,11 @@
     if (!zone) return;
     zone.hidden = !state.charts;
     const wantBi = state.charts && state.engine === 'bi' && biReady() && !biFailure;
-    const engine = $('db-engine'), reset = $('db-bi-reset');
+    const engine = $('db-engine');
     if (engine) {
       engine.hidden = !state.charts || !biReady();
-      engine.textContent = state.engine === 'bi' ? 'Graphiques simples' : 'Grist-BI';
-      engine.title = state.engine === 'bi' ? 'Revenir aux graphiques faits main' : 'Afficher les graphiques de Grist-BI';
+      engine.querySelectorAll('[data-db-engine]').forEach(btn => { const on = btn.dataset.dbEngine === state.engine; btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', String(on)); });
     }
-    if (reset) reset.hidden = !(state.charts && wantBi);
     if (!state.charts) { dropBi(); zone.innerHTML = ''; return; } // repliés : rien n'est dessiné
     if (wantBi) {
       const rows = L.biRows(m);
@@ -338,8 +337,10 @@
     const note = state.engine === 'bi' && biFailure ? `<p class="db-bi-note" role="status">${esc(biFailure)} Graphiques simples affichés. <button type="button" class="db-linkbtn" data-db-bi-retry>Réessayer Grist-BI</button></p>` : '';
     zone.innerHTML = note + chartsHtml(m);
   }
-  function switchEngine() {
-    state.engine = state.engine === 'bi' ? 'maison' : 'bi';
+  function setEngine(engine) {
+    if (engine !== 'bi' && engine !== 'maison') return;
+    if (engine === state.engine && !biFailure) return;
+    state.engine = engine;
     biFailure = null;
     render(); persist();
   }
@@ -399,7 +400,7 @@
   }
 
   function onClick(event) {
-    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry]') : null;
+    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine]') : null;
     if (!target) return;
     if (target.dataset.dbYear !== undefined) {
       state.years = L.toggleYear(state, Number(target.dataset.dbYear), model.years);
@@ -420,6 +421,8 @@
       else if (global.openProject) global.openProject(target.dataset.dbOpenProject);
     } else if (target.dataset.dbOrphans !== undefined) {
       state.orphansOpen = !state.orphansOpen; render();
+    } else if (target.dataset.dbEngine !== undefined) {
+      setEngine(target.dataset.dbEngine);
     } else if (target.dataset.dbBiRetry !== undefined) {
       biFailure = null; render();
     } else if (target.dataset.dbReset !== undefined) {
@@ -532,10 +535,6 @@
     if (toggle) toggle.addEventListener('click', () => { state.charts = !state.charts; render(); persist(); });
     const clear = $('db-clear-filters');
     if (clear) clear.addEventListener('click', resetFilters);
-    const engine = $('db-engine');
-    if (engine) engine.addEventListener('click', switchEngine);
-    const biReset = $('db-bi-reset');
-    if (biReset) biReset.addEventListener('click', () => { if (bi && bi.ctl) bi.ctl.resetPreset(); });
     // La page relit les dépenses à chaque ouverture si la dernière lecture date : l'import des dépenses se fait ailleurs.
     const nav = document.querySelector('.nav-btn[data-view="view-dashboard"]');
     if (nav) nav.addEventListener('click', () => { if (state.expensesState === 'ready' || state.expensesState === 'error') loadExpenses(state.expensesState === 'error'); });

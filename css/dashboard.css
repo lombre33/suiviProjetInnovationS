@@ -20,14 +20,15 @@
 .db-charts-toggle .db-chev { transition:transform .15s; transform:rotate(180deg); }
 .db-charts-toggle.is-collapsed .db-chev { transform:none; }
 .db-charts[hidden] { display:none; }
-.db-engine[hidden], .db-bi-reset[hidden] { display:none; }
-.db-bi-reset { padding:0 9px; }
+.db-engine[hidden] { display:none; }
 
 /* Graphiques */
 .db-charts { margin:0 0 14px; }
-/* Grist-BI : une iframe (ses quatre tuiles tiennent sur une rangée) ; le cadre ne dépasse jamais 440 px pour garder la liste visible */
-.db-bi { overflow:hidden; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow-card); }
-.db-bi-frame { display:block; width:100%; height:clamp(300px, 44vh, 440px); border:0; }
+/* Grist-BI : une iframe (ses quatre tuiles tiennent sur une rangée sous sa barre) ; le cadre ne dépasse jamais 380 px pour garder la liste visible */
+.db-bi { position:relative; overflow:hidden; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow-card); }
+.db-bi-frame { display:block; width:100%; height:clamp(300px, 38vh, 380px); border:0; }
+.db-bi-reset { position:absolute; right:12px; bottom:10px; z-index:2; padding:3px 9px; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text-muted); font:inherit; font-size:11px; font-weight:600; cursor:pointer; opacity:.85; }
+.db-bi-reset:hover { opacity:1; color:var(--text); }
 .db-bi-note { margin:0 0 10px; font-size:13px; color:var(--text-muted); }
 .db-linkbtn { padding:0; border:0; background:none; color:var(--accent); font:inherit; text-decoration:underline; cursor:pointer; }
 .db-charts-grid { display:grid; grid-template-columns:minmax(190px,230px) minmax(0,1fr) minmax(0,1.15fr); gap:12px; align-items:stretch; }

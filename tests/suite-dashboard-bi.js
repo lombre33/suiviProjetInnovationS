@@ -369,6 +369,7 @@
       window.__mockSetWidgetOptions(null);
     }
     const openCharts = () => { if (byId('db-charts').hidden) fireMouse(byId('db-toggle-charts'), 'click'); };
+    const engineBtn = engine => byId('db-engine').querySelector(`[data-db-engine="${engine}"]`);
     const nested = () => frame() && frame().contentWindow && frame().contentWindow.__BI__;
     const nestedReady = () => waitFor(() => nested() && nested().ready, 'Grist-BI prêt', 8000);
 
@@ -382,8 +383,8 @@
       assertEqual(nested().table, 'Dashboard_Financier');
       assertEqual(nested().rows.Projet.filter(name => name === 'ALPHA').length, 4, 'ALPHA : 2026 et Sans année, une ligne Attribué et une ligne Consommé chacun');
       assertEqual(byId('db-engine').hidden, false);
-      assertEqual(byId('db-engine').textContent, 'Graphiques simples');
-      assertEqual(byId('db-bi-reset').hidden, false);
+      assertEqual(byId('db-engine').querySelector('.is-on').dataset.dbEngine, 'bi', 'Grist-BI est le moteur affiché');
+      assertTrue(!!byId('db-charts').querySelector('.db-bi-reset'), 'bouton de rétablissement, dans le cadre (aucune place prise dans le bandeau)');
       unload();
     });
 
@@ -408,16 +409,16 @@
       openCharts();
       await nestedReady();
       window.__TEST_CALLS__.length = 0;
-      fireMouse(byId('db-engine'), 'click');
+      fireMouse(engineBtn('maison'), 'click');
       assertEqual(P().state.engine, 'maison');
       assertEqual(frame(), null, 'iframe retirée');
       assertTrue(!!byId('db-charts').querySelector('.db-charts-grid'), 'graphiques faits main');
-      assertEqual(byId('db-engine').textContent, 'Grist-BI');
-      assertEqual(byId('db-bi-reset').hidden, true, 'rien à rétablir hors Grist-BI');
+      assertEqual(byId('db-engine').querySelector('.is-on').dataset.dbEngine, 'maison');
+      assertEqual(byId('db-charts').querySelector('.db-bi-reset'), null, 'rien à rétablir hors Grist-BI');
       await P().savePreferences();
       const update = window.__TEST_CALLS__.filter(call => call.type === 'UpdateRecord' && call.table === 'Preferences_Widget').slice(-1)[0];
       assertEqual(update.fields.Dash_moteur, 'maison');
-      fireMouse(byId('db-engine'), 'click');
+      fireMouse(engineBtn('bi'), 'click');
       assertEqual(P().state.engine, 'bi');
       await waitFor(() => !!frame(), 'iframe remontée');
       await nestedReady();
