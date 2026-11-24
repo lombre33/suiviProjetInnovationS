@@ -17,6 +17,8 @@
   'use strict';
 
   const MAX_CALLS = 200;
+  // Adresse de ce fichier : le module « Colonnes » (column-audit.js) se charge à la demande, à côté, sans toucher à index.html.
+  const SELF_SRC = global.document && global.document.currentScript ? global.document.currentScript.src : '';
   const now = () => (global.performance && typeof global.performance.now === 'function' ? global.performance.now() : Date.now());
   const marks = [];
   const calls = [];
@@ -94,9 +96,26 @@
     catch (err) { return ['Permissions et accès : rapport indisponible (' + ((err && err.message) || err) + ')']; }
   }
 
-  // `section` : 'load' (chargement seul), 'access' (permissions seules) ; sans argument, le rapport complet.
+  // Section « Colonnes » (mesure des colonnes de Projets) : js/core/column-audit.js, chargé à la demande.
+  function columnLines() {
+    try { return global.ColumnAudit ? global.ColumnAudit.reportLines() : ['Colonnes : rien de mesuré. Clique sur « Mesurer les colonnes de Projets » (lecture seule, quelques lectures Grist).']; }
+    catch (err) { return ['Colonnes : rapport indisponible (' + ((err && err.message) || err) + ')']; }
+  }
+  function loadColumnAudit() {
+    if (global.ColumnAudit) return Promise.resolve(global.ColumnAudit);
+    return new Promise((resolve, reject) => {
+      const script = global.document.createElement('script');
+      script.src = api.columnAuditUrl;
+      script.onload = () => (global.ColumnAudit ? resolve(global.ColumnAudit) : reject(new Error('module des colonnes absent')));
+      script.onerror = () => reject(new Error('module des colonnes introuvable'));
+      global.document.head.appendChild(script);
+    });
+  }
+
+  // `section` : 'load' (chargement seul), 'access' (permissions seules), 'columns' (mesure des colonnes) ; sans argument, le rapport complet.
   function report(section) {
     if (section === 'access') return accessLines().join('\n');
+    if (section === 'columns') return columnLines().join('\n');
     const lines = [];
     lines.push('Diagnostic de chargement — widget Suivi Projet InnovationS');
     lines.push(`Date : ${new Date().toLocaleString('fr-FR')}`);
@@ -129,6 +148,7 @@
     if (section !== 'load') {
       const access = accessLines();
       if (access.length) { lines.push(''); lines.push('='.repeat(78)); access.forEach(line => lines.push(line)); }
+      if (global.ColumnAudit && global.ColumnAudit.last()) { lines.push(''); lines.push('='.repeat(78)); columnLines().forEach(line => lines.push(line)); }
     }
     return lines.join('\n');
   }
@@ -151,20 +171,22 @@
       done(global.document.execCommand('copy'));
     } catch (err) { done(false); }
   }
-  // `options.tab` : 'load' (chargement, par défaut) ou 'access' (permissions : ouverte par la pastille ⚠ et par les messages d'erreur).
+  // `options.tab` : 'load' (chargement, par défaut), 'access' (permissions : ouverte par la pastille ⚠ et par les messages d'erreur) ou 'columns'.
   function open(options) {
     if (!global.document || !global.document.body) return null;
     close();
-    let tab = options && options.tab === 'access' ? 'access' : 'load';
+    let tab = options && (options.tab === 'access' || options.tab === 'columns') ? options.tab : 'load';
     panel = global.document.createElement('div');
     panel.className = 'perf-panel';
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Diagnostic de chargement et d\'accès');
     panel.innerHTML = '<div class="perf-panel-head"><strong>Diagnostic</strong>' +
       '<span class="perf-panel-tabs" role="tablist"><button type="button" class="perf-tab" role="tab" data-perf-tab="load">Chargement</button>' +
-      '<button type="button" class="perf-tab" role="tab" data-perf-tab="access">Accès</button></span>' +
+      '<button type="button" class="perf-tab" role="tab" data-perf-tab="access">Accès</button>' +
+      '<button type="button" class="perf-tab" role="tab" data-perf-tab="columns">Colonnes</button></span>' +
       '<span class="perf-panel-status" role="status"></span>' +
       '<button type="button" class="btn btn-secondary" data-perf-probe title="Relit les tables et cherche les règles d\'accès (propriétaires) : quelques appels Grist, uniquement à votre demande">Tester les accès</button>' +
+      '<button type="button" class="btn btn-secondary" data-perf-columns title="Lit le document (remplissage, formules, modèles Publipostage+, vues, règles d\'accès) pour dire quelles colonnes de Projets ne servent plus : lecture seule, rien n\'est modifié">Mesurer les colonnes de Projets</button>' +
       '<button type="button" class="btn btn-secondary" data-perf-refresh>Actualiser</button>' +
       '<button type="button" class="btn btn-primary" data-perf-copy>Copier</button>' +
       '<button type="button" class="btn btn-secondary" data-perf-close aria-label="Fermer">Fermer</button></div>' +
@@ -172,6 +194,7 @@
     const textarea = panel.querySelector('textarea'), status = panel.querySelector('.perf-panel-status');
     const probeButton = panel.querySelector('[data-perf-probe]');
     probeButton.hidden = !(global.CoreAccess && typeof global.CoreAccess.probe === 'function');
+    const columnsButton = panel.querySelector('[data-perf-columns]');
     const show = () => {
       textarea.value = report(tab);
       panel.querySelectorAll('[data-perf-tab]').forEach(button => { const on = button.dataset.perfTab === tab; button.classList.toggle('is-on', on); button.setAttribute('aria-selected', String(on)); });
@@ -186,6 +209,12 @@
       try { await global.CoreAccess.probe(); tab = 'access'; status.textContent = 'Test terminé.'; }
       catch (err) { status.textContent = 'Test impossible : ' + ((err && err.message) || err); }
       probeButton.disabled = false; show();
+    });
+    columnsButton.addEventListener('click', async () => {
+      status.textContent = 'Mesure en cours…'; columnsButton.disabled = true;
+      try { const audit = await loadColumnAudit(); await audit.measure('Projets'); tab = 'columns'; status.textContent = 'Mesure terminée : « Copier » puis colle-la dans la conversation.'; }
+      catch (err) { tab = 'columns'; status.textContent = 'Mesure impossible : ' + ((err && err.message) || err); }
+      columnsButton.disabled = false; show();
     });
     panel.querySelector('[data-perf-close]').addEventListener('click', close);
     show();
@@ -215,7 +244,9 @@
     if (global.document.readyState === 'loading') global.document.addEventListener('DOMContentLoaded', wire); else wire();
   }
 
-  global.PerfTrace = {
+  const api = global.PerfTrace = {
+    // Adresse du module « Colonnes » (à côté de ce fichier) ; les tests, qui évaluent le code sans balise <script>, la fixent eux-mêmes.
+    columnAuditUrl: SELF_SRC ? SELF_SRC.replace(/perf-trace\.js(\?.*)?$/, 'column-audit.js$1') : 'js/core/column-audit.js',
     mark, track, cellsOfTable, report, open, close, toggle, logToConsole,
     calls: () => calls.slice(), marks: () => marks.slice(),
     _reset() { marks.length = 0; calls.length = 0; close(); }

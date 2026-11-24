@@ -144,6 +144,7 @@ attendre le reste.
   première page affichée), durée de **chaque lecture Grist** (départ, durée, nombre de cellules), cumul comparé à la durée réelle
   (cumul ≈ durée réelle : le serveur traite les lectures l'une après l'autre ; cumul ≫ durée réelle : en parallèle), téléchargement des
   fichiers du widget (Resource Timing, servis par le cache ou non). **Aucune donnée de projet** : noms de tables, durées, tailles.
+- Onglet **Colonnes** : mesure des colonnes de Projets à la demande (`js/core/column-audit.js`, chargé au clic, aucune lecture au démarrage) — voir `docs/grist_usage.md`.
 - Nouveau jalon à ajouter = `PerfTrace.mark('…')` ; nouvelle lecture Grist hors `CoreGrist` = `PerfTrace.track(label, () => …)`.
 
 ### Démarrage en deux temps (`js/app.js`, `CoreGrist.loadAllTablesStaged`)

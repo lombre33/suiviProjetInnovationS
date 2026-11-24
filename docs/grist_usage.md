@@ -51,6 +51,17 @@ Les colonnes ci-dessous sont celles que chaque écran **attend** ; si un rôle n
 `js/core/access-expectations.js` tient la liste, par écran, de ce qui est lu ; `docs/acces-grist-diagnostic.md` explique les messages détaillés, la pastille ⚠ et l'onglet « Accès »
 d'Alt+Maj+D (Tester les accès, règles lues, références non lisibles, identité).
 
+## Mesure des colonnes de Projets (24/11/2026)
+
+Alt+Maj+D, onglet **Colonnes**, bouton **Mesurer les colonnes de Projets** (`js/core/column-audit.js`, chargé seulement à ce clic, jamais au
+démarrage). **Lecture seule** : sept lectures de métadonnées (`_grist_Tables`, `_grist_Tables_column`, vues, sections, champs, règles d'accès), la table
+`Projets` et les modèles Publipostage+ ; rien n'est écrit, aucune valeur de projet n'est gardée. Pour chaque colonne : combien de projets la remplissent,
+quelles colonnes du document la citent dans une formule (et si ce « miroir » est lui-même repris par un modèle, une vue ou une autre formule), quels
+modèles Publipostage+ écrivent son nom, dans combien de vues Grist elle s'affiche (données brutes exclues), quelles règles d'accès la visent. Le rapport
+se range en A (jamais remplie, rien ne la cite), B (remplie, rien ne la cite : données à archiver d'abord), C (formules que rien ne reprend) et D
+(jamais remplie mais citée). Un compte qui n'est pas propriétaire ne lit pas les règles d'accès : le rapport le dit. Une mention dans un commentaire de formule
+compte comme une citation (le sens d'erreur sûr : on garde ce qu'on ne sait pas écarter). Le widget ne supprime jamais rien.
+
 ## Bulles d'aide (descriptions de colonnes)
 
 `CoreGrist.loadColumnDescriptions()` (`js/core/grist-api.js`), appelée une fois au
