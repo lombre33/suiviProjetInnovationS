@@ -157,10 +157,20 @@
       assertEqual(input.value, 'Programme A', 'le champ reprend le résumé du choix');
     });
 
-    it('un champ en lecture seule : on ne tape pas dans les listes, on choisit', async function () {
+    it('on peut taper dans les champs : la liste se réduit (demande du 24/11/2026, avant : champs en lecture seule)', async function () {
       await loadFixtureState();
-      assertTrue(document.getElementById(PROGRAMME).readOnly);
-      assertTrue(document.getElementById(INSTANCE).readOnly);
+      [PROGRAMME, INSTANCE].forEach(id => assertFalse(document.getElementById(id).readOnly, `${id} accepte la frappe`));
+      const input = document.getElementById(PROGRAMME);
+      fire(input, 'focus');
+      input.value = 'programme b';
+      fire(input, 'input');
+      assertDeepEqual(Array.from(listOf(PROGRAMME).querySelectorAll('[data-value]')).map(b => b.dataset.value), ['Programme B']);
+      fireKey(input, 'Enter');
+      assertEqual(input.dataset.selectedValues, 'Programme B', 'Entrée coche la première proposition');
+      fire(input, 'blur');
+      await wait(200);
+      assertEqual(input.value, 'Programme B', 'au blur, le champ retrouve le résumé de la sélection');
+      clearFilters();
     });
   });
 

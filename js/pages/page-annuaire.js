@@ -387,26 +387,27 @@
   // --- Rendu : DOM ---------------------------------------------------------------------------------
   const $ = id => document.getElementById(id);
   const isVisible = () => { const view = $('view-annuaire'); return !!view && !view.classList.contains('hidden'); };
-  function summaryOf(values, many) { return !values.length ? '' : (values.length === 1 ? values[0] : `${values.length} ${many}`); }
   const COMBOS = [
     { key: 'employeurs', id: 'annu-filter-employeur', placeholder: 'Tous les employeurs', many: 'employeurs sélectionnés', only: '' },
     { key: 'structures', id: 'annu-filter-structure', placeholder: 'Toutes les structures', many: 'structures sélectionnées', only: '' },
     { key: 'types', id: 'annu-filter-type', placeholder: 'Tous les types', many: 'types sélectionnés', only: 'pers' }
   ];
-  function renderCombo(combo, withList) {
-    const input = $(combo.id), list = $(`${combo.id}-list`);
-    if (!input || !list) return;
-    const selected = state[combo.key];
-    input.value = summaryOf(selected, combo.many);
-    input.title = selected.join(', '); // le champ est étroit : la sélection complète se lit au survol
-    input.closest('.filter-combo').classList.toggle('is-active', selected.length > 0);
+  // Listes à cases du bandeau (js/components/filter-combo.js : recherche dans la liste, clavier, résumé au survol, valeur retenue
+  // disparue des données encore décochable) ; branchées au premier rendu du bandeau.
+  const comboControls = {};
+  function renderCombo(combo) {
+    const input = $(combo.id);
+    if (!input) return;
+    if (!comboControls[combo.key]) {
+      comboControls[combo.key] = FilterCombo.attach({
+        id: combo.id, placeholder: combo.placeholder, summaryLabel: combo.many,
+        options: () => buildDirectory().options[combo.key],
+        getSelected: () => state[combo.key],
+        setSelected: next => { state[combo.key] = next; render(); persist(); }
+      });
+    }
+    comboControls[combo.key].sync();
     input.closest('.filter-combo').hidden = !!combo.only && state.tab !== combo.only;
-    if (!withList) return;
-    const available = buildDirectory().options[combo.key];
-    const values = [...available, ...selected.filter(value => !available.includes(value))]; // une valeur retenue qui a disparu reste décochable
-    const ordered = [...values.filter(v => selected.includes(v)), ...values.filter(v => !selected.includes(v))];
-    list.innerHTML = `<button type="button" data-value="">${esc(combo.placeholder)}</button>` + ordered.map(value =>
-      `<button type="button" class="${selected.includes(value) ? 'is-selected' : ''}" data-value="${esc(value)}" role="option" aria-selected="${selected.includes(value)}">${esc(value)}</button>`).join('');
   }
   function renderBand(dir) {
     const people = filterPeople(dir, { ...currentFilters(), types: state.types }), postes = filterPostes(dir, currentFilters());
@@ -423,7 +424,7 @@
       if (search.value !== state.search) search.value = state.search;
       search.placeholder = state.tab === 'pers' ? 'Nom, e-mail, poste' : 'Poste, structure…';
     }
-    COMBOS.forEach(combo => renderCombo(combo, false));
+    COMBOS.forEach(renderCombo);
     const check = $('annu-check');
     if (check) {
       const count = state.tab === 'pers' ? dir.people.filter(person => person.issues.length).length : dir.postes.filter(poste => poste.issue).length;
@@ -546,21 +547,6 @@
     if (create) create.addEventListener('click', () => {
       if (state.tab === 'pers') { if (window.openCreatePersonModal) window.openCreatePersonModal(''); }
       else if (window.openCreatePosteModal) window.openCreatePosteModal('');
-    });
-    COMBOS.forEach(combo => {
-      const input = $(combo.id), list = $(`${combo.id}-list`);
-      if (!input || !list) return;
-      input.readOnly = true;
-      input.addEventListener('focus', () => { renderCombo(combo, true); list.hidden = false; });
-      input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; }, 150));
-      list.addEventListener('mousedown', event => {
-        const button = event.target.closest('[data-value]');
-        if (!button) return;
-        event.preventDefault();
-        const value = button.dataset.value;
-        state[combo.key] = value === '' ? [] : toggleIn(state[combo.key], value);
-        render(); renderCombo(combo, true); persist();
-      });
     });
   }
 

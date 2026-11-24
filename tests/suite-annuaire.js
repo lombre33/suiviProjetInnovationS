@@ -402,6 +402,22 @@
       unload();
     });
 
+    it('taper dans employeur, structure ou type réduit la liste ; Entrée coche (24/11/2026)', async function () {
+      await load();
+      const input = byId(EMPLOYEUR);
+      fire(input, 'focus');
+      input.value = 'cn'; fire(input, 'input');
+      assertDeepEqual(optionLabels(EMPLOYEUR), ['CNRS'], 'seule « CNRS » contient « cn »');
+      fireKey(input, 'Enter');
+      assertEqual(input.value, 'cn', 'la recherche reste affichée tant que le champ est actif');
+      assertEqual(input.title, 'CNRS', 'la sélection se lit au survol');
+      assertTrue(input.closest('.filter-combo').classList.contains('is-active'));
+      assertDeepEqual(names(), ['Bob DURAND'], 'seule la personne employée par le CNRS reste');
+      input.value = 'zzz'; fire(input, 'input');
+      assertEqual(listOf(EMPLOYEUR).querySelector('.combo-empty').textContent, 'Aucun résultat');
+      pick(EMPLOYEUR, 'Tous les employeurs');
+      unload();
+    });
     it('À vérifier ne garde que les fiches en alerte et affiche leur nombre ; Réinitialiser remet tout à zéro', async function () {
       await load();
       assertEqual(byId('annu-check-count').textContent, '4');

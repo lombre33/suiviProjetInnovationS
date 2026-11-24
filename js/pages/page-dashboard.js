@@ -245,42 +245,28 @@
     document.querySelectorAll('[data-db-measure]').forEach(btn => { const on = btn.dataset.dbMeasure === m.measure; btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', String(on)); });
     const toggle = $('db-toggle-charts');
     if (toggle) { toggle.setAttribute('aria-expanded', String(state.charts)); toggle.classList.toggle('is-collapsed', !state.charts); }
-    syncCombo('db-filter-programme', state.programmes, 'programmes sélectionnés');
-    syncCombo('db-filter-statut', state.statuts, 'statuts sélectionnés');
+    syncCombo('db-filter-programme');
+    syncCombo('db-filter-statut');
     const search = $('db-filter-search');
     if (search && search !== document.activeElement && search.value !== state.search) search.value = state.search;
     const reset = $('db-clear-filters'); // l'icône n'apparaît que lorsqu'un filtre est actif (place verticale économisée)
     if (reset) reset.hidden = !(Array.isArray(state.years) || state.programmes.length || state.statuts.length || text(state.search));
   }
-  function multiSummary(values, label) { return values.length === 0 ? '' : (values.length === 1 ? values[0] : `${values.length} ${label}`); }
-  function syncCombo(id, selected, label) {
-    const input = $(id);
-    if (input) { input.value = multiSummary(selected, label); input.classList.toggle('is-active', selected.length > 0); }
-  }
+  // Les deux listes à cases du bandeau (js/components/filter-combo.js : recherche dans la liste, clavier, résumé au survol).
   function comboValues(id) { return id === 'db-filter-programme' ? (model ? model.options.programmes : []) : (model ? model.options.statuses : []); }
-  function renderComboList(id) {
-    const list = $(`${id}-list`);
-    if (!list) return;
-    const isProg = id === 'db-filter-programme';
-    const selected = isProg ? state.programmes : state.statuts;
-    const ordered = comboValues(id).slice().sort((a, b) => (selected.includes(b) ? 1 : 0) - (selected.includes(a) ? 1 : 0));
-    list.innerHTML = `<button type="button" data-value="">${isProg ? 'Tous les programmes' : 'Tous les statuts'}</button>` +
-      ordered.map(value => `<button type="button" class="${selected.includes(value) ? 'is-selected' : ''}" data-value="${esc(value)}" role="option" aria-selected="${selected.includes(value)}">${esc(value)}</button>`).join('');
-  }
+  const combos = {};
+  function syncCombo(id) { if (combos[id]) combos[id].sync(); }
   function setupCombo(id) {
-    const input = $(id), list = $(`${id}-list`);
-    if (!input || !list) return;
-    input.readOnly = true;
-    input.addEventListener('focus', () => { renderComboList(id); list.hidden = false; });
-    input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; }, 150));
-    list.addEventListener('mousedown', event => {
-      const button = event.target.closest && event.target.closest('[data-value]');
-      if (!button) return;
-      event.preventDefault();
-      const key = id === 'db-filter-programme' ? 'programmes' : 'statuts', value = button.dataset.value;
-      state[key] = value === '' ? [] : (state[key].includes(value) ? state[key].filter(v => v !== value) : state[key].concat([value]));
-      if (state.programmes.length === 1) state.openProgrammes.add(state.programmes[0]); // un seul programme ciblé : son volet s'ouvre
-      render(); renderComboList(id); persist();
+    const isProg = id === 'db-filter-programme', key = isProg ? 'programmes' : 'statuts';
+    combos[id] = FilterCombo.attach({
+      id, placeholder: isProg ? 'Tous les programmes' : 'Tous les statuts', summaryLabel: isProg ? 'programmes sélectionnés' : 'statuts sélectionnés',
+      options: () => comboValues(id),
+      getSelected: () => state[key],
+      setSelected: next => {
+        state[key] = next;
+        if (state.programmes.length === 1) state.openProgrammes.add(state.programmes[0]); // un seul programme ciblé : son volet s'ouvre
+        render(); persist();
+      }
     });
   }
 
