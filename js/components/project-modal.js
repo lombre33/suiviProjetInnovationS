@@ -832,14 +832,14 @@
     function removeOpe(rank) {
       const kept = refs._opes.slice(1).map(readCardState).filter(state => state.rank !== rank);
       clearExtraCards();
-      kept.forEach(state => applyCardState(addOpeCard(false), state));
+      kept.forEach(state => applyCardState(addOpeCard(true), state)); // chaque carte garde l'état (déployée ou repliée) que l'utilisateur lui avait donné
       refreshOpeUi();
       const add = addZone.querySelector('[data-ope-add]');
       if (add) add.focus();
     }
     function addOpe() {
       if (refs._opes.length >= global.CoreOpes.MAX) return;
-      refs._opes.forEach(card => card.setOpen(false));
+      // Les cartes déjà là restent comme l'utilisateur les a laissées : rien ne se replie tout seul (demande d'Antoine du 24/11/2026).
       const card = addOpeCard(true);
       card.setAction(global.CoreOpes.DEFAULT_ACTION);
       refreshOpeUi();
@@ -1375,11 +1375,11 @@
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
     refs._refreshInstalleChez();
     refs._setOpeAction(text(valueOf(record, ['Action_Ligne_OPE_a_faire'])));
-    // OPE 2 à 4 : une carte par OPE que le projet porte déjà (repliées, l'OPE 1 reste déployée).
+    // OPE 2 à 4 : une carte par OPE que le projet porte déjà, toutes déployées comme l'OPE 1 (demande d'Antoine du 24/11/2026).
     refs._clearExtraCards();
     refs._opes[0].setOpen(true);
     for (let rank = 2; rank <= global.CoreOpes.count(record); rank += 1) {
-      const card = refs._addOpeCard(false);
+      const card = refs._addOpeCard(true);
       const ope = global.CoreOpes.read(record, rank);
       setRef(card.ref, ope.ligneIds[0] || 0, 'Lignes_OPE', ['N_OPE']);
       card.refresh();

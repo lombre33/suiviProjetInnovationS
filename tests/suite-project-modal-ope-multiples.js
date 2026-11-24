@@ -230,11 +230,11 @@
 
   // ===========================================================================================================
   describe('Plusieurs OPE par projet — ajouter, remplir et retirer une OPE', function () {
-    it('« + Ajouter » crée l\'OPE suivante : déployée, action « À déterminer », les autres repliées ; au plus 4', function () {
+    it('« + Ajouter » crée l\'OPE suivante : déployée, action « À déterminer », sans replier les autres ; au plus 4', function () {
       window.ProjectModal.open();
       addOpe();
       assertEqual(cards().length, 2);
-      assertFalse(card(1).classList.contains('open'), 'l\'OPE 1 se replie');
+      assertTrue(card(1).classList.contains('open'), 'l\'OPE 1 reste déployée');
       assertTrue(card(2).classList.contains('open'));
       assertEqual(card(2).querySelector('select').value, 'à determiner');
       assertTrue(chip(2, 'à determiner').classList.contains('active'));
@@ -408,6 +408,38 @@
       assertEqual(modalEl().querySelector('[data-fin="c2026_M10_Fonctionnement_2"]').value, '0', 'les montants de l\'ancienne OPE 2 ont disparu');
       assertEqual(flat(card(2).querySelector('[data-ope-sum]').textContent), '333 €');
       assertEqual(card(2).querySelector('.cp-ope-badge').textContent.trim(), 'OPE 2');
+    });
+
+    // Demande d'Antoine du 24/11/2026 : « quand plusieurs OPE, ne pas replier l'OPE 2, laisser tous les volets OPE dépliés par défaut ».
+    it('ajouter une 2e, 3e et 4e OPE ne replie aucune carte : les quatre restent dépliées, corps visibles', function () {
+      window.ProjectModal.open();
+      addOpe(); addOpe(); addOpe();
+      assertEqual(cards().length, 4);
+      cards().forEach(c => {
+        assertTrue(c.classList.contains('open'), `${c.dataset.opeRank} déployée`);
+        assertFalse(c.querySelector('.cp-ope-body').hidden, `corps de l'OPE ${c.dataset.opeRank} visible`);
+        assertEqual(c.querySelector('.cp-ope-head').getAttribute('aria-expanded'), 'true');
+      });
+    });
+
+    it('une carte repliée à la main le reste quand on ajoute une OPE (rien ne bouge tout seul, dans un sens comme dans l\'autre)', function () {
+      window.ProjectModal.open();
+      card(1).querySelector('.cp-ope-head').click();
+      assertFalse(card(1).classList.contains('open'));
+      addOpe();
+      assertFalse(card(1).classList.contains('open'), 'l\'OPE 1 repliée par l\'utilisateur reste repliée');
+      assertTrue(card(2).classList.contains('open'));
+    });
+
+    it('retirer une OPE laisse les autres cartes dépliées, et garde pliée celle que l\'utilisateur avait pliée', function () {
+      window.ProjectModal.open();
+      addOpe(); addOpe(); addOpe();
+      card(4).querySelector('.cp-ope-head').click(); // pliée à la main
+      card(2).querySelector('.cp-ope-del').click(); // OPE 2 vide : retirée tout de suite
+      assertEqual(cards().length, 3);
+      assertTrue(card(1).classList.contains('open'));
+      assertTrue(card(2).classList.contains('open'), 'l\'ancienne OPE 3, remontée au rang 2');
+      assertFalse(card(3).classList.contains('open'), 'l\'ancienne OPE 4 pliée à la main le reste');
     });
 
     it('un montant saisi accepte uniquement chiffres et un point décimal (comme pour l\'OPE 1)', function () {
@@ -594,7 +626,7 @@
 
   // ===========================================================================================================
   describe('Plusieurs OPE par projet — ouvrir et modifier un projet qui en a plusieurs', function () {
-    it('un projet à 3 OPE s\'ouvre avec 3 cartes remplies : OPE 1 déployée, les autres repliées, pastille « 3 »', async function () {
+    it('un projet à 3 OPE s\'ouvre avec 3 cartes remplies, toutes déployées, pastille « 3 »', async function () {
       await loadFixtureState();
       await giveProjectOpes(11, 3, {
         Ligne_OPE_2: ['L', 2], Action_Ligne_OPE_a_faire_2: 'Prolongation de ligne', Commentaire_ligne_OPE_2: 'Deuxième',
@@ -605,8 +637,8 @@
       window.ProjectModal.open(projectRecord(11));
       assertEqual(cards().length, 3);
       assertTrue(card(1).classList.contains('open'));
-      assertFalse(card(2).classList.contains('open'));
-      assertFalse(card(3).classList.contains('open'));
+      assertTrue(card(2).classList.contains('open'), 'l\'OPE 2 n\'est plus repliée');
+      assertTrue(card(3).classList.contains('open'));
       assertEqual(refInput('Ligne_OPE_2').value, 'OPE-2026-002');
       assertEqual(refInput('Ligne_OPE_3').value, 'OPE-2026-003');
       assertEqual(card(2).querySelector('#cp-Ligne_OPE_installe_chez_2').value, 'DIR1');
