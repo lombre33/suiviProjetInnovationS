@@ -36,10 +36,15 @@
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
-      prepared: [], upload: null, tab: 'ubinvest'
+      prepared: [], upload: null, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
     };
   }
-  function resetState() { Object.assign(state, freshState()); }
+  // Repart de zéro (utilisé par les tests ; l'application, elle, ne l'appelle jamais : un rechargement garde le brouillon).
+  function resetState() {
+    clearTimeout(state.draft && state.draft.timer);
+    try { localStorage.removeItem('suiviProjetInnovationS:importBrouillon'); } catch (err) { /* stockage bloqué */ }
+    Object.assign(state, freshState());
+  }
 
   const money = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('fr-FR');
   const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
@@ -70,9 +75,100 @@
     state.readAt = Date.now();
   }
 
+  // ----------------------------------------------------------------------------------------------------------
+  // Brouillon de tri (24/11/2026, demande d'Antoine) : les choix et corrections faits dans le tableau (décisions de rapprochement, valeurs prises
+  // ou corrigées) sont enregistrés automatiquement TANT QUE « Écrire » n'a pas été cliqué, pour trier 94 projets en plusieurs séances. Une seule ligne
+  // de Import_Brouillon dans Grist (retrouvée d'un navigateur ou d'un poste à l'autre), plus une copie locale écrite aussitôt : un rechargement
+  // lancé juste après un clic peut couper l'écriture dans Grist, la copie la plus récente fait alors foi. Rien d'autre n'est écrit tant que
+  // tu n'as pas validé : le brouillon ne touche ni Projets, ni Lignes_OPE.
+  // ----------------------------------------------------------------------------------------------------------
+  const DRAFT_TABLE = 'Import_Brouillon';
+  const DRAFT_COLUMNS = [{ id: 'Contenu', type: 'Text', label: 'Choix en cours' }, { id: 'Nb_choix', type: 'Int', label: 'Nombre de choix' }, { id: 'Modifie_le', type: 'DateTime:Europe/Paris', label: 'Modifié le' }];
+  const DRAFT_STORAGE_KEY = 'suiviProjetInnovationS:importBrouillon';
+  const DRAFT_DELAY_MS = 600;
+  const draftCount = () => state.edits.size + state.decisions.size;
+  const draftJson = () => (draftCount() ? JSON.stringify({ v: 1, edits: Array.from(state.edits), decisions: Array.from(state.decisions) }) : '');
+  function readLocalDraft() {
+    try { const raw = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || 'null'); if (raw && typeof raw.json === 'string') return { json: raw.json, at: Number(raw.at) || 0 }; }
+    catch (err) { /* copie illisible ou stockage bloqué : comme s'il n'y en avait pas */ }
+    return null;
+  }
+  function writeLocalDraft(json) {
+    try { localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ json, at: Math.floor(Date.now() / 1000) })); }
+    catch (err) { /* navigation privée / stockage bloqué : le brouillon ne sera que dans Grist */ }
+  }
+  // Écrit le brouillon dans Grist s'il a changé depuis la dernière écriture. Au mieux : un échec est dit dans la page, jamais bloquant.
+  async function flushDraft() {
+    const d = state.draft;
+    clearTimeout(d.timer); d.timer = null;
+    const json = draftJson();
+    if (json === d.saved) return true;
+    if (!CoreGrist.gristInstance) return false;
+    try {
+      const fields = { Contenu: json, Nb_choix: draftCount(), Modifie_le: Math.floor(Date.now() / 1000) };
+      if (d.rowId) await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', DRAFT_TABLE, d.rowId, fields]]);
+      else {
+        const result = await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', DRAFT_TABLE, null, fields]]);
+        d.rowId = Array.isArray(result && result.retValues) ? result.retValues[0] : null;
+      }
+      d.saved = json; d.error = '';
+      return true;
+    } catch (err) {
+      d.error = CoreUtils.failureReason(err, { what: 'enregistrement du brouillon de tri', table: DRAFT_TABLE });
+      console.warn('Import : brouillon non enregistré dans Grist :', err);
+      return false;
+    }
+  }
+  // Appelée à chaque changement du tableau : copie locale tout de suite, Grist après une courte pause (une rafale de clics = une écriture).
+  function scheduleDraft() {
+    const d = state.draft, json = draftJson();
+    if (json === d.saved && !d.timer) return;
+    writeLocalDraft(json);
+    clearTimeout(d.timer);
+    d.timer = setTimeout(() => { flushDraft().then(() => { if (!state.draft.timer) render(); }); }, DRAFT_DELAY_MS);
+  }
+  // Au chargement d'une séance neuve (rien en mémoire) : reprend le brouillon le plus récent, celui de Grist ou la copie locale.
+  async function restoreDraft() {
+    if (draftCount()) return;
+    const d = state.draft;
+    let remote = null;
+    try {
+      CoreGrist.invalidateTable(DRAFT_TABLE);
+      const rows = (await readTable(DRAFT_TABLE)) || [];
+      const row = rows[rows.length - 1];
+      if (row) { d.rowId = row.id; remote = { json: String(row.Contenu || ''), at: Number(row.Modifie_le) || 0 }; d.saved = remote.json; }
+    } catch (err) { console.warn('Import : brouillon de Grist illisible :', err); }
+    const local = readLocalDraft();
+    const chosen = local && (!remote || local.at >= remote.at) ? local : remote;   // à égalité à la seconde, la copie locale est au moins aussi récente (écrite à chaque changement, Grist après une pause)
+    if (!chosen || !chosen.json) return;
+    try {
+      const data = JSON.parse(chosen.json);
+      if (!data || !Array.isArray(data.edits) || !Array.isArray(data.decisions)) return;
+      state.edits = new Map(data.edits); state.decisions = new Map(data.decisions);
+      state.result = { kind: 'info', message: `Brouillon retrouvé : ${plural(draftCount(), 'choix ou correction', 'choix ou corrections')} de ta dernière séance. Rien n'est écrit dans Projets ni Lignes_OPE tant que tu n'as pas cliqué sur « Écrire ».` };
+    } catch (err) { console.warn('Import : brouillon illisible, ignoré :', err); }
+  }
+  async function clearDraft() {
+    state.edits = new Map(); state.decisions = new Map(); state.ack = false; state.draft.confirm = false;
+    if (state.entries.length) recompute();
+    writeLocalDraft('');
+    await flushDraft();
+    render();
+  }
+  function draftHtml() {
+    const n = draftCount(), d = state.draft;
+    if (!n && !d.error) return '';
+    const warn = d.error ? ` <span class="ih-warn-inline" role="alert">⚠ non enregistré dans Grist : ${esc(d.error)} (copie gardée dans ce navigateur)</span>` : '';
+    const clear = d.confirm
+      ? `<button type="button" class="ih-link" id="ih-draft-clear-confirm">Oui, oublier ces ${n} choix</button> <button type="button" class="ih-link" id="ih-draft-clear-cancel">Garder</button>`
+      : '<button type="button" class="ih-link" id="ih-draft-clear">Repartir de zéro</button>';
+    return n ? ` · <span class="ih-muted" title="Enregistrés automatiquement dans Grist (table ${DRAFT_TABLE}) jusqu'à « Écrire »">${plural(n, 'choix enregistré', 'choix enregistrés')} automatiquement</span> ${clear}${warn}` : warn;
+  }
+
   // Le tableau se déduit de ce qui est lu, des décisions de rapprochement et des valeurs corrigées : recalculé à chaque correction.
   function recompute() {
     state.table = L.buildTable({ entries: state.entries, matches: state.matches, decisions: state.decisions, edits: state.edits, ctx: state.ctx, now: Date.now() });
+    scheduleDraft();
   }
 
   function analyse() {
@@ -99,6 +195,8 @@
     else await CoreGrist.ensureColumns(L.JOURNAL_TABLE, L.JOURNAL_COLUMNS);
     if (await CoreGrist.ensureTable(L.LOTS_TABLE, L.LOTS_COLUMNS)) done.push(`table ${L.LOTS_TABLE}`);
     else await CoreGrist.ensureColumns(L.LOTS_TABLE, L.LOTS_COLUMNS);
+    if (await CoreGrist.ensureTable(DRAFT_TABLE, DRAFT_COLUMNS)) done.push(`table ${DRAFT_TABLE}`);
+    else await CoreGrist.ensureColumns(DRAFT_TABLE, DRAFT_COLUMNS);
     if (done.length) state.prepared = state.prepared.concat(done);
   }
 
@@ -152,6 +250,7 @@
       await adoptLegacyRows();
       await discoverLots();
       await readForm();
+      await restoreDraft();
       analyse();
       state.phase = 'ready';
     } catch (err) {
@@ -698,7 +797,7 @@
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail BO absent';
-    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button></p>${legendHtml()}</div>`;
+    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button>${draftHtml()}</p>${legendHtml()}</div>`;
   }
 
   function render() {
@@ -958,6 +1057,9 @@
     if (button.id === 'ih-back') { global.SuiviApp?.showView('view-projects'); $('btn-projects')?.classList.add('active'); }
     else if (button.id === 'ih-reload') load();
     else if (button.id === 'ih-pick') ensureFileInput().click();
+    else if (button.id === 'ih-draft-clear') { state.draft.confirm = true; render(); }
+    else if (button.id === 'ih-draft-clear-cancel') { state.draft.confirm = false; render(); }
+    else if (button.id === 'ih-draft-clear-confirm') clearDraft();
     else if (button.id === 'ih-upload-confirm') loadFile();
     else if (button.id === 'ih-upload-cancel') { state.upload = null; render(); }
     else if (button.id === 'ih-next') goToNextAnomaly();
@@ -1013,5 +1115,9 @@
     if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyI') { event.preventDefault(); open(); }
   });
 
-  global.ImportHistoriquePage = { open, load, render, state, resetState, write, SOURCE_TABLE: L.SOURCE_TABLE };
+  // Dernière chance d'écrire le brouillon quand la page se ferme ou se cache (la copie locale est déjà écrite).
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
+  global.addEventListener('pagehide', () => { flushDraft(); });
+
+  global.ImportHistoriquePage = { open, load, render, state, resetState, write, flushDraft, SOURCE_TABLE: L.SOURCE_TABLE, DRAFT_TABLE };
 })(window);

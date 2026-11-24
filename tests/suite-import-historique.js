@@ -1068,4 +1068,108 @@
       assertTrue((await grist('Import_Journal')).filter(r => r.Operation === 'chargement').every(r => r.Annule === true), 'le lot sans ligne est marqué annulé');
     });
   });
+  // ===========================================================================================================
+  describe('Import historique — brouillon de tri : les choix sont enregistrés tant que « Écrire » n\'a pas été cliqué (24/11/2026)', function () {
+    const LS = 'suiviProjetInnovationS:importBrouillon';
+    const draftRows = () => grist('Import_Brouillon');
+    const draftWrites = () => window.__TEST_CALLS__.filter(call => call.table === 'Import_Brouillon' && ['AddRecord', 'UpdateRecord'].includes(call.type));
+    // Un rechargement du widget : la mémoire repart de zéro, la copie locale du navigateur reste (ou non).
+    async function reload(keepLocal = true) {
+      const kept = localStorage.getItem(LS);
+      P().resetState();
+      if (keepLocal && kept != null) localStorage.setItem(LS, kept);
+      await P().open();
+    }
+
+    it('un choix est enregistré dans Grist (une seule ligne de Import_Brouillon, mise à jour ensuite) sans rien écrire dans Projets ni Lignes_OPE', async function () {
+      await setup();
+      window.__TEST_CALLS__.length = 0;
+      fixCell(KEY.fictif + '|prog', 'FARE');
+      await P().flushDraft();
+      let rows = await draftRows();
+      assertEqual(rows.length, 1);
+      assertEqual(rows[0].Nb_choix, 1);
+      assertEqual(JSON.parse(rows[0].Contenu).edits[0][0], KEY.fictif + '|prog');
+      fixCell(KEY.fictif + '|end', '2030-06-30');
+      await P().flushDraft();
+      rows = await draftRows();
+      assertEqual(rows.length, 1, 'toujours une seule ligne');
+      assertEqual(rows[0].Nb_choix, 2);
+      assertEqual(writeCalls().length, 0, 'rien dans Projets ni Lignes_OPE');
+    });
+
+    it('après un rechargement, les choix sont retrouvés d\'après Grist (copie locale absente : autre navigateur) et signalés ; rien n\'est réécrit', async function () {
+      await setup();
+      fixCell(KEY.fictif + '|prog', 'FARE');
+      fixCell(KEY.gamma + '|status', 'p:12');
+      await P().flushDraft();
+      localStorage.removeItem(LS);
+      window.__TEST_CALLS__.length = 0;
+      await reload(false);
+      assertEqual(P().state.edits.get(KEY.fictif + '|prog'), 'FARE');
+      assertEqual(P().state.decisions.get(KEY.gamma).projectId, 12);
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Brouillon retrouvé');
+      assertIncludes(byId('ih-root').textContent, '2 choix enregistrés automatiquement');
+      assertEqual(draftWrites().length, 0, 'le brouillon retrouvé n\'est pas réécrit à l\'identique');
+    });
+
+    it('un envoi coupé avant d\'atteindre Grist : la copie locale, plus récente, fait foi', async function () {
+      await setup();
+      fixCell(KEY.fictif + '|prog', 'FARE');
+      await P().flushDraft();
+      fixCell(KEY.fictif + '|end', '2030-06-30');   // copie locale écrite aussitôt, Grist jamais atteinte (rechargement avant la pause)
+      await reload(true);
+      assertEqual(P().state.edits.get(KEY.fictif + '|end'), '2030-06-30');
+      assertEqual(P().state.edits.get(KEY.fictif + '|prog'), 'FARE');
+      await P().flushDraft();
+      assertEqual((await draftRows())[0].Nb_choix, 2, 'Grist rattrape la copie locale');
+    });
+
+    it('sans aucun choix : rien n\'est enregistré, pas de bandeau « retrouvé », pas de compteur', async function () {
+      await setup();
+      await P().flushDraft();
+      assertEqual((await draftRows()).length, 0);
+      assertFalse(!!document.querySelector('.ih-banner'));
+      assertFalse(byId('ih-root').textContent.includes('automatiquement'));
+    });
+
+    it('« Repartir de zéro » demande confirmation, puis oublie les choix partout (Grist et copie locale)', async function () {
+      await setup();
+      fixCell(KEY.fictif + '|prog', 'FARE');
+      await P().flushDraft();
+      click('ih-draft-clear');
+      assertTrue(!!byId('ih-draft-clear-confirm'), 'la confirmation apparaît');
+      assertEqual(P().state.edits.size, 1, 'rien n\'est encore oublié');
+      click('ih-draft-clear-cancel');
+      assertTrue(!!byId('ih-draft-clear') && !byId('ih-draft-clear-confirm'));
+      click('ih-draft-clear'); click('ih-draft-clear-confirm');
+      await waitFor(() => P().state.edits.size === 0 && !byId('ih-draft-clear-confirm'), 'choix oubliés');
+      assertEqual((await draftRows())[0].Contenu, '');
+      await reload(true);
+      assertEqual(P().state.edits.size, 0, 'rien ne revient au rechargement');
+      assertFalse(!!document.querySelector('.ih-banner'));
+    });
+
+    it('un brouillon illisible est ignoré (aucune erreur, le tableau s\'ouvre normalement)', async function () {
+      await setup();
+      window.__mockSetTable('Import_Brouillon', { id: [1], Contenu: ['{pas du json'], Nb_choix: [3], Modifie_le: [1] });
+      localStorage.setItem(LS, 'n\'importe quoi');
+      P().resetState(); localStorage.setItem(LS, 'n\'importe quoi');
+      await P().open();
+      assertEqual(P().state.phase, 'ready');
+      assertEqual(P().state.edits.size, 0);
+    });
+
+    it('après l\'écriture, le brouillon suit la mémoire (Grist = ce qui reste de choix), sans réécrire quoi que ce soit dans Projets ni Lignes_OPE de plus', async function () {
+      await setup();
+      fixAll();
+      await P().flushDraft();
+      assertEqual((await draftRows())[0].Nb_choix, 3, 'les trois corrections sont en brouillon avant l\'écriture');
+      await ackWrite();
+      await P().flushDraft();
+      const state = P().state;
+      assertEqual((await draftRows())[0].Nb_choix, state.edits.size + state.decisions.size, 'le brouillon reflète la mémoire après l\'écriture');
+      assertEqual((await draftRows()).length, 1);
+    });
+  });
 })();

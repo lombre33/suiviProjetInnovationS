@@ -817,6 +817,14 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   l'autre ; le consommé et le disponible valent pour tout le N° OPE (version la plus récente, jamais additionnés ; un désaccord entre lignes est
   signalé). Seul ce qui change est écrit (avant / après au journal, donc annulable) ; deux envois identiques n'écrivent rien. La boîte « Montants à
   écrire » liste, par N° OPE, chaque valeur d'avant et d'après.
+- **Brouillon de tri** (24/11/2026, demande d'Antoine : trier 94 projets en plusieurs séances) : les choix et corrections faits dans le tableau
+  (décision de rapprochement, valeur prise ou corrigée, « garder Grist ») sont **enregistrés automatiquement tant que « Écrire » n'a pas été
+  cliqué**. Une seule ligne de la table `Import_Brouillon` (`Contenu` JSON, `Nb_choix`, `Modifie_le`, créée par le widget), mise à jour 0,6 s après le
+  dernier changement, plus une copie dans le `localStorage` du navigateur écrite aussitôt (un rechargement lancé juste après un clic peut couper
+  l'écriture dans Grist : à l'ouverture, la copie la plus récente des deux fait foi). Au chargement d'une séance neuve, le brouillon est repris et
+  signalé par un bandeau ; la ligne de résumé affiche « N choix enregistrés automatiquement » et « Repartir de zéro » (avec confirmation). Le
+  brouillon ne touche ni `Projets` ni `Lignes_OPE` ; après « Écrire », il suit la mémoire (les choix « nouveau projet » écrits sont oubliés). La case
+  « J'ai relu le tableau » n'est jamais gardée : il faut la recocher. Code : section « Brouillon de tri » de `js/pages/page-import-historique.js`.
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques
