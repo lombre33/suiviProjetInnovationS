@@ -166,28 +166,34 @@
         row(T1, 'OPE-1', { Ligne_budgetaire: 'L2', Montant_attribue: 500, Attribue_2025: 500 })];
       const a = L().aggregateOpe(lines);
       assertEqual(a.Montant_attribue, 1500); assertEqual(a.Attribue_2024, 600); assertEqual(a.Attribue_2025, 900);
-      assertEqual(a.Consomme_CP, 300); assertEqual(a.Consomme_AE, 400); assertEqual(a.Disponible_CP, 700);
+      assertEqual(a.totalCPConsomme, 300); assertEqual(a.Consomme_AE, 400); assertEqual(a.Disponible_CP, 700);
       assertFalse(a.conflict);
     });
 
     it('deux lignes qui ne donnent pas le même consommé : la version la plus récente fait foi, le désaccord est signalé', function () {
       nextId = 1;
       const a = L().aggregateOpe([row(T1, 'OPE-1', { Ligne_budgetaire: 'L1', Consomme_CP: 100 }), row(T2, 'OPE-1', { Ligne_budgetaire: 'L2', Consomme_CP: 250 })]);
-      assertEqual(a.Consomme_CP, 250); assertTrue(a.conflict);
+      assertEqual(a.totalCPConsomme, 250); assertTrue(a.conflict);
     });
 
     it('une valeur absente de l\'export n\'est pas renvoyée (rien à écrire) ; 0 est une vraie valeur', function () {
       nextId = 1;
       const a = L().aggregateOpe([row(T1, 'OPE-1', { Consomme_CP: 0, Consomme_AE: null, Date_debut: null })]);
-      assertEqual(a.Consomme_CP, 0);
-      assertFalse('Consomme_AE' in a); assertFalse('Date_debut_OPE' in a);
+      assertEqual(a.totalCPConsomme, 0);
+      assertFalse('Consomme_AE' in a);
     });
 
-    it('dates de l\'OPE : la plus ancienne et la plus récente ; « Montants au » vient de la date de l\'envoi', function () {
+    it('« Données UB Invest au » vient de la date de l\'envoi ; ni financeur, ni ligne budgétaire, ni dates d\'OPE, ni identifiant d\'envoi ne sont écrits sur Lignes_OPE', function () {
       nextId = 1;
       const a = L().aggregateOpe([row(T2, 'OPE-1', { Date_debut: UTC(2024, 3, 1), Date_fin: UTC(2025, 6, 30) }), row(T2, 'OPE-1', { Ligne_budgetaire: 'L2', Date_debut: UTC(2023, 9, 1), Date_fin: UTC(2026, 1, 31) })]);
-      assertEqual(a.Date_debut_OPE, UTC(2023, 9, 1)); assertEqual(a.Date_fin_OPE, UTC(2026, 1, 31));
-      assertEqual(a.Date_maj_conso, UTC(2026, 11, 24)); assertEqual(a.Lot_maj, T2);
+      assertEqual(a.Date_maj_conso, UTC(2026, 11, 24));
+      ['Financeur', 'Ligne_budgetaire', 'Date_debut_OPE', 'Date_fin_OPE', 'Lot_maj', 'Consomme_CP'].forEach(id => assertFalse(id in a, id + ' ne doit pas être écrit'));
+    });
+
+    it('les colonnes de Lignes_OPE que l\'import écrit : 5 montants dont le Total CP consommé (colonne déjà là), 5 années, une date ; rien d\'autre', function () {
+      assertDeepEqual(L().AMOUNT_COLUMNS.map(col => col.id), ['Montant_attribue', 'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026',
+        'Consomme_AE', 'totalCPConsomme', 'Disponible_AE', 'Disponible_CP', 'Date_maj_conso']);
+      assertEqual(L().CP_COLUMN, 'totalCPConsomme');
     });
   });
 
@@ -210,8 +216,8 @@
       const p = plan({ journal: [row(T1, 'OPE-1', { Attribue_2025: 1000 })] });
       const add = p.phase1.find(op => op.table === 'Lignes_OPE' && op.kind === 'add');
       assertEqual(add.fields.N_OPE, 'OPE-1');
-      assertEqual(add.fields.Consomme_CP, 300); assertEqual(add.fields.Attribue_2025, 1000); assertEqual(add.fields.Montant_attribue, 1000);
-      assertEqual(add.fields.Lot_maj, T1);
+      assertEqual(add.fields.totalCPConsomme, 300); assertEqual(add.fields.Attribue_2025, 1000); assertEqual(add.fields.Montant_attribue, 1000);
+      assertTrue('Date_maj_conso' in add.fields); assertFalse('Lot_maj' in add.fields);
       assertTrue(p.neededAmounts); assertEqual(p.counts.montantsEcrits, 1);
     });
 
@@ -224,13 +230,13 @@
 
     it('une ligne OPE de Grist ne reçoit que ce qui change, avec la valeur d\'avant pour pouvoir annuler', function () {
       nextId = 1;
-      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, Consomme_CP: 250, Consomme_AE: 400, Disponible_AE: 600, Disponible_CP: 700, Montant_attribue: 1000 }];
+      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, totalCPConsomme: 250, Consomme_AE: 400, Disponible_AE: 600, Disponible_CP: 700, Montant_attribue: 1000 }];
       const projets = [{ id: 10, Projet: 'Projet fictif', Acronyme: 'PF', Programme: 1, Ligne_OPE: ['L', 5] }];
       const p = plan({ journal: [row(T2, 'OPE-1')], projets, lignes });
       const update = p.phase1.find(op => op.table === 'Lignes_OPE' && op.id === 5);
-      assertEqual(update.fields.Consomme_CP, 300); assertEqual(update.before.Consomme_CP, 250);
+      assertEqual(update.fields.totalCPConsomme, 300); assertEqual(update.before.totalCPConsomme, 250);
       assertFalse('Consomme_AE' in update.fields, 'une valeur identique n\'est pas réécrite');
-      assertEqual(update.fields.Lot_maj, T2); assertEqual(update.before.Lot_maj, null);
+      assertEqual(update.fields.Date_maj_conso, UTC(2026, 11, 24)); assertEqual(update.before.Date_maj_conso, null);
     });
 
     it('un deuxième envoi identique n\'écrit plus rien (ni date ni lot)', function () {
@@ -250,15 +256,15 @@
       const p = plan({ journal: [row(T1, 'OPE-1', { Structure: 'LAB1' })], projets, lignes });
       const ops = p.phase1.filter(op => op.table === 'Lignes_OPE' && op.id === 5);
       assertEqual(ops.length, 1);
-      assertEqual(ops[0].fields.installe_chez, 1); assertEqual(ops[0].fields.Consomme_CP, 300);
+      assertEqual(ops[0].fields.installe_chez, 1); assertEqual(ops[0].fields.totalCPConsomme, 300);
       assertEqual(ops[0].before.installe_chez, 0);
     });
 
     it('une colonne de montant qui est une formule dans Grist n\'est jamais écrite', function () {
       nextId = 1;
-      const p = plan({ journal: [row(T1, 'OPE-1')], isFormula: (table, col) => table === 'Lignes_OPE' && col === 'Consomme_CP' });
+      const p = plan({ journal: [row(T1, 'OPE-1')], isFormula: (table, col) => table === 'Lignes_OPE' && col === 'totalCPConsomme' });
       const add = p.phase1.find(op => op.kind === 'add' && op.table === 'Lignes_OPE');
-      assertFalse('Consomme_CP' in add.fields); assertEqual(add.fields.Consomme_AE, 400);
+      assertFalse('totalCPConsomme' in add.fields); assertEqual(add.fields.Consomme_AE, 400);
     });
 
     it('un projet mis de côté ou à confirmer n\'écrit aucun montant', function () {
@@ -273,31 +279,31 @@
 
     it('la relecture des montants liste, par N° OPE, chaque valeur d\'avant et d\'après ; les colonnes de suivi n\'y figurent pas', function () {
       nextId = 1;
-      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, Consomme_CP: 250 }];
+      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, totalCPConsomme: 250 }];
       const projets = [{ id: 10, Projet: 'Projet fictif', Acronyme: 'PF', Programme: 1, Ligne_OPE: ['L', 5] }];
       const changes = K().amountChanges(plan({ journal: [row(T2, 'OPE-1')], projets, lignes }));
       assertEqual(changes.length, 1); assertEqual(changes[0].ope, 'OPE-1');
-      const cp = changes[0].changes.find(c => c.id === 'Consomme_CP');
-      assertEqual(cp.before, 250); assertEqual(cp.after, 300); assertEqual(cp.label, 'Consommé CP');
-      assertFalse(changes[0].changes.some(c => c.id === 'Lot_maj' || c.id === 'Date_maj_conso'));
+      const cp = changes[0].changes.find(c => c.id === 'totalCPConsomme');
+      assertEqual(cp.before, 250); assertEqual(cp.after, 300); assertEqual(cp.label, 'Total CP consommé');
+      assertFalse(changes[0].changes.some(c => c.id === 'Date_maj_conso'));
     });
 
     it('écrire puis annuler : les montants reviennent à leur valeur d\'avant, et rien n\'est défait si la ligne a changé entre-temps', async function () {
       nextId = 1;
-      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, Consomme_CP: 250 }];
+      const lignes = [{ id: 5, N_OPE: 'OPE-1', installe_chez: 1, totalCPConsomme: 250 }];
       const projets = [{ id: 10, Projet: 'Projet fictif', Acronyme: 'PF', Programme: 1, Ligne_OPE: ['L', 5], Date_debut_Projet: UTC(2023, 1, 1), Date_de_fin_Projet: UTC(2026, 12, 31) }];
       const p = plan({ journal: [row(T2, 'OPE-1')], projets, lignes });
       const written = [], journal = [];
       const result = await L().execute(p, { apply: async actions => { written.push(...actions); return actions.map((a, i) => 100 + i); }, addJournal: async rows => { journal.push(...rows); }, now: () => new Date(Date.UTC(2026, 10, 24, 15)) });
       assertEqual(result.error, null);
       const update = written.find(a => a[0] === 'UpdateRecord' && a[1] === 'Lignes_OPE');
-      assertEqual(update[3].Consomme_CP, 300);
+      assertEqual(update[3].totalCPConsomme, 300);
       const now = Object.assign({}, lignes[0], update[3]);
       const undo = L().planUndo(journal.map((r, i) => Object.assign({ id: i + 1 }, r)), result.lot, { Projets: projets, Lignes_OPE: [now] });
       assertEqual(undo.skipped.length, 0, JSON.stringify(undo.skipped));
       const back = undo.actions.find(a => a[1] === 'Lignes_OPE');
-      assertEqual(back[3].Consomme_CP, 250); assertEqual(back[3].Lot_maj, null);
-      const edited = L().planUndo(journal.map((r, i) => Object.assign({ id: i + 1 }, r)), result.lot, { Projets: projets, Lignes_OPE: [Object.assign({}, now, { Consomme_CP: 777 })] });
+      assertEqual(back[3].totalCPConsomme, 250); assertEqual(back[3].Date_maj_conso, null);
+      const edited = L().planUndo(journal.map((r, i) => Object.assign({ id: i + 1 }, r)), result.lot, { Projets: projets, Lignes_OPE: [Object.assign({}, now, { totalCPConsomme: 777 })] });
       assertEqual(edited.actions.filter(a => a[1] === 'Lignes_OPE').length, 0, JSON.stringify(edited));
       assertEqual(edited.skipped[0].why, 'modifiée depuis l\'import');
     });
@@ -346,7 +352,7 @@
       nextId = 1;
       window.__mockSetTable('Import_Financements', columnar(rows));
       window.__mockSetTable('Projets', columnar([{ id: 10, Acronyme: 'FICT', Projet: 'Projet fictif', Programme: 1, Ligne_OPE: ['L', 1], Date_debut_Projet: UTC(2023, 1, 1), Date_de_fin_Projet: UTC(2026, 12, 31) }]));
-      window.__mockSetTable('Lignes_OPE', columnar([{ id: 1, N_OPE: 'OPE-A', installe_chez: 1 }]));
+      window.__mockSetTable('Lignes_OPE', columnar([{ id: 1, N_OPE: 'OPE-A', installe_chez: 1, totalCPConsomme: 100 }]));   // totalCPConsomme existe déjà dans Grist
       window.__mockSetTable('Programmes', columnar([{ id: 1, Programme: 'FARE' }]));
       window.__mockSetTable('Structures', columnar([{ id: 1, Acronyme: 'LAB1', Nom_Complet: 'Laboratoire fictif' }]));
       if (options.lots) window.__mockSetTable('Import_Lots', columnar(options.lots));
@@ -410,13 +416,14 @@
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
       assertIncludes(document.querySelector('.ih-banner').textContent, 'colonnes de montants créées dans Lignes_OPE');
       const added = window.__TEST_CALLS__.filter(call => call.type === 'AddColumn' && call.table === 'Lignes_OPE').map(call => call.colId);
-      assertTrue(added.includes('Consomme_CP') && added.includes('Attribue_2025') && added.includes('Lot_maj'), 'colonnes de montants créées : ' + added.join(', '));
-      assertFalse(added.includes('totalCPConsomme'));
+      assertDeepEqual(added, ['Montant_attribue', 'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Disponible_AE', 'Disponible_CP', 'Date_maj_conso'],
+        'seules les colonnes manquantes sont créées (pas totalCPConsomme, déjà là) : ' + added.join(', '));
       const firstWrite = window.__TEST_CALLS__.findIndex(call => ['AddRecord', 'UpdateRecord'].includes(call.type) && call.table === 'Lignes_OPE');
-      assertTrue(window.__TEST_CALLS__.findIndex(call => call.colId === 'Consomme_CP') < firstWrite, 'les colonnes existent avant la première écriture');
+      assertTrue(window.__TEST_CALLS__.findIndex(call => call.colId === 'Consomme_AE') < firstWrite, 'les colonnes existent avant la première écriture');
       const lignes = await grist('Lignes_OPE');
       assertEqual(lignes.length, 2);
-      lignes.forEach(ligne => { assertEqual(ligne.Consomme_CP, 300); assertEqual(ligne.Attribue_2025, 1000); assertEqual(ligne.Lot_maj, T2); assertEqual(ligne.Montant_attribue, 1000); });
+      lignes.forEach(ligne => { assertEqual(ligne.totalCPConsomme, 300); assertEqual(ligne.Attribue_2025, 1000); assertEqual(ligne.Montant_attribue, 1000); });
+      assertIncludes(byId('ih-root').textContent, 'Écrit');
       const lots = await grist('Import_Lots');
       assertEqual(lots[0].Statut, 'Valide'); assertTrue(!!lots[0].Lot_journal);
     });

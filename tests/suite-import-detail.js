@@ -168,6 +168,7 @@
       window.__mockSetTable('Projets', { id: [] }); window.__mockSetTable('Lignes_OPE', { id: [], N_OPE: [] });
       P().resetState();
       await P().open();
+      click(document.querySelector('[data-ih-tab="bo"]'));   // le détail est l'import BO : son onglet, pas celui d'UB Invest
     }
     // Le classeur est « lu » par un faux XlsxReader : les lignes sont celles du faux export FD02.
     async function pick(rows, name = 'fd02-fictif.xlsx') {
@@ -256,6 +257,36 @@
       await waitFor(() => /Lot annulé/.test(document.querySelector('.ih-banner').textContent), 'annulation');
       assertEqual((await grist('Depenses_OPE')).length, 0);
       assertEqual((await grist('Import_Lots'))[0].Statut, 'Annule');
+    });
+    it('deux onglets distincts : UB Invest (totaux par OPE) par défaut, BO (détail par OPE) à part, chacun avec ses propres boîtes', async function () {
+      window.__mockSetTable('Import_Financements', { id: [], N_OPE: [] });
+      window.__mockSetTable('Projets', { id: [] }); window.__mockSetTable('Lignes_OPE', { id: [], N_OPE: [] });
+      P().resetState();
+      await P().open();
+      const tab = id => document.querySelector(`[data-ih-tab="${id}"]`);
+      assertEqual(tab('ubinvest').getAttribute('aria-selected'), 'true', 'UB Invest est l\'onglet par défaut');
+      assertTrue(!!document.querySelector('[data-ih-box="formulaire"]'), 'UB Invest : le formulaire du script');
+      assertFalse(!!document.querySelector('[data-ih-box="detail"]'), 'le détail BO n\'est pas dans l\'onglet UB Invest');
+      assertIncludes(tab('ubinvest').textContent, 'totaux par OPE'); assertIncludes(tab('bo').textContent, 'détail par OPE');
+      click(tab('bo'));
+      assertEqual(tab('bo').getAttribute('aria-selected'), 'true');
+      assertTrue(!!document.querySelector('[data-ih-box="detail"]'), 'BO : le détail des dépenses');
+      assertFalse(!!document.querySelector('[data-ih-box="formulaire"]'), 'le formulaire du script n\'est pas dans l\'onglet BO');
+      assertFalse(!!byId('ih-pick'), 'le chargement du fichier UB Invest n\'est pas dans l\'onglet BO');
+      click(tab('ubinvest'));
+      assertTrue(!!document.querySelector('[data-ih-box="formulaire"]'), 'retour sur UB Invest');
+    });
+
+    it('le résultat d\'une écriture BO et ses lots restent dans l\'onglet BO, jamais dans celui d\'UB Invest', async function () {
+      await open();
+      await pick(sheet([dataRow()]));
+      ack(); click(byId('ih-fd-write'));
+      await waitFor(() => document.querySelector('.ih-banner.is-ok'), 'résultat de l\'écriture');
+      assertTrue(!!document.querySelector('[data-ih-box="lots"]'), 'le lot BO est listé dans l\'onglet BO');
+      assertIncludes(document.querySelector('[data-ih-box="lots"] summary').textContent, 'Lots BO');
+      click(document.querySelector('[data-ih-tab="ubinvest"]'));
+      assertFalse(!!document.querySelector('.ih-banner.is-ok'), 'le résultat BO ne s\'affiche pas dans l\'onglet UB Invest');
+      assertFalse(!!document.querySelector('[data-ih-box="lots"]'), 'le lot BO n\'est pas listé parmi les lots UB Invest');
     });
   });
 })();

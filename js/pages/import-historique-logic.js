@@ -79,19 +79,19 @@
       { id: 'Lignes_du_lot', label: 'Lignes du lot', type: 'Int' }]);
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Montants écrits sur Lignes_OPE (24/11/2026) : une ligne OPE = un N° OPE ; le widget crée ces colonnes SIMPLES (aucune formule) et les remplit à
-  // la validation d'un envoi, avec le journal (annulable). `totalCPConsomme` n'est pas touchée : le Dashboard lit `Consomme_CP` en priorité.
+  // Montants UB Invest écrits sur Lignes_OPE (24/11/2026) : une ligne OPE = un N° OPE ; le widget crée les colonnes SIMPLES manquantes (aucune formule)
+  // et les remplit à la validation d'un envoi, avec le journal (annulable). Le Consommé CP va dans `totalCPConsomme`, colonne déjà là (Numeric,
+  // sans formule) : Antoine (24/11) : « total CP consommé ne peut venir que de l'import UB Invest ». Rien d'autre n'est créé : ni Financeur, ni
+  // Ligne budgétaire (CRB / SO / sous-SO : clé commune avec le BO, à contrôler avec l'import BO), ni dates d'OPE, ni identifiant d'envoi (au journal).
   // Le consommé et le disponible valent pour tout le N° OPE (ils se répètent sur chacune de ses lignes d'export) : on prend celui de la version la
   // plus récente, on ne les additionne pas. L'attribué, lui, s'additionne d'une ligne de financement à l'autre.
   // ---------------------------------------------------------------------------------------------------------------
   const numColumn = (id, label) => ({ id, label, type: 'Numeric' });
-  const AMOUNT_COLUMNS = [
-    { id: 'Financeur', label: 'Financeur', type: 'Text' }, { id: 'Ligne_budgetaire', label: 'Ligne budgétaire', type: 'Text' },
-    numColumn('Montant_attribue', 'Montant attribué')].concat(YEAR_COLUMNS.map(id => numColumn(id, 'Attribué ' + id.slice(-4))), [
-    numColumn('Consomme_AE', 'Consommé AE'), numColumn('Consomme_CP', 'Consommé CP'), numColumn('Disponible_AE', 'Disponible AE'), numColumn('Disponible_CP', 'Disponible CP'),
-    { id: 'Date_debut_OPE', label: 'Début OPE', type: 'Date' }, { id: 'Date_fin_OPE', label: 'Fin OPE', type: 'Date' },
-    { id: 'Date_maj_conso', label: 'Montants au', type: 'Date' }, { id: 'Lot_maj', label: 'Envoi des montants', type: 'Text' }]);
-  const AMOUNT_META = ['Date_maj_conso', 'Lot_maj'];   // suivi : posés seulement quand un montant change
+  const CP_COLUMN = 'totalCPConsomme';   // colonne existante de Lignes_OPE qui reçoit le « Consommé CP » (Consomme_CP) de l'export UB Invest
+  const AMOUNT_COLUMNS = [numColumn('Montant_attribue', 'Montant attribué')].concat(YEAR_COLUMNS.map(id => numColumn(id, 'Attribué ' + id.slice(-4))), [
+    numColumn('Consomme_AE', 'Consommé AE'), numColumn(CP_COLUMN, 'Total CP consommé'), numColumn('Disponible_AE', 'Disponible AE'), numColumn('Disponible_CP', 'Disponible CP'),
+    { id: 'Date_maj_conso', label: 'Données UB Invest au', type: 'Date' }]);
+  const AMOUNT_META = ['Date_maj_conso'];   // suivi : posé seulement quand un montant change
   const AMOUNT_IDS = new Set(AMOUNT_COLUMNS.map(col => col.id));
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -310,21 +310,15 @@
     const total = id => { const values = rows.map(r => toNumber(r[id])).filter(v => v != null); return values.length ? values.reduce((a, b) => a + b, 0) : null; };
     const newest = id => { for (let i = rows.length - 1; i >= 0; i--) { const v = toNumber(rows[i][id]); if (v != null) return v; } return null; };
     const put = (id, value) => { if (value != null && value !== '') out[id] = value; };
-    put('Financeur', mostCommon(rows.map(r => text(r.Financeur)).filter(Boolean)));
-    put('Ligne_budgetaire', text(latest.Ligne_budgetaire) || mostCommon(rows.map(r => text(r.Ligne_budgetaire)).filter(Boolean)));
     put('Montant_attribue', total('Montant_attribue'));
     YEAR_COLUMNS.forEach(id => put(id, total(id)));
     SHARED_AMOUNTS.forEach(id => {
-      put(id, newest(id));
+      put(id === 'Consomme_CP' ? CP_COLUMN : id, newest(id));   // la source s'appelle Consomme_CP, la colonne de Lignes_OPE totalCPConsomme
       const values = rows.map(r => toNumber(r[id])).filter(v => v != null);
       if (values.length > 1 && values.some(v => !near(v, values[0]))) out.conflict = true;
     });
-    const starts = rows.map(r => toNumber(r.Date_debut)).filter(v => v != null && v > 0), ends = rows.map(r => toNumber(r.Date_fin)).filter(v => v != null && v > 0);
-    put('Date_debut_OPE', starts.length ? Math.min(...starts) : null);
-    put('Date_fin_OPE', ends.length ? Math.max(...ends) : null);
     const seconds = lotSeconds(latest.Lot) || toNumber(latest.Exporte_le);
     put('Date_maj_conso', seconds ? Math.floor(seconds / 86400) * 86400 : null);
-    put('Lot_maj', text(latest.Lot));
     return out;
   }
 
@@ -1017,7 +1011,7 @@
     KIND_LABEL, normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf, isoOfUnix, unixOfIso,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, matchLabel, effectiveDecision,
     buildTable, similarBad, applyChoice, planFromTable, buildPlan,
-    AMOUNT_COLUMNS, AMOUNT_META, aggregateOpe, lotSeconds, convertCell,
+    AMOUNT_COLUMNS, AMOUNT_META, CP_COLUMN, aggregateOpe, lotSeconds, convertCell,
     execute, planUndo, planUnload, lotIdOf, newLotFields, planLegacyLot, planLotValidation, planLotCancel, summarizeLots, checkTotals, readExport
   };
 })(window);

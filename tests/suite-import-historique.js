@@ -799,9 +799,9 @@
       assertEqual(projets.find(p => p.id === 14).Ligne_OPE.length, 2, 'DELTA : une ligne OPE de plus');
       assertEqual(projets.find(p => p.id === 10).Date_debut_Projet, UTC(2024, 1, 1));
       assertEqual(lignes.find(l => l.id === 1).installe_chez, 1, 'structure complétée sur la ligne OPE existante');
-      assertEqual(lignes.find(l => l.id === 1).totalCPConsomme, 1200, 'totalCPConsomme n\'est jamais touchée');
+      assertEqual(lignes.find(l => l.id === 1).totalCPConsomme, 1200, 'totalCPConsomme reçoit le Consommé CP de l\'export (ici déjà identique : inchangé)');
       const keys = new Set(calls.flatMap(c => Object.keys(c.fields || {})));
-      assertFalse(Array.from(keys).some(k => /totalCP|^Total_|Statut_Macro|^c20\d\d_/.test(k)), 'jamais totalCPConsomme ni une colonne de total');
+      assertFalse(Array.from(keys).some(k => /^Total_|Statut_Macro|^c20\d\d_/.test(k)), 'jamais une colonne de total de Projets ni de budget');
       assertTrue(Array.from(keys).filter(k => /Attribue|Consomme|Disponible|Montant/.test(k)).every(k => L().AMOUNT_COLUMNS.some(col => col.id === k)), 'les montants vont seulement dans les colonnes simples créées par l\'outil');
     });
 

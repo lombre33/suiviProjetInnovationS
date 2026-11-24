@@ -798,7 +798,7 @@ projets et aux lignes OPE de Grist. Code : `js/pages/import-historique-logic.js`
 - crée les colonnes des rangs 2 à 4 juste avant d'écrire (`plan.neededRank`, `CoreOpes.missingColumns`) ; si leur création échoue, rien n'est écrit ;
 - annule un lot en tenant compte des quatre rangs (une ligne OPE qu'un autre projet range encore n'est jamais supprimée).
 
-**Envois du script UB Invest et montants (24/11/2026).** Le script (dépôt `script-export-ubinvest`, `src/envoyer_grist.py` ou `synchroniser.py`)
+**Import UB Invest : envois du script et montants (24/11/2026).** La page Import (Alt+Maj+I) a deux onglets dans son bandeau : **UB Invest** (totaux par OPE, liés aux projets : tout ce qui suit) et **BO** (détail par OPE, voir plus bas, à reprendre plus tard). Le script (dépôt `script-export-ubinvest`, `src/envoyer_grist.py` ou `synchroniser.py`)
 renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même `Lot` (date et heure UTC, `2026-11-24T14:05:30Z`) et `Lignes du lot`
 (leur nombre, colonne `Lignes_du_lot` de `Import_Financements`). Code : `js/pages/import-lots-logic.js` (règles pures), `import-form.js`, la page.
 - **Nouvel envoi** : à l'ouverture, une ligne `Import_Lots` (`Macro`, `Script`, `A valider`) est créée par valeur de `Lot` inconnue ; l'envoi
@@ -808,13 +808,15 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   reste compté). Une ligne disparue du dernier envoi garde sa version d'avant (comptée, signalée « disparue »). Boîte « Envois reçus » : liste
   des envois du plus récent au plus ancien, écarts de chacun avec le dernier envoi validé (nouvelles, modifiées, disparues, inchangées), boutons
   « Refuser » / « Rétablir » (seul `Import_Lots` change).
-- **Montants** (`ImportHistoriqueLogic.AMOUNT_COLUMNS`, option `withAmounts` du contexte) : « Écrire » écrit aussi, sur `Lignes_OPE`, des colonnes
-  **simples** créées par le widget juste avant (`plan.neededAmounts`, aucune formule, `totalCPConsomme` jamais touchée) : `Financeur`,
-  `Ligne_budgetaire`, `Montant_attribue`, `Attribue_2022` à `Attribue_2026`, `Consomme_AE`, `Consomme_CP`, `Disponible_AE`, `Disponible_CP`,
-  `Date_debut_OPE`, `Date_fin_OPE`, `Date_maj_conso` (date de l'envoi), `Lot_maj`. Un N° OPE = une ligne `Lignes_OPE` : l'attribué s'additionne
-  d'une ligne de financement à l'autre ; le consommé et le disponible valent pour tout le N° OPE (version la plus récente, jamais additionnés ; un
-  désaccord entre lignes est signalé). Seul ce qui change est écrit (avant / après au journal, donc annulable) ; deux envois identiques n'écrivent
-  rien. La boîte « Montants à écrire » liste, par N° OPE, chaque valeur d'avant et d'après.
+- **Montants** (`ImportHistoriqueLogic.AMOUNT_COLUMNS`, option `withAmounts` du contexte) : « Écrire » écrit aussi, sur `Lignes_OPE`, les montants de
+  l'export UB Invest. Colonnes **simples** (aucune formule) : le `Consommé CP` va dans `totalCPConsomme`, colonne **déjà là** (Antoine, 24/11 : « total
+  CP consommé ne peut venir que de l'import UB Invest ») ; le widget crée seulement celles qui manquent (`plan.neededAmounts`) : `Montant_attribue`,
+  `Attribue_2022` à `Attribue_2026`, `Consomme_AE`, `Disponible_AE`, `Disponible_CP` et `Date_maj_conso` (« Données UB Invest au », date de
+  l'envoi). **Rien d'autre** : ni Financeur, ni Ligne budgétaire (= CRB / SO / sous-SO, clé commune avec le BO : à contrôler avec l'import BO), ni
+  dates d'OPE, ni identifiant d'envoi (déjà au journal). Un N° OPE = une ligne `Lignes_OPE` : l'attribué s'additionne d'une ligne de financement à
+  l'autre ; le consommé et le disponible valent pour tout le N° OPE (version la plus récente, jamais additionnés ; un désaccord entre lignes est
+  signalé). Seul ce qui change est écrit (avant / après au journal, donc annulable) ; deux envois identiques n'écrivent rien. La boîte « Montants à
+  écrire » liste, par N° OPE, chaque valeur d'avant et d'après.
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques
@@ -822,7 +824,7 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   `_grist_Shares`, le partage de la page, `shareOptions` de la section) ; dépublié par un clic (`shareOptions` vidé). Le widget ne connaît jamais le
   lien (la clé n'est lisible nulle part) : la personne le copie (Partager → Copier le lien) dans `grist.txt` du script. Si les métadonnées ne se
   lisent pas, aucun formulaire n'est créé à l'aveugle.
-- **Détail des dépenses FD02** (boîte du même nom, une fois par mois ; code : `js/pages/import-detail-logic.js`) : le fichier Excel « Consommation
+- **Import BO : détail des dépenses FD02** (onglet BO, une fois par mois ; **codé mais à reprendre plus tard, après la fin de l'import UB Invest et de la reprise de l'historique** : décision d'Antoine, 24/11 ; code : `js/pages/import-detail-logic.js`) : le fichier Excel « Consommation
   détaillée AE » se choisit dans la page (lecture locale, rien ne part avant « Écrire »). Titre en ligne 3 (« Données au JJ/MM/AAAA »), 28 colonnes
   dont 4 vides, reconnues par leur intitulé, pas par leur place ; un fichier d'un autre format est refusé avec la raison. Les lignes alimentent
   **directement** `Depenses_OPE` (pas de table d'arrivée) : une ligne par objet de gestion, clé = exercice + N° OPE + type d'objet + N° EJ + nature

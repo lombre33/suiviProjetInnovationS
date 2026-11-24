@@ -36,7 +36,7 @@
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
-      prepared: [], upload: null
+      prepared: [], upload: null, tab: 'ubinvest'
     };
   }
   function resetState() { Object.assign(state, freshState()); }
@@ -185,13 +185,24 @@
   // Rendu : tableau
   // ----------------------------------------------------------------------------------------------------------
 
+  // Deux imports qui n'ont rien à voir, deux onglets dans le bandeau (même ligne, pas de place perdue) :
+  //  - UB Invest : le script, totaux par OPE (attribué, consommé, disponible), une ligne par OPE et financeur, liés aux projets -> Lignes_OPE ;
+  //  - BO : le fichier FD02, détail par OPE (une ligne par engagement) -> Depenses_OPE, jamais Lignes_OPE.
+  const TABS = [['ubinvest', 'UB Invest', 'totaux par OPE'], ['bo', 'BO', 'détail par OPE']];
+  function tabsHtml() {
+    return `<div class="ih-tabs" role="tablist" aria-label="Quel import ?">${TABS.map(([id, name, hint]) => `<button type="button" role="tab" class="ih-tab${state.tab === id ? ' is-on' : ''}" data-ih-tab="${id}" aria-selected="${state.tab === id}"><strong>${name}</strong> <span class="ih-muted">${hint}</span></button>`).join('')}</div>`;
+  }
+  const backHtml = '<button type="button" class="btn btn-secondary" id="ih-back">← Retour</button>';
+  const headerHtml = () => `<div class="project-filters ih-bar">${backHtml}${tabsHtml()}</div>`;
+  const plainHeaderHtml = () => `<div class="project-filters ih-bar">${backHtml}<strong class="ih-title">Imports financiers</strong></div>`;
+
   function barHtml() {
     const t = state.table;
     const counts = { all: t.rows.length, add: t.add, mod: t.mod, same: t.same, todo: t.todo, skip: t.skip };
     const chips = FILTERS.map(([id, label]) => `<button type="button" class="ih-chip${state.filter === id ? ' is-on' : ''}" data-ih-filter="${id}" aria-pressed="${state.filter === id}">${label} <span class="kanban-count">${counts[id] || 0}</span></button>`).join('');
     return `<div class="project-filters ih-bar" role="search" aria-label="Filtres de l'import">
-      <button type="button" class="btn btn-secondary" id="ih-back">← Retour</button>
-      <strong class="ih-title">Import de l'historique financier</strong>
+      ${backHtml}
+      ${tabsHtml()}
       <div class="ih-chips" role="group" aria-label="Filtrer les projets">${chips}</div>
       <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="ih-search" type="search" placeholder="Projet, N° OPE, financeur…" autocomplete="off" value="${esc(state.search)}"></label>
     </div>`;
@@ -223,12 +234,12 @@
 
   function totalsHtml(options) {
     const t = state.totals;
-    if (!t || !t.available) return `<p class="ih-muted">Le détail des dépenses (table ${L.DETAIL_TABLE}, export FD02) n'est pas encore importé : le contrôle des totaux est impossible pour l'instant.</p>`;
+    if (!t || !t.available) return `<p class="ih-muted">Le détail BO (table ${L.DETAIL_TABLE}, export FD02) n'est pas encore importé : le contrôle des totaux UB Invest / BO est impossible pour l'instant.</p>`;
     const gaps = t.rows.filter(r => r.status !== 'ok');
-    const head = `<p class="${t.gaps ? 'ih-warn' : 'ih-okline'}"><strong>${t.gaps ? '⚠' : '✓'}</strong> Consommé de l'export, comparé à la somme du détail des dépenses : <strong>${t.gaps ? plural(t.gaps, 'OPE en écart', 'OPE en écart') : 'tous les OPE concordent'}</strong> sur ${t.rows.length}. Total AE ${money(t.total.export.ae)} / ${money(t.total.detail.ae)}, CP ${money(t.total.export.cp)} / ${money(t.total.detail.cp)} (export / détail).</p>`;
+    const head = `<p class="${t.gaps ? 'ih-warn' : 'ih-okline'}"><strong>${t.gaps ? '⚠' : '✓'}</strong> Consommé UB Invest, comparé à la somme du détail BO : <strong>${t.gaps ? plural(t.gaps, 'OPE en écart', 'OPE en écart') : 'tous les OPE concordent'}</strong> sur ${t.rows.length}. Total AE ${money(t.total.export.ae)} / ${money(t.total.detail.ae)}, CP ${money(t.total.export.cp)} / ${money(t.total.detail.cp)} (export / détail).</p>`;
     const rows = gaps.slice(0, options && options.max || 30).map(r => `<tr><td class="ih-mono">${esc(r.ope)}</td><td>${esc(r.project)}</td><td class="ih-num">${money(r.exportAE)}</td><td class="ih-num">${r.status === 'sans-detail' ? '—' : money(r.detailAE)}</td><td class="ih-num">${money(r.exportCP)}</td><td class="ih-num">${r.status === 'sans-detail' ? '—' : money(r.detailCP)}</td><td>${r.status === 'sans-detail' ? 'Aucun détail' : 'Écart de ' + money(r.diffAE) + ' AE, ' + money(r.diffCP) + ' CP'}</td></tr>`).join('');
     const table = gaps.length ? `<table class="ih-table"><thead><tr><th>N° OPE</th><th>Projet</th><th>AE export</th><th>AE détail</th><th>CP export</th><th>CP détail</th><th></th></tr></thead><tbody>${rows}</tbody></table>${gaps.length > 30 ? `<p class="ih-muted">… et ${gaps.length - 30} autres.</p>` : ''}` : '';
-    const extra = t.extra.length ? `<p class="ih-muted">${plural(t.extra.length, 'N° OPE présent', 'N° OPE présents')} dans le détail des dépenses mais pas dans l'export.</p>` : '';
+    const extra = t.extra.length ? `<p class="ih-muted">${plural(t.extra.length, 'N° OPE présent', 'N° OPE présents')} dans le détail BO mais pas dans l'export UB Invest.</p>` : '';
     return head + table + extra;
   }
 
@@ -392,7 +403,7 @@
     return String(value);
   }
 
-  const AMOUNT_MAIN = new Set(['Montant_attribue', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP']);
+  const AMOUNT_MAIN = new Set(['Montant_attribue', 'Consomme_AE', L.CP_COLUMN, 'Disponible_AE', 'Disponible_CP']);
   function montantsHtml() {
     const t = state.table, changes = K.amountChanges(t.plan);
     const names = new Map(t.rows.map(row => [row.key, row.entry.name]));
@@ -492,7 +503,7 @@
     const pick = label => `<button type="button" class="btn ${f && f.phase === 'ready' ? 'btn-secondary' : 'btn-primary'}" id="ih-fd-pick">${label}</button>`;
     let body;
     if (!f) {
-      body = `<p>Chaque mois, charge l'export FD02 « Consommation détaillée des AE » (fichier Excel). Il est lu ici, dans ton navigateur : rien n'est écrit avant ta relecture. Les lignes de ${L.DETAIL_TABLE} sont retrouvées par leur engagement (exercice, code opération, numéro d'EJ…), jamais supprimées.</p><p>${pick('Choisir le fichier FD02')}</p>`;
+      body = `<p>Chaque mois, charge l'export BO FD02 « Consommation détaillée des AE » (fichier Excel). Il est lu ici, dans ton navigateur : rien n'est écrit avant ta relecture. Les lignes de ${L.DETAIL_TABLE} sont retrouvées par leur engagement (exercice, code opération, numéro d'EJ…), jamais supprimées.</p><p>${pick('Choisir le fichier FD02')}</p>`;
     } else if (f.phase === 'reading') body = `<p class="ih-muted" role="status">Lecture de ${esc(f.name)}…</p>`;
     else if (f.phase === 'writing') body = `<p class="ih-muted" role="status">Écriture dans ${L.DETAIL_TABLE}…</p>`;
     else if (f.phase === 'error') {
@@ -524,7 +535,7 @@
         <button type="button" class="btn btn-primary" id="ih-fd-write"${f.plan.actionCount && state.fdAck ? '' : ' disabled'}>Écrire ${plural(f.plan.actionCount, 'ligne', 'lignes')} dans ${L.DETAIL_TABLE}</button>
         ${pick('Choisir un autre fichier')} <button type="button" class="btn btn-secondary" id="ih-fd-cancel">Annuler</button></div>`;
     }
-    return boxHtml('detail', 'Détail des dépenses (FD02)', summary, body, !!f && f.phase !== 'reading');
+    return boxHtml('detail', 'Import BO : détail des dépenses (export FD02)', summary, body, !!f && f.phase !== 'reading');
   }
 
   async function writeDetail() {
@@ -536,7 +547,7 @@
       if (!(await CoreGrist.ensureTable(L.DETAIL_TABLE, D.COLUMNS))) await CoreGrist.ensureColumns(L.DETAIL_TABLE, D.COLUMNS);
       await ensureJournal();
       const result = await L.execute(f.plan, io());
-      state.result = { kind: 'detail', value: result, plan: f.plan, name: f.name };
+      state.result = { kind: 'detail', tab: 'bo', value: result, plan: f.plan, name: f.name };
       if (!result.error) {
         const seconds = Math.floor(Date.now() / 1000), c = f.plan.counts;
         const previous = state.lots.filter(row => row.Type === 'Détail' && row.Statut === 'Valide').map(row => row.Lot).sort().pop() || '';
@@ -545,15 +556,18 @@
         try { await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', L.LOTS_TABLE, null, fields]]); CoreGrist.invalidateTable(L.LOTS_TABLE); }
         catch (err) { result.lotError = CoreUtils.failureReason(err, { what: 'enregistrement du lot', table: L.LOTS_TABLE }); }
       }
-    } catch (err) { state.result = { kind: 'error', message: 'Écriture du détail impossible : ' + CoreUtils.failureReason(err, { what: 'écriture dans ' + L.DETAIL_TABLE, table: L.DETAIL_TABLE }) }; }
+    } catch (err) { state.result = { kind: 'error', tab: 'bo', message: 'Écriture du détail impossible : ' + CoreUtils.failureReason(err, { what: 'écriture dans ' + L.DETAIL_TABLE, table: L.DETAIL_TABLE }) }; }
     state.fd = null; state.fdAck = false;
     CoreGrist.invalidateTable(L.DETAIL_TABLE); CoreGrist.invalidateTable(L.JOURNAL_TABLE);
     await load();
     notifyChanged();
   }
 
-  function lotsHtml() {
-    const lots = L.summarizeLots(state.journal);
+  // Un lot est du BO quand sa ligne Import_Lots est de type « Détail » (fichier FD02) ; tout le reste est de l'import UB Invest.
+  const boLotIds = () => new Set(state.lots.filter(row => row.Type === 'Détail').flatMap(row => [row.Lot_journal, row.Lot]).filter(Boolean));   // lot du journal (Lot_journal) ou du fichier
+  function lotsHtml(tab) {
+    const bo = boLotIds();
+    const lots = L.summarizeLots(state.journal).filter(lot => bo.has(lot.lot) === (tab === 'bo'));
     if (!lots.length) return '';
     const undo = state.undo;
     const rows = lots.map(lot => {
@@ -569,12 +583,12 @@
       return `<li><span class="ih-mono">${esc(lot.lot)}</span> <span class="ih-muted">· ${label}</span>
         ${done ? '<span class="ih-tag is-ok">annulé</span>' : `<button type="button" class="btn btn-secondary" data-ih-undo="${esc(lot.lot)}">${lot.kind === 'chargement' ? 'Annuler ce chargement' : 'Annuler ce lot'}</button>`}${extra}</li>`;
     }).join('');
-    return boxHtml('lots', 'Lots écrits et fichiers chargés', plural(lots.length, 'lot', 'lots'), `<ul class="ih-lots">${rows}</ul>`, !!undo);
+    return boxHtml('lots', tab === 'bo' ? 'Lots BO écrits' : 'Lots UB Invest écrits et fichiers chargés', plural(lots.length, 'lot', 'lots'), `<ul class="ih-lots">${rows}</ul>`, !!undo);
   }
 
   function resultHtml() {
     const r = state.result;
-    if (!r) return '';
+    if (!r || (r.tab || 'ubinvest') !== state.tab) return '';   // le résultat d'un import ne s'affiche pas dans l'onglet de l'autre
     if (r.kind === 'written') {
       const e = r.value;
       const n = e.ajouts.Projets.length + e.ajouts.Lignes_OPE.length + e.modifs.Projets.length + e.modifs.Lignes_OPE.length;
@@ -683,7 +697,7 @@
 
   function summaryHtml() {
     const issues = state.issues.length;
-    const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail des dépenses absent';
+    const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail BO absent';
     return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button></p>${legendHtml()}</div>`;
   }
 
@@ -692,27 +706,29 @@
     if (!root) return;
     if (state.phase === 'loading' || state.phase === 'idle') { root.innerHTML = '<p class="ih-empty" role="status">Lecture du journal et des projets…</p>'; return; }
     if (state.phase === 'missing') {
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>
+      root.innerHTML = `${plainHeaderHtml()}
         <div class="ih-empty"><p><strong>La table ${L.SOURCE_TABLE} n'existe pas encore dans ce document.</strong></p><p class="ih-muted">Elle est créée une fois côté Grist (colonnes de l'export, puis un formulaire publié) : voir le dossier export-financier. Quand elle contient l'export, rouvre cette page.</p><button type="button" class="btn btn-secondary" id="ih-reload">Relire</button></div>`;
       return;
     }
     if (state.phase === 'error') {
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div><div class="ih-empty ih-banner is-error" role="alert">${esc(state.error)}</div>`;
+      root.innerHTML = `${plainHeaderHtml()}<div class="ih-empty ih-banner is-error" role="alert">${esc(state.error)}</div>`;
       return;
     }
     if (!state.total) {
       const busy = state.upload && state.upload.phase !== 'error';
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}${formHtml()}${detailHtml()}
+      if (state.tab === 'bo') { root.innerHTML = headerHtml() + resultHtml() + detailHtml() + lotsHtml('bo'); return; }
+      root.innerHTML = `${headerHtml()}${preparedHtml()}${resultHtml()}${uploadHtml()}${formHtml()}
         ${busy ? '' : `<div class="ih-empty"><p><strong>Charge l'export Excel</strong></p><p class="ih-muted">Choisis le fichier d'export de tous les projets. Il est lu ici, dans ton navigateur, et ses lignes sont ajoutées à Grist. Tu verras ensuite un tableau, une ligne par projet, pour tout vérifier avant d'écrire.</p><button type="button" class="btn btn-primary" id="ih-pick">Choisir le fichier Excel</button><p class="ih-muted">Les lignes arrivent autrement (formulaire) ? <button type="button" class="ih-link" id="ih-reload">Relire</button></p></div>`}${lotsHtml()}`;
       return;
     }
+    if (state.tab === 'bo') { root.innerHTML = headerHtml() + resultHtml() + detailHtml() + lotsHtml('bo'); return; }
     const t = state.table;
     const grid = root.querySelector('.ih-grid'), scrollLeft = grid ? grid.scrollLeft : 0, scrollTop = grid ? grid.scrollTop : 0;
     const blocked = t.rows.filter(r => r.match.status === 'blocked').length;
     root.innerHTML = barHtml() + preparedHtml() + uploadHtml() + resultHtml() + summaryHtml() + envoisHtml() + montantsHtml()
       + boxHtml('checks', 'Contrôles de l\'export', state.issues.length ? plural(state.issues.length, 'écart', 'écarts') + (blocked ? ` · ${plural(blocked, 'projet écarté', 'projets écartés')}` : '') : '7 sur 7 réussis', checksHtml(), false)
-      + boxHtml('totals', 'Contrôle des totaux', state.totals && state.totals.available ? (state.totals.gaps ? plural(state.totals.gaps, 'écart', 'écarts') : 'concordants') : 'détail absent', totalsHtml(), state.totals && state.totals.gaps > 0)
-      + formHtml() + detailHtml() + tableHtml() + actionsHtml() + lotsHtml();
+      + boxHtml('totals', 'Contrôle des totaux : UB Invest / BO', state.totals && state.totals.available ? (state.totals.gaps ? plural(state.totals.gaps, 'écart', 'écarts') : 'concordants') : 'détail BO absent', totalsHtml(), state.totals && state.totals.gaps > 0)
+      + formHtml() + tableHtml() + actionsHtml() + lotsHtml('ubinvest');
     const newGrid = root.querySelector('.ih-grid');
     if (newGrid) { newGrid.scrollLeft = scrollLeft; newGrid.scrollTop = scrollTop; }
     const editor = root.querySelector('.editing .ih-in');
@@ -856,7 +872,7 @@
       const actions = undo.plan.actions.concat(undo.plan.done.map(id => ['UpdateRecord', L.JOURNAL_TABLE, Number(id), { Annule: true }]));
       for (let i = 0; i < actions.length; i += L.CHUNK) await CoreGrist.gristInstance.docApi.applyUserActions(actions.slice(i, i + L.CHUNK));
       await cancelLots(undo);
-      state.result = { kind: 'undone', done: undo.plan.actions.length, skipped: undo.plan.skipped.length, unit: undo.kind === 'chargement' };
+      state.result = { kind: 'undone', tab: boLotIds().has(lot) ? 'bo' : 'ubinvest', done: undo.plan.actions.length, skipped: undo.plan.skipped.length, unit: undo.kind === 'chargement' };
     } catch (err) { state.result = { kind: 'error', message: 'Annulation impossible : ' + CoreUtils.failureReason(err, { what: 'annulation d\'un lot', table: L.SOURCE_TABLE }) }; }
     state.undo = null;
     await load();
@@ -946,6 +962,7 @@
     else if (button.id === 'ih-upload-cancel') { state.upload = null; render(); }
     else if (button.id === 'ih-next') goToNextAnomaly();
     else if (button.id === 'ih-write') write();
+    else if (button.hasAttribute('data-ih-tab')) { state.tab = button.getAttribute('data-ih-tab') === 'bo' ? 'bo' : 'ubinvest'; state.editing = null; state.undo = null; render(); }
     else if (button.hasAttribute('data-ih-filter')) { const f = button.getAttribute('data-ih-filter'); state.filter = state.filter === f ? 'all' : f; state.editing = null; render(); }
     else if (button.id === 'ih-fd-pick') ensureDetailInput().click();
     else if (button.id === 'ih-fd-write') writeDetail();

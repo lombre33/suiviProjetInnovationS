@@ -13,6 +13,12 @@
 .ih-bar .filter-search input { min-width:0; width:100%; text-overflow:ellipsis; }
 .ih-chips { display:flex; gap:2px; flex-wrap:wrap; padding:3px; border-radius:999px; background:var(--surface-sunken); }
 .ih-chip { appearance:none; border:0; background:transparent; height:30px; padding:0 11px; border-radius:999px; font:inherit; font-size:12.5px; font-weight:700; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+.ih-tabs { display:flex; gap:2px; padding:3px; border-radius:10px; background:var(--surface-sunken); }
+.ih-tab { appearance:none; border:0; background:transparent; height:30px; padding:0 12px; border-radius:8px; font:inherit; font-size:13px; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:baseline; gap:6px; align-self:center; line-height:30px; }
+.ih-tab strong { font-weight:800; }
+.ih-tab .ih-muted { font-size:11.5px; font-weight:500; }
+.ih-tab:hover { color:var(--text); }
+.ih-tab.is-on { background:var(--surface); color:var(--text); box-shadow:var(--shadow-card); }
 .ih-chip:hover { color:var(--text); }
 .ih-chip.is-on { background:var(--surface); color:var(--text); box-shadow:var(--shadow-card); }
 
