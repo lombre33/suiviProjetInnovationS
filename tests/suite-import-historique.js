@@ -349,7 +349,8 @@
       assertEqual(created.Programme, 0, 'programme de l\'export inconnu de Grist, non renseigné : rien n\'est écrit');
       assertIncludes(created.comentaire_general_Suivi_projet, 'Créé par l\'import');
       assertDeepEqual(created.Ligne_OPE.slice(0, 1), ['L']);
-      assertEqual(created.Ligne_OPE.length, 3, 'deux lignes OPE à relier');
+      assertEqual(created.Ligne_OPE.length, 2, 'OPE 1 : la ligne InnovationS');
+      assertEqual(created.Ligne_OPE_2.length, 2, 'OPE 2 : la ligne IDEX (une ligne par rang, voir suite-import-historique-ope-multiples.js)');
       const edited = plan(settled({ edits: [[KEY.fictif + '|acr', 'FIC'], [KEY.fictif + '|prog', 'CTO Innovation'], [KEY.fictif + '|end', '2030-06-30']] }));
       const fields = addOf(edited, 'Projets')[0].fields;
       assertEqual(fields.Acronyme, 'FIC', 'l\'acronyme modifié à l\'écran est repris'); assertEqual(fields.Programme, 2, 'le programme choisi est écrit par son id');
@@ -789,7 +790,7 @@
       assertEqual(projets.length, GRIST_INITIAL().projets + 1);
       assertEqual(lignes.length, GRIST_INITIAL().lignes + 4);
       const created = projets.find(p => p.Projet === FICTIF);
-      const ids = created.Ligne_OPE.slice(1);
+      const ids = created.Ligne_OPE.slice(1).concat(created.Ligne_OPE_2.slice(1));
       assertEqual(created.Ligne_OPE[0], 'L');
       assertDeepEqual(ids.map(id => lignes.find(l => l.id === id).N_OPE).sort(), ['FICTIF-0001', 'FICTIF-0002']);
       assertEqual(created.Statut_operationnel_projet, L().STATUS_CLOSED);
@@ -931,7 +932,7 @@
       await setup();
       const original = window.grist.docApi.applyUserActions;
       window.grist.docApi.applyUserActions = async function (actions) {
-        if (actions.some(action => action[1] === 'Projets')) throw new Error('Grist refuse (test)');
+        if (actions.some(action => action[1] === 'Projets' && /Record$/.test(action[0]))) throw new Error('Grist refuse (test)'); // la création des colonnes OPE 2 passe
         return original.call(this, actions);
       };
       try { await fixAndWrite(); } finally { window.grist.docApi.applyUserActions = original; }

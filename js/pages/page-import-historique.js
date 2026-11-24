@@ -284,7 +284,7 @@
         inner = `<span class="ih-mono">${esc(line.ope)}</span>${editorHtml(line.cell)}`;
       } else {
         const c = line.cell, conflict = line.conflict && !line.conflict.resolved;
-        inner = `<span class="ih-mono">${esc(line.ope)}</span> · <span>${esc(c.v || c.raw || '—')}</span>`
+        inner = `${row.lines.length > 1 || line.rank > 1 ? `<small class="ih-rank" title="Rang de la ligne dans le projet">OPE ${line.rank}</small> ` : ''}<span class="ih-mono">${esc(line.ope)}</span> · <span>${esc(c.v || c.raw || '—')}</span>`
           + (line.state === 'bad' ? `<small class="err">${esc(conflict ? 'Déjà sur ' + line.conflict.owner : c.err)}</small>${!conflict && c.hint ? `<small class="hint">proche : ${esc(c.hint)}</small>` : ''}` : '')
           + (c.state === 'conf' ? `<small class="alt">export : ${esc(c.alt)}</small>` : '');
       }
@@ -344,7 +344,7 @@
       const e = r.value;
       const n = e.ajouts.Projets.length + e.ajouts.Lignes_OPE.length + e.modifs.Projets.length + e.modifs.Lignes_OPE.length;
       if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(CoreUtils.failureReason(e.error, { what: 'écriture dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE }))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
-      return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
+      return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.colonnesCreees && e.colonnesCreees.length ? ` ${plural(e.colonnesCreees.length, 'colonne créée', 'colonnes créées')} dans Projets pour ${e.rangMax > 2 ? `les OPE 2 à ${e.rangMax}` : 'l\'OPE 2'}.` : ''}${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
     }
     if (r.kind === 'loaded') return `<div class="ih-banner is-ok" role="status"><strong>✓ Fichier chargé.</strong> ${plural(r.count, 'ligne ajoutée', 'lignes ajoutées')} à ${L.SOURCE_TABLE} (lot ${esc(r.lotId)} « A valider », annulable plus bas).${r.lotError ? ` <b>Le lot n'a pas pu être enregistré dans ${L.LOTS_TABLE} :</b> ${esc(r.lotError)}.` : ''} Relis le tableau, corrige les anomalies, puis écris.</div>`;
     if (r.kind === 'undone') return `<div class="ih-banner is-ok" role="status"><strong>${r.unit ? '✓ Chargement annulé.' : '✓ Lot annulé.'}</strong> ${r.unit ? plural(r.done, 'ligne retirée', 'lignes retirées') : plural(r.done, 'action défaite', 'actions défaites')}${r.skipped ? `, ${plural(r.skipped, 'ligne laissée', 'lignes laissées')} car modifiée${r.skipped > 1 ? 's' : ''} depuis` : ''}.</div>`;
@@ -505,6 +505,22 @@
     CoreGrist.invalidateTable(L.LOTS_TABLE);
   }
 
+  // OPE 2 à 4 (24/11/2026) : leurs colonnes de Projets sont créées par le widget, comme à l'enregistrement d'un projet à plusieurs OPE.
+  // Rend la liste des colonnes créées (vide quand le plan n'écrit que l'OPE 1 ou que les colonnes existent déjà).
+  async function ensureSlotColumns(plan) {
+    if (!plan.neededRank || plan.neededRank < 2 || !global.CoreOpes) return [];
+    const describe = col => (CoreGrist.getColumnDescription && CoreGrist.getColumnDescription('Projets', col)) || '';
+    const missing = global.CoreOpes.missingColumns(CoreGrist.knownColumns('Projets'), plan.neededRank, describe);
+    if (!missing.length) return [];
+    const which = plan.neededRank > 2 ? `des OPE 2 à ${plan.neededRank}` : 'de l\'OPE 2';
+    try { await CoreGrist.ensureColumns('Projets', missing); }
+    catch (error) {
+      throw Object.assign(new Error(`les colonnes ${which} n'ont pas pu être créées dans la table Projets (${error.message}). Rien n'a été écrit.`),
+        { cause: error, gristAccess: { op: 'write', table: 'Projets', columns: missing.map(col => col.id), what: `création des colonnes ${which} dans Projets` } });
+    }
+    return missing.map(col => col.id);
+  }
+
   async function write() {
     const t = state.table;
     if (state.writing || !t || t.left || !t.plan.actionCount) return;
@@ -520,7 +536,9 @@
     let written = false;
     try {
       await ensureJournal();
+      const createdColumns = await ensureSlotColumns(t.plan);
       const result = await L.execute(t.plan, io());
+      result.colonnesCreees = createdColumns; result.rangMax = t.plan.neededRank;
       state.result = { kind: 'written', value: result };
       written = !result.error;
       if (written) {

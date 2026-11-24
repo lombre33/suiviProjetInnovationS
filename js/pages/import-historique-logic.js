@@ -45,6 +45,16 @@
   const MIN_CANDIDATE = 0.5;        // en dessous, un projet n'est même pas listé comme piste
   const MIN_LABEL_SIMILARITY = 0.75; // programmes et structures : une suggestion préremplie, à relire
 
+  // Plusieurs OPE par projet (24/11/2026) : un projet porte jusqu'à quatre « rangs », chacun une liste de lignes OPE (Projets.Ligne_OPE, puis
+  // Ligne_OPE_2, _3, _4, créées par le widget). L'import les lit tous pour retrouver un projet par son N° OPE, et range chaque N° OPE du projet
+  // de l'export dans un rang. Ordre de rangement (réglable) : `innovations` = les OPE financées par InnovationS d'abord, puis par date de début ;
+  // `date` = par date de début seulement ; `single` = tout dans l'OPE 1 (comportement d'avant les OPE multiples).
+  const RANK_MODES = ['innovations', 'date', 'single'];
+  const DEFAULT_RANK_MODE = 'innovations';
+  const SLOT_MAX = () => (global.CoreOpes ? global.CoreOpes.MAX : 4);
+  const slotColumn = rank => (global.CoreOpes ? global.CoreOpes.ligneColumn(rank) : (rank > 1 ? 'Ligne_OPE_' + rank : 'Ligne_OPE'));
+  const slotRanks = () => Array.from({ length: SLOT_MAX() }, (_, i) => i + 1);
+
   // ---------------------------------------------------------------------------------------------------------------
   // Ce que l'outil crée lui-même dans Grist (dès l'ouverture de la page ; jamais ce qui existe déjà : ensureTable / ensureColumns
   // n'ajoutent que ce qui manque). Il ne crée AUCUNE formule de montant sur Lignes_OPE ni ne convertit totalCPConsomme : ces formules
@@ -285,7 +295,14 @@
         ope.lines.push(line);
         if (text(line.Structure)) ope.structures.push(text(line.Structure));
       });
-      const opes = Array.from(opeMap.values()).map(ope => Object.assign(ope, { structure: mostCommon(ope.structures), structureCount: unique(ope.structures).length }));
+      const opes = Array.from(opeMap.values()).map(ope => {
+        const starts = ope.lines.map(l => toNumber(l.Date_debut)).filter(v => v != null);
+        return Object.assign(ope, {
+          structure: mostCommon(ope.structures), structureCount: unique(ope.structures).length,
+          financeur: mostCommon(ope.lines.map(l => text(l.Financeur)).filter(Boolean)), innovations: ope.lines.some(l => normalize(l.Financeur) === 'innovations'),
+          dateDebut: starts.length ? Math.min(...starts) : null
+        });
+      });
       const starts = group.map(l => toNumber(l.Date_debut)).filter(v => v != null), ends = group.map(l => toNumber(l.Date_fin)).filter(v => v != null);
       const blocked = opes.map(o => blockedOpe.get(o.key)).find(Boolean) || '';
       return {
@@ -304,13 +321,16 @@
   // 4. Contexte Grist et rapprochement
   // ---------------------------------------------------------------------------------------------------------------
 
-  function buildContext({ projets, lignes, programmes, structures, isFormula, hasColumn, statusChoices }) {
-    const ligneIdsByKey = new Map(), ligneById = new Map(), projectsByLigne = new Map();
+  function buildContext({ projets, lignes, programmes, structures, isFormula, hasColumn, statusChoices, rankMode }) {
+    const ligneIdsByKey = new Map(), ligneById = new Map(), projectsByLigne = new Map(), slotsByProject = new Map();
     (lignes || []).forEach(ligne => { ligneById.set(Number(ligne.id), ligne); const k = opeKey(ligne.N_OPE); if (k) pushTo(ligneIdsByKey, k, Number(ligne.id)); });
     const projectById = new Map();
     const projects = (projets || []).map(project => {
       projectById.set(Number(project.id), project);
-      refListIds(project.Ligne_OPE).forEach(id => pushTo(projectsByLigne, id, Number(project.id)));
+      // Les lignes OPE d'un projet sont dans ses quatre rangs, pas seulement dans Ligne_OPE (un N° OPE rangé en OPE 2 doit retrouver son projet).
+      const slots = slotRanks().map(rank => ({ rank, column: slotColumn(rank), ids: refListIds(project[slotColumn(rank)]) }));
+      slotsByProject.set(Number(project.id), slots);
+      unique(slots.flatMap(slot => slot.ids)).forEach(id => pushTo(projectsByLigne, id, Number(project.id)));
       const acronyme = text(project.Acronyme), name = text(project.Projet);
       return {
         id: Number(project.id), name, acronyme, label: acronyme || name || `Projet #${project.id}`,
@@ -324,7 +344,7 @@
       names: unique([s.Acronyme, s.Nom_Complet, s.Nom_Complet_clean].map(normalize).filter(Boolean))
     })).filter(s => s.label);
     return {
-      ligneIdsByKey, ligneById, projectsByLigne, projects, projectById, programmeList, structureList,
+      ligneIdsByKey, ligneById, projectsByLigne, slotsByProject, rankMode: RANK_MODES.includes(rankMode) ? rankMode : DEFAULT_RANK_MODE, projects, projectById, programmeList, structureList,
       programmeById: new Map(programmeList.map(p => [p.id, p])), structureById: new Map(structureList.map(s => [s.id, s])),
       statusChoices: statusChoices || [], // liste de choix de Projets.Statut_operationnel_projet (vide = inconnue : aucun contrôle)
       isFormula: isFormula || (() => false), hasColumn: hasColumn || (() => true)
@@ -446,6 +466,33 @@
 
   const sameText = (a, b) => normalize(a) === normalize(b);
 
+  // Ordre dans lequel les N° OPE d'un projet prennent leur rang (voir RANK_MODES) ; à égalité, le N° OPE.
+  function orderOpes(opes, mode) {
+    const startOf = ope => (ope.dateDebut == null ? Infinity : ope.dateDebut);
+    return opes.slice().sort((a, b) => {
+      if (mode === 'innovations' && !!a.innovations !== !!b.innovations) return a.innovations ? -1 : 1;
+      const sa = startOf(a), sb = startOf(b);
+      if (sa !== sb) return sa < sb ? -1 : 1;
+      return String(a.key).localeCompare(String(b.key), 'fr', { numeric: true });
+    });
+  }
+
+  // Rang (1 à 4) de chaque N° OPE du projet de l'export, par sa clé. `rankOfExisting(ope)` rend le rang où la ligne est déjà rangée dans le projet
+  // de Grist (0 sinon) : elle le garde. Les autres prennent, dans l'ordre choisi, le premier rang libre (`occupied` : rangs de Grist qui ont déjà
+  // une ligne, même absente de l'export) ; quand les quatre sont pris, le surplus rejoint la liste du dernier rang (c'est une liste de lignes).
+  function placeOpes(opes, rankOfExisting, mode, occupied) {
+    const ranks = new Map(), taken = new Set(occupied || []), max = SLOT_MAX(), todo = [];
+    opes.forEach(ope => { const rank = rankOfExisting(ope); if (rank) { ranks.set(ope.key, rank); taken.add(rank); } else todo.push(ope); });
+    orderOpes(todo, mode).forEach(ope => {
+      if (mode === 'single') { ranks.set(ope.key, 1); return; }
+      let rank = 1;
+      while (rank <= max && taken.has(rank)) rank++;
+      if (rank > max) rank = max;
+      ranks.set(ope.key, rank); taken.add(rank);
+    });
+    return ranks;
+  }
+
   function buildRow(entry, match, decisionRaw, edits, ctx, nowSeconds) {
     const decision = effectiveDecision(match, decisionRaw);
     const target = decision.action === 'link' ? ctx.projectById.get(decision.projectId) || null : null;
@@ -483,7 +530,13 @@
     const statusChoices = ctx.statusChoices || [];
     cell('stat', isNewHere ? statusForDates(unixOfIso(row.cells.end.v), nowSeconds) : null,
       value => (statusChoices.length && !statusChoices.includes(value) ? { err: 'Absent de la liste de choix' } : null));
-    const current = shownProject ? refListIds(shownProject.Ligne_OPE) : [];
+    // Rang de chaque N° OPE (OPE 1 à 4) : celui où la ligne est déjà rangée dans le projet de Grist, sinon le premier rang libre.
+    const slots = shownProject ? (ctx.slotsByProject.get(Number(shownProject.id)) || []) : [];
+    const current = unique(slots.flatMap(slot => slot.ids));
+    const ranks = placeOpes(entry.opes, ope => {
+      const id = (ctx.ligneIdsByKey.get(ope.key) || [])[0] || 0, slot = id ? slots.find(item => item.ids.includes(id)) : null;
+      return slot ? slot.rank : 0;
+    }, ctx.rankMode || DEFAULT_RANK_MODE, slots.filter(slot => slot.ids.length).map(slot => slot.rank));
     entry.opes.forEach(ope => {
       const existingId = (ctx.ligneIdsByKey.get(ope.key) || [])[0] || 0, ligne = existingId ? ctx.ligneById.get(existingId) : null;
       const structure = evalCell({
@@ -500,7 +553,8 @@
       if (conflict && !conflict.resolved) state = 'bad';
       else if (!existingId && state !== 'bad') state = 'add';
       else if (existingId && state !== 'bad' && state !== 'fill' && state !== 'conf' && needsLink) state = 'fill';
-      row.lines.push({ key: ope.key, ope: ope.ope, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, id: conflict && !conflict.resolved ? conflictId : structure.id });
+      const rank = ranks.get(ope.key) || 1;
+      row.lines.push({ key: ope.key, ope: ope.ope, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
     });
     // Pas encore décidé ou écarté : les valeurs restent visibles, sans couleur ni anomalie propre.
     if (row.plain) {
@@ -564,14 +618,17 @@
   // ---------------------------------------------------------------------------------------------------------------
 
   // Ne garde que les colonnes que Grist accepte d'écrire : inexistantes ou calculées, elles feraient refuser toute l'action.
+  // Exception : les rangs OPE 2 à 4 de Projets (Ligne_OPE_2…) n'existent peut-être pas encore, la page les crée juste avant d'écrire (plan.neededRank).
+  const isSlotColumn = (table, col) => table === 'Projets' && slotRanks().some(rank => rank > 1 && slotColumn(rank) === col);
   function writable(ctx, table, fields) {
     const out = {};
-    Object.keys(fields).forEach(col => { if (ctx.hasColumn(table, col) && !ctx.isFormula(table, col)) out[col] = fields[col]; });
+    Object.keys(fields).forEach(col => { if ((isSlotColumn(table, col) || ctx.hasColumn(table, col)) && !ctx.isFormula(table, col)) out[col] = fields[col]; });
     return out;
   }
 
   function planFromTable(table, ctx) {
     const phase1 = [], phase2 = [], skipped = [], notReady = [];
+    let neededRank = 1; // plus haut rang OPE (1 à 4) écrit par ce plan : au-delà de 1, ses colonnes de Projets sont à créer avant l'écriture
     const counts = { projetsCrees: 0, projetsLies: 0, opesCreees: 0, opesCompletees: 0, dejaAJour: 0, misDeCote: 0, aConfirmer: 0, ecarts: table.ecarts };
     const opeRef = new Map(); // N° OPE (clé) -> id existant ou { tmp }
     const programmeId = label => { const p = ctx.programmeList.find(item => item.label === label); return p ? p.id : 0; };
@@ -605,7 +662,10 @@
       const c = row.cells;
       if (row.state === 'add') {
         const fields = { Projet: c.name.v, Acronyme: c.acr.v || defaultAcronyme(entry.name), Programme: c.prog.v ? programmeId(c.prog.v) : 0,
-          Date_debut_Projet: unixOfIso(c.start.v), Date_de_fin_Projet: unixOfIso(c.end.v), Ligne_OPE: ['L', ...refs] };
+          Date_debut_Projet: unixOfIso(c.start.v), Date_de_fin_Projet: unixOfIso(c.end.v) };
+        // Chaque N° OPE du projet dans son rang : Ligne_OPE (OPE 1), Ligne_OPE_2, _3, _4. Le rang 1 est toujours écrit (liste vide au besoin).
+        fields.Ligne_OPE = ['L'];
+        row.lines.forEach((line, i) => { neededRank = Math.max(neededRank, line.rank); if (!fields[line.column]) fields[line.column] = ['L']; fields[line.column].push(refs[i]); });
         if (c.stat.v) fields.Statut_operationnel_projet = c.stat.v;
         fields.comentaire_general_Suivi_projet = CREATED_NOTE;
         // Valeur par défaut de la colonne : créerait une ligne Notifications pour chaque projet importé. 0 = aucune.
@@ -621,9 +681,15 @@
         if (c.start.state === 'fill') put('Date_debut_Projet', unixOfIso(c.start.v), isEmptyDate(project.Date_debut_Projet) ? null : project.Date_debut_Projet);
         if (c.end.state === 'fill') put('Date_de_fin_Projet', unixOfIso(c.end.v), isEmptyDate(project.Date_de_fin_Projet) ? null : project.Date_de_fin_Projet);
         if (c.stat.state === 'fill') put('Statut_operationnel_projet', c.stat.v, project.Statut_operationnel_projet == null ? '' : project.Statut_operationnel_projet);
-        const current = refListIds(project.Ligne_OPE);
-        const toAdd = row.lines.map((line, i) => (line.needsLink || line.isNew ? refs[i] : null)).filter(ref => ref != null && (typeof ref === 'object' || !current.includes(ref)));
-        if (toAdd.length) put('Ligne_OPE', ['L', ...current, ...toAdd], project.Ligne_OPE == null ? ['L'] : project.Ligne_OPE);
+        // Les lignes à rattacher s'ajoutent à la liste de leur rang (jamais retirées, jamais déplacées d'un rang à l'autre).
+        const toAddByColumn = new Map();
+        row.lines.forEach((line, i) => {
+          const ref = line.needsLink || line.isNew ? refs[i] : null;
+          if (ref == null || (typeof ref !== 'object' && refListIds(project[line.column]).includes(ref))) return;
+          neededRank = Math.max(neededRank, line.rank);
+          pushTo(toAddByColumn, line.column, ref);
+        });
+        toAddByColumn.forEach((toAdd, column) => put(column, ['L', ...refListIds(project[column]), ...toAdd], project[column] == null ? ['L'] : project[column]));
         const safe = writable(ctx, 'Projets', fields);
         Object.keys(before).forEach(col => { if (!(col in safe)) delete before[col]; });
         if (Object.keys(safe).length) {
@@ -633,7 +699,7 @@
       }
       if (!changed) counts.dejaAJour++;
     });
-    return { phase1, phase2, skipped, notReady, counts, actionCount: phase1.length + phase2.length };
+    return { phase1, phase2, skipped, notReady, counts, actionCount: phase1.length + phase2.length, neededRank };
   }
 
   // Raccourci : le plan d'écriture directement depuis les entrées (sans tableau).
@@ -692,13 +758,18 @@
     const find = (table, id) => (tables[table] || []).find(row => Number(row.id) === Number(id));
     const actions = [], skipped = [], done = [];
     const removeProjects = new Set();
-    const restoredRefs = new Map(); // projet -> lignes OPE qu'il aura une fois ses modifications défaites
+    const restoredRefs = new Map(); // projet -> colonne de rang (Ligne_OPE, Ligne_OPE_2…) -> lignes OPE qu'elle aura une fois les modifications défaites
     rows.filter(r => r.Operation === 'modif').forEach(row => {
       const current = find(row.Table_modifiee, row.Ligne), after = JSON.parse(row.Apres || '{}'), before = JSON.parse(row.Avant || '{}');
       if (!current) { skipped.push({ row, why: 'ligne disparue' }); return; }
       if (!rowMatches(current, after)) { skipped.push({ row, why: 'modifiée depuis l\'import' }); return; }
       actions.push(['UpdateRecord', row.Table_modifiee, Number(row.Ligne), before]); done.push(row.id);
-      if (row.Table_modifiee === 'Projets' && 'Ligne_OPE' in before) restoredRefs.set(Number(row.Ligne), refListIds(before.Ligne_OPE));
+      if (row.Table_modifiee === 'Projets') slotRanks().forEach(rank => {
+        const column = slotColumn(rank);
+        if (!(column in before)) return;
+        if (!restoredRefs.has(Number(row.Ligne))) restoredRefs.set(Number(row.Ligne), new Map());
+        restoredRefs.get(Number(row.Ligne)).set(column, refListIds(before[column]));
+      });
     });
     rows.filter(r => r.Operation === 'ajout' && r.Table_modifiee === 'Projets').forEach(row => {
       const current = find('Projets', row.Ligne);
@@ -711,7 +782,10 @@
       if (!current) { skipped.push({ row, why: 'ligne disparue' }); return; }
       if (!rowMatches(current, JSON.parse(row.Apres || '{}'))) { skipped.push({ row, why: 'modifiée depuis l\'import' }); return; }
       const stillUsed = (tables.Projets || []).some(project => !removeProjects.has(Number(project.id))
-        && (restoredRefs.has(Number(project.id)) ? restoredRefs.get(Number(project.id)) : refListIds(project.Ligne_OPE)).includes(Number(row.Ligne)));
+        && slotRanks().some(rank => {
+          const column = slotColumn(rank), restored = restoredRefs.get(Number(project.id));
+          return (restored && restored.has(column) ? restored.get(column) : refListIds(project[column])).includes(Number(row.Ligne));
+        }));
       if (stillUsed) { skipped.push({ row, why: 'encore utilisée par un projet' }); return; }
       actions.push(['RemoveRecord', 'Lignes_OPE', Number(row.Ligne)]); done.push(row.id);
     });
@@ -835,6 +909,7 @@
 
   global.ImportHistoriqueLogic = {
     SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, SOURCE_COLUMNS, LOTS_TABLE, LOTS_COLUMNS, LOT_TYPE_ONESHOT, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
+    RANK_MODES, DEFAULT_RANK_MODE, slotColumn, placeOpes, orderOpes,
     KIND_LABEL, normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf, isoOfUnix, unixOfIso,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, matchLabel, effectiveDecision,
     buildTable, similarBad, applyChoice, planFromTable, buildPlan,

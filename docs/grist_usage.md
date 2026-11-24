@@ -735,6 +735,26 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   Description dans Grist.
 - Pas dans cette version : Grist-BI à la place des graphiques faits main, filtre sur le financeur, export.
 
+## Import financier (page cachée Alt+Maj+I, 18/11/2026 ; OPE multiples 24/11/2026)
+
+Outil qui relie les lignes de l'export UB Invest (une ligne par N° OPE × financeur × ligne budgétaire, feuille `Reporting`, 24 colonnes) aux
+projets et aux lignes OPE de Grist. Code : `js/pages/import-historique-logic.js` (règles pures), `page-import-historique.js` (page),
+`css/import-historique.css`, tests `tests/suite-import-historique*.js`. Tables créées par le widget à l'ouverture (`ensureTable` /
+`ensureColumns`, jamais rien de converti) : `Import_Financements` (arrivée des lignes, 24 colonnes + `Cle_ligne`, `Exporte_le`, `Lot`),
+`Import_Journal` (chaque écriture, avant / après : un lot s'annule) et `Import_Lots` (un envoi = un lot, contrat dans
+`imports/import-lots-contrat.md` du dossier du projet).
+
+**Plusieurs OPE par projet (24/11/2026).** Un projet porte jusqu'à quatre rangs OPE : `Projets.Ligne_OPE` (OPE 1) puis `Ligne_OPE_2`, `_3`, `_4`
+(listes de lignes de `Lignes_OPE`, colonnes créées par le widget, voir « Plusieurs OPE par projet »). L'import :
+- lit les quatre rangs pour retrouver un projet par un N° OPE (un N° OPE rangé en OPE 2 ne recrée pas le projet en doublon) ;
+- range chaque N° OPE du projet de l'export dans un rang : celui où Grist l'a déjà (jamais déplacé), sinon le premier rang libre, dans l'ordre
+  `RANK_MODES` : `innovations` (par défaut : les OPE financées par InnovationS d'abord, puis par date de début, puis N° OPE), `date`, ou `single`
+  (tout dans l'OPE 1, comme avant) ; au-delà de quatre, le surplus rejoint la liste du rang 4 ;
+- ajoute à la liste d'un rang sans jamais retirer ni écraser ce qui y est ; le tableau de contrôle affiche « OPE n » devant chaque ligne OPE
+  d'un projet à plusieurs lignes ;
+- crée les colonnes des rangs 2 à 4 juste avant d'écrire (`plan.neededRank`, `CoreOpes.missingColumns`) ; si leur création échoue, rien n'est écrit ;
+- annule un lot en tenant compte des quatre rangs (une ligne OPE qu'un autre projet range encore n'est jamais supprimée).
+
 ## Dernière page ouverte (12/11/2026)
 
 Le widget revient sur la dernière page ouverte (Dashboard, Projets, Administratif, Installation des fonds, Suivi opérationnel, To Do,
