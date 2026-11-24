@@ -282,13 +282,12 @@
       assertEqual(project.opes[1].cons.CP[L().NO_YEAR], 0);
     });
 
-    it('Consomme_CP (colonne posée par l\'import) est lu en priorité, totalCPConsomme à défaut ; 0 est une vraie valeur, vide non', function () {
+    it('le consommé CP d\'une ligne OPE vient de totalCPConsomme seule (l\'import UB Invest y écrit ; pas de colonne Consomme_CP)', function () {
       const cp = line => L().buildDataset({ projets: MULTI, programmes: PROGRAMMES, lignes: [Object.assign({ id: 5, N_OPE: 'OPE-M1' }, line)], depenses: [] }).projects[0].totalCP;
-      assertEqual(cp({ totalCPConsomme: 100 }), 100, 'sans Consomme_CP : l\'historique');
-      assertEqual(cp({ totalCPConsomme: 100, Consomme_CP: 250 }), 250);
-      assertEqual(cp({ totalCPConsomme: 100, Consomme_CP: null }), 100, 'colonne vide : on retombe sur totalCPConsomme');
-      assertEqual(cp({ totalCPConsomme: 100, Consomme_CP: '' }), 100);
-      assertEqual(cp({ totalCPConsomme: 100, Consomme_CP: 0 }), 0, 'un 0 importé est une valeur');
+      assertEqual(cp({ totalCPConsomme: 100 }), 100);
+      assertEqual(cp({ totalCPConsomme: 100, Consomme_CP: 250 }), 100, 'une colonne Consomme_CP parasite est ignorée');
+      assertEqual(cp({ totalCPConsomme: 0 }), 0, 'un 0 importé est une valeur');
+      assertEqual(cp({ totalCPConsomme: null }), 0, 'colonne vide : 0');
     });
   });
 })();

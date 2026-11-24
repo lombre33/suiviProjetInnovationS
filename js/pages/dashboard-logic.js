@@ -25,7 +25,7 @@
  * Détail par OPE (24/11/2026, plusieurs OPE par projet) : project.opes = une entrée par OPE du projet (rang 1 toujours, rangs 2 à 4 quand ils portent
  *    des données) avec ses lignes OPE, son attribué par année (colonnes de CET OPE) et son consommé (dépenses de ses lignes + reliquat « sans année » ligne par
  *    ligne). Une ligne OPE posée sur deux rangs du même projet n'est comptée qu'au premier. Les totaux du projet restent la somme de toutes les OPE.
- *  - Consommé CP d'une ligne OPE : Lignes_OPE.Consomme_CP (colonne simple posée par l'import financier) quand elle est renseignée, sinon totalCPConsomme.
+ *  - Consommé CP d'une ligne OPE : Lignes_OPE.totalCPConsomme seule (l'import UB Invest y écrit le consommé CP ; la colonne Consomme_CP n'existera jamais, décision d'Antoine du 24/11).
  *
  * Choix de présentation : une dépense dont l'exercice sort de 2023-2026 n'est comptée nulle part (elle est signalée en bas de
  * page) ; une dépense dont le code opération ne correspond à aucune ligne OPE de projet va dans le volet « Sans projet
@@ -78,9 +78,8 @@
     return new Date(value * 1000).toISOString().slice(0, 10);
   }
   const yearLabel = year => (year === NO_YEAR ? NO_YEAR_LABEL : String(year));
-  // Consommé CP d'une ligne OPE : la colonne Consomme_CP de l'import quand elle est renseignée (même 0), sinon totalCPConsomme (historique).
-  const filled = value => value !== null && value !== undefined && value !== '';
-  const lineCP = line => (filled(line.Consomme_CP) ? num(line.Consomme_CP) : num(line.totalCPConsomme));
+  // Consommé CP d'une ligne OPE : totalCPConsomme (l'import UB Invest y écrit le consommé CP, il n'y a pas de colonne Consomme_CP).
+  const lineCP = line => num(line.totalCPConsomme);
   const BUDGET_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029];
   // Montant attribué d'une année sur l'OPE d'un rang (rang 1 = colonnes historiques, 2 à 4 = colonnes suffixées).
   function rankAmount(row, year, rank, opes) {
