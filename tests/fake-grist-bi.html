@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Faux Grist-BI (tests du Dashboard)</title>
+</head>
+<body>
+<!-- Widget imbriqué de test. Il charge le VRAI client grist-plugin-api de Grist (vendor/) et rejoue le démarrage de Grist-BI
+     (lombre33/Grist-BI, js/grist-api.js, lu le 24/11/2026) : grist.ready({requiredAccess:'full'}), listTables, lecture de la première
+     table qui n'est pas interne, lecture de ses colonnes (_grist_Tables, _grist_Tables_column, _grist_DocInfo), lecture de la table de
+     configuration BI_Dashboard_Config, création de BI_Dashboard_Comments. Les tests (même origine) lisent window.__BI__ et appellent ses
+     fonctions. Le vrai Grist-BI a été essayé à la main dans la même configuration (pont + document virtuel) : voir docs/grist_usage.md. -->
+<script src="vendor/grist-plugin-api.iife.min.js"></script>
+<script>
+  (function () {
+    var bi = window.__BI__ = { loads: 0, ready: false, tables: [], table: null, rows: null, columns: null, config: null, docSettings: null, errors: [], comments: null };
+    var COMMENTS = [{ id: 'TableId', type: 'Text' }, { id: 'TileId', type: 'Text' }, { id: 'Author', type: 'Text' }, { id: 'Text', type: 'Text' }, { id: 'CreatedAt', type: 'Text' }];
+    var docApi = function () { return grist.docApi; };
+
+    bi.start = async function () {
+      bi.loads += 1;
+      bi.ready = false;
+      try {
+        bi.tables = await docApi().listTables();
+        bi.table = bi.tables.filter(function (id) { return !/^BI_/.test(id); })[0] || null;
+        if (bi.table) {
+          bi.rows = await docApi().fetchTable(bi.table);
+          var meta = await docApi().fetchTable('_grist_Tables');
+          var cols = await docApi().fetchTable('_grist_Tables_column');
+          var parent = meta.id[meta.tableId.indexOf(bi.table)];
+          bi.columns = cols.id.map(function (_, i) { return { colId: cols.colId[i], type: cols.type[i], parentId: cols.parentId[i], widgetOptions: cols.widgetOptions[i] }; })
+            .filter(function (col) { return col.parentId === parent; });
+        }
+        bi.docSettings = (await docApi().fetchTable('_grist_DocInfo')).documentSettings[0];
+        bi.config = await docApi().fetchTable('BI_Dashboard_Config');
+        if (bi.tables.indexOf('BI_Dashboard_Comments') === -1) bi.comments = await docApi().applyUserActions([['AddTable', 'BI_Dashboard_Comments', COMMENTS]]);
+        bi.ready = true;
+      } catch (err) { bi.errors.push(String((err && err.message) || err)); }
+    };
+    // Écrit dans le document comme Grist-BI le fait à chaque enregistrement de ses tuiles.
+    bi.saveConfig = async function (json) {
+      var row = bi.config.id[bi.config.TableId.indexOf(bi.table)];
+      return docApi().applyUserActions([['UpdateRecord', 'BI_Dashboard_Config', row, { ConfigJSON: json }]]);
+    };
+    bi.tryActions = async function (actions) {
+      try { return { ok: true, result: await docApi().applyUserActions(actions) }; } catch (err) { return { ok: false, message: String((err && err.message) || err) }; }
+    };
+    bi.tryFetch = async function (tableId) {
+      try { return { ok: true, table: await docApi().fetchTable(tableId) }; } catch (err) { return { ok: false, message: String((err && err.message) || err) }; }
+    };
+    bi.tryToken = async function () {
+      try { await docApi().getAccessToken({ readOnly: true }); return { ok: true }; } catch (err) { return { ok: false, message: String((err && err.message) || err) }; }
+    };
+    // ?silent : ne dit jamais « prêt » (Grist-BI qui ne répond pas)
+    if (!new URLSearchParams(location.search).has('silent')) { grist.ready({ requiredAccess: 'full' }); bi.start(); }
+  })();
+</script>
+</body>
+</html>

@@ -230,7 +230,7 @@
   // --- Filtres et calcul --------------------------------------------------------------------------
   // state : { years: null | [..] (null = toutes), programmes: [], statuts: [], search: '', measure: 'CP' | 'AE' }
   // Graphiques repliés par défaut (demande d'Antoine du 18/11/2026) ; les totaux restent visibles dans la ligne « Total » de la liste.
-  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: false }; }
+  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: false, engine: 'bi' }; } // engine : 'bi' (Grist-BI) ou 'maison'
 
   // `dated` = consommé rattaché à une année : le reliquat « Sans année » (total de la ligne OPE, cumulé depuis l'origine, donc pas
   // comparable à l'attribué 2023-2026) n'est jamais signalé comme un dépassement.
@@ -329,7 +329,7 @@
     const noProjectFilter = !state.programmes.length && !state.statuts.length && !query;
 
     return {
-      measure, years: availableYears, selYears, allYears,
+      measure, years: availableYears, selYears, allYears, rows,
       kpi: { att: total.att, cons: total.cons, pct: pctText(total.cons, total.att), pctN: pctN(total.cons, total.att), reste: Math.max(0, total.att - total.cons), over: total.dated > total.att },
       chartA: chart(['year', 'programme'], 'Années'), chartB: chart(['programme', 'year'], 'Programmes'),
       groups, count: perProject.length, gapCount,
@@ -337,6 +337,28 @@
       orphans: noProjectFilter && orphanExpenses.length ? { expenses: orphanExpenses, AE: orphanExpenses.reduce((s, e) => s + e.AE, 0), CP: orphanExpenses.reduce((s, e) => s + e.CP, 0) } : null,
       outOfRange: dataset.outOfRange.count ? dataset.outOfRange : null
     };
+  }
+
+  // --- Table plate pour Grist-BI --------------------------------------------------------------------------------------------------
+  // Une ligne « Attribué » et une ligne « Consommé » par projet et par année choisie (« Sans année » comprise) : les graphiques de
+  // Grist-BI additionnent `Montant` par `Mesure`. `Reste` = attribué − consommé, SIGNÉ, porté par la ligne Attribué : sa somme sur
+  // n'importe quel regroupement est le reste de ce regroupement (un projet en dépassement a un reste négatif). Les lignes Attribué
+  // viennent d'abord (ordre de la légende). Même filtres que le reste de la page (années, programmes, statuts, recherche, CP/AE).
+  const BI_TABLE = 'Dashboard_Financier';
+  const BI_MONEY = '{"numMode":"currency","currency":"EUR","decimals":0}';
+  const BI_COLUMNS = [
+    { id: 'Programme', type: 'Text' }, { id: 'Projet', type: 'Text' }, { id: 'Statut', type: 'Text' },
+    { id: 'Annee', type: 'Text' }, { id: 'Mesure', type: 'Text' },
+    { id: 'Montant', type: 'Numeric', widgetOptions: BI_MONEY }, { id: 'Attribue', type: 'Numeric', widgetOptions: BI_MONEY },
+    { id: 'Consomme', type: 'Numeric', widgetOptions: BI_MONEY }, { id: 'Reste', type: 'Numeric', widgetOptions: BI_MONEY }
+  ];
+  const BI_NO_STATUS = 'Sans statut';
+  function biRows(result) {
+    const kept = (result && result.rows || []).filter(row => row.att || row.cons);
+    const base = row => ({ Programme: row.programme, Projet: row.project.acronyme, Statut: row.project.statut || BI_NO_STATUS, Annee: yearLabel(row.year) });
+    const attribue = kept.map(row => Object.assign(base(row), { Mesure: 'Attribué', Montant: row.att, Attribue: row.att, Consomme: 0, Reste: row.att - row.cons }));
+    const consomme = kept.map(row => Object.assign(base(row), { Mesure: 'Consommé', Montant: row.cons, Attribue: 0, Consomme: row.cons, Reste: 0 }));
+    return attribue.concat(consomme);
   }
 
   // Applique le clic sur une barre ou un maillon du fil d'Ariane à l'état des filtres.
@@ -356,6 +378,7 @@
   global.DashboardLogic = {
     YEARS, NO_YEAR, NO_YEAR_LABEL, NO_PROGRAMME, MEASURES, MASSES, GAP_TOLERANCE, STATUS_FALLBACK, STATUS_COLORS,
     buildDataset, compute, defaultState, drillState, toggleYear, statusColors, yearLabel,
-    eur, compact, pctN, pctText, refIds, isoDate, opeKey, fold
+    eur, compact, pctN, pctText, refIds, isoDate, opeKey, fold,
+    BI_TABLE, BI_COLUMNS, biRows
   };
 })(window);

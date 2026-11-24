@@ -736,15 +736,29 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
 - **Écrit dans Grist** : seulement `Projets.Statut_operationnel_projet` (liste déroulante d'un projet : écriture optimiste, rétablie
   avec un message si Grist refuse ; `Statut_Macro` est une formule, donc non modifiable ; relecture groupée des autres pages 2,5 s
   après) et la ligne de préférences de l'utilisateur.
-- **Préférences** (`Preferences_Widget`, 6 colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
+- **Préférences** (`Preferences_Widget`, 7 colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
   année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
-  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
 - **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
   l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
   bloquer le reste.
 - **Bulles d'aide** : en-tête « Statut du projet » (`HelpTooltip.markup('Projets', 'Statut_operationnel_projet')`) quand la colonne a une
   Description dans Grist.
-- Pas dans cette version : Grist-BI à la place des graphiques faits main, filtre sur le financeur, export.
+- **Graphiques Grist-BI** (24/11/2026, **non validés dans un vrai Grist**) : par défaut, « Graphiques » ouvre une iframe de Grist-BI
+  (`https://lombre33.github.io/Grist-BI/`, `?gristbi=<adresse>` pour une autre) au lieu des graphiques faits main. Grist-BI ne voit **pas** le
+  vrai document : le pont (`core/grist-bridge.js`) lui présente un **document virtuel** (`core/virtual-doc.js`) qui contient `Dashboard_Financier`
+  (table plate en lecture seule, `DashboardLogic.biRows` : une ligne `Attribué` et une ligne `Consommé` par projet et par année, `Sans année`
+  comprise ; colonnes `Programme`, `Projet`, `Statut`, `Annee`, `Mesure`, `Montant`, `Attribue`, `Consomme`, `Reste` signé ; mêmes filtres que
+  la page : années, programmes, statuts, recherche, CP/AE) et ses tables internes `BI_Dashboard_*`, **enregistrées dans les options du widget**
+  (clé `dashboardBiDoc`) : rien n'est créé dans le vrai document, aucune autre table n'est lisible, `getAccessToken` est refusé, seules des
+  tables `BI_*` peuvent être créées. Les quatre graphiques retenus le 18/11 sont préconfigurés (attribué et consommé par année et par programme,
+  reste à consommer par programme, treemap du reste par projet) ; « ↺ » les rétablit. Un changement de filtre recalcule la table et **recharge**
+  Grist-BI (il ne relit pas ses données seul). Replié, l'iframe est retirée. Sans réponse en 12 s, retour aux graphiques faits main avec un
+  message et « Réessayer ». Bouton « Graphiques simples » / « Grist-BI » dans le bandeau, retenu par personne (`Dash_moteur`, vide = Grist-BI).
+  Vérifié en local avec le **vrai Grist-BI** (copie du dépôt, client `grist-plugin-api` réel, Chromium) : connexion, lecture de la table,
+  configuration d'origine, quatre tuiles affichées ; reste à voir dans un vrai Grist (deux iframes imbriquées, droits en lecture seule : la
+  configuration modifiée n'est alors pas enregistrée). Tests : `tests/suite-dashboard-bi.js` avec un faux Grist-BI (`tests/fake-grist-bi.html`).
+- Pas dans cette version : filtre sur le financeur, export.
 
 ## Import financier (page cachée Alt+Maj+I, 18/11/2026 ; OPE multiples 24/11/2026)
 

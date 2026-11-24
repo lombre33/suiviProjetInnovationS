@@ -393,6 +393,7 @@
     const tables = await window.CoreGrist.loadAllTables();
     Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
     P().resetState(); P().resetPrefsRow();
+    P().state.engine = 'maison'; // ces suites éprouvent les graphiques faits main ; Grist-BI a sa suite (suite-dashboard-bi.js)
     view().classList.remove('hidden');
     window.renderDashboard();
     await waitFor(() => P().state.expensesState === 'ready', 'dépenses lues');
@@ -847,7 +848,7 @@
     it('les colonnes Dash_* sont créées dans Preferences_Widget', async function () {
       await load();
       await loadPrefs();
-      ['Dash_annees', 'Dash_programmes', 'Dash_statuts', 'Dash_recherche', 'Dash_mesure', 'Dash_graphiques'].forEach(col => {
+      ['Dash_annees', 'Dash_programmes', 'Dash_statuts', 'Dash_recherche', 'Dash_mesure', 'Dash_graphiques', 'Dash_moteur'].forEach(col => {
         const added = window.__TEST_CALLS__.some(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget' && c.colId === col) || window.CoreGrist.knownColumns('Preferences_Widget').has(col);
         assertTrue(added, `colonne ${col}`);
       });
@@ -905,7 +906,7 @@
       await window.loadKanbanUserPreferences();
       window.__mockSetTable('Preferences_Widget', {
         id: [1], Email_utilisateur: [''], Dash_annees: ['2024,2025'], Dash_programmes: ['["FARE"]'], Dash_statuts: ['en cours'],
-        Dash_recherche: ['alp'], Dash_mesure: ['AE'], Dash_graphiques: ['1']
+        Dash_recherche: ['alp'], Dash_mesure: ['AE'], Dash_graphiques: ['1'], Dash_moteur: ['maison']
       });
       try { localStorage.setItem(PREFS_ROWID_KEY, '1'); } catch (err) { /* ignore */ }
       P().resetState(); P().resetPrefsRow();

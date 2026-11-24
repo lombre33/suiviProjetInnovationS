@@ -21,7 +21,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const PREFS_COLUMNS = [
     { id: 'Dash_annees', type: 'Text' }, { id: 'Dash_programmes', type: 'Text' }, { id: 'Dash_statuts', type: 'Text' },
-    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }
+    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }
   ];
   const EXPENSES_TABLE = 'Depenses_OPE';
   // Export FD02 « Consommation détaillée des AE », une ligne par objet de gestion. Code_operation = Lignes_OPE.N_OPE.
@@ -57,6 +57,7 @@
   function resetState() {
     Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
     model = null; datasetCache = null;
+    dropBi(); biFailure = null;
     clearTimeout(statusRefresh); statusRefresh = null;
   }
   const isVisible = () => { const view = $('view-dashboard'); return !!view && !view.classList.contains('hidden'); };
@@ -276,13 +277,79 @@
     });
   }
 
+  // --- Graphiques : Grist-BI (par défaut) ou graphiques faits main ---------------------------------------------
+  // Grist-BI vit dans une iframe qui doit survivre aux rendus de la page : la zone n'est jamais réécrite tant qu'il est monté ; un changement
+  // de filtre recalcule sa table (DashboardBi.update). Replié : l'iframe est retirée. Sans réponse dans le délai (imbrication non vérifiée dans un
+  // vrai Grist), la page revient aux graphiques faits main et le dit. La configuration des tuiles est enregistrée dans les options du widget.
+  let bi = null;          // {host, ctl, rows} : Grist-BI monté (ctl absent tant que le document virtuel se prépare)
+  let biFailure = null;   // texte affiché quand Grist-BI n'a pas répondu
+  const biReady = () => !!(global.DashboardBi && global.VirtualDoc && global.GristBridge && gristApi());
+  const gristApi = () => (global.CoreGrist && CoreGrist.gristInstance) || global.grist || null;
+  function dropBi() {
+    if (!bi) return;
+    const entry = bi; bi = null;
+    if (entry.ctl) entry.ctl.destroy();
+    if (entry.host && entry.host.parentNode) entry.host.remove();
+  }
+  function onBiStatus(entry, status) {
+    if (bi !== entry) return;
+    if (status.phase === 'failed' || status.phase === 'rejected') {
+      biFailure = status.phase === 'rejected'
+        ? `Grist-BI répond depuis une autre adresse que celle attendue (${status.origin}).`
+        : 'Grist-BI n\'a pas répondu.';
+      setTimeout(render, 0); // hors du rappel : le rendu retire l'iframe
+    }
+  }
+  function mountBi(zone, rows) {
+    dropBi();
+    zone.innerHTML = '<div class="db-bi"></div>';
+    const entry = { host: zone.firstChild, ctl: null, rows };
+    bi = entry;
+    global.DashboardBi.mount(entry.host, { grist: gristApi(), rows, onStatus: status => onBiStatus(entry, status) })
+      .then(ctl => {
+        if (bi !== entry) { if (ctl) ctl.destroy(); return; }
+        entry.ctl = ctl;
+        if (ctl) ctl.update(entry.rows); // les filtres ont pu changer pendant la préparation
+      })
+      .catch(err => {
+        console.warn('Grist-BI : montage impossible', err && err.message);
+        if (bi === entry) { biFailure = 'Grist-BI n\'a pas pu démarrer.'; setTimeout(render, 0); }
+      });
+  }
+  function renderCharts(m) {
+    const zone = $('db-charts');
+    if (!zone) return;
+    zone.hidden = !state.charts;
+    const wantBi = state.charts && state.engine === 'bi' && biReady() && !biFailure;
+    const engine = $('db-engine'), reset = $('db-bi-reset');
+    if (engine) {
+      engine.hidden = !state.charts || !biReady();
+      engine.textContent = state.engine === 'bi' ? 'Graphiques simples' : 'Grist-BI';
+      engine.title = state.engine === 'bi' ? 'Revenir aux graphiques faits main' : 'Afficher les graphiques de Grist-BI';
+    }
+    if (reset) reset.hidden = !(state.charts && wantBi);
+    if (!state.charts) { dropBi(); zone.innerHTML = ''; return; } // repliés : rien n'est dessiné
+    if (wantBi) {
+      const rows = L.biRows(m);
+      if (bi && zone.contains(bi.host)) { bi.rows = rows; if (bi.ctl) bi.ctl.update(rows); } else mountBi(zone, rows);
+      return;
+    }
+    dropBi();
+    const note = state.engine === 'bi' && biFailure ? `<p class="db-bi-note" role="status">${esc(biFailure)} Graphiques simples affichés. <button type="button" class="db-linkbtn" data-db-bi-retry>Réessayer Grist-BI</button></p>` : '';
+    zone.innerHTML = note + chartsHtml(m);
+  }
+  function switchEngine() {
+    state.engine = state.engine === 'bi' ? 'maison' : 'bi';
+    biFailure = null;
+    render(); persist();
+  }
+
   function render() {
     const view = $('view-dashboard');
     if (!view) return;
     model = L.compute(getDataset(), state, statusChoices());
     renderBand(model);
-    const charts = $('db-charts');
-    if (charts) { charts.hidden = !state.charts; charts.innerHTML = state.charts ? chartsHtml(model) : ''; } // repliés : rien n'est dessiné
+    renderCharts(model);
     const list = $('db-list');
     if (list) list.innerHTML = listHtml(model);
     if (isVisible() && state.expensesState === 'idle') loadExpenses(false);
@@ -332,7 +399,7 @@
   }
 
   function onClick(event) {
-    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset]') : null;
+    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry]') : null;
     if (!target) return;
     if (target.dataset.dbYear !== undefined) {
       state.years = L.toggleYear(state, Number(target.dataset.dbYear), model.years);
@@ -353,6 +420,8 @@
       else if (global.openProject) global.openProject(target.dataset.dbOpenProject);
     } else if (target.dataset.dbOrphans !== undefined) {
       state.orphansOpen = !state.orphansOpen; render();
+    } else if (target.dataset.dbBiRetry !== undefined) {
+      biFailure = null; render();
     } else if (target.dataset.dbReset !== undefined) {
       resetFilters();
     }
@@ -375,6 +444,7 @@
     state.search = text(row.Dash_recherche);
     if (L.MEASURES.includes(text(row.Dash_mesure))) state.measure = text(row.Dash_mesure);
     state.charts = text(row.Dash_graphiques) === '1'; // replié par défaut : seul « 1 » (ouvert) est retenu
+    state.engine = text(row.Dash_moteur) === 'maison' ? 'maison' : 'bi'; // Grist-BI par défaut ; seul « maison » est retenu
   }
   async function loadDashboardUserPreferences() {
     if (!global.CoreGrist || !CoreGrist.gristInstance) return;
@@ -400,7 +470,7 @@
     if (!prefsRowId || !global.CoreGrist || !CoreGrist.gristInstance) return;
     const fields = {
       Dash_annees: Array.isArray(state.years) ? encodeList(state.years.map(String)) : '', Dash_programmes: encodeList(state.programmes), Dash_statuts: encodeList(state.statuts),
-      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : ''
+      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : '', Dash_moteur: state.engine === 'maison' ? 'maison' : ''
     };
     try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
     catch (err) { console.warn('Enregistrement des préférences Dashboard a échoué :', err.message); }
@@ -462,6 +532,10 @@
     if (toggle) toggle.addEventListener('click', () => { state.charts = !state.charts; render(); persist(); });
     const clear = $('db-clear-filters');
     if (clear) clear.addEventListener('click', resetFilters);
+    const engine = $('db-engine');
+    if (engine) engine.addEventListener('click', switchEngine);
+    const biReset = $('db-bi-reset');
+    if (biReset) biReset.addEventListener('click', () => { if (bi && bi.ctl) bi.ctl.resetPreset(); });
     // La page relit les dépenses à chaque ouverture si la dernière lecture date : l'import des dépenses se fait ailleurs.
     const nav = document.querySelector('.nav-btn[data-view="view-dashboard"]');
     if (nav) nav.addEventListener('click', () => { if (state.expensesState === 'ready' || state.expensesState === 'error') loadExpenses(state.expensesState === 'error'); });
