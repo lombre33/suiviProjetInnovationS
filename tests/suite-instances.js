@@ -2633,40 +2633,43 @@
       assertFalse(root().classList.contains('in-plein'));
     });
 
-    it('PDF exporté : affiché dans la page (iframe sur la pièce jointe), message clair sans PDF ; basculer ne recrée pas GFS', async function () {
+    it('PDF exporté : lu dans la visionneuse du widget (pdf.js) sur la pièce jointe de la cellule, déposer le PDF sinon ; basculer ne recrée pas GFS', async function () {
       await setup({ rows: d => { d.Suivi_Instance[1].CR_PDF = ['L', 90]; } });
       window.InstancesPage._setGfsTarget(gfsTarget);
       step('cr');
       const gfsFrame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
-      const original = window.grist.docApi.getAccessToken;
-      // about:blank#… : l'iframe n'ouvre aucune connexion réseau pendant le test, l'adresse construite reste vérifiable.
-      window.grist.docApi.getAccessToken = async () => ({ token: 'jeton-de-test', baseUrl: 'about:blank#', ttlMsecs: 60000 });
+      const original = window.fetch, urls = [];
+      const bytes = await (async () => { const pdf = await window.PDFLib.PDFDocument.create(); pdf.addPage([300, 400]); return pdf.save(); })();
+      window.fetch = async url => { urls.push(String(url)); return new Response(bytes); };
       try {
         click('cr-mode', { v: 'pdf' });
-        const pdf = await waitFor(() => q('iframe.in-vframe'), 'visionneuse du PDF');
-        assertIncludes(pdf.src, '/attachments/90/download');
-        assertIncludes(pdf.src, 'tableId=Suivi_Instance');
-        assertIncludes(pdf.src, 'colId=CR_PDF');
-        assertIncludes(pdf.src, 'rowId=2');
+        await waitFor(() => urls.length === 1, 'lecture du PDF');
+        assertEqual(urls[0], 'http://127.0.0.1/api/docs/test/attachments/90/download?auth=jeton-de-test&tableId=Suivi_Instance&colId=CR_PDF&rowId=2', 'lu avec la preuve d\'accès sur la cellule CR_PDF de la séance');
+        const pages = await waitFor(() => q('[data-pane="pdf"] .pdfv-pages'), 'visionneuse du widget');
+        assertEqual(qa('iframe.in-vframe').length, 0, 'plus de lecteur PDF du navigateur (il téléchargerait le fichier)');
         assertTrue(q('[data-pane="gfs"]').hidden && !q('[data-pane="pdf"]').hidden);
         assertTrue(gfsFrame.isConnected && q('iframe.in-gframe') === gfsFrame, 'GFS reste en vie derrière');
         click('v0-toggle');
-        assertTrue(q('iframe.in-vframe') === pdf, 'l\'iframe du PDF n\'est pas recréée par un clic voisin');
+        assertTrue(q('[data-pane="pdf"] .pdfv-pages') === pages, 'la visionneuse n\'est pas recréée par un clic voisin');
+        assertEqual(urls.length, 1, 'le PDF n\'est pas relu');
         click('cr-mode', { v: 'edit' });
         assertFalse(q('[data-pane="gfs"]').hidden);
         assertTrue(q('iframe.in-gframe') === gfsFrame);
         step('macro');
-        assertEqual(qa('iframe.in-vframe').length, 0, 'le PDF ne reste pas chargé hors de l\'étape');
-        // Séance sans PDF : message qui dit où l'exporter.
+        assertEqual(qa('[data-pane="pdf"] .pdfv-pages').length, 0, 'le PDF ne reste pas chargé hors de l\'étape');
+        // Séance sans PDF : on le dépose ici.
         click('menu', { v: 'seance' });
         click('seance-pick', { id: 1 });
         step('cr');
         click('cr-mode', { v: 'pdf' });
-        assertIncludes(text('[data-pane="pdf"]'), 'Pas encore de PDF');
-        assertIncludes(text('[data-pane="pdf"]'), 'CR_PDF');
+        assertIncludes(text('[data-pane="pdf"]'), 'Pas encore de PDF du compte rendu');
+        assertIncludes(text('[data-pane="pdf"]'), 'glisser-déposer');
+        assertTrue(!!q('[data-pane="pdf"] [data-act="cr-upload"]'), 'bouton pour choisir le fichier');
+        assertTrue(!!q('.in-vbar [data-act="cr-upload"]'), 'et dans la barre');
         assertTrue(q('[data-act="cr-download"]').disabled);
+        assertIncludes(q('[data-act="cr-download"]').title, 'CR_PDF');
       } finally {
-        window.grist.docApi.getAccessToken = original;
+        window.fetch = original;
       }
     });
 

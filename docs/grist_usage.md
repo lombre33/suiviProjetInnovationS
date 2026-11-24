@@ -402,6 +402,16 @@ séance (`Suivi_Instance`) comme enregistrement sélectionné ; ses réglages so
 cellule `Suivi_Instance.CR_PDF` ; quand GFS écrit dans `Suivi_Instance`, la page relit ses tables.
 L'onglet « PDF exporté » affiche ce même PDF dans la page.
 
+**PDF du compte rendu : dépôt et lecture (24/11/2026).** L'onglet « PDF exporté » de l'étape Compte rendu
+lit le PDF dans la page avec la visionneuse pdf.js (plus d'`iframe` natif, donc pas de bascule vers le
+navigateur) ; GFS reste monté en arrière-plan. Quand `Suivi_Instance.CR_PDF` est vide, la zone propose
+« Déposer le PDF » (bouton) ou un glisser-déposer sur la page : le fichier est envoyé comme pièce jointe
+Grist (`CoreAttachments.upload`) puis ajouté à la cellule `CR_PDF` (`['L', ...ids]`, les pièces déjà
+présentes sont conservées). Quand un PDF existe, le bouton devient « Nouvelle version » (ajoute à la
+cellule, la page affiche la dernière) et « Télécharger le CR » reste actif. La colonne `CR_PDF`
+(Attachments) est créée par le widget si elle manque. Les dépôts en cours sont suivis par séance
+(`viewer.uploading`) pour bloquer le double envoi.
+
 **Sous-points de l'ordre du jour (10/11/2026).** Un point peut avoir des sous-points : même table
 `Instance_Points`, `Parent` renseigné, mêmes propriétés (titre, nature, durée, projets, présentateurs,
 invités, dossier). Un seul niveau : une ligne dont le parent est absent ou est déjà un sous-point reste
@@ -505,6 +515,14 @@ cadre (panneau masqué) la barre garde la date d'envoi (`Suivi_Instance.Mail_inv
 le bouton « Envoyé aujourd'hui » et le compteur d'invitations écrites. Quand GFS écrit dans `Suivi_Instance`, la page ne
 relit que si une des colonnes `CR_PDF`, `Mail_invitation_le` ou `Mail_CR_le` est touchée (publipostage+ peut renseigner
 la date d'envoi après l'envoi). Non validé dans un vrai Grist (le proxy de ce projet n'atteint pas GFS).
+
+**Étape 5 · Envoi du CR (24/11/2026).** Comme l'invitation, cette étape héberge GFS (même iframe, mêmes
+réglages) : la barre affiche le modèle du mail (`Instances.Modele_CR`, réglé dans les paramètres de
+l'instance), l'état, un bouton « PDF du CR » (télécharge le dernier fichier de `CR_PDF`) ou « PDF du CR à
+déposer » (renvoie à l'étape Compte rendu › PDF exporté) et, en plein cadre, la date d'envoi
+(`Suivi_Instance.Mail_CR_le`, qui valide l'étape) avec « Envoyé aujourd'hui ». Le mail lui-même se rédige et
+s'envoie dans GFS, comme l'invitation. Les boutons d'action pleins (`.in-pillbtn`) ont un texte blanc
+explicite : sans cela `.in-root button{color:inherit}` les rendait illisibles.
 
 **Choix de l'instance dans la page (16/11/2026).** Le menu déroulant « Instances » de la barre de navigation est
 supprimé : « Instances » est un simple bouton qui ouvre la page. Le choix d'instance est dans le bandeau de la page,

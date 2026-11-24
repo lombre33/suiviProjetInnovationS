@@ -103,7 +103,7 @@
     pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14 7l3 3"/>', reopen: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3"/>',
     hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>',
     mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21"/>',
-    download: '<path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/>', pushpin: '<path d="M9 3.5h6l-1 6 3 3.5v2H7v-2l3-3.5zM12 15v5.5"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
+    download: '<path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/>', upload: '<path d="M12 16V5M7.5 9L12 4.5 16.5 9M5 20h14"/>', pushpin: '<path d="M9 3.5h6l-1 6 3 3.5v2H7v-2l3-3.5zM12 15v5.5"/>', tick: '<circle cx="12" cy="12" r="9"/><path class="ck" d="M8 12l3 3 5-6"/>'
   };
   const ic = (name, size, extra) => '<svg class="ic' + (size ? ' ' + size : '') + (extra ? ' ' + extra : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + SVG[name] + '</svg>';
   // Les classes de la maquette sont préfixées « in- » ici, au rendu, pour que le CSS reste isolé (voir css/instances.css).
@@ -722,8 +722,8 @@
         + '<button type="button" class="' + (st === 'valide' ? 'on ok' : '') + '" title="Relu et validé" aria-label="Relu et validé" ' + da('rel-set', { id: pid, v: 'valide' }) + '>' + ic('check', 's') + '</button></span><small>' + (r ? esc(L.fmtShort(r.le)) : '') + '</small></div>';
     });
     if (!cfg.relecteurs.length) h += '<span class="muted">Aucun relecteur défini</span>';
-    // Le PDF est exporté à la main depuis GFS (une fois le compte rendu bien relu) dans Suivi_Instance.CR_PDF.
-    return h + '<span class="sp"></span><button type="button" class="pillbtn" ' + (hasPdf ? '' : 'disabled ') + 'title="' + esc(hasPdf ? 'Télécharger le PDF du compte rendu' : 'Pas encore de PDF : exportez le compte rendu depuis GFS dans la colonne ' + CR_PDF_COLUMN + ' de Suivi_Instance') + '" ' + da('cr-download') + '>' + ic('download', 's') + 'Télécharger le CR</button></div>';
+    // Le PDF est exporté depuis GFS (une fois le compte rendu bien relu) puis déposé dans la vue « PDF exporté » ci-dessous (Suivi_Instance.CR_PDF).
+    return h + '<span class="sp"></span><button type="button" class="pillbtn" ' + (hasPdf ? '' : 'disabled ') + 'title="' + esc(hasPdf ? 'Télécharger le PDF du compte rendu' : 'Pas encore de PDF : déposez-le dans la vue « PDF exporté » ci-dessous (ou exportez-le depuis GFS dans la colonne ' + CR_PDF_COLUMN + ' de Suivi_Instance)') + '" ' + da('cr-download') + '>' + ic('download', 's') + 'Télécharger le CR</button></div>';
   }
 
   function notifsHtml(V) {
@@ -1220,7 +1220,7 @@
   // « Plein cadre » : seulement sur les étapes Compte rendu et Mail d'invitation (celles qui portent GFS) et tant que la page Instances est affichée. La classe de la page masque le
   // bandeau et les panneaux ; celle de <body> masque l'en-tête de l'appli (marque + onglets) et ses marges (voir css/instances.css).
   // Étapes qui portent GFS : le compte rendu et le mail d'invitation (même iframe, même « plein cadre »).
-  const GFS_STEPS = ['cr', 'invitation'];
+  const GFS_STEPS = ['cr', 'invitation', 'crmail'];
   const viewerStepOf = V => (V && V.s && GFS_STEPS.indexOf(V.view) >= 0 ? V.view : '');
   function pleinActive() {
     const V = S.view, view = document.getElementById('view-instances');
@@ -1252,7 +1252,7 @@
   const GFS_READY_TIMEOUT_MS = 10000;
   const GFS_STATUS = { waiting: 'Connexion à GFS…', ready: 'GFS connecté', rejected: 'Origine de GFS refusée', timeout: 'GFS ne répond pas' };
   const viewer = {
-    token: null, tokenAt: 0, mode: 'edit', pdfKey: '', targetOverride: null,
+    token: null, tokenAt: 0, mode: 'edit', pdfKey: '', pdfHandle: null, uploading: new Set(), targetOverride: null,
     gfs: { frame: null, bridge: null, timer: null, reloadTimer: null, phase: 'waiting', timedOut: false, opening: 0, rowId: 0, url: '' }
   };
 
@@ -1383,41 +1383,99 @@
     });
   }
 
+  // Le PDF du compte rendu (Suivi_Instance.CR_PDF, la dernière pièce jointe) : déposé ici (bouton ou glisser-déposer), puis lu dans la visionneuse du widget
+  // (pdf.js, PdfViewer.mount : comme les conventions et les notifications signées ; le lecteur PDF du navigateur ou une règle du poste téléchargerait le fichier).
+  function releasePdf() {
+    if (viewer.pdfHandle) { viewer.pdfHandle.destroy(); viewer.pdfHandle = null; }
+  }
   function renderPdfPane(V, pane) {
-    const pdf = crPdfOf(V.s);
-    const key = pdf.id ? 'pdf:' + V.s.id + ':' + pdf.id : 'none:' + V.s.id;
+    const pdf = crPdfOf(V.s), busy = viewer.uploading.has(V.s.id);
+    const key = busy ? 'busy:' + V.s.id : (pdf.id ? 'pdf:' + V.s.id + ':' + pdf.id : 'none:' + V.s.id);
     if (key === viewer.pdfKey) return;
     viewer.pdfKey = key;
+    releasePdf();
+    pane.classList.remove('in-dropon');
+    if (busy) { pane.innerHTML = withPrefix('<div class="vempty"><span class="muted">Envoi du PDF dans le document…</span></div>'); return; }
     if (!pdf.id) {
-      pane.innerHTML = withPrefix('<div class="vempty"><span>Pas encore de PDF</span><span class="muted">Une fois le compte rendu relu, exportez-le en PDF depuis GFS dans la colonne ' + CR_PDF_COLUMN + ' de Suivi_Instance : il s\'affiche ici et le bouton « Télécharger le CR » s\'active.</span></div>');
+      pane.innerHTML = withPrefix('<div class="vempty vdrop" data-drop="cr">' + ic('upload')
+        + '<span>Pas encore de PDF du compte rendu</span><span class="muted">Déposez-le ici (glisser-déposer) ou choisissez le fichier : exportez-le depuis GFS une fois le texte relu. Il s\'affiche ensuite dans cette page, et le bouton « Télécharger le CR » s\'active.</span>'
+        + '<button type="button" class="pillbtn" ' + da('cr-upload') + '>' + ic('upload', 's') + 'Choisir le PDF</button></div>');
       return;
     }
-    pane.innerHTML = withPrefix('<div class="vempty"><span class="muted">Chargement du document…</span></div>');
-    attachmentUrl(pdf.id, pdf.cell).then(url => {
-      if (viewer.pdfKey !== key) return;
-      pane.innerHTML = '';
-      const frame = document.createElement('iframe');
-      frame.className = 'in-vframe'; frame.title = 'Compte rendu (PDF)'; frame.src = url;
-      pane.appendChild(frame);
-    }).catch(err => {
-      if (viewer.pdfKey !== key) return;
-      pane.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(global.CoreUtils.failureReason(err, { what: 'ouverture du compte rendu (pièce jointe)' })) + '</span></div>');
-    });
+    if (!global.PdfViewer || !global.PdfViewer.mount || !global.CoreAttachments) {
+      pane.innerHTML = withPrefix('<div class="vempty"><span>Visionneuse indisponible</span><span class="muted">Le bouton d\'ouverture affiche le fichier dans un nouvel onglet.</span></div>');
+      return;
+    }
+    viewer.pdfHandle = global.PdfViewer.mount(pane, { load: () => global.CoreAttachments.fetchBytes(pdf.id, pdf.cell) });
+  }
+
+  // Dépôt du PDF : le fichier est envoyé dans le document (pièce jointe), PUIS ajouté à la cellule CR_PDF de la séance (liste relue après l'envoi : un export de GFS
+  // arrivé entre-temps n'est pas écrasé). La dernière pièce jointe est celle qu'on lit : une nouvelle version s'ajoute, les précédentes restent dans la cellule.
+  const isPdfFile = file => !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+  async function uploadCr(file) {
+    const V = S.view; if (!V || !V.s) return;
+    if (!isPdfFile(file)) { toast('Seuls les fichiers PDF sont acceptés', true); return; }
+    const id = V.s.id;
+    if (viewer.uploading.has(id)) return;
+    if (!global.CoreAttachments || !global.CoreAttachments.upload) { toast('Dépôt de fichier indisponible', true); return; }
+    viewer.uploading.add(id); render();
+    let created = null;
+    try {
+      created = await global.CoreAttachments.upload(file);
+      global.CoreAttachments.rememberName(created[0], file.name);
+    } catch (err) {
+      if (global.CoreUtils) global.CoreUtils.toastFailure(err, 'Échec du dépôt du compte rendu', { what: 'envoi du PDF du compte rendu dans le document', table: 'Suivi_Instance', columns: [CR_PDF_COLUMN] });
+    }
+    let done = false;
+    if (created) {
+      const current = S.model && S.model.seanceById[id] ? S.model.seanceById[id].crPdf : V.s.crPdf; // lue après l'envoi
+      ensureStore();
+      // Un échec d'écriture est signalé (et la page rechargée) par le store lui-même.
+      done = await S.store.commit([upd('Suivi_Instance', id, { [CR_PDF_COLUMN]: D.toList(current.concat(created)) })]).then(() => true, () => false);
+    }
+    viewer.uploading.delete(id); viewer.pdfKey = ''; render();
+    if (done) toast('Compte rendu « ' + file.name + ' » déposé');
+  }
+  function pickCrFile() {
+    const V = S.view; if (!V || !V.s || viewer.uploading.has(V.s.id)) return;
+    let input = document.querySelector('input[data-in-cr-file]');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'file'; input.accept = '.pdf,application/pdf'; input.hidden = true; input.setAttribute('data-in-cr-file', '');
+      input.addEventListener('change', () => { const file = input.files && input.files[0]; input.value = ''; if (file) uploadCr(file); }); // value vidée : le même fichier peut être rechoisi
+      document.body.appendChild(input);
+    }
+    input.click();
+  }
+  // Glisser-déposer d'un fichier sur le volet du PDF (les glissements de points de l'ordre du jour ne passent pas par ici : S.drag).
+  const crDropPane = e => (S.drag == null && e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0 && e.target.closest ? e.target.closest('[data-pane="pdf"]') : null);
+  function onFileDragOver(e) {
+    const pane = crDropPane(e); if (!pane || pane.hidden) return;
+    e.preventDefault(); pane.classList.add('in-dropon');
+  }
+  function onFileDragLeave(e) {
+    const pane = crDropPane(e); if (pane && !pane.contains(e.relatedTarget)) pane.classList.remove('in-dropon');
+  }
+  function onFileDrop(e) {
+    const pane = crDropPane(e); if (!pane || pane.hidden) return;
+    e.preventDefault(); pane.classList.remove('in-dropon');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) uploadCr(file);
   }
   function renderViewer() {
     const root = rootEl(); if (!root) return;
     const host = root.querySelector('[data-region="viewer"]'); if (!host) return;
     const V = S.view;
-    const vstep = viewerStepOf(V), inv = vstep === 'invitation';
+    const vstep = viewerStepOf(V), inv = vstep === 'invitation', crm = vstep === 'crmail', mailStep = inv || crm;
     const show = !!(S.loaded && vstep);
     host.hidden = !show; // masquée (pas détruite) hors de l'étape : GFS garde son état
     if (!show) {
-      if (viewer.pdfKey) { viewer.pdfKey = ''; const pane = host.querySelector('[data-pane="pdf"]'); if (pane) pane.innerHTML = ''; }
+      if (viewer.pdfKey) { viewer.pdfKey = ''; releasePdf(); const pane = host.querySelector('[data-pane="pdf"]'); if (pane) pane.innerHTML = ''; }
       return;
     }
     if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"><div data-pane="gfs"></div><div data-pane="pdf" hidden></div></div></div>');
     // Mail d'invitation : toujours GFS (pas de PDF à afficher) ; Compte rendu : GFS ou PDF exporté selon le choix de la barre.
-    const edit = inv || viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
+    const edit = mailStep || viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
     host.firstChild.dataset.h = cadre.hauteur;
     const hLabel = { 'ajustee': '1×', 'haute': '1,5×', 'tres-haute': '2,5×' }[cadre.hauteur];
     const c = crSummary(V), sub = plein ? '<span class="vname vsub"><strong>' + esc(V.inst.nom) + '</strong> · n°' + esc(V.s.num || '?') + ' · ' + esc(L.fmtDate(V.s.date) || 'sans date') + '</span>' : '';
@@ -1431,6 +1489,17 @@
       + '<span class="sp"></span>'
       + (plein ? DateInput.markup({ cls: 'dp', iso: V.s.mailInvitationLe, aria: "Date d'envoi du mail d'invitation", attrs: 'data-chg="inv-date"' })
         + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('inv-today') + '>' + ic('calCheck') + '</button>' : '');
+    // Barre du mail d'envoi du compte rendu (étape 5) : même GFS que l'invitation (la ligne de la séance, le modèle d'envoi du CR de l'instance), et le PDF du CR à
+    // portée pour le glisser dans le mail (le mailto: ne joint rien) ; sans PDF, le bouton mène à l'étape CR où on le dépose.
+    const crmModel = V.cfg.modCr;
+    const crmBar = sub + '<span class="vname">' + ic('send', 's') + 'Mail du compte rendu dans GFS</span>'
+      + '<span class="tag-soft" data-crm-model title="' + esc(crmModel ? 'Modèle à ouvrir dans l\'explorateur de GFS (Publipostage+, type e-mail)' : 'Choisissez le modèle dans le paramétrage de l\'instance') + '">' + esc(crmModel ? 'Modèle : ' + crmModel : 'Aucun modèle choisi') + '</span>' + status
+      + (hasPdf
+        ? '<button type="button" class="pillbtn ghost" title="Ouvre le PDF du compte rendu : à glisser dans le mail" ' + da('cr-download') + '>' + ic('fileLines', 's') + 'PDF du CR</button>'
+        : '<button type="button" class="pillbtn ghost" title="Pas encore de PDF : on le dépose dans l\'étape CR (PDF exporté)" ' + da('cr-pdf-go') + '>' + ic('upload', 's') + 'PDF du CR à déposer</button>')
+      + '<span class="sp"></span>'
+      + (plein ? DateInput.markup({ cls: 'dp', iso: V.s.mailCrLe, aria: "Date d'envoi du mail du compte rendu", attrs: 'data-chg="crm-date"' })
+        + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('crm-today') + '>' + ic('calCheck') + '</button>' : '');
     const crBar = sub
       + '<div class="seg" role="group" aria-label="Affichage du compte rendu">'
       + '<button type="button" class="' + (edit ? 'on' : '') + '" ' + da('cr-mode', { v: 'edit' }) + '>' + ic('pencil', 's') + 'Rédiger dans GFS</button>'
@@ -1439,9 +1508,10 @@
       + (plein ? '<span class="tag-soft ' + (c.v0 ? 'ok' : '') + '">' + (c.v0 ? 'V0 rédigée' : 'V0 à rédiger') + (c.total ? ' · ' + c.valid + '/' + c.total + ' validé' : '') + '</span>' : '')
       + '<span class="sp"></span>';
     host.querySelector('.in-vbar').innerHTML = withPrefix(
-      (inv ? invBar : crBar)
-      + (!inv && !edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
-      + (!inv && plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
+      (inv ? invBar : (crm ? crmBar : crBar))
+      + (!mailStep && !edit ? '<button type="button" class="pillbtn ghost" ' + (viewer.uploading.has(V.s.id) ? 'disabled ' : '') + 'title="' + (hasPdf ? 'Déposer une nouvelle version : la dernière déposée s\'affiche, les précédentes restent dans la cellule' : 'Déposer le PDF du compte rendu') + '" ' + da('cr-upload') + '>' + ic('upload', 's') + (hasPdf ? 'Nouvelle version' : 'Déposer le PDF') + '</button>' : '')
+      + (!mailStep && !edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
+      + (!mailStep && plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
       + (!plein && edit ? '<button type="button" class="pillbtn ghost" title="Hauteur de GFS : ' + HAUTEUR_LABEL[cadre.hauteur] + '. Cliquer pour l\'agrandir : le défilement de la page déplie alors GFS" aria-label="Hauteur de GFS" ' + da('cr-hauteur') + '>' + ic('vexpand', 's') + 'Hauteur ' + hLabel + '</button>' : '')
       + '<button type="button" class="pillbtn ghost" title="' + (plein ? 'Revenir à la page complète (touche Échap)' : 'Plein cadre : masque l\'en-tête et les panneaux, GFS prend toute la hauteur') + '" aria-label="' + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '" aria-pressed="' + (plein ? 'true' : 'false') + '" ' + da('cr-plein') + '>' + ic(plein ? 'shrink' : 'expand', 's') + (plein ? 'Quitter le plein cadre' : 'Plein cadre') + '</button>');
     host.querySelector('[data-pane="gfs"]').hidden = !edit;
@@ -1686,6 +1756,9 @@
     // compte rendu
     'cr-mode': el => { viewer.mode = el.dataset.v === 'pdf' ? 'pdf' : 'edit'; renderViewer(); },
     'cr-download': (el, V) => downloadCr(V),
+    'cr-upload': () => pickCrFile(),
+    // Depuis l'étape « Envoi du CR » : va déposer le PDF (étape CR, vue PDF exporté).
+    'cr-pdf-go': () => { viewer.mode = 'pdf'; setStep('cr'); },
     'fold': el => {
       if (el.dataset.v !== 'bandeau' && el.dataset.v !== 'cr') return;
       S.prefs.cadre[el.dataset.v] = !S.prefs.cadre[el.dataset.v]; S.ui.menu = null; render(); savePrefs();
@@ -1923,6 +1996,9 @@
     root.addEventListener('dragover', onDragOver);
     root.addEventListener('drop', onDrop);
     root.addEventListener('dragend', clearDrag);
+    root.addEventListener('dragover', onFileDragOver);
+    root.addEventListener('dragleave', onFileDragLeave);
+    root.addEventListener('drop', onFileDrop);
     let resizeTimer = null;
     global.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(autosizeTitles, 120); });
     // L'entrée « Instances » de la barre de navigation n'a plus de menu (le choix d'instance est dans le bandeau de la page) : un clic
@@ -1941,7 +2017,7 @@
       S.loaded = false; S.loading = null; S.error = ''; S.errorHtml = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
       releaseDoc(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
-      setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
+      setRaw({}); dropGfs(); releasePdf(); viewer.uploading.clear(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }
     }
