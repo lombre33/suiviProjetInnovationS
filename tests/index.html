@@ -36,8 +36,8 @@
       <input id="filter-instance" type="search" placeholder="Toutes les instances" autocomplete="off" role="combobox" aria-controls="filter-instance-list" aria-autocomplete="list">
       <span id="filter-instance-list" class="combo-list" role="listbox" hidden></span>
     </label>
-    <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="filter-search" type="search" placeholder="Acronyme…" autocomplete="off"></label>
-    <button id="clear-filters" class="btn btn-secondary" type="button">Réinitialiser</button>
+    <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="filter-search" type="search" placeholder="Acronyme, titre…" autocomplete="off"></label>
+    <button id="clear-filters" class="filter-reset" type="button" aria-label="Réinitialiser les filtres" title="Réinitialiser les filtres" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg></button>
     <div id="kanban-hidden-columns" class="kanban-hidden-columns" hidden></div>
     <button id="btn-new-project" class="btn btn-primary">+ Nouveau Projet</button>
   </div>
@@ -252,6 +252,7 @@
     // Dossier du widget pour js/components/pdf-viewer.js : pdf.js (signature/vendor/pdfjs) est chargé à la demande.
     window.SUIVI_ROOT = location.origin + '/';
     await loadScript('../js/components/help-tooltip.js');
+    await loadScript('../js/components/filter-combo.js');
     await loadScript('../js/components/date-input.js');
     await loadScript('../js/components/pdf-viewer.js');
     await loadScript('../js/components/pp-reader.js');

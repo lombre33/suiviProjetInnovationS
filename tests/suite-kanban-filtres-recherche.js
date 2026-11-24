@@ -155,11 +155,95 @@
     });
   });
 
+  describe('Kanban Projets — filtres : instances par date, filtre actif visible, Réinitialiser, recherche par titre', function () {
+    it('les instances qui suivent les épinglées vont de la plus récente à la plus ancienne, les séances sans date à la fin', async function () {
+      await loadState([...CTO_SEANCES,
+        { id: 4, Nom: 'CTO FARE#4 - plus tard', date: gristDay(40) },
+        { id: 5, Nom: 'CTO Innovation#8 - avant', date: gristDay(-50) },
+        { id: 6, Nom: 'CTO Innovation#9 - encore avant', date: gristDay(-60) },
+        { id: 7, Nom: 'Comité innovation#2 - sans date' }
+      ], { FINANCX: 4, NOTIFY: 5, SIGNEX: 6, COURSIX: 7, INNOVX: 1 });
+      fire(document.getElementById('filter-instance'), 'focus');
+      assertDeepEqual(values('filter-instance'), ['', NEXT, LAST, 'CTO FARE#4 - plus tard', 'CTO Innovation#8 - avant', 'CTO Innovation#9 - encore avant', 'Comité innovation#2 - sans date', 'Comité innovation#3 - 2026-03-15'],
+        'épinglés, puis du plus récent au plus ancien, puis les sans date par ordre alphabétique (« #8 » avant « #9 », jamais « #10 » avant « #5 »)');
+      await cleanUp();
+    });
+
+    it('un filtre coché surligne son champ et la liste complète se lit au survol ; décoché, plus rien', async function () {
+      await loadState();
+      const input = document.getElementById('filter-programme');
+      assertFalse(input.classList.contains('is-active'), 'sans filtre : champ normal');
+      fire(input, 'focus');
+      fireMouse(listOf('filter-programme').querySelector('[data-value="Programme B"]'), 'mousedown');
+      assertTrue(input.classList.contains('is-active'), 'un programme coché : champ surligné');
+      assertEqual(input.title, 'Programme B');
+      fireMouse(listOf('filter-programme').querySelector('[data-value="Programme A"]'), 'mousedown');
+      assertEqual(input.value, '2 programmes sélectionnés');
+      assertEqual(input.title, 'Programme B, Programme A', 'le résumé « 2 programmes » est détaillé au survol');
+      fireMouse(listOf('filter-programme').querySelector('[data-value=""]'), 'mousedown');
+      assertFalse(input.classList.contains('is-active'));
+      assertEqual(input.title, '');
+      await cleanUp();
+    });
+
+    it('la recherche saisie surligne aussi son champ', async function () {
+      await loadState();
+      const search = document.getElementById('filter-search');
+      search.value = 'innov'; fire(search, 'input');
+      assertTrue(search.classList.contains('is-active'));
+      search.value = ''; fire(search, 'input');
+      assertFalse(search.classList.contains('is-active'));
+      await cleanUp();
+    });
+
+    it('Réinitialiser (icône) n\'apparaît que lorsqu\'un filtre est actif, et disparaît après usage', async function () {
+      await loadState();
+      const reset = document.getElementById('clear-filters');
+      assertTrue(reset.hidden, 'aucun filtre : pas de bouton');
+      assertEqual(reset.getAttribute('aria-label'), 'Réinitialiser les filtres', 'icône sans texte : le nom accessible reste dit');
+      const input = document.getElementById('filter-programme');
+      fire(input, 'focus');
+      fireMouse(listOf('filter-programme').querySelector('[data-value="Programme B"]'), 'mousedown');
+      assertFalse(reset.hidden, 'un programme coché : le bouton apparaît');
+      reset.click();
+      assertTrue(reset.hidden, 'après Réinitialiser : le bouton disparaît');
+      assertEqual(shown().length, 6, 'tous les projets classés reviennent');
+      const search = document.getElementById('filter-search');
+      search.value = 'zzz'; fire(search, 'input');
+      assertFalse(reset.hidden, 'une recherche saisie compte aussi comme filtre');
+      reset.click();
+      assertEqual(search.value, '');
+      assertTrue(reset.hidden);
+      await cleanUp();
+    });
+
+    it('une colonne vide à cause d\'un filtre le dit : « Aucun projet pour ces filtres »', async function () {
+      await loadState();
+      const search = document.getElementById('filter-search');
+      search.value = 'innovx'; fire(search, 'input');
+      const empties = Array.from(document.querySelectorAll('#projects-kanban .kanban-empty')).map(el => el.textContent);
+      assertEqual(empties.length, 4, 'les quatre autres colonnes sont vides');
+      empties.forEach(textValue => assertEqual(textValue, 'Aucun projet pour ces filtres'));
+      await cleanUp();
+    });
+
+    it('la recherche porte sur l\'acronyme ET sur le titre du projet', async function () {
+      await loadState();
+      const search = document.getElementById('filter-search');
+      assertEqual(search.placeholder, 'Acronyme, titre…');
+      search.value = 'projet notif'; fire(search, 'input'); // titre « Projet Notif » (acronyme NOTIFY)
+      assertDeepEqual(shown(), ['NOTIFY'], 'retrouvé par son titre');
+      search.value = 'convent'; fire(search, 'input'); // acronyme CONVENTIX
+      assertTrue(shown().includes('CONVENTIX'), 'toujours retrouvé par son acronyme');
+      await cleanUp();
+    });
+  });
+
   describe('Kanban Projets — filtre Instance : prochain et dernier CTO toujours en tête', function () {
     it('le prochain puis le dernier CTO ouvrent la liste, avec leur pastille, même sans projet rattaché ; le reste suit', async function () {
       await loadState([...CTO_SEANCES, { id: 4, Nom: 'CTO Innovation#9 - ancien', date: gristDay(-60) }], { FINANCX: 4 });
       fire(document.getElementById('filter-instance'), 'focus');
-      assertDeepEqual(values('filter-instance'), ['', NEXT, LAST, 'Comité innovation#3 - 2026-03-15', 'CTO Innovation#9 - ancien'], 'les deux CTO épinglés, puis le reste dans l\'ordre alphabétique habituel');
+      assertDeepEqual(values('filter-instance'), ['', NEXT, LAST, 'CTO Innovation#9 - ancien', 'Comité innovation#3 - 2026-03-15'], 'les deux CTO épinglés, puis le reste : les séances datées d\'abord, la séance sans date à la fin');
       const tags = Array.from(listOf('filter-instance').querySelectorAll('.is-pinned .combo-tag')).map(el => el.textContent);
       assertDeepEqual(tags, ['Prochain CTO', 'Dernier CTO']);
       assertEqual(listOf('filter-instance').querySelectorAll('.is-pinned').length, 2, 'seuls deux CTO sont épinglés');

@@ -490,10 +490,6 @@
   function multiComboValues(id) {
     return decodeColumnList(document.getElementById(id)?.dataset.selectedValues);
   }
-  function multiSummary(values, label) {
-    if (!values.length) return '';
-    return values.length === 1 ? values[0] : `${values.length} ${label}`;
-  }
   function currentFilters() {
     return {
       programmes: multiComboValues('admin-filter-programme'),
@@ -510,62 +506,38 @@
       return !filters.search || normalized(text(project.Acronyme)).includes(filters.search);
     });
   }
-  function options(fieldNames, query = '') {
+  function options(fieldNames) {
     const isInstance = fieldNames.some(name => ['Instance_ratachee', 'Instance', 'Instances'].includes(name));
-    const wanted = normalized(query);
     return [...new Set(getProjects()
       .map(project => isInstance ? instanceLabel(field(project, fieldNames)) : programmeLabel(field(project, fieldNames)))
       .map(value => text(value).trim())
-      .filter(value => value && normalized(value) !== '0' && (!wanted || normalized(value).includes(wanted)))
+      .filter(value => value && normalized(value) !== '0')
     )].sort((a, b) => a.localeCompare(b, 'fr'));
   }
-  // Liste à cases : reste ouverte après chaque clic (pas de list.hidden=true)
-  // pour cocher/décocher plusieurs valeurs d'affilée ; ne se ferme qu'au blur
-  // du champ (setupMultiCombo). Les valeurs déjà cochées remontent en tête de
-  // liste (demande du 03/11/2026) pour les décocher rapidement ; le fond bleu
-  // (.is-selected) indique la sélection, remplace une ancienne case à cocher
-  // jugée peu lisible.
-  function renderMultiCombo(id, values, placeholder, summaryLabel) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    const selected = multiComboValues(id);
-    input.value = multiSummary(selected, summaryLabel);
-    const ordered = [...values].sort((a, b) => {
-      const aSelected = selected.includes(a), bSelected = selected.includes(b);
-      return aSelected === bSelected ? 0 : (aSelected ? -1 : 1);
+  // Les deux filtres à liste à cases (js/components/filter-combo.js : recherche dans la liste, clavier) ; seule la sélection
+  // cochée est retenue (dataset.selectedValues, enregistrée par utilisateur), jamais le texte tapé.
+  const COMBOS = {
+    'admin-filter-programme': { fields: ['Programme', 'Programme_Axe_InnovationS'], placeholder: 'Tous les programmes', summaryLabel: 'programmes sélectionnés' },
+    'admin-filter-instance': { fields: ['Instance_ratachee', 'Instance', 'Instances'], placeholder: 'Toutes les instances', summaryLabel: 'instances sélectionnées' }
+  };
+  const combos = {};
+  function setupMultiCombo(id) {
+    const config = COMBOS[id];
+    if (!config || combos[id]) return;
+    combos[id] = FilterCombo.attach({
+      id, placeholder: config.placeholder, summaryLabel: config.summaryLabel, eager: true,
+      options: () => options(config.fields),
+      getSelected: () => multiComboValues(id),
+      setSelected: next => {
+        document.getElementById(id).dataset.selectedValues = encodeColumnList(next);
+        render();
+        saveAdministratifUserPreferences();
+      }
     });
-    list.innerHTML = `<button type="button" data-value="">${escape(placeholder)}</button>` +
-      ordered.map(value => {
-        const isSelected = selected.includes(value);
-        return `<button type="button" class="${isSelected ? 'is-selected' : ''}" data-value="${escape(value)}" role="option" aria-selected="${isSelected}">${escape(value)}</button>`;
-      }).join('');
-    list.querySelectorAll('[data-value]').forEach(button => button.addEventListener('mousedown', event => {
-      event.preventDefault();
-      const value = button.dataset.value;
-      const next = value === '' ? [] : (selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
-      input.dataset.selectedValues = encodeColumnList(next);
-      renderMultiCombo(id, values, placeholder, summaryLabel);
-      render();
-      saveAdministratifUserPreferences();
-    }));
   }
   function renderFilters() {
-    renderMultiCombo('admin-filter-programme', options(['Programme', 'Programme_Axe_InnovationS']), 'Tous les programmes', 'programmes sélectionnés');
-    renderMultiCombo('admin-filter-instance', options(['Instance_ratachee', 'Instance', 'Instances']), 'Toutes les instances', 'instances sélectionnées');
-  }
-  // Pas de saisie libre : le champ n'est qu'un déclencheur (lecture seule)
-  // qui ouvre la liste à cases au focus.
-  function setupMultiCombo(id, fieldNames, placeholder, summaryLabel) {
-    const input = document.getElementById(id);
-    const list = document.getElementById(`${id}-list`);
-    if (!input || !list) return;
-    input.readOnly = true;
-    input.addEventListener('focus', () => { list.hidden = false; renderMultiCombo(id, options(fieldNames), placeholder, summaryLabel); });
-    input.addEventListener('blur', () => setTimeout(() => {
-      list.hidden = true;
-      input.value = multiSummary(multiComboValues(id), summaryLabel);
-    }, 150));
+    Object.keys(COMBOS).forEach(setupMultiCombo); // idempotent : branche les champs au premier appel
+    Object.values(combos).forEach(combo => combo.sync());
   }
 
   async function writeActions(actions) {
@@ -1816,8 +1788,6 @@
     initPopoverListeners();
     initConvDelegation();
     renderFilters();
-    setupMultiCombo('admin-filter-programme', ['Programme', 'Programme_Axe_InnovationS'], 'Tous les programmes', 'programmes sélectionnés');
-    setupMultiCombo('admin-filter-instance', ['Instance_ratachee', 'Instance', 'Instances'], 'Toutes les instances', 'instances sélectionnées');
     updateViewToggle();
     render();
     document.getElementById('admin-filter-search')?.addEventListener('input', () => { render(); saveAdministratifUserPreferencesSoon(); });
@@ -1826,6 +1796,7 @@
         const input = document.getElementById(id);
         if (input) { input.value = ''; input.dataset.selectedValues = ''; }
       });
+      Object.values(combos).forEach(combo => combo.reset());
       const search = document.getElementById('admin-filter-search');
       if (search) search.value = '';
       renderFilters();

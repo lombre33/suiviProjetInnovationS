@@ -144,4 +144,56 @@
       });
     });
   });
+  // Demande du 24/11/2026 : taper dans Programme / Instance réduit la liste (Administratif et Installation ; le Kanban a sa suite).
+  PAGES.filter(page => page.kanbanFirst).forEach(page => {
+    describe(`${page.name} — taper dans les filtres réduit la liste`, function () {
+      const optionValues = id => Array.from(document.getElementById(`${id}-list`).querySelectorAll('[data-value]')).map(b => b.dataset.value);
+      const typeIn = (id, query) => {
+        const input = document.getElementById(id);
+        fire(input, 'focus');
+        input.value = query;
+        fire(input, 'input');
+        return input;
+      };
+
+      it('Programme : la frappe garde les libellés qui contiennent le texte, sans casse ni accents ; Entrée coche la première', async function () {
+        await loadState(page);
+        const input = typeIn(page.programme, 'PROGRAMME b');
+        assertDeepEqual(optionValues(page.programme), ['Programme B']);
+        fireKey(input, 'Enter');
+        assertTrue(page.shown().includes('NOTIFY') && !page.shown().includes('INNOVX'), 'seuls les projets du Programme B restent');
+        assertEqual(window.CoreUtils.decodeList(input.dataset.selectedValues)[0], 'Programme B');
+        assertTrue(input.classList.contains('is-active'), 'champ surligné tant qu\'un programme est coché');
+        document.getElementById(page.clear).click();
+        assertFalse(input.classList.contains('is-active'), 'plus de surlignage après Réinitialiser');
+      });
+
+      it('Instance : « Aucun résultat » quand rien ne correspond ; la frappe n\'est jamais retenue comme filtre', async function () {
+        await loadState(page);
+        const before = page.shown();
+        const input = typeIn(page.instance, 'zzz');
+        assertDeepEqual(optionValues(page.instance), []);
+        assertEqual(document.getElementById(`${page.instance}-list`).querySelector('.combo-empty').textContent, 'Aucun résultat');
+        assertDeepEqual(page.shown(), before, 'taper seul ne filtre pas les cartes');
+        assertEqual(input.dataset.selectedValues || '', '');
+        fire(input, 'blur');
+        await wait(200);
+        assertEqual(input.value, '', 'au blur, la recherche disparaît (rien n\'est coché : résumé vide)');
+      });
+
+      it('↓ + Entrée coche une proposition au clavier (avant : listes inutilisables au clavier)', async function () {
+        await loadState(page);
+        const input = document.getElementById(page.programme);
+        fire(input, 'focus');
+        fireKey(input, 'ArrowDown'); // « Tous les programmes »
+        fireKey(input, 'ArrowDown'); // Programme A
+        fireKey(input, 'Enter');
+        assertEqual(window.CoreUtils.decodeList(input.dataset.selectedValues)[0], 'Programme A');
+        assertEqual(input.getAttribute('aria-expanded'), 'true');
+        fireKey(input, 'Escape');
+        assertEqual(input.getAttribute('aria-expanded'), 'false', 'Échap ferme la liste');
+        document.getElementById(page.clear).click();
+      });
+    });
+  });
 })();

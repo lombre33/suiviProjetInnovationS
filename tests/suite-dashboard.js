@@ -671,6 +671,25 @@
       unload();
     });
 
+    it('taper dans Programme ou Statut réduit la liste, Entrée coche, le champ se surligne (24/11/2026)', async function () {
+      await load();
+      const input = byId('db-filter-programme');
+      fire(input, 'focus');
+      input.value = 'fa'; fire(input, 'input');
+      assertDeepEqual(Array.from(byId('db-filter-programme-list').querySelectorAll('[data-value]')).map(o => o.dataset.value), ['FARE']);
+      fireKey(input, 'Enter');
+      assertDeepEqual(P().state.programmes, ['FARE'], 'Entrée coche la première proposition');
+      assertEqual(norm(kpi().att), '6 500 €');
+      assertTrue(input.classList.contains('is-active'));
+      assertEqual(input.title, 'FARE', 'résumé complet au survol');
+      const statut = byId('db-filter-statut');
+      fire(statut, 'focus');
+      statut.value = 'zzz'; fire(statut, 'input');
+      assertEqual(byId('db-filter-statut-list').querySelector('.combo-empty').textContent, 'Aucun résultat');
+      fire(input, 'blur'); fire(statut, 'blur');
+      await wait(200); // comme à la main : quitter les champs rend leur résumé (sinon la frappe resterait affichée pour les tests suivants)
+      unload();
+    });
     it('la recherche filtre les projets (acronyme ou titre) en direct', async function () {
       await load();
       const search = byId('db-filter-search');

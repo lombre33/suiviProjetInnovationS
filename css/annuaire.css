@@ -10,7 +10,7 @@
 .annu-filters { gap:6px; padding:10px 12px; margin:0 0 12px; }
 .annu-filters input { min-width:0; }
 .annu-filters .filter-search input { width:156px; min-width:0; }
-.annu-filters .filter-combo input { width:104px; padding:0 8px; text-overflow:ellipsis; cursor:pointer; }
+.annu-filters .filter-combo input { width:104px; padding:0 8px; text-overflow:ellipsis; }
 .annu-filters .filter-combo[hidden], .annu-seg[hidden] { display:none; }
 .annu-filters .filter-combo .combo-list { min-width:210px; right:auto; }
 .annu-filters .filter-combo.is-active input { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
