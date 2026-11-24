@@ -752,9 +752,9 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   la page : années, programmes, statuts, recherche, CP/AE) et ses tables internes `BI_Dashboard_*`, **enregistrées dans les options du widget**
   (clé `dashboardBiDoc`) : rien n'est créé dans le vrai document, aucune autre table n'est lisible, `getAccessToken` est refusé, seules des
   tables `BI_*` peuvent être créées. Les quatre graphiques retenus le 18/11 sont préconfigurés (attribué et consommé par année et par programme,
-  reste à consommer par programme, treemap du reste par projet) ; « ↺ » les rétablit. Un changement de filtre recalcule la table et **recharge**
+  reste à consommer par programme, treemap du reste par projet) ; « Rétablir les 4 graphiques » (dans le cadre, sous les tuiles) les remet. Un changement de filtre recalcule la table et **recharge**
   Grist-BI (il ne relit pas ses données seul). Replié, l'iframe est retirée. Sans réponse en 12 s, retour aux graphiques faits main avec un
-  message et « Réessayer ». Bouton « Graphiques simples » / « Grist-BI » dans le bandeau, retenu par personne (`Dash_moteur`, vide = Grist-BI).
+  message et « Réessayer ». Choix « BI | Simple » dans le bandeau (un contrôle compact, graphiques ouverts seulement), retenu par personne (`Dash_moteur`, vide = Grist-BI).
   Vérifié en local avec le **vrai Grist-BI** (copie du dépôt, client `grist-plugin-api` réel, Chromium) : connexion, lecture de la table,
   configuration d'origine, quatre tuiles affichées ; reste à voir dans un vrai Grist (deux iframes imbriquées, droits en lecture seule : la
   configuration modifiée n'est alors pas enregistrée). Tests : `tests/suite-dashboard-bi.js` avec un faux Grist-BI (`tests/fake-grist-bi.html`).
