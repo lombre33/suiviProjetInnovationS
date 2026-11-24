@@ -140,8 +140,16 @@
     return defs;
   }
 
+  // Type d'une ligne OPE (demande d'Antoine du 24/11/2026) : colonne Choice de Lignes_OPE, créée par le widget au premier enregistrement qui en a besoin.
+  const LINE_TYPE_COLUMN = 'Type_ligne_OPE';
+  const LINE_TYPES = Object.freeze(['Reversement', 'RH', 'Projet']);
+  const lineTypeColumn = () => ({
+    id: LINE_TYPE_COLUMN, label: 'Type de ligne OPE', type: 'Choice', isFormula: false, widgetOptions: JSON.stringify({ choices: LINE_TYPES.slice() }),
+    description: 'Nature de la ligne OPE : Reversement (convention de reversement à un partenaire), RH (personnel) ou Projet (dépenses du projet).'
+  });
+
   global.CoreOpes = {
-    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION,
+    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
     ranks, ligneColumn, actionColumn, commentColumn, amountColumn, baseColumn, columnsOf, columnDefinitions, missingColumns,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals
   };

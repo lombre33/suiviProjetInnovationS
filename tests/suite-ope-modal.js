@@ -477,4 +477,72 @@
       assertEqual(projectModalEl().querySelector('[data-ref="Programme"]').value, 'Texte libre hérité');
     });
   });
+  describe('Type de ligne OPE (24/11/2026) : Reversement, RH ou Projet, colonne créée par le widget au premier besoin', function () {
+    const calls = () => window.__TEST_CALLS__;
+    const typeOptions = modal => Array.from(modal.querySelectorAll('#cpo-type option')).map(o => o.value);
+
+    it('le champ propose Reversement, RH et Projet, vide par défaut, en création comme en modification', async function () {
+      await loadFixtureState();
+      const created = window.openCreateOpeModal('OPE-T-1');
+      assertDeepEqual(typeOptions(created), ['', 'Reversement', 'RH', 'Projet']);
+      assertEqual(created.querySelector('#cpo-type').value, '');
+      const edited = window.openEditOpeModal(2);
+      assertDeepEqual(typeOptions(edited), ['', 'Reversement', 'RH', 'Projet']);
+      assertEqual(edited.querySelector('#cpo-type').value, '', 'une ligne sans type n\'en montre pas');
+    });
+
+    it('sans type choisi, rien n\'est créé ni écrit en plus : pas de colonne, pas de champ Type_ligne_OPE', async function () {
+      await loadFixtureState();
+      const modal = window.openCreateOpeModal('OPE-T-2');
+      modal.querySelector('#cpo-structure').value = '1';
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertEqual(calls().length, 1);
+      assertEqual(calls()[0].type, 'AddRecord');
+      assertFalse('Type_ligne_OPE' in calls()[0].fields);
+    });
+
+    it('avec un type, la colonne Type_ligne_OPE (Choice à trois valeurs, avec sa description) est créée AVANT l\'écriture et le type est écrit', async function () {
+      await loadFixtureState();
+      const modal = window.openCreateOpeModal('OPE-T-3');
+      modal.querySelector('#cpo-structure').value = '1';
+      modal.querySelector('#cpo-type').value = 'RH';
+      await modal.querySelector('[data-cp-save]').onclick();
+      const column = calls().findIndex(call => call.type === 'AddColumn' && call.colId === 'Type_ligne_OPE');
+      const record = calls().findIndex(call => call.type === 'AddRecord' && call.table === 'Lignes_OPE');
+      assertTrue(column >= 0, 'la colonne est créée');
+      assertTrue(column < record, 'avant l\'écriture de la ligne');
+      assertEqual(calls()[column].table, 'Lignes_OPE');
+      assertDeepEqual(JSON.parse(calls()[column].colInfo.widgetOptions).choices, ['Reversement', 'RH', 'Projet']);
+      assertEqual(calls()[column].colInfo.type, 'Choice');
+      assertEqual(calls()[record].fields.Type_ligne_OPE, 'RH');
+      assertEqual(window.CoreState.getTable('Lignes_OPE').find(r => r.N_OPE === 'OPE-T-3').Type_ligne_OPE, 'RH', 'cache à jour');
+    });
+
+    it('modifier : le type existant est présélectionné ; le changer écrit le type (colonne déjà là : rien n\'est recréé) ; ne pas y toucher ne l\'écrit pas', async function () {
+      window.__mockSetTable('Lignes_OPE', { id: [1, 2], N_OPE: ['OPE-A', 'OPE-B'], installe_chez: [1, 2], Type_ligne_OPE: ['Reversement', ''] });
+      await loadFixtureState();
+      const modal = window.openEditOpeModal(1);
+      assertEqual(modal.querySelector('#cpo-type').value, 'Reversement');
+      modal.querySelector('#cpo-type').value = 'Projet';
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertFalse(calls().some(call => call.type === 'AddColumn'), 'la colonne existe déjà');
+      const update = calls().find(call => call.type === 'UpdateRecord');
+      assertEqual(update.fields.Type_ligne_OPE, 'Projet');
+      assertEqual(window.CoreState.getTable('Lignes_OPE').find(r => r.id === 1).Type_ligne_OPE, 'Projet');
+      calls().length = 0;
+      const other = window.openEditOpeModal(2);
+      await other.querySelector('[data-cp-save]').onclick();
+      assertFalse('Type_ligne_OPE' in calls().find(call => call.type === 'UpdateRecord').fields, 'type inchangé : pas réécrit');
+    });
+
+    it('le type se retire : le vider écrit une valeur vide sans recréer la colonne', async function () {
+      window.__mockSetTable('Lignes_OPE', { id: [1], N_OPE: ['OPE-A'], installe_chez: [1], Type_ligne_OPE: ['RH'] });
+      await loadFixtureState();
+      const modal = window.openEditOpeModal(1);
+      modal.querySelector('#cpo-type').value = '';
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertFalse(calls().some(call => call.type === 'AddColumn'));
+      assertEqual(calls().find(call => call.type === 'UpdateRecord').fields.Type_ligne_OPE, '');
+    });
+  });
 })();

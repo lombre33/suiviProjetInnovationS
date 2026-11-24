@@ -79,6 +79,17 @@
       }
     }
 
+    // Type de la ligne (Reversement / RH / Projet) : facultatif. La colonne Type_ligne_OPE est créée par le widget au premier enregistrement qui en
+    // a besoin ; tant qu'aucun type n'est choisi, rien n'est créé ni écrit.
+    const typeWrap = document.createElement('div');
+    typeWrap.className = 'cp-field cp-full';
+    typeWrap.innerHTML = `<label for="cpo-type">Type de ligne OPE</label><select id="cpo-type"><option value="">— Non précisé —</option>${global.CoreOpes.LINE_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>`;
+    typeWrap.insertAdjacentHTML('beforeend', '<small class="cp-hint">Reversement, RH ou Projet.</small>');
+    withHelp(typeWrap.querySelector('label'), global.CoreOpes.LINE_TYPE_COLUMN);
+    form.appendChild(typeWrap);
+    const typeSelect = typeWrap.querySelector('select');
+    if (existing && global.CoreOpes.LINE_TYPES.includes(text(existing[global.CoreOpes.LINE_TYPE_COLUMN]))) typeSelect.value = text(existing[global.CoreOpes.LINE_TYPE_COLUMN]);
+
     const close = () => modal.remove();
     modal.querySelector('[data-cp-close]').onclick = close;
     modal.querySelector('[data-cp-cancel]').onclick = close;
@@ -96,9 +107,16 @@
       error.textContent = '';
       try {
         const fields = { N_OPE: nOpe, installe_chez: installeChez };
+        // Le type n'est écrit que s'il est choisi ou s'il change (une ligne sans type n'en reçoit pas, et n'oblige pas à créer la colonne).
+        const typeColumn = global.CoreOpes.LINE_TYPE_COLUMN, lineType = typeSelect.value;
+        const typeChanged = existing ? lineType !== text(existing[typeColumn]) : !!lineType;
+        if (typeChanged) {
+          if (lineType) await global.CoreGrist.ensureColumns('Lignes_OPE', [global.CoreOpes.lineTypeColumn()]);
+          fields[typeColumn] = lineType;
+        }
         if (existing) {
           await updateRecord(existing.id, fields);
-          const saved = { ...existing, N_OPE: nOpe, installe_chez: installeChez };
+          const saved = { ...existing, N_OPE: nOpe, installe_chez: installeChez, ...(typeChanged ? { [typeColumn]: lineType } : {}) };
           if (global.CoreState?.setTable) {
             global.CoreState.setTable('Lignes_OPE', rows('Lignes_OPE').map(row => String(row.id) === String(existing.id) ? saved : row));
           }
@@ -115,7 +133,7 @@
         }
         if (!id) throw new Error('La ligne OPE a été créée mais son identifiant n’a pas pu être retrouvé.');
 
-        const updated = { N_OPE: nOpe, installe_chez: installeChez, id: Number(id) };
+        const updated = { N_OPE: nOpe, installe_chez: installeChez, id: Number(id), ...(typeChanged ? { [typeColumn]: lineType } : {}) };
         if (global.CoreState?.setTable) {
           global.CoreState.setTable('Lignes_OPE', [...current, updated]);
         }

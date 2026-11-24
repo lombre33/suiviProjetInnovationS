@@ -57,6 +57,16 @@
       assertEqual(ranks.get('INNO1'), 1); assertEqual(ranks.get('INNO2'), 2); assertEqual(ranks.get('IDEX1'), 3);
     });
 
+    it('les trois cas d\'Antoine (24/11) : deux InnovationS dans deux structures différentes (le plus ancien est l\'OPE 1, la structure ne compte pas), InnovationS + IDEX, deux InnovationS dans la même structure', function () {
+      const inStructure = (ope, structure) => Object.assign(ope, { structure });
+      const deux = L().placeOpes([inStructure(opeOf('B-2024', 'InnovationS', 2024), 'DIESE'), inStructure(opeOf('A-2023', 'InnovationS', 2023), 'LAB1')], none, 'innovations');
+      assertEqual(deux.get('A-2023'), 1); assertEqual(deux.get('B-2024'), 2);
+      const memes = L().placeOpes([inStructure(opeOf('Z', 'InnovationS', 2024), 'LAB1'), inStructure(opeOf('Y', 'InnovationS', 2022), 'LAB1')], none, 'innovations');
+      assertEqual(memes.get('Y'), 1); assertEqual(memes.get('Z'), 2);
+      const mixte = L().placeOpes([opeOf('IDEX-ANCIEN', 'IDEX', 2021), opeOf('INNO-RECENT', 'InnovationS', 2025)], none, 'innovations');
+      assertEqual(mixte.get('INNO-RECENT'), 1, 'InnovationS passe avant IDEX même si IDEX est plus ancien'); assertEqual(mixte.get('IDEX-ANCIEN'), 2);
+    });
+
     it('« du plus ancien au plus récent » : par date de début, le financeur ne compte pas ; une date inconnue passe en dernier', function () {
       const opes = [opeOf('B', 'InnovationS', 2024), opeOf('A', 'IDEX', 2022), opeOf('C', 'IDEX', null)];
       const ranks = L().placeOpes(opes, none, 'date');
