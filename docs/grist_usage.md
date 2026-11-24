@@ -951,6 +951,19 @@ visionneuse absente retombent sur le comportement du navigateur (onglet / télé
 connu (« Pièce jointe #n ») passe par la visionneuse, qui dit si ce n'est pas un PDF. La cellule
 (`tableId/colId/rowId`) est relue à chaque ouverture de la fiche (la fiche est réutilisée d'un projet à l'autre).
 
+### 11. Champ référence illisible pour l'utilisateur : « Ligne OPE (id N) non lisible » (24 novembre 2026)
+
+Le widget lit les tables avec les droits de l'utilisateur connecté (`docApi.fetchTable`) : en « voir en tant que » un autre utilisateur, ou
+pour un collègue limité par une règle d'accès Grist, une ligne ou une table peut ne pas être renvoyée. Le widget n'a alors aucun moyen de
+savoir le numéro ou la structure de la ligne OPE ; l'ancien repli écrivait le numéro de ligne Grist brut (« 17 »), pris pour un numéro
+d'OPE. `setRef()` écrit maintenant « Ligne OPE (id 17) non lisible » (« Personne », « Programme », « Structure »… pour les autres
+références) avec la raison en infobulle : « droits d'accès ne vous la montrent pas » quand seule la ligne manque, ou « la table
+Lignes_OPE n'a pas pu être lue (message de Grist) » quand toute la table est refusée (`CoreGrist.readFailure(table)`, mémorisé à chaque
+chargement). La valeur n'est pas touchée : enregistrer le projet réécrit la même référence. Un texte non numérique reste affiché tel quel.
+Pour qu'un utilisateur voie « N° à venir · structure » ou le numéro, ses règles d'accès doivent lui laisser **lire la ligne** de
+`Lignes_OPE` (colonnes `N_OPE` et `installe_chez` au moins) et la structure dans `Structures`. Le panneau Alt+Maj+D indique les lectures
+refusées (« ERREUR »).
+
 ### Divergences sans effet
 
 Trois clés lues par le code n'existent dans aucune table ; elles sont toujours suivies

@@ -110,17 +110,24 @@
     // dans input.value/dataset.id) — jamais pendant la simple frappe de recherche. Par
     // défaut il ne fait que rafraîchir la bulle, mais project-modal.js le surcharge pour
     // le champ Ligne_OPE afin de recalculer aussi "Installée chez (rapporté)".
-    const refreshAvatar = () => {
+    // Valeur retenue mais illisible pour cet utilisateur (cf. setRef) : pas d'initiales, et le drapeau tombe dès que la valeur change.
+    const paintAvatar = () => {
       const idNum = Number(input.dataset.id);
       const hasValue = Number.isFinite(idNum) && idNum > 0;
       wrap.classList.toggle('cp-ref-has-value', hasValue);
-      if (avatar) avatar.textContent = hasValue ? initials(input.value) : '';
+      if (avatar) avatar.textContent = hasValue && !input.dataset.unreadable ? initials(input.value) : '';
+    };
+    const refreshAvatar = () => {
+      if (input.dataset.unreadable) { delete input.dataset.unreadable; input.removeAttribute('title'); }
+      paintAvatar();
     };
     input._cpRefSync = refreshAvatar;
 
     const render = (clearSelection = true) => {
       if (clearSelection) { input.dataset.id = ''; refreshAvatar(); }
-      const q = input.value.trim().toLowerCase();
+      // Sélection conservée mais illisible (« Ligne OPE (id 17) non lisible ») : ce texte ne cherche rien, on propose toute la liste
+      // (et surtout pas « + Créer … » avec ce libellé).
+      const q = !clearSelection && input.dataset.unreadable ? '' : input.value.trim().toLowerCase();
       const matches = all().filter(r => displayValue(r).toLowerCase().includes(q)).slice(0, 30);
       list.innerHTML = matches.map(r => `<button type="button" data-id="${esc(r.id)}">${esc(displayValue(r))}</button>`).join('');
       if (!matches.length && q) {
@@ -206,7 +213,7 @@
     global.CoreUtils.wireRefListKeyNav(input, list);
     withHelp(wrap.querySelector('label'), key);
     parent.appendChild(wrap);
-    return { wrap, input, refreshAvatar };
+    return { wrap, input, refreshAvatar, paintAvatar };
   }
 
   function multiRefField(parent, key, table, display) {
@@ -1200,6 +1207,20 @@
     return bad.length ? `Date non valide (jj/mm/aaaa attendu) : ${bad.join(', ')}.` : '';
   }
 
+  // Référence vers une fiche que cet utilisateur ne peut pas lire (règle d'accès Grist : ligne ou table cachée, « voir en tant que » un
+  // autre utilisateur — demande d'Antoine du 24/11/2026) : l'ancien repli affichait le numéro de ligne brut (« 17 »), pris pour un vrai
+  // numéro d'OPE. On écrit à la place « Ligne OPE (id 17) non lisible », avec la raison en infobulle ; la valeur (dataset.id) n'est pas
+  // touchée, donc enregistrer le projet garde la référence telle quelle.
+  const REF_KINDS = { Lignes_OPE: 'Ligne OPE', Annuaire: 'Personne', Programmes: 'Programme', Structures: 'Structure', Suivi_Instance: 'Instance', Postes2: 'Poste' };
+  const isRowId = id => /^\d+$/.test(String(id).trim()) && Number(id) > 0;
+  const unreadableRefLabel = (tableName, id) => `${REF_KINDS[tableName] || 'Élément'} (id ${String(id).trim()}) non lisible`;
+  function unreadableRefReason(tableName) {
+    const failure = global.CoreGrist && typeof global.CoreGrist.readFailure === 'function' ? global.CoreGrist.readFailure(tableName) : '';
+    return failure
+      ? `La table ${tableName} n’a pas pu être lue avec vos droits d’accès (${failure}). La valeur reste rattachée au projet tant que vous ne la changez pas.`
+      : 'Cette fiche existe dans Grist mais vos droits d’accès ne vous la montrent pas. La valeur reste rattachée au projet tant que vous ne la changez pas.';
+  }
+
   // Un id de référence Grist vide vaut 0 (jamais null) : sans ce garde-fou, un
   // porteur non renseigné affichait littéralement "0" au lieu de rester vide
   // (la maquette montre un état vide explicite pour ces champs).
@@ -1214,11 +1235,14 @@
     const id = raw && typeof raw === 'object' ? raw.id : raw;
     const hasId = id != null && id !== '' && Number(id) !== 0;
     const found = hasId ? rows(tableName).find(r => String(r.id) === String(id)) : null;
+    const unreadable = hasId && !found && !(raw && typeof raw === 'object') && tableName !== '__choice__' && isRowId(id);
     ref.input.dataset.id = hasId ? String(id) : '';
     ref.input.value = !hasId ? '' : (raw && typeof raw === 'object'
       ? personLabel(raw)
-      : (found ? (tableName === 'Annuaire' ? personLabel(found) : (tableName === 'Lignes_OPE' ? opeLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme']))) : text(raw)));
-    ref.refreshAvatar?.();
+      : (found ? (tableName === 'Annuaire' ? personLabel(found) : (tableName === 'Lignes_OPE' ? opeLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme']))) : (unreadable ? unreadableRefLabel(tableName, id) : text(raw))));
+    if (ref.input.dataset.unreadable) { delete ref.input.dataset.unreadable; ref.input.removeAttribute('title'); }
+    if (unreadable) { ref.input.dataset.unreadable = '1'; ref.input.title = unreadableRefReason(tableName); }
+    (ref.paintAvatar || ref.refreshAvatar)?.();
   }
 
   // Pièces jointes Grist (Attachments) : valeur brute ['L', id1, id2, ...] (ReferenceList vers

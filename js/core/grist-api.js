@@ -102,6 +102,9 @@
   // « null » quand les métadonnées sont illisibles). Sert seulement à ensureTable / ensureColumns : aucune requête pour une table déjà lue,
   // sans attendre la lecture (plus lourde) des métadonnées _grist_Tables_column.
   const seenColumns = new Map();
+  // Tables que le dernier chargement n'a pas pu lire (droits d'accès de l'utilisateur, table absente) : {nom → message}. Le widget les traite
+  // comme vides ; readFailure() permet à un champ de dire « illisible » au lieu d'afficher un numéro de ligne qu'il ne sait pas résoudre.
+  const readFailures = new Map();
   function learnColumns(name, data) {
     if (!data || typeof data !== 'object' || Array.isArray(data) || name.indexOf('_grist_') === 0) return;
     const seen = seenColumns.get(name) || new Set(['id']);
@@ -143,6 +146,8 @@
       const data = await fetchRaw(name);
       return toRecords(data);
     },
+    // Message d'erreur de la dernière lecture ratée de cette table ('' si elle a été lue).
+    readFailure(name) { return readFailures.get(name) || ''; },
     openSharedWindow() { sharedWindowOpen = true; },
     closeSharedWindow() { sharedWindowOpen = false; sharedFetches.clear(); },
     // À appeler après avoir écrit dans la table (ajout de ligne, de colonne) : la prochaine
@@ -283,8 +288,9 @@
     // `Projets` est complétée (alias d'affichage) une seule fois, avec `Annuaire` : lister les deux ensemble dans `critical`.
     loadAllTablesStaged(criticalNames) {
       const reads = {};
+      readFailures.clear();
       TABLE_NAMES.forEach(name => {
-        reads[name] = this.getTable(name).catch(err => { console.warn(`Table ${name} failed:`, err.message); return []; });
+        reads[name] = this.getTable(name).catch(err => { console.warn(`Table ${name} failed:`, err.message); readFailures.set(name, (err && err.message) || 'lecture refusée'); return []; });
       });
       const settle = async names => {
         const rows = await Promise.all(names.map(name => reads[name]));

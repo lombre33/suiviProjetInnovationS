@@ -383,4 +383,98 @@
       assertEqual(window.openCreateOpeModal('OPE-9', null, { installeChez: 2 }).querySelector('#cpo-structure').value, '', 'ignorée dès qu\'un numéro est donné');
     });
   });
+
+  // Demande d'Antoine du 24/11/2026 : en « voir en tant que » un autre utilisateur Grist, le champ Ligne OPE d'une ligne sans numéro affichait
+  // un ID (« 1 ») à la place de « N° à venir · structure ». Quand la ligne OPE n'est pas lisible par l'utilisateur (règle d'accès Grist sur
+  // Lignes_OPE : ligne ou table cachée), le widget ne peut pas la résoudre ; il affichait alors le numéro de ligne brut, pris pour un numéro
+  // d'OPE. Il écrit maintenant « Ligne OPE (id 1) non lisible », explique pourquoi en infobulle et garde la référence telle quelle.
+  describe('Ligne OPE non lisible par l\'utilisateur (règle d\'accès Grist) — jamais un ID brut', function () {
+    const innovx = () => window.CoreState.getTable('Projets').find(p => p.Acronyme === 'INNOVX');
+    async function hideOpeRow(id) {
+      await loadFixtureState();
+      window.CoreState.setTable('Lignes_OPE', window.CoreState.getTable('Lignes_OPE').filter(l => l.id !== id));
+    }
+
+    it('ligne cachée : « Ligne OPE (id 1) non lisible » au lieu de « 1 », avec la raison en infobulle, et la référence est conservée', async function () {
+      await hideOpeRow(1);
+      window.ProjectModal.open(innovx());
+      const input = ligneOpeInput();
+      assertEqual(input.value, 'Ligne OPE (id 1) non lisible');
+      assertEqual(input.dataset.id, '1', 'la valeur reste la ligne 1');
+      assertIncludes(input.title, 'droits d’accès');
+      assertEqual(projectModalEl().querySelector('[data-ope-name]').textContent, 'Ligne OPE (id 1) non lisible', 'même libellé dans l\'en-tête de la carte OPE');
+      assertEqual(input.closest('.cp-ref').querySelector('.cp-ref-avatar'), null, 'une ligne OPE n\'a pas d\'initiales');
+    });
+
+    it('table Lignes_OPE entière illisible : l\'infobulle dit que la table n\'a pas pu être lue, avec le message de Grist', async function () {
+      await loadFixtureState();
+      const docApi = window.CoreGrist.gristInstance.docApi;
+      const original = docApi.fetchTable;
+      docApi.fetchTable = name => name === 'Lignes_OPE' ? Promise.reject(new Error('Accès refusé à Lignes_OPE')) : original.call(docApi, name);
+      try {
+        const tables = await window.CoreGrist.loadAllTables();
+        assertEqual(window.CoreGrist.readFailure('Lignes_OPE'), 'Accès refusé à Lignes_OPE');
+        assertEqual(window.CoreGrist.readFailure('Structures'), '', 'une table lue n\'a pas d\'échec');
+        Object.entries(tables).forEach(([name, data]) => window.CoreState.setTable(name, data));
+      } finally { docApi.fetchTable = original; }
+      window.ProjectModal.open(innovx());
+      assertEqual(ligneOpeInput().value, 'Ligne OPE (id 1) non lisible');
+      assertIncludes(ligneOpeInput().title, 'La table Lignes_OPE n’a pas pu être lue');
+      assertIncludes(ligneOpeInput().title, 'Accès refusé à Lignes_OPE');
+      await window.CoreGrist.loadAllTables();
+      assertEqual(window.CoreGrist.readFailure('Lignes_OPE'), '', 'le chargement suivant efface l\'échec');
+    });
+
+    it('ligne lisible : libellé normal (numéro ou « N° à venir · structure »), sans infobulle', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Lignes_OPE', window.CoreState.getTable('Lignes_OPE').map(l => l.id === 1 ? { ...l, N_OPE: '' } : l));
+      window.ProjectModal.open(innovx());
+      assertEqual(ligneOpeInput().value, 'N° à venir · LAB1');
+      assertEqual(ligneOpeInput().title, '');
+      assertEqual(ligneOpeInput().dataset.unreadable, undefined);
+    });
+
+    it('au focus du champ : toute la liste est proposée, jamais « + Créer la ligne OPE "Ligne OPE (id 1) non lisible" »', async function () {
+      await hideOpeRow(1);
+      window.ProjectModal.open(innovx());
+      const input = ligneOpeInput();
+      fire(input, 'focus');
+      const list = input.parentElement.querySelector('.cp-ref-list');
+      assertEqual(list.querySelector('[data-create-ope]'), null, 'aucune création avec le libellé « non lisible »');
+      assertTrue(list.querySelector('[data-create-ope-tbd]') !== null, 'le bouton « sans numéro » reste en tête');
+      assertEqual(list.querySelectorAll('button[data-id]').length, 2, 'les deux lignes lisibles (2 et 3)');
+      assertEqual(input.value, 'Ligne OPE (id 1) non lisible', 'le champ garde sa valeur tant qu\'on ne choisit rien');
+    });
+
+    it('choisir une autre ligne remplace le libellé « non lisible » : plus d\'infobulle, la nouvelle valeur est écrite', async function () {
+      await hideOpeRow(1);
+      window.ProjectModal.open(innovx());
+      const input = ligneOpeInput();
+      fire(input, 'focus');
+      Array.from(input.parentElement.querySelectorAll('.cp-ref-list button[data-id]')).find(b => b.textContent === 'OPE-2026-002').click();
+      assertEqual(input.value, 'OPE-2026-002');
+      assertEqual(input.dataset.id, '2');
+      assertEqual(input.title, '');
+      assertEqual(input.dataset.unreadable, undefined);
+    });
+
+    it('enregistrer le projet sans toucher au champ garde la ligne OPE illisible (rien n\'est écrit à sa place)', async function () {
+      await hideOpeRow(1);
+      window.ProjectModal.open(innovx());
+      await projectModalEl().querySelector('[data-cp-save]').onclick();
+      const update = window.__TEST_CALLS__.filter(call => call.type === 'UpdateRecord')[0];
+      assertTrue(!!update, 'l\'enregistrement part');
+      assertDeepEqual(update.fields.Ligne_OPE, ['L', 1], 'la référence est réécrite telle quelle');
+    });
+
+    it('même règle pour les autres références : un porteur illisible s\'écrit « Personne (id N) non lisible » (sans initiales) ; un texte non numérique reste tel quel', async function () {
+      await loadFixtureState();
+      window.CoreState.setTable('Annuaire', window.CoreState.getTable('Annuaire').filter(p => p.id !== 1));
+      window.ProjectModal.open({ ...innovx(), Porteur_1: 1, Programme: 'Texte libre hérité' });
+      const porteur = projectModalEl().querySelector('[data-ref="Porteur_1"]');
+      assertEqual(porteur.value, 'Personne (id 1) non lisible');
+      assertEqual(porteur.closest('.cp-ref').querySelector('.cp-ref-avatar').textContent, '', 'pas d\'initiales « PE » pour une personne illisible');
+      assertEqual(projectModalEl().querySelector('[data-ref="Programme"]').value, 'Texte libre hérité');
+    });
+  });
 })();
