@@ -23,15 +23,20 @@
   function mapProjects(rows, annuaire) {
     const people = new Map(annuaire.map(person => [person.id, person.nom_et_Prenom ||
       [person.Prenom, person.NOM].filter(Boolean).join(' ')]));
-    return rows.map(project => ({
-      ...project,
-      // Display aliases keep the existing renderer independent from Grist names.
-      Nom: project.Projet || project.Acronyme || '',
-      Statut: project.Statut_Macro || project.Statut_operationnel_projet || '',
-      Progression: Number(project.Progression ?? 0),
-      Propriétaire: people.get(project.Porteur_1) || '',
-      Budget: project.Total_2026 || project.Montant_annuel_charge_attribue || 0
-    }));
+    return rows.map(project => {
+      const budget = project.Total_2026 || project.Montant_annuel_charge_attribue || 0;
+      // Plusieurs OPE par projet (24/11/2026) : le budget 2026 additionne les OPE 1 à 4 (Total_2026 ne couvre que l'OPE 1).
+      const extra = global.CoreOpes ? global.CoreOpes.yearAmount(project, 2026, [2, 3, 4]) : 0;
+      return {
+        ...project,
+        // Display aliases keep the existing renderer independent from Grist names.
+        Nom: project.Projet || project.Acronyme || '',
+        Statut: project.Statut_Macro || project.Statut_operationnel_projet || '',
+        Progression: Number(project.Progression ?? 0),
+        Propriétaire: people.get(project.Porteur_1) || '',
+        Budget: extra ? (Number(budget) || 0) + extra : budget
+      };
+    });
   }
 
   // Pose la description (métadonnée _grist_Tables_column.description) des colonnes

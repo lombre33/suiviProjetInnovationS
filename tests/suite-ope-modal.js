@@ -1,6 +1,6 @@
 /**
  * Non-regression suite: création d'une ligne OPE à la volée (js/components/ope-modal.js),
- * depuis le champ "Ligne OPE" de l'onglet Dates & OPE de la modale Projet — même patron
+ * depuis le champ "Ligne OPE" de l'onglet Budget et OPE de la modale Projet (carte de chaque OPE) — même patron
  * que le "+ Créer" du champ Porteur (person-modal.js), mais table Lignes_OPE.
  */
 (function () {

@@ -4,10 +4,11 @@
  * Maquette validée par Antoine le 10/11/2026 ; mise en œuvre le 18/11/2026. « Bilan » 2023-2026 pour l'instant.
  *
  * D'où viennent les chiffres (une seule fonction, buildDataset, lit Grist : changer de source ne touche que celle-là) :
- *  - Attribué, par année : Projets.cAAAA_M10_Fonctionnement + cAAAA_M20_Investissement + cAAAA_M30_Personnel (AAAA = 2023…2026).
+ *  - Attribué, par année : Projets.cAAAA_M10_Fonctionnement + cAAAA_M20_Investissement + cAAAA_M30_Personnel (AAAA = 2023…2026),
+ *    plus les mêmes colonnes suffixées _2/_3/_4 des OPE 2 à 4 d'un projet qui en porte plusieurs (js/core/project-opes.js).
  *    Ni Projets.Montant_attribue_Total (il ne somme que 2026-2028) ni Total_AAAA (formules qui renvoient "" à 0).
  *  - Consommé, par année : somme des lignes de la table Depenses_OPE (export FD02 « Consommation détaillée des AE ») dont
- *    Code_operation correspond à une ligne OPE du projet (Projets.Ligne_OPE → Lignes_OPE.N_OPE). CP = Total CP consommé,
+ *    Code_operation correspond à une ligne OPE du projet (Projets.Ligne_OPE, ou Ligne_OPE_2/_3/_4 → Lignes_OPE.N_OPE). CP = Total CP consommé,
  *    AE = Total AE consommé ; l'utilisateur choisit la mesure.
  *  - Reliquat « sans année » : Lignes_OPE.totalCPConsomme (un seul total par ligne OPE) moins les CP déjà détaillés dans
  *    Depenses_OPE, quand il est positif. Mesure CP seulement (il n'existe pas de total AE dans Lignes_OPE). Sans ce repli, un
@@ -122,10 +123,12 @@
     const ligneById = new Map(lignes.map(row => [row.id, row]));
     const opeOwner = new Map(); // code opération normalisé → projet (le premier qui le porte)
     const projects = projets.map(row => {
-      const lines = refIds(row.Ligne_OPE).map(id => ligneById.get(id)).filter(Boolean);
+      // Plusieurs OPE par projet (24/11/2026) : les lignes et les montants des OPE 2 à 4 (colonnes Ligne_OPE_2…, cAAAA_*_2…) s'ajoutent à ceux de l'OPE 1.
+      const opes = global.CoreOpes;
+      const lines = (opes ? opes.ligneIds(row) : refIds(row.Ligne_OPE)).map(id => ligneById.get(id)).filter(Boolean);
       const ope = lines.map(line => text(line.N_OPE)).filter(Boolean);
       const att = {};
-      YEARS.forEach(year => { att[year] = MASSES.reduce((sum, mass) => sum + num(row[`c${year}_${mass}`]), 0); });
+      YEARS.forEach(year => { att[year] = MASSES.reduce((sum, mass) => sum + num(row[`c${year}_${mass}`]), 0) + (opes ? opes.yearAmount(row, year, [2, 3, 4]) : 0); });
       const acronyme = text(row.Acronyme) || text(row.Projet) || `Projet ${row.id}`;
       const project = {
         id: row.id, row, acronyme, titre: text(row.Projet) && text(row.Projet) !== acronyme ? text(row.Projet) : '',

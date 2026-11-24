@@ -462,7 +462,7 @@
     const errorText = () => modalEl().querySelector('#cp-project-error').textContent;
     const epoch = iso => Math.floor(new Date(`${iso}T00:00:00Z`).getTime() / 1000);
 
-    it('les trois champs date de l\'onglet Dates & OPE sont des champs texte jj/mm/aaaa, pas des champs natifs', async function () {
+    it('les trois champs date de l\'onglet Instance et dates sont des champs texte jj/mm/aaaa, pas des champs natifs', async function () {
       await loadFixtureState();
       window.ProjectModal.open();
       ['Date_limite_financement', 'Date_debut_Projet', 'Date_de_fin_Projet'].forEach(k => {

@@ -505,7 +505,7 @@
       setValue(modalEl().querySelector('#cp-Projet'), 'Mon nouveau projet');
       setValue(modalEl().querySelector('#cp-Acronyme'), 'MNP');
       // Rien dans Porteurs/Dates/Budget : le premier onglet avec un champ manquant,
-      // en partant de la gauche (Général, Porteurs, Dates & OPE, Budget, Convention),
+      // en partant de la gauche (Général, Porteurs, Instance et dates, Budget et OPE, Convention),
       // est Porteurs.
       modalEl().querySelector('[data-cp-tab="budget"]').click();
       assertEqual(modalEl().dataset.activeTab, 'budget');
@@ -832,10 +832,10 @@
     });
   });
 
-  describe('Modale Projet — champ Instance rattachée dans Dates & OPE', function () {
-    it('se trouve dans le panneau Dates & OPE, plus dans Porteurs', function () {
+  describe('Modale Projet — champ Instance rattachée dans Instance et dates', function () {
+    it('se trouve dans le panneau Instance et dates, plus dans Porteurs', function () {
       window.ProjectModal.open();
-      assertTrue(!!modalEl().querySelector('[data-cp-panel="dates"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee doit être dans le panneau Dates & OPE');
+      assertTrue(!!modalEl().querySelector('[data-cp-panel="dates"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee doit être dans le panneau Instance et dates');
       assertTrue(!modalEl().querySelector('[data-cp-panel="porteurs"] [data-ref="Instance_ratachee"]'), 'Instance_ratachee ne doit plus être dans le panneau Porteurs');
     });
   });

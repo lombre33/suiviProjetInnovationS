@@ -19,6 +19,7 @@
 
   // Colonnes de Projets que la modale projet écrit : les clés de collectFields() (js/components/project-modal.js), budget compris.
   // À tenir à jour avec la modale : un test relit ce que la vraie modale enregistre et échoue si la liste ne suit plus.
+  const OPE_EXTRA_COLUMNS = global.CoreOpes ? [2, 3, 4].flatMap(rank => global.CoreOpes.columnsOf(rank)) : [];
   const MODAL_FIELDS = Object.freeze([
     'Programme', 'Projet', 'Acronyme', 'Type_projet', 'Statut_operationnel_projet', 'comentaire_general_Suivi_projet',
     'Porteur_1', 'Porteur_2', 'Porteur_3', 'VP_porteur_signataire_notif', 'Accompagnateur', 'Instance_ratachee',
@@ -27,7 +28,9 @@
     'Convention_de_reversement', 'Partenaire_s_convention_reversement', 'Convention_montant_partenaire_1', 'Convention_montant_partenaire_2',
     ...[2026, 2027, 2028, 2029].flatMap(year => ['M10_Fonctionnement', 'M20_Investissement', 'M30_Personnel'].map(line => `c${year}_${line}`)),
     'Details_depense_s_Fonctionnement', 'Details_depense_s_Investissement', 'Details_depense_s_Personnel',
-    'Part_Idex', 'Part_recette_RNA_PREMAT_MAT', 'Commentaire_budget'
+    'Part_Idex', 'Part_recette_RNA_PREMAT_MAT', 'Commentaire_budget',
+    // OPE 2 à 4 (colonnes créées par le widget, js/core/project-opes.js) : écrites seulement par un projet qui les porte ou les a portées.
+    ...OPE_EXTRA_COLUMNS
   ]);
 
   const text = value => (value == null ? '' : String(value));
@@ -97,5 +100,5 @@
 
   const countOutside = result => (result ? result.outside.reduce((sum, group) => sum + group.columns.length, 0) : 0);
 
-  global.RedactionVariables = { MODAL_FIELDS, fromTemplateRow, analyse, countOutside };
+  global.RedactionVariables = { MODAL_FIELDS, OPE_EXTRA_COLUMNS, fromTemplateRow, analyse, countOutside };
 }(window));

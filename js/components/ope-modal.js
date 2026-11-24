@@ -1,5 +1,5 @@
 /* Création d'une ligne OPE (table Lignes_OPE) à la volée, depuis le champ
-   "Ligne OPE" de l'onglet Dates & OPE de la modale Projet — même patron que le
+   "Ligne OPE" de l'onglet Budget et OPE de la modale Projet (carte de chaque OPE) — même patron que le
    "+ Créer" du champ Porteur (person-modal.js) : refField() (project-modal.js)
    propose ce bouton quand la recherche ne correspond à aucune ligne existante.
    Même modale pour modifier une ligne existante (openEditOpeModal) : la page

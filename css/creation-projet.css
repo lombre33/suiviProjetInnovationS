@@ -31,11 +31,16 @@
 
 /* Onglets (modale Projet uniquement). */
 .cp-tabbar { flex:none; display:flex; gap:0; padding:10px 22px 0; border-bottom:1px solid var(--border,#dde2ea); }
-.cp-tab { border:none; background:none; padding:9px 3px; margin-right:22px; color:var(--text-faint,#98a2b3); font:inherit; font-size:12.5px; font-weight:700; border-bottom:2px solid transparent; cursor:pointer; transition:color .15s ease, border-bottom-color .15s ease; }
+.cp-tab { flex:none; white-space:nowrap; border:none; background:none; padding:9px 3px; margin-right:22px; color:var(--text-faint,#98a2b3); font:inherit; font-size:12.5px; font-weight:700; border-bottom:2px solid transparent; cursor:pointer; transition:color .15s ease, border-bottom-color .15s ease; }
 .cp-tab:hover { color:var(--text,#1b2430); }
 .cp-tab.active { color:var(--accent,#2f6fed); border-bottom-color:var(--accent,#2f6fed); }
+/* Nombre d'OPE du projet, sur l'onglet « Budget et OPE » (visible dès deux OPE). */
+.cp-tab-count { display:inline-grid; place-items:center; min-width:17px; height:17px; margin-left:6px; padding:0 5px; border-radius:999px; background:var(--accent,#2f6fed); color:#fff; font-size:10.5px; font-weight:800; }
+.cp-tab-count[hidden] { display:none; }
 
 .cp-body { flex:1; overflow:auto; padding:20px 22px 4px; }
+/* Onglet « Budget et OPE » : le bandeau du prévisionnel est collé au bord haut, sans marge au-dessus. */
+.cp-body.is-budget { padding-top:0; }
 .cp-panel.cp-hidden { display:none!important; }
 /* Passage d'un onglet à l'autre : léger fondu + glissement plutôt qu'un
    affichage instantané, pour un changement d'onglet plus fluide. Classe
@@ -131,8 +136,10 @@
 .cp-ref-list button { display:block; width:100%; padding:10px 12px; border:0; background:var(--surface,#fff); color:var(--text-muted,#667085); text-align:left; font:inherit; font-size:13px; cursor:pointer; }
 .cp-ref-list button:hover, .cp-ref-list button:focus-visible, .cp-ref-list button.is-active { outline:none; background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); }
 
-.cp-fin-summary { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+/* Total du projet, collé en haut de l'onglet quand on défile (une seule ligne : le prévisionnel d'avant, plus le nombre d'OPE). */
+.cp-fin-summary { position:sticky; top:0; z-index:4; display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:0 -22px 14px; padding:12px 22px 10px; background:var(--surface,#fff); border-bottom:1px solid var(--border,#dde2ea); }
 .cp-fin-summary-label { font-size:11.5px; font-weight:700; color:var(--text-muted,#667085); }
+.cp-fin-summary-count { color:var(--text,#1b2430); }
 .cp-fin-summary-value { font-size:19px; font-weight:800; color:var(--accent-hover,#2558c4); }
 .cp-fin { width:100%; overflow:hidden; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-sm,7px); border-spacing:0; background:var(--surface,#fff); font-size:12.5px; }
 .cp-fin th, .cp-fin td { padding:9px 10px; border-right:1px solid var(--border,#dde2ea); border-bottom:1px solid var(--border,#dde2ea); text-align:left; }
@@ -151,6 +158,77 @@
 .cp-fin input { width:100%; box-sizing:border-box; min-width:60px; padding:7px 8px; border:1px solid var(--border-strong,#c3cad6); border-radius:6px; background:var(--surface,#fff); font:inherit; font-size:12.5px; }
 .cp-fin input:focus { outline:none; border-color:var(--accent,#2f6fed); box-shadow:0 0 0 3px var(--accent-soft,#e8f0fe); }
 .cp-row-total { background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-weight:800; white-space:nowrap; }
+.cp-fin tbody td, .cp-fin tfoot td { font-variant-numeric:tabular-nums; }
+/* Première colonne assez large pour l'intitulé modifiable de l'OPE 1 (« Depenses de fonctionnement »), la même dans chaque carte : les années s'alignent d'une OPE à l'autre. */
+.cp-ope .cp-fin tbody th, .cp-ope .cp-fin tfoot th { min-width:240px; }
+.cp-fin td input { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Une carte repliable par OPE (jusqu'à quatre), chacune avec sa couleur (--c) reprise dans la barre du total croisé. */
+#cp-project-modal { --ope-1:#2f6fed; --ope-2:#0f9d8a; --ope-3:#7c5cdb; --ope-4:#c2478f; }
+.cp-opes { display:flex; flex-direction:column; gap:10px; }
+.cp-ope { scroll-margin-top:62px; position:relative; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-md,11px); background:var(--surface,#fff); }
+.cp-ope.open { border-color:var(--border-strong,#c3cad6); }
+.cp-ope-top { display:flex; align-items:stretch; }
+.cp-ope-head { flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:10px 12px; border:0; background:transparent; color:var(--text,#1b2430); text-align:left; font:inherit; cursor:pointer; border-radius:var(--radius-md,11px); }
+.cp-ope.open .cp-ope-head { border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.cp-ope-head:hover { background:var(--surface-sunken,#eef1f6); }
+.cp-ope-head:focus-visible { outline:2px solid var(--accent,#2f6fed); outline-offset:-2px; }
+.cp-ope-badge { flex:none; display:inline-flex; align-items:center; gap:7px; padding:3px 10px 3px 8px; border-radius:999px; background:var(--surface-sunken,#eef1f6); font-size:12px; font-weight:800; }
+.cp-ope-badge i { width:9px; height:9px; border-radius:50%; background:var(--c,var(--accent,#2f6fed)); }
+.cp-ope-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; font-weight:700; }
+.cp-ope-name.is-empty { color:var(--text-faint,#98a2b3); font-weight:600; }
+.cp-ope-act { flex:none; padding:2px 9px; border-radius:999px; background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:11.5px; font-weight:700; white-space:nowrap; }
+.cp-ope-act:empty { display:none; }
+.cp-ope-act.warn { background:var(--warning-soft,#fff4e5); color:var(--warning,#b45309); }
+.cp-ope-sum { flex:none; min-width:78px; text-align:right; font-size:13.5px; font-weight:800; font-variant-numeric:tabular-nums; }
+.cp-ope-chev { flex:none; color:var(--text-faint,#98a2b3); transition:transform .15s ease; }
+.cp-ope.open .cp-ope-chev { transform:rotate(180deg); }
+.cp-ope-del { flex:none; display:grid; place-items:center; width:40px; padding:0; border:0; border-left:1px solid var(--border,#dde2ea); border-radius:0 var(--radius-md,11px) 0 0; background:transparent; color:var(--text-faint,#98a2b3); cursor:pointer; }
+.cp-ope:not(.open) .cp-ope-del { border-radius:0 var(--radius-md,11px) var(--radius-md,11px) 0; }
+.cp-ope-del:hover, .cp-ope-del:focus-visible { background:var(--danger-soft,#fbe9e9); color:var(--danger,#d84343); outline:none; }
+.cp-ope-confirm { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:8px 12px; background:var(--danger-soft,#fbe9e9); border-top:1px solid var(--danger-soft-border,#f6c4c4); color:var(--danger,#d84343); font-size:12.5px; font-weight:700; }
+.cp-ope-confirm[hidden] { display:none; }
+.cp-ope-confirm span { flex:1; min-width:160px; }
+.cp-ope-confirm button { height:28px; padding:0 12px; border:1px solid var(--danger,#d84343); border-radius:var(--radius-sm,7px); background:transparent; color:var(--danger,#d84343); font:inherit; font-size:12px; font-weight:800; cursor:pointer; }
+.cp-ope-confirm [data-ope-confirm-go] { background:var(--danger,#d84343); color:#fff; }
+.cp-ope-body { display:flex; flex-direction:column; gap:12px; padding:12px; border-top:1px solid var(--border,#dde2ea); }
+.cp-ope-body[hidden] { display:none; }
+.cp-ope-body .cp-grid { gap:12px 18px; }
+.cp-field textarea.cp-ope-comment { min-height:36px; }
+
+.cp-ope-add-zone { margin-top:10px; }
+.cp-ope-add { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; height:40px; border:1px dashed var(--border-strong,#c3cad6); border-radius:var(--radius-md,11px); background:transparent; color:var(--text-muted,#667085); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.cp-ope-add:hover { border-color:var(--accent,#2f6fed); color:var(--accent,#2f6fed); background:var(--accent-soft,#e8f0fe); }
+.cp-ope-add:focus-visible { outline:2px solid var(--accent,#2f6fed); outline-offset:2px; }
+.cp-ope-add small { font-weight:600; color:var(--text-faint,#98a2b3); }
+.cp-ope-max { margin:0; text-align:center; font-size:12px; color:var(--text-faint,#98a2b3); }
+
+/* Total croisé du projet : dès deux OPE. */
+.cp-total { margin-top:16px; padding:14px; border:1px solid var(--accent-soft-border,#c7dbfd); border-radius:var(--radius-md,11px); background:var(--accent-soft,#e8f0fe); }
+.cp-total[hidden] { display:none; }
+.cp-total-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px; margin-bottom:10px; }
+.cp-total-head h3 { margin:0; font-size:14px; font-weight:800; color:var(--accent-hover,#2558c4); }
+.cp-seg { display:inline-flex; gap:2px; padding:3px; border-radius:999px; background:var(--surface,#fff); }
+.cp-seg button { border:0; border-radius:999px; background:transparent; color:var(--text-muted,#667085); font:inherit; font-size:12.5px; font-weight:700; padding:5px 13px; cursor:pointer; }
+.cp-seg button:hover { color:var(--text,#1b2430); }
+.cp-seg button[aria-pressed="true"] { background:var(--accent,#2f6fed); color:#fff; }
+.cp-seg button:focus-visible { outline:2px solid var(--accent,#2f6fed); outline-offset:2px; }
+.cp-total-bar { display:flex; gap:2px; height:10px; margin-bottom:6px; }
+.cp-total-bar i { display:block; min-width:3px; border-radius:3px; background:var(--c); transition:flex-grow .2s ease; }
+.cp-total-legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin-bottom:10px; font-size:11.5px; font-weight:600; color:var(--text-muted,#667085); }
+.cp-total-legend span { display:inline-flex; align-items:center; gap:6px; }
+.cp-total-legend i { width:8px; height:8px; border-radius:50%; background:var(--c); }
+.cp-total-legend b { color:var(--text,#1b2430); font-variant-numeric:tabular-nums; }
+.cp-fin-cross { border-color:var(--accent-soft-border,#c7dbfd); background:var(--surface,#fff); }
+.cp-fin-cross tbody th { min-width:0; }
+.cp-fin-cross tbody td { text-align:right; }
+.cp-fin-cross thead th:not(:first-child), .cp-fin-cross tfoot td { text-align:right; }
+.cp-dot-ope { display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; background:var(--c); }
+.cp-zero { color:var(--text-faint,#98a2b3); font-weight:600; }
+.cp-conv { display:flex; gap:8px; align-items:flex-start; margin:10px 0 0; padding:8px 11px; border-radius:var(--radius-sm,7px); font-size:12.5px; font-weight:600; }
+.cp-conv[hidden] { display:none; }
+.cp-conv.ok { border:1px solid var(--success-soft-border,#bfe6d3); background:var(--success-soft,#e5f6ee); color:var(--success,#1a8f5e); }
+.cp-conv.ko { border:1px solid var(--danger-soft-border,#f6c4c4); background:var(--danger-soft,#fbe9e9); color:var(--danger,#d84343); }
 .cp-budget-notice { margin:12px 0 0; padding:9px 12px; border:1px solid var(--accent-soft-border,#c7dbfd); border-radius:var(--radius-sm,7px); background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); font-size:12.5px; font-weight:600; }
 
 /* Co-financements : volet replié de l'onglet Budget (<details>), une seule ligne tant qu'il est fermé ; le résumé
@@ -209,6 +287,10 @@
   .cp-head { padding:16px 16px 2px 18px; }
   .cp-tabbar { padding:8px 16px 0; overflow-x:auto; }
   .cp-body { padding:16px 16px 2px; }
+  .cp-body.is-budget { padding-top:0; }
+  .cp-fin-summary { margin:0 -16px 12px; padding:10px 16px 8px; }
+  .cp-ope-act { display:none; }
+  .cp-ope-body { padding:10px; }
   .cp-grid { grid-template-columns:1fr; gap:14px; }
   .cp-full { grid-column:auto; }
   .cp-fin { display:block; overflow-x:auto; white-space:nowrap; font-size:11.5px; }

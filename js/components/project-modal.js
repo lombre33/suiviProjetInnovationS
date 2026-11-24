@@ -11,17 +11,12 @@
   // Bulle d'aide Grist (description de colonne) accolée au libellé d'un champ —
   // toujours la table Projets ici, seule table que cette modale écrit ; aucune
   // icône si la colonne n'a pas de description (cf. js/components/help-tooltip.js).
-  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Projets', colId);
+  // Les colonnes des OPE 2 à 4 (Ligne_OPE_2…) n'ont pas de description propre à lire : celle de la colonne de l'OPE 1 leur sert.
+  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Projets', global.CoreOpes.baseColumn(colId));
   const label = (r, fields) => fields.map(k => r?.[k]).find(v => v != null && v !== '') || '';
   const personLabel = r => label(r, ['nom_et_Prenom', 'Prenom', 'NOM']);
   // Numéro de la ligne OPE ; « N° à venir · structure » tant qu'elle n'en a pas (cf. CoreUtils.opeLabel).
   const opeLabel = r => global.CoreUtils.opeLabel(r);
-  const FIN = {
-    2026: ['c2026_M10_Fonctionnement', 'c2026_M20_Investissement', 'c2026_M30_Personnel'],
-    2027: ['c2027_M10_Fonctionnement', 'c2027_M20_Investissement', 'c2027_M30_Personnel'],
-    2028: ['c2028_M10_Fonctionnement', 'c2028_M20_Investissement', 'c2028_M30_Personnel'],
-    2029: ['c2029_M10_Fonctionnement', 'c2029_M20_Investissement', 'c2029_M30_Personnel']
-  };
   const normaliseBudgetValue = value => value === '' || value == null || !Number.isFinite(Number(value)) ? 0 : Number(value);
 
   // Champs du prévisionnel budgétaire : type="text" plutôt que type="number" pour
@@ -43,8 +38,8 @@
   const TABS = [
     { key: 'general', label: 'Général' },
     { key: 'porteurs', label: 'Porteurs' },
-    { key: 'dates', label: 'Dates & OPE' },
-    { key: 'budget', label: 'Budget' },
+    { key: 'dates', label: 'Instance et dates' },
+    { key: 'budget', label: 'Budget et OPE' },
     { key: 'conventions', label: 'Convention' }
   ];
 
@@ -57,6 +52,13 @@
     { value: 'myphd+', label: 'MyPhD+' }
   ];
 
+  const ICON_CHEVRON = '<svg class="cp-ope-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+  const ICON_TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v6M14 11v6"></path></svg>';
+  // Intitulés par défaut des trois lignes de l'OPE 1 (colonnes Details_depense_s_*, modifiables) : jamais écrits pour les OPE 2 à 4.
+  const DEFAULT_DETAIL_LABELS = { F: 'Depenses de fonctionnement', I: 'Dépenses d\'investissement', P: 'Depenses de personnel' };
+  const eur = value => global.CoreUtils.formatCurrency(value);
+  const fmtNumber = value => Number(value).toLocaleString('fr-FR');
+
   const OPE_OPTIONS = [
     { value: '', label: 'Aucune' },
     { value: 'Creation de ligne', label: 'Création de ligne' },
@@ -64,6 +66,8 @@
     { value: 're-Abondement de ligne', label: 'Ré-abondement' },
     { value: 'à determiner', label: 'À déterminer' }
   ];
+
+  const opeActionLabel = value => (OPE_OPTIONS.find(o => o.value === value) || { label: text(value) }).label;
 
   function refField(parent, key, table, display, required = false) {
     const isPerson = table === 'Annuaire';
@@ -281,9 +285,10 @@
   // séparateur de milliers et Number() ne sait pas reparser ça — silencieusement NaN,
   // donc 0, dès que le budget atteint 1000. Les deux totaux restent ainsi garantis
   // cohérents puisqu'ils font la somme des mêmes valeurs.
+  // Plusieurs OPE par projet (24/11/2026) : la somme porte sur les montants de toutes les OPE.
   function conventionTotal(m) {
-    const table = m.querySelector('.cp-fin');
-    if (table) return [...table.querySelectorAll('tbody [data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
+    const inputs = [...m.querySelectorAll('.cp-ope [data-fin]')];
+    if (inputs.length) return inputs.reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
     return Number(valueOf(m._projectRecord, ['Montant_attribue_Total'])) || 0;
   }
 
@@ -291,10 +296,9 @@
   // intégralement couvert par le budget de Fonctionnement (M10), jamais l'Investissement
   // (M20) ni le Personnel (M30) — on isole donc ici le total de la seule ligne
   // "Fonctionnement" du tableau budgétaire, à comparer au montant de la convention.
+  // Plusieurs OPE par projet : le Fonctionnement de TOUTES les OPE compte ensemble.
   function fonctionnementTotal(m) {
-    const row = m.querySelector('.cp-fin tbody tr[data-detail="Details_depense_s_Fonctionnement"]');
-    if (!row) return 0;
-    return [...row.querySelectorAll('[data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
+    return [...m.querySelectorAll('.cp-ope [data-fin][data-nature="F"]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
   }
 
   // Montant total de la convention de reversement (somme des deux partenaires),
@@ -311,7 +315,8 @@
     const amount = conventionAmount(m);
     const fonctionnement = fonctionnementTotal(m);
     if (amount > fonctionnement) {
-      return `Le budget de Fonctionnement (${global.CoreUtils.formatCurrency(fonctionnement)}) doit couvrir l'intégralité du montant de la convention de reversement (${global.CoreUtils.formatCurrency(amount)}).`;
+      const scope = m.querySelectorAll('.cp-ope').length > 1 ? ' de toutes les OPE réunies' : '';
+      return `Le budget de Fonctionnement${scope} (${global.CoreUtils.formatCurrency(fonctionnement)}) doit couvrir l'intégralité du montant de la convention de reversement (${global.CoreUtils.formatCurrency(amount)}).`;
     }
     return null;
   }
@@ -341,7 +346,7 @@
     return w.querySelector('input');
   }
 
-  // Co-financements (demande d'Antoine du 17/11/2026) : volet replié de l'onglet Budget pour les projets (co)financés
+  // Co-financements (demande d'Antoine du 17/11/2026) : volet replié de l'onglet Budget et OPE pour les projets (co)financés
   // par Idex ou par une recette RNA Premat-mat, avec un commentaire libre. Colonnes ajoutées à la main dans Grist, dont le
   // type n'est pas imposé : le champ s'adapte à la colonne (case Oui/Non, montant, liste de choix ou texte) lue dans les
   // métadonnées (CoreGrist.columnTypes), ou à défaut aux valeurs déjà présentes ; une colonne absente n'est jamais écrite
@@ -507,7 +512,7 @@
     m.className = 'cp-modal cp-hidden';
     m.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
       `<div class="cp-head"><h2></h2><button type="button" data-cp-close aria-label="Fermer">×</button></div>` +
-      `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${esc(t.label)}</button>`).join('')}</div>` +
+      `<div class="cp-tabbar" role="tablist">${TABS.map(t => `<button type="button" class="cp-tab" data-cp-tab="${t.key}" role="tab">${esc(t.label)}${t.key === 'budget' ? '<span class="cp-tab-count" hidden></span>' : ''}</button>`).join('')}</div>` +
       `<div id="cp-project-form" class="cp-body"></div>` +
       `<p id="cp-project-error" class="cp-error" role="alert"></p>` +
       `<p id="cp-project-warning" class="cp-warning-banner" role="status"></p>` +
@@ -584,107 +589,292 @@
     withHelp(comment.querySelector('label'), 'comentaire_general_Suivi_projet');
     panels.porteurs.appendChild(comment);
 
-    // Dates & OPE
+    // Instance et dates
     refs.Instance_ratachee = refField(panels.dates, 'Instance_ratachee', 'Suivi_Instance', { label: 'Instance rattachée', fields: ['Nom', 'name'] }, true);
     refs.Date_limite_financement = field(panels.dates, 'Date limite de financement', 'cp-Date_limite_financement', 'date', true);
     refs.Date_debut_Projet = field(panels.dates, 'Date de début du projet', 'cp-Date_debut_Projet', 'date');
     refs.Date_de_fin_Projet = field(panels.dates, 'Date de fin du projet', 'cp-Date_de_fin_Projet', 'date');
     refs.Periode = field(panels.dates, 'Période (calculée)', 'cp-Periode', 'text');
+    refs.Periode.parentElement.classList.add('cp-full');
     refs.Periode.readOnly = true;
     refs.Periode.classList.add('cp-readonly');
     refs.Periode.setAttribute('aria-readonly', 'true');
 
-    refs.Ligne_OPE = refField(panels.dates, 'Ligne_OPE', 'Lignes_OPE', { label: 'Ligne OPE', fields: ['N_OPE'], format: opeLabel });
-    refs.Ligne_OPE_installe_chez = field(panels.dates, 'Installée chez (rapporté)', 'cp-Ligne_OPE_installe_chez', 'text');
-    refs.Ligne_OPE_installe_chez.readOnly = true;
-    refs.Ligne_OPE_installe_chez.classList.add('cp-readonly');
-    refs.Ligne_OPE_installe_chez.setAttribute('aria-readonly', 'true');
+    // Budget et OPE (demande d'Antoine du 24/11/2026) : un projet a de une à quatre OPE, une carte repliable chacune (ligne OPE,
+    // installée chez, action, commentaire, répartition 2026-2029). Seule l'OPE 1 existe à la création de la modale : les suivantes
+    // sont créées à la demande (« + Ajouter ») ou à l'ouverture d'un projet qui en a déjà (cf. populateModal). Les colonnes de
+    // l'OPE 1 sont les colonnes historiques ; celles des OPE 2 à 4 portent le suffixe _2/_3/_4 (js/core/project-opes.js).
+    refs._opes = [];
+    const finSummary = document.createElement('div');
+    finSummary.className = 'cp-fin-summary';
+    finSummary.innerHTML = '<span class="cp-fin-summary-label">Prévisionnel 2026–2029<span class="cp-fin-summary-count" data-ope-count></span></span><span class="cp-fin-summary-value" data-fin-summary>0 €</span>';
+    panels.budget.appendChild(finSummary);
 
-    // "Installée chez" est un champ rapporté en lecture seule : côté Grist c'est la
+    const opesWrap = document.createElement('div');
+    opesWrap.className = 'cp-opes';
+    panels.budget.appendChild(opesWrap);
+    const addZone = document.createElement('div');
+    addZone.className = 'cp-ope-add-zone';
+    panels.budget.appendChild(addZone);
+
+    // « Installée chez » est un champ rapporté en lecture seule : côté Grist c'est la
     // formule Ligne_OPE_installe_chez (ReferenceList, recalculée seulement après
     // enregistrement) — on ne peut pas s'y fier tant qu'on modifie la ligne OPE dans la
     // modale (jamais à jour avant sauvegarde, d'où le brut "L,43" affiché avant ce
     // correctif). On le recalcule donc nous-mêmes depuis la ligne OPE réellement
     // sélectionnée (CoreState), à chaque fois que cette sélection change (clic sur une
     // suggestion, croix de suppression, ou création d'une nouvelle ligne OPE à la volée).
-    const refreshInstalleChez = () => {
-      const ligneId = refs.Ligne_OPE.input.dataset.id;
+    function refreshInstalleChez(card) {
+      const ligneId = card.ref.input.dataset.id;
       const ligne = ligneId ? rows('Lignes_OPE').find(r => String(r.id) === String(ligneId)) : null;
       const structure = ligne?.installe_chez ? rows('Structures').find(r => String(r.id) === String(ligne.installe_chez)) : null;
-      refs.Ligne_OPE_installe_chez.value = structure ? label(structure, ['Acronyme', 'Nom_Complet']) : '';
-    };
-    const ligneOpeSync = refs.Ligne_OPE.input._cpRefSync;
-    refs.Ligne_OPE.input._cpRefSync = () => { ligneOpeSync(); refreshInstalleChez(); };
-    refs._refreshInstalleChez = refreshInstalleChez;
+      card.installe.value = structure ? label(structure, ['Acronyme', 'Nom_Complet']) : '';
+    }
 
-    const opeWrap = document.createElement('div');
-    opeWrap.className = 'cp-field cp-full';
-    opeWrap.innerHTML = '<label for="cp-Action_Ligne_OPE_a_faire">Action ligne OPE *</label><div class="cp-chip-row"></div>';
-    withHelp(opeWrap.querySelector('label'), 'Action_Ligne_OPE_a_faire');
-    panels.dates.appendChild(opeWrap);
-    const opeSelect = document.createElement('select');
-    opeSelect.id = 'cp-Action_Ligne_OPE_a_faire';
-    opeSelect.className = 'cp-visually-hidden';
-    opeSelect.innerHTML = OPE_OPTIONS.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
-    opeWrap.appendChild(opeSelect);
-    refs.Action_Ligne_OPE_a_faire = opeSelect;
-    const opeChipsRow = opeWrap.querySelector('.cp-chip-row');
-    // Valeur de Grist hors OPE_OPTIONS (ex. « ligne validée ») : conservée comme option et puce
-    // supplémentaires, sinon le <select> se vide à l'ouverture et l'enregistrement effacerait l'action.
-    let opeExtraValue = '';
-    refs._setOpeAction = value => {
-      opeSelect.querySelectorAll('option[data-cp-extra]').forEach(o => o.remove());
-      opeExtraValue = value.trim() && !OPE_OPTIONS.some(o => o.value === value) ? value : '';
-      if (opeExtraValue) {
-        const extra = document.createElement('option');
-        extra.value = opeExtraValue;
-        extra.textContent = opeExtraValue;
-        extra.dataset.cpExtra = '1';
-        opeSelect.appendChild(extra);
-      }
-      opeSelect.value = value;
-    };
-    const renderOpeChips = () => {
-      const chips = OPE_OPTIONS.filter(o => o.value);
-      if (opeExtraValue) chips.push({ value: opeExtraValue, label: opeExtraValue });
-      opeChipsRow.innerHTML = chips.map(o => {
-        const variant = o.value === 'à determiner' ? ' warn' : '';
-        return `<button type="button" class="cp-chip${variant}${o.value === opeSelect.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`;
-      }).join('');
-      opeChipsRow.querySelectorAll('button').forEach(b => b.onclick = () => {
-        opeSelect.value = opeSelect.value === b.dataset.value ? '' : b.dataset.value;
-        opeSelect.dispatchEvent(new Event('change'));
+    function buildOpeCard(rank) {
+      const sfx = rank > 1 ? `_${rank}` : '';
+      const card = { rank, open: true };
+      const el = document.createElement('article');
+      el.className = 'cp-ope open';
+      el.dataset.opeRank = String(rank);
+      el.style.setProperty('--c', `var(--ope-${rank})`);
+      const bodyId = `cp-ope-body-${rank}`;
+      el.innerHTML =
+        `<div class="cp-ope-top"><button type="button" class="cp-ope-head" aria-expanded="true" aria-controls="${bodyId}">` +
+        `<span class="cp-ope-badge"><i></i>OPE ${rank}</span><span class="cp-ope-name is-empty" data-ope-name>Ligne OPE à choisir</span><span class="cp-ope-act" data-ope-act></span><span class="cp-ope-sum" data-ope-sum>0 €</span>${ICON_CHEVRON}</button>` +
+        (rank > 1 ? `<button type="button" class="cp-ope-del" aria-label="Retirer l’OPE ${rank}" title="Retirer l’OPE ${rank}">${ICON_TRASH}</button>` : '') +
+        '</div>' +
+        (rank > 1 ? `<div class="cp-ope-confirm" role="alert" hidden><span>Retirer l’OPE ${rank} et ses montants ?</span><button type="button" data-ope-confirm-go>Retirer</button><button type="button" data-ope-confirm-keep>Garder</button></div>` : '') +
+        `<div class="cp-ope-body" id="${bodyId}"></div>`;
+      const body = el.querySelector('.cp-ope-body');
+      const grid = document.createElement('div');
+      grid.className = 'cp-grid';
+      body.appendChild(grid);
+
+      // Ligne OPE + Installée chez (rapporté)
+      card.ref = refField(grid, 'Ligne_OPE' + sfx, 'Lignes_OPE', { label: 'Ligne OPE', fields: ['N_OPE'], format: opeLabel });
+      card.installe = field(grid, 'Installée chez (rapporté)', 'cp-Ligne_OPE_installe_chez' + sfx, 'text');
+      card.installe.readOnly = true;
+      card.installe.classList.add('cp-readonly');
+      card.installe.setAttribute('aria-readonly', 'true');
+      const baseRefSync = card.ref.input._cpRefSync;
+      card.refresh = () => { refreshInstalleChez(card); refreshOpeHeader(el); };
+      card.ref.input._cpRefSync = () => { baseRefSync(); card.refresh(); };
+
+      // Action ligne OPE (puces) : obligatoire pour l'OPE 1 seulement.
+      const actionWrap = document.createElement('div');
+      actionWrap.className = 'cp-field cp-full';
+      actionWrap.innerHTML = `<label for="cp-Action_Ligne_OPE_a_faire${sfx}">Action ligne OPE${rank === 1 ? ' *' : ''}</label><div class="cp-chip-row"></div>`;
+      withHelp(actionWrap.querySelector('label'), 'Action_Ligne_OPE_a_faire' + sfx);
+      grid.appendChild(actionWrap);
+      const select = document.createElement('select');
+      select.id = 'cp-Action_Ligne_OPE_a_faire' + sfx;
+      select.className = 'cp-visually-hidden';
+      select.innerHTML = OPE_OPTIONS.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+      actionWrap.appendChild(select);
+      card.select = select;
+      const chipsRow = actionWrap.querySelector('.cp-chip-row');
+      // Valeur de Grist hors OPE_OPTIONS (ex. « ligne validée ») : conservée comme option et puce
+      // supplémentaires, sinon le <select> se vide à l'ouverture et l'enregistrement effacerait l'action.
+      let extraValue = '';
+      card.setAction = value => {
+        value = text(value);
+        select.querySelectorAll('option[data-cp-extra]').forEach(o => o.remove());
+        extraValue = value.trim() && !OPE_OPTIONS.some(o => o.value === value) ? value : '';
+        if (extraValue) {
+          const extra = document.createElement('option');
+          extra.value = extraValue;
+          extra.textContent = extraValue;
+          extra.dataset.cpExtra = '1';
+          select.appendChild(extra);
+        }
+        select.value = value;
+        renderChips();
+        refreshOpeHeader(el);
+      };
+      const renderChips = () => {
+        const chips = OPE_OPTIONS.filter(o => o.value);
+        if (extraValue) chips.push({ value: extraValue, label: extraValue });
+        chipsRow.innerHTML = chips.map(o => {
+          const variant = o.value === 'à determiner' ? ' warn' : '';
+          return `<button type="button" class="cp-chip${variant}${o.value === select.value ? ' active' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`;
+        }).join('');
+        chipsRow.querySelectorAll('button').forEach(b => b.onclick = () => {
+          select.value = select.value === b.dataset.value ? '' : b.dataset.value;
+          select.dispatchEvent(new Event('change'));
+        });
+      };
+      select.addEventListener('change', () => { renderChips(); refreshOpeHeader(el); });
+      renderChips();
+
+      // Commentaire ligne OPE (une ligne, extensible)
+      const commentWrap = document.createElement('div');
+      commentWrap.className = 'cp-field cp-full';
+      commentWrap.innerHTML = `<label for="cp-Commentaire_ligne_OPE${sfx}">Commentaire ligne OPE</label><textarea id="cp-Commentaire_ligne_OPE${sfx}" class="cp-ope-comment" rows="1"></textarea>`;
+      withHelp(commentWrap.querySelector('label'), 'Commentaire_ligne_OPE' + sfx);
+      grid.appendChild(commentWrap);
+      card.comment = commentWrap.querySelector('textarea');
+
+      // Répartition 2026-2029 × Fonctionnement / Investissement / Personnel
+      const natures = global.CoreOpes.NATURES, years = global.CoreOpes.YEARS;
+      const tableWrap = document.createElement('div');
+      tableWrap.className = 'cp-fin-wrap';
+      const table = document.createElement('table');
+      table.className = 'cp-fin';
+      table.innerHTML = `<thead><tr><th>Répartition</th>${years.map(y => `<th>${y}</th>`).join('')}<th>Total</th></tr></thead><tbody>` +
+        natures.map(n => {
+          const head = rank === 1
+            ? `<th><input value="${esc(DEFAULT_DETAIL_LABELS[n.key])}" aria-label="Intitulé ${esc(n.label)}"></th>`
+            : `<th scope="row">${esc(n.label)}</th>`;
+          return `<tr data-nature="${n.key}"${rank === 1 ? ` data-detail="${n.detail}"` : ''}>${head}${years.map(() => '<td></td>').join('')}<td class="cp-row-total" data-row-total="${n.detail}">0</td></tr>`;
+        }).join('') +
+        `</tbody><tfoot><tr><th>Total OPE ${rank}</th>${years.map(y => `<td data-total="${y}">0</td>`).join('')}<td data-grand-total>0</td></tr></tfoot>`;
+      table.querySelectorAll('tbody tr').forEach((tr, i) => {
+        years.forEach((year, yi) => {
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.inputMode = 'decimal';
+          inp.autocomplete = 'off';
+          inp.value = '0';
+          inp.dataset.fin = global.CoreOpes.amountColumn(rank, year, natures[i]);
+          inp.dataset.nature = natures[i].key;
+          inp.dataset.year = String(year);
+          inp.setAttribute('aria-label', `${natures[i].label} ${year}, OPE ${rank}`);
+          inp.oninput = () => { sanitizeNumericInput(inp); syncConventionAmounts(m); updateFinancialTotals(table); checkConvention7030(m); };
+          tr.children[yi + 1].appendChild(inp);
+        });
       });
-    };
-    opeSelect.addEventListener('change', renderOpeChips);
-    renderOpeChips();
+      tableWrap.appendChild(table);
+      body.appendChild(tableWrap);
+      card.table = table;
 
-    const opeComment = document.createElement('div');
-    opeComment.className = 'cp-field cp-full';
-    opeComment.innerHTML = '<label for="cp-Commentaire_ligne_OPE">Commentaire ligne OPE</label><textarea id="cp-Commentaire_ligne_OPE" rows="3"></textarea>';
-    withHelp(opeComment.querySelector('label'), 'Commentaire_ligne_OPE');
-    panels.dates.appendChild(opeComment);
+      // Repli / dépli, retrait (OPE 2 à 4)
+      const head = el.querySelector('.cp-ope-head');
+      card.setOpen = open => {
+        card.open = open;
+        el.classList.toggle('open', open);
+        head.setAttribute('aria-expanded', String(open));
+        body.hidden = !open;
+      };
+      head.onclick = () => card.setOpen(!card.open);
+      if (rank > 1) {
+        const del = el.querySelector('.cp-ope-del'), confirm = el.querySelector('.cp-ope-confirm');
+        del.onclick = () => {
+          if (!global.CoreOpes.hasData(readCardState(card))) { removeOpe(rank); return; }
+          confirm.hidden = false;
+          confirm.querySelector('[data-ope-confirm-keep]').focus();
+        };
+        confirm.querySelector('[data-ope-confirm-keep]').onclick = () => { confirm.hidden = true; del.focus(); };
+        confirm.querySelector('[data-ope-confirm-go]').onclick = () => removeOpe(rank);
+      }
+      card.el = el;
+      return card;
+    }
 
-    // Budget
-    const finSummary = document.createElement('div');
-    finSummary.className = 'cp-fin-summary';
-    finSummary.innerHTML = '<span class="cp-fin-summary-label">Prévisionnel 2026–2029</span><span class="cp-fin-summary-value" data-fin-summary>0 €</span>';
-    panels.budget.appendChild(finSummary);
+    // Ajoute la carte de l'OPE suivante (au plus quatre). `open` : déployée ou repliée.
+    function addOpeCard(open) {
+      if (refs._opes.length >= global.CoreOpes.MAX) return null;
+      const card = buildOpeCard(refs._opes.length + 1);
+      refs._opes.push(card);
+      opesWrap.appendChild(card.el);
+      card.setOpen(open !== false);
+      return card;
+    }
+    // Retire les cartes des OPE 2 à 4 (OPE 1 reste toujours).
+    function clearExtraCards() {
+      refs._opes.splice(1).forEach(card => card.el.remove());
+    }
+    // Ce que dit la carte, sous la forme de CoreOpes.read() (+ le texte affiché de la ligne et l'état déployé).
+    function readCardState(card) {
+      const id = Number(card.ref.input.dataset.id) || 0;
+      const amounts = {};
+      global.CoreOpes.NATURES.forEach(n => {
+        amounts[n.key] = global.CoreOpes.YEARS.map(year => normaliseBudgetValue(card.el.querySelector(`[data-fin][data-nature="${n.key}"][data-year="${year}"]`)?.value));
+      });
+      return { rank: card.rank, ligneIds: id ? [id] : [], ligneText: card.ref.input.value, action: card.select.value, comment: card.comment.value, amounts, open: card.open };
+    }
+    function applyCardState(card, state) {
+      card.ref.input.dataset.id = state.ligneIds[0] ? String(state.ligneIds[0]) : '';
+      card.ref.input.value = state.ligneText || '';
+      card.ref.input._cpRefSync();
+      card.setAction(state.action);
+      card.comment.value = state.comment;
+      global.CoreOpes.NATURES.forEach(n => global.CoreOpes.YEARS.forEach((year, yi) => {
+        const input = card.el.querySelector(`[data-fin][data-nature="${n.key}"][data-year="${year}"]`);
+        if (input) input.value = String(state.amounts[n.key][yi]);
+      }));
+      card.setOpen(state.open !== false);
+    }
+    // Retirer l'OPE `rank` : les suivantes remontent d'un rang (leurs colonnes sont réécrites à l'enregistrement, la dernière est vidée).
+    function removeOpe(rank) {
+      const kept = refs._opes.slice(1).map(readCardState).filter(state => state.rank !== rank);
+      clearExtraCards();
+      kept.forEach(state => applyCardState(addOpeCard(false), state));
+      refreshOpeUi();
+      const add = addZone.querySelector('[data-ope-add]');
+      if (add) add.focus();
+    }
+    function addOpe() {
+      if (refs._opes.length >= global.CoreOpes.MAX) return;
+      refs._opes.forEach(card => card.setOpen(false));
+      const card = addOpeCard(true);
+      card.setAction(global.CoreOpes.DEFAULT_ACTION);
+      refreshOpeUi();
+      if (card.el.scrollIntoView) card.el.scrollIntoView({ block: 'nearest' });
+      card.ref.input.focus({ preventScroll: true });
+    }
+    function refreshAddZone() {
+      const n = refs._opes.length;
+      addZone.textContent = '';
+      if (n >= global.CoreOpes.MAX) {
+        const full = document.createElement('p');
+        full.className = 'cp-ope-max';
+        full.textContent = `${global.CoreOpes.MAX} OPE, c’est le maximum pour un projet.`;
+        addZone.appendChild(full);
+        return;
+      }
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'cp-ope-add';
+      add.dataset.opeAdd = '';
+      add.innerHTML = `<span aria-hidden="true">+</span> Ajouter l’OPE ${n + 1} <small>(jusqu’à ${global.CoreOpes.MAX})</small>`;
+      add.onclick = addOpe;
+      addZone.appendChild(add);
+    }
+    function refreshOpeUi() { refreshAddZone(); refreshProjectTotals(m); }
+    // Nombre d'OPE à enregistrer : jusqu'à la dernière qui contient quelque chose (au moins l'OPE 1). Une OPE ajoutée par un clic de trop et
+    // laissée vide (action « à déterminer » par défaut, aucun montant) n'est donc pas écrite et ne fait créer aucune colonne.
+    refs._opeCountToSave = () => refs._opes.reduce((last, card) => (card.rank > 1 && global.CoreOpes.hasData(readCardState(card)) ? card.rank : last), 1);
+    refs._addOpeCard = addOpeCard;
+    refs._clearExtraCards = clearExtraCards;
+    refs._refreshOpeUi = refreshOpeUi;
 
-    const table = document.createElement('table');
-    table.className = 'cp-fin';
-    table.innerHTML = '<thead><tr><th>Intitulé</th><th>2026</th><th>2027</th><th>2028</th><th>2029</th><th>Total</th></tr></thead><tbody><tr data-detail="Details_depense_s_Fonctionnement"><th><input value="Depenses de fonctionnement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Fonctionnement">0</td></tr><tr data-detail="Details_depense_s_Investissement"><th><input value="Dépenses d&#39;investissement"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Investissement">0</td></tr><tr data-detail="Details_depense_s_Personnel"><th><input value="Depenses de personnel"></th><td></td><td></td><td></td><td></td><td class="cp-row-total" data-row-total="Details_depense_s_Personnel">0</td></tr></tbody><tfoot><tr><th>TOTAL</th><td data-total="2026">0</td><td data-total="2027">0</td><td data-total="2028">0</td><td data-total="2029">0</td><td data-grand-total>0</td></tr></tfoot>';
-    Object.entries(FIN).forEach(([year, fs]) => table.querySelectorAll('tbody tr').forEach((tr, i) => {
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.inputMode = 'decimal';
-      inp.autocomplete = 'off';
-      inp.value = '0';
-      inp.dataset.fin = fs[i];
-      tr.children[Number(year) - 2025].appendChild(inp);
-      inp.oninput = () => { sanitizeNumericInput(inp); updateFinancialTotals(table); syncConventionAmounts(m); checkConvention7030(m); };
-    }));
-    panels.budget.appendChild(table);
+    const firstCard = addOpeCard(true);
+    // Alias de l'OPE 1 : les colonnes historiques, lues telles quelles par le reste de la modale.
+    refs.Ligne_OPE = firstCard.ref;
+    refs.Ligne_OPE_installe_chez = firstCard.installe;
+    refs.Action_Ligne_OPE_a_faire = firstCard.select;
+    refs._setOpeAction = firstCard.setAction;
+    refs._refreshInstalleChez = firstCard.refresh;
+    refreshAddZone();
+
+    // Total croisé du projet (OPE 2 et suivantes seulement : avec une seule OPE il redirait le total déjà en haut de l'onglet) :
+    // lecture par nature ou par OPE, barre de répartition, et contrôle de la convention de reversement.
+    const totalBlock = document.createElement('section');
+    totalBlock.className = 'cp-total';
+    totalBlock.hidden = true;
+    totalBlock.setAttribute('aria-labelledby', 'cp-total-title');
+    totalBlock.innerHTML = '<div class="cp-total-head"><h3 id="cp-total-title">Total croisé du projet</h3>' +
+      '<div class="cp-seg" role="group" aria-label="Lecture du total"><button type="button" data-total-mode="nature" aria-pressed="true">Par nature</button><button type="button" data-total-mode="ope" aria-pressed="false">Par OPE</button></div></div>' +
+      '<div class="cp-total-bar" aria-hidden="true"></div><div class="cp-total-legend"></div>' +
+      '<div class="cp-fin-wrap"><table class="cp-fin cp-fin-cross"></table></div>' +
+      '<p class="cp-conv" role="status" hidden></p>';
+    panels.budget.appendChild(totalBlock);
+    m._totalMode = 'nature';
+    totalBlock.querySelectorAll('[data-total-mode]').forEach(b => b.onclick = () => {
+      m._totalMode = b.dataset.totalMode;
+      refreshProjectTotals(m);
+    });
 
     // Message permanent (demande d'Antoine du 02/11/2026), visible tant que la
     // convention de reversement est active, quel que soit le montant déjà saisi —
@@ -693,10 +883,10 @@
     const budgetConventionNotice = document.createElement('p');
     budgetConventionNotice.id = 'cp-budget-convention-notice';
     budgetConventionNotice.className = 'cp-budget-notice cp-hidden';
-    budgetConventionNotice.textContent = 'Convention de reversement active : l’intégralité du montant reversé doit être couverte par le budget de Fonctionnement ci-dessus (jamais l’Investissement ni le Personnel).';
+    budgetConventionNotice.textContent = 'Convention de reversement active : l’intégralité du montant reversé doit être couverte par le budget de Fonctionnement (toutes OPE réunies), jamais l’Investissement ni le Personnel.';
     panels.budget.appendChild(budgetConventionNotice);
 
-    // Co-financements (volet replié, 17/11/2026) : sous le tableau et son message, jamais dans le total [data-fin].
+    // Co-financements (volet replié, 17/11/2026) : sous les OPE et leur message, jamais dans le total [data-fin].
     refs._cofin = buildCofinancing(panels.budget);
 
     // Conventions
@@ -728,8 +918,8 @@
     withHelp(p2Wrap.querySelector('label'), 'Convention_montant_partenaire_2');
     panels.conventions.appendChild(p2Wrap);
     const p1 = p1Wrap.querySelector('input'), p2 = p2Wrap.querySelector('input');
-    p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); checkConvention7030(m); };
-    p2.oninput = () => { m._conventionPartner2Manual = true; syncConventionAmounts(m); checkConvention7030(m); };
+    p1.oninput = () => { m._conventionPartner1Manual = true; syncConventionAmounts(m); checkConvention7030(m); refreshProjectTotals(m); };
+    p2.oninput = () => { m._conventionPartner2Manual = true; syncConventionAmounts(m); checkConvention7030(m); refreshProjectTotals(m); };
 
     // Onglets + indicateur d'étape (points, cf. maquette).
     const tabButtons = {};
@@ -753,11 +943,17 @@
         dots[i].classList.toggle('active', t.key === key);
       });
       m.dataset.activeTab = key;
+      // Sur un écran étroit la barre d'onglets défile : l'onglet choisi reste visible.
+      if (tabButtons[key].scrollIntoView) tabButtons[key].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      // Le bandeau du prévisionnel se colle au bord haut de l'onglet Budget et OPE : pas de marge au-dessus de lui.
+      f.classList.toggle('is-budget', key === 'budget');
       // Rejoue l'animation d'entrée (cf. creation-projet.css) à chaque changement
       // d'onglet : on retire la classe puis on force un reflow (offsetWidth) avant
       // de la remettre, sans quoi une classe déjà présente ne redéclenche pas
       // l'animation CSS.
       if (changed) {
+        // Chaque onglet s'ouvre en haut : l'onglet Budget et OPE est long, on ne reste pas coincé en bas en passant à un autre.
+        f.scrollTop = 0;
         const panel = panels[key];
         panel.classList.remove('cp-panel-enter');
         void panel.offsetWidth;
@@ -780,8 +976,8 @@
     conventionNotice.className = 'cp-modal cp-person-modal cp-hidden';
     conventionNotice.innerHTML = `<div class="cp-box" role="dialog" aria-modal="true">` +
       `<div class="cp-head"><h2>Convention de reversement</h2><button type="button" data-cp-convention-close aria-label="Fermer">×</button></div>` +
-      `<div class="cp-body"><p>L’intégralité du montant reversé via la convention doit être couverte par le budget de <strong>Fonctionnement</strong> — jamais l’Investissement ni le Personnel. Vérifiez la répartition dans l’onglet Budget avant d’enregistrer.</p></div>` +
-      `<div class="cp-actions"><button type="button" data-cp-convention-close>Fermer</button><button type="button" data-cp-convention-review>Relire l’onglet Budget</button></div>` +
+      `<div class="cp-body"><p>L’intégralité du montant reversé via la convention doit être couverte par le budget de <strong>Fonctionnement</strong> — jamais l’Investissement ni le Personnel. Vérifiez la répartition dans l’onglet Budget et OPE avant d’enregistrer.</p></div>` +
+      `<div class="cp-actions"><button type="button" data-cp-convention-close>Fermer</button><button type="button" data-cp-convention-review>Relire l’onglet Budget et OPE</button></div>` +
       `</div>`;
     document.body.appendChild(conventionNotice);
     const closeConventionNotice = () => conventionNotice.classList.add('cp-hidden');
@@ -826,6 +1022,7 @@
       refreshBudgetConventionNotice();
       if (event.target.checked) conventionNotice.classList.remove('cp-hidden');
       checkConvention7030(m);
+      refreshProjectTotals(m);
     });
     refs._refreshBudgetConventionNotice = refreshBudgetConventionNotice;
     refs._conventionNotice = conventionNotice;
@@ -834,19 +1031,109 @@
     return m;
   }
 
+  // Totaux d'UNE répartition (par année, par ligne, général) ; rend le total général. Lit les champs [data-fin] de la table,
+  // reconnus par data-nature (F/I/P) et data-year : ni l'ordre des colonnes ni le rang de l'OPE n'interviennent.
+  function updateOpeTable(table) {
+    const inputs = [...table.querySelectorAll('tbody [data-fin]')];
+    const sumOf = list => list.reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
+    table.querySelectorAll('[data-total]').forEach(cell => {
+      cell.textContent = sumOf(inputs.filter(input => input.dataset.year === cell.dataset.total)).toLocaleString('fr-FR');
+    });
+    table.querySelectorAll('tbody tr[data-nature]').forEach(tr => {
+      const total = sumOf([...tr.querySelectorAll('[data-fin]')]);
+      tr.querySelector('[data-row-total]').textContent = total.toLocaleString('fr-FR');
+    });
+    const grand = sumOf(inputs);
+    table.querySelector('[data-grand-total]').textContent = grand.toLocaleString('fr-FR');
+    return grand;
+  }
+
+  // Résumé d'une carte OPE : numéro de la ligne (ou invite) et action choisie.
+  function refreshOpeHeader(card) {
+    const input = card.querySelector('input[data-ref]');
+    const hasLigne = !!(input && input.dataset.id);
+    const name = card.querySelector('[data-ope-name]');
+    name.textContent = hasLigne ? input.value : 'Ligne OPE à choisir';
+    name.classList.toggle('is-empty', !hasLigne);
+    const action = card.querySelector('select[id^="cp-Action_Ligne_OPE_a_faire"]')?.value || '';
+    const chip = card.querySelector('[data-ope-act]');
+    chip.textContent = action ? opeActionLabel(action) : '';
+    chip.classList.toggle('warn', action === 'à determiner');
+  }
+
+  // Tout ce que le projet montre de ses montants : totaux de chaque OPE, bandeau du prévisionnel, pastille de l'onglet et, dès
+  // deux OPE, le bloc « Total croisé du projet » (barre, légende, tableau par nature ou par OPE, contrôle de la convention).
+  function refreshProjectTotals(m) {
+    const CoreOpes = global.CoreOpes;
+    const cards = [...m.querySelectorAll('.cp-ope')];
+    const opes = cards.map(card => {
+      const grand = updateOpeTable(card.querySelector('table.cp-fin'));
+      card.querySelector('[data-ope-sum]').textContent = eur(grand);
+      refreshOpeHeader(card);
+      const amounts = {};
+      CoreOpes.NATURES.forEach(n => {
+        amounts[n.key] = CoreOpes.YEARS.map(year => normaliseBudgetValue(card.querySelector(`[data-fin][data-nature="${n.key}"][data-year="${year}"]`)?.value));
+      });
+      const ligne = card.querySelector('input[data-ref]');
+      return { rank: Number(card.dataset.opeRank), amounts, name: ligne && ligne.dataset.id ? ligne.value : '' };
+    });
+    const combined = CoreOpes.combine(opes);
+    const count = cards.length;
+
+    const summary = m.querySelector('[data-fin-summary]');
+    if (summary) summary.textContent = eur(combined.grand);
+    const countEl = m.querySelector('[data-ope-count]');
+    if (countEl) countEl.textContent = count > 1 ? ` · ${count} OPE` : '';
+    const badge = m.querySelector('[data-cp-tab="budget"] .cp-tab-count');
+    if (badge) {
+      badge.hidden = count < 2;
+      badge.textContent = String(count);
+      badge.setAttribute('aria-label', `${count} OPE`);
+    }
+
+    const block = m.querySelector('.cp-total');
+    if (!block) return;
+    block.hidden = count < 2;
+    if (count < 2) return;
+    const mode = m._totalMode === 'ope' ? 'ope' : 'nature';
+    block.querySelectorAll('[data-total-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.totalMode === mode)));
+    const grand = combined.grand;
+    block.querySelector('.cp-total-bar').innerHTML = opes.map((o, i) => (combined.byRank[i] ? `<i style="--c:var(--ope-${o.rank});flex-grow:${combined.byRank[i]}"></i>` : '')).join('');
+    block.querySelector('.cp-total-legend').innerHTML = opes.map((o, i) => {
+      const share = grand ? ` · ${Math.round(combined.byRank[i] / grand * 100)} %` : '';
+      return `<span style="--c:var(--ope-${o.rank})"><i></i>OPE ${o.rank} <b>${esc(eur(combined.byRank[i]))}</b>${share}</span>`;
+    }).join('');
+    const cell = value => (value ? fmtNumber(value) : '<span class="cp-zero">0</span>');
+    const years = CoreOpes.YEARS;
+    const head = `<thead><tr><th>${mode === 'nature' ? 'Nature' : 'OPE'}</th>${years.map(y => `<th>${y}</th>`).join('')}<th>Total</th></tr></thead>`;
+    const lines = mode === 'nature'
+      ? CoreOpes.NATURES.map(n => `<tr><th scope="row">${esc(n.label)}</th>${combined.byNature[n.key].map(v => `<td>${cell(v)}</td>`).join('')}<td class="cp-row-total">${fmtNumber(combined.byNature[n.key].reduce((a, b) => a + b, 0))}</td></tr>`)
+      : opes.map((o, i) => {
+        const byYear = years.map((year, yi) => CoreOpes.NATURES.reduce((sum, n) => sum + o.amounts[n.key][yi], 0));
+        return `<tr style="--c:var(--ope-${o.rank})"><th scope="row"><span class="cp-dot-ope"></span>OPE ${o.rank}${o.name ? ` · ${esc(o.name)}` : ''}</th>${byYear.map(v => `<td>${cell(v)}</td>`).join('')}<td class="cp-row-total">${fmtNumber(combined.byRank[i])}</td></tr>`;
+      });
+    const foot = `<tfoot><tr><th scope="row">Total projet</th>${combined.byYear.map(v => `<td>${fmtNumber(v)}</td>`).join('')}<td data-cross-grand>${fmtNumber(grand)}</td></tr></tfoot>`;
+    block.querySelector('.cp-fin-cross').innerHTML = `${head}<tbody>${lines.join('')}</tbody>${foot}`;
+
+    // Convention de reversement : le Fonctionnement de toutes les OPE réunies doit couvrir le montant reversé.
+    const conv = block.querySelector('.cp-conv');
+    const convOn = !!m.querySelector('#cp-Convention_de_reversement')?.checked && !!m.querySelector('#cp-Convention_montant_partenaire_1');
+    conv.hidden = !convOn;
+    if (convOn) {
+      const amount = conventionAmount(m), fonctionnement = fonctionnementTotal(m);
+      const ok = fonctionnement >= amount;
+      conv.className = `cp-conv ${ok ? 'ok' : 'ko'}`;
+      conv.textContent = ok
+        ? `Convention de reversement de ${eur(amount)} : couverte par le Fonctionnement des OPE réunies (${eur(fonctionnement)}).`
+        : `Le Fonctionnement des OPE réunies (${eur(fonctionnement)}) doit couvrir la convention de reversement de ${eur(amount)}. L’enregistrement serait refusé.`;
+    }
+  }
+
+  // Appelée à chaque saisie d'un montant : recalcule la répartition modifiée puis tout ce qui en dépend (bandeau, total croisé…).
   function updateFinancialTotals(table) {
-    Object.entries(FIN).forEach(([year, keys]) => {
-      const total = keys.reduce((sum, key) => sum + normaliseBudgetValue(table.querySelector(`[data-fin="${key}"]`)?.value), 0);
-      table.querySelector(`[data-total="${year}"]`).textContent = total.toLocaleString("fr-FR");
-    });
-    table.querySelectorAll('tbody tr[data-detail]').forEach(tr => {
-      const total = [...tr.querySelectorAll('[data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
-      tr.querySelector('[data-row-total]').textContent = total.toLocaleString("fr-FR");
-    });
-    const grand = [...table.querySelectorAll('tbody [data-fin]')].reduce((sum, input) => sum + normaliseBudgetValue(input.value), 0);
-    table.querySelector('[data-grand-total]').textContent = grand.toLocaleString("fr-FR");
-    const summary = table.parentElement?.querySelector('[data-fin-summary]');
-    if (summary) summary.textContent = global.CoreUtils.formatCurrency(grand);
+    const modal = table.closest('#cp-project-modal');
+    if (modal) refreshProjectTotals(modal);
+    else updateOpeTable(table);
   }
 
   async function addRecord(table, fields) {
@@ -1048,6 +1335,17 @@
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
     refs._refreshInstalleChez();
     refs._setOpeAction(text(valueOf(record, ['Action_Ligne_OPE_a_faire'])));
+    // OPE 2 à 4 : une carte par OPE que le projet porte déjà (repliées, l'OPE 1 reste déployée).
+    refs._clearExtraCards();
+    refs._opes[0].setOpen(true);
+    for (let rank = 2; rank <= global.CoreOpes.count(record); rank += 1) {
+      const card = refs._addOpeCard(false);
+      const ope = global.CoreOpes.read(record, rank);
+      setRef(card.ref, ope.ligneIds[0] || 0, 'Lignes_OPE', ['N_OPE']);
+      card.refresh();
+      card.setAction(ope.action);
+      card.comment.value = ope.comment;
+    }
 
     const conventionEnabled = valueOf(record, ['Convention_de_reversement']);
     const conventionCheck = m.querySelector('#cp-Convention_de_reversement');
@@ -1055,7 +1353,9 @@
     refs._refreshBudgetConventionNotice();
     refs.Partenaire_s_convention_reversement.wrap._setIds(valueOf(record, ['Partenaire_s_convention_reversement']));
 
-    const total = Number(valueOf(record, ['Montant_attribue_Total'])) || 0,
+    // Montant_attribue_Total (formule Grist, 2026-2028 de l'OPE 1) + les mêmes années des OPE 2 à 4.
+    const total = (Number(valueOf(record, ['Montant_attribue_Total'])) || 0) +
+        [2026, 2027, 2028].reduce((sum, year) => sum + global.CoreOpes.yearAmount(record, year, [2, 3, 4]), 0),
       savedP1 = valueOf(record, ['Convention_montant_partenaire_1']),
       savedP2 = valueOf(record, ['Convention_montant_partenaire_2']);
     // Un montant enregistré à exactement 0 est le cas par défaut (jamais renseigné) et
@@ -1070,7 +1370,7 @@
     refs.Action_Ligne_OPE_a_faire.dispatchEvent(new Event('change'));
 
     m.querySelectorAll('[data-fin]').forEach(input => { input.value = normaliseBudgetValue(record?.[input.dataset.fin]); });
-    updateFinancialTotals(m.querySelector('.cp-fin'));
+    refs._refreshOpeUi();
     refs._cofin.render(record);
 
     Object.entries(refs._attachmentsEls).forEach(([col, container]) => {
@@ -1108,10 +1408,46 @@
       Convention_montant_partenaire_1: Number(m.querySelector('#cp-Convention_montant_partenaire_1').value) || 0,
       Convention_montant_partenaire_2: Number(m.querySelector('#cp-Convention_montant_partenaire_2').value) || 0
     };
-    m.querySelectorAll('[data-fin]').forEach(i => fields[i.dataset.fin] = normaliseBudgetValue(i.value));
+    const saved = refs._opeCountToSave();
+    refs._opes.slice(0, saved).forEach(card => card.el.querySelectorAll('[data-fin]').forEach(i => { fields[i.dataset.fin] = normaliseBudgetValue(i.value); }));
     m.querySelectorAll('tbody tr[data-detail]').forEach(tr => fields[tr.dataset.detail] = tr.querySelector('th input').value);
+    // OPE 2 à 4 : les montants viennent des [data-fin] ci-dessus ; la ligne, l'action et le commentaire se lisent sur chaque carte.
+    refs._opes.slice(1, saved).forEach(card => {
+      const id = Number(card.ref.input.dataset.id);
+      fields[global.CoreOpes.ligneColumn(card.rank)] = id ? ['L', id] : ['L'];
+      fields[global.CoreOpes.actionColumn(card.rank)] = card.select.value;
+      fields[global.CoreOpes.commentColumn(card.rank)] = card.comment.value.trim();
+    });
+    // OPE retirée (ou remontée d'un rang) : si ses colonnes existent déjà dans Grist, on les vide pour qu'aucune donnée ne reste.
+    if (m.dataset.mode === 'edit') {
+      const existing = projectColumns(m._projectRecord);
+      for (let rank = saved + 1; rank <= global.CoreOpes.MAX; rank += 1) {
+        global.CoreOpes.columnsOf(rank).filter(col => existing.has(col) && !global.CoreGrist?.isFormulaColumn?.('Projets', col)).forEach(col => {
+          fields[col] = col === global.CoreOpes.ligneColumn(rank) ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : '');
+        });
+      }
+    }
     Object.assign(fields, refs._cofin.collect());
     return fields;
+  }
+
+  // Colonnes de Projets qu'on sait exister : le schéma lu au démarrage, sinon les clés d'une ligne lue (celle qu'on modifie, ou la première).
+  function projectColumns(record) {
+    const known = new Set(global.CoreGrist?.knownColumns?.('Projets') || []);
+    [record, rows('Projets')[0]].forEach(row => { if (row) Object.keys(row).forEach(key => known.add(key)); });
+    return known;
+  }
+
+  // Crée dans Projets les colonnes des OPE 2 à `upTo` qui n'y sont pas encore (15 par OPE, bulles d'aide reprises de l'OPE 1).
+  async function ensureOpeColumns(m, upTo) {
+    const describe = col => global.CoreGrist?.getColumnDescription?.('Projets', col) || '';
+    const missing = global.CoreOpes.missingColumns(projectColumns(m._projectRecord), upTo, describe);
+    if (!missing.length) return;
+    try {
+      await global.CoreGrist.ensureColumns('Projets', missing);
+    } catch (error) {
+      throw new Error(`les colonnes ${upTo > 2 ? `des OPE 2 à ${upTo}` : 'de l\'OPE 2'} n'ont pas pu être créées dans la table Projets (${error.message}).`);
+    }
   }
 
   // Liste des champs obligatoires à la création (demande d'Antoine du 13/10/2026) — pas
@@ -1134,7 +1470,7 @@
       { tab: 'porteurs', label: 'Accompagnateur', ok: hasId(refs.Accompagnateur) },
       { tab: 'dates', label: 'Instance rattachée', ok: hasId(refs.Instance_ratachee) },
       { tab: 'dates', label: 'Date limite de financement', ok: !!global.DateInput.iso(refs.Date_limite_financement) },
-      { tab: 'dates', label: 'Action ligne OPE', ok: !!refs.Action_Ligne_OPE_a_faire.value },
+      { tab: 'budget', label: 'Action ligne OPE', ok: !!refs.Action_Ligne_OPE_a_faire.value },
       { tab: 'budget', label: 'Budget (le total ne peut pas être à 0)', ok: budgetTotal() !== 0 }
     ];
     // Partenaire(s) et montant de convention ne sont exigés que si "Convention de
@@ -1165,6 +1501,8 @@
       if (missing.length) {
         m.querySelector('#cp-project-error').textContent = `Champs obligatoires manquants : ${missing.map(c => c.label).join(', ')}.`;
         m._setActiveTab(missing[0].tab);
+        // L'action de l'OPE 1 se choisit dans sa carte : on la déploie si elle était repliée.
+        if (missing.some(c => c.label === 'Action ligne OPE')) refs._opes[0].setOpen(true);
         return;
       }
     } else {
@@ -1191,6 +1529,9 @@
     const saveButton = m.querySelector('[data-cp-save]');
     saveButton.disabled = true;
     try {
+      // Les colonnes des OPE 2 à 4 sont créées par le widget au premier enregistrement qui en a besoin (jamais pour un projet à une OPE).
+      const opeCount = refs._opeCountToSave();
+      if (opeCount > 1) await ensureOpeColumns(m, opeCount);
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
       else await addRecord('Projets', fields);
@@ -1283,6 +1624,7 @@
       }
       m.classList.remove('cp-hidden');
       m._setActiveTab(options && TABS.some(t => t.key === options.tab) ? options.tab : 'general');
+      m.querySelector('#cp-project-form').scrollTop = 0;
       m._refs.Periode.oninput = () => {};
       return m;
     }

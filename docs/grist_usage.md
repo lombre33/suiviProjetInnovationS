@@ -97,8 +97,37 @@ reste alors utilisable, simplement sans bulles d'aide.
 | `c2026_M10_Fonctionnement`, `c2026_M20_Investissement`, `c2026_M30_Personnel` | Numeric | |
 | `c2027_…`, `c2028_…` (mêmes trois suffixes) | Numeric | |
 | `c2029_M10_Fonctionnement`, `c2029_M20_Investissement`, `c2029_M30_Personnel` | **Formule** | voir écart 1 ci-dessous |
-| `Part_Idex`, `Part_recette_RNA_PREMAT_MAT` | au choix d'Antoine (Bool attendu) | volet « Co-financements » de l'onglet Budget, ajoutées à la main le 17/11/2026 (absentes de l'export ci-dessus) ; le champ suit le type lu dans les métadonnées, voir ci-dessous |
+| `Part_Idex`, `Part_recette_RNA_PREMAT_MAT` | au choix d'Antoine (Bool attendu) | volet « Co-financements » de l'onglet Budget et OPE, ajoutées à la main le 17/11/2026 (absentes de l'export ci-dessus) ; le champ suit le type lu dans les métadonnées, voir ci-dessous |
 | `Commentaire_budget` | Text | même volet |
+
+#### Plusieurs OPE par projet (24/11/2026)
+
+Un projet porte de une à quatre OPE (onglet **Budget et OPE** de la modale : une carte repliable par OPE, bouton « + Ajouter l'OPE n »,
+total croisé du projet dès deux OPE). L'objet OPE reste une ligne de `Lignes_OPE` : **aucune nouvelle table**, l'affectation au projet se
+fait par des colonnes de `Projets`.
+
+- **OPE 1** : les colonnes historiques ci-dessus, inchangées.
+- **OPE 2, 3 et 4** : les mêmes colonnes suffixées `_2`, `_3`, `_4`, soit **15 colonnes par OPE (45 au total)**, créées **par le widget**
+  (`CoreGrist.ensureColumns`, `js/core/project-opes.js`) à l'enregistrement du premier projet qui en a besoin, avec la description de la
+  colonne de l'OPE 1 (bulles « ? »). Aucune étape manuelle, et aucune colonne créée pour un projet à une seule OPE.
+
+| Colonne (rang n = 2, 3, 4) | Type |
+| --- | --- |
+| `Ligne_OPE_n` | **ReferenceList** → `Lignes_OPE` (écrite `['L', id]` ou `['L']`) |
+| `Action_Ligne_OPE_a_faire_n` | Choice (mêmes valeurs que l'OPE 1 ; une OPE ajoutée démarre sur `à determiner`) |
+| `Commentaire_ligne_OPE_n` | Text |
+| `c2026_M10_Fonctionnement_n`, `c2026_M20_Investissement_n`, `c2026_M30_Personnel_n`, puis 2027, 2028 et 2029 (mêmes suffixes) | Numeric (jamais une formule) |
+
+Règles : une OPE est « utilisée » dès qu'elle a une ligne, un commentaire, un montant ou une action autre que `à determiner`
+(`CoreOpes.count`) ; retirer une OPE vide ses colonnes à l'enregistrement et les suivantes remontent d'un rang (l'OPE 3 devient l'OPE 2) ;
+une colonne de rang 2 à 4 absente de Grist n'est jamais écrite pour un rang vide. Le total croisé est calculé à l'écran, jamais écrit.
+Toutes les colonnes ci-dessus sont dans `MODAL_FIELDS` (`js/pages/redaction-variables.js`, `OPE_EXTRA_COLUMNS`).
+
+Où les autres OPE comptent : la règle de convention (le Fonctionnement de **toutes** les OPE réunies doit couvrir le montant reversé), le
+budget total obligatoire à la création, le montant de convention proposé (`Montant_attribue_Total` + 2026-2028 des OPE 2 à 4), le
+Dashboard (attribué par année, lignes OPE rattachant les dépenses, via `CoreOpes.ligneIds` / `yearAmount`) et l'alias `Budget` du Kanban
+(`Total_2026` + le 2026 des OPE 2 à 4). **Pas encore** : la page Installation des fonds (lieu et zone) reste sur l'OPE 1, et la formule Grist
+`Montant_attribue_Total` (2026-2028, OPE 1) n'est pas modifiée par le widget.
 
 **Co-financements** (`Part_Idex`, `Part_recette_RNA_PREMAT_MAT`, `Commentaire_budget`) : le type de ces
 colonnes n'est pas imposé, la modale s'y adapte (`Bool` : interrupteur Oui/Non ; `Numeric`/`Int` : montant ;
@@ -119,10 +148,10 @@ maintenues dans `project-modal.js` et ne sont pas validées contre Grist.
 | `Conventions_statut` | Choice | règle « convention non signée » du Kanban |
 | `Statut_Financier` | Choice | sous-statut affiché sur la carte |
 | `Programme_Axe_InnovationS` | Formule | repli du filtre Programme |
-| `Periode` | Formule | champ en lecture seule de l'onglet Dates |
-| `Ligne_OPE_installe_chez` | Formule | champ en lecture seule de l'onglet Dates |
+| `Periode` | Formule | champ en lecture seule de l'onglet Instance et dates |
+| `Ligne_OPE_installe_chez` | Formule | champ en lecture seule de chaque carte OPE (onglet Budget et OPE) ; le widget le recalcule lui-même depuis la ligne choisie |
 | `Montant_attribue_Total` | Formule | montant repris par défaut dans les montants de convention |
-| `Total_2026` | Formule | alias `Budget` construit par `mapProjects()` |
+| `Total_2026` | Formule | alias `Budget` construit par `mapProjects()` (+ le 2026 des OPE 2 à 4, voir plus bas) |
 | `Montant_annuel_charge_attribue` | Numeric | repli de cet alias `Budget` |
 | `Description_rapide_projet` | Text | vue projet de secours (`app.js`) |
 | `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » ; liste de fichiers de la fiche projet. **Écrite** (hors fiche projet) par l'onglet Conventions de la page Administratif : section 10 des écarts |

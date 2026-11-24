@@ -130,8 +130,10 @@
       const update = window.__TEST_CALLS__.find(call => call.type === 'UpdateRecord' && call.table === 'Projets');
       assertTrue(!!update, 'la modale a enregistré le projet');
       const written = Object.keys(update.fields);
+      // Les colonnes des OPE 2 à 4 ne sont écrites que par un projet qui en porte (ou en a porté) : cf. tests/suite-project-modal-ope-multiples.js.
+      const alwaysWritten = RV().MODAL_FIELDS.filter(field => !RV().OPE_EXTRA_COLUMNS.includes(field));
       const added = written.filter(field => !RV().MODAL_FIELDS.includes(field));
-      const removed = RV().MODAL_FIELDS.filter(field => !written.includes(field));
+      const removed = alwaysWritten.filter(field => !written.includes(field));
       assertTrue(added.length === 0 && removed.length === 0,
         `La liste MODAL_FIELDS de js/pages/redaction-variables.js doit suivre collectFields() de js/components/project-modal.js — à ajouter : [${added}] ; à retirer : [${removed}]`);
     });
