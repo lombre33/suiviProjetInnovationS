@@ -253,4 +253,134 @@
       assertIncludes(document.getElementById('toast').textContent, 'introuvable');
     });
   });
+
+  // Demande d'Antoine du 24/11/2026 : « + Ligne OPE sans numéro » en tête de la liste, et, pour une ligne créée sans numéro, le lieu
+  // d'installation proposé d'office = la structure du porteur 1 du projet (Annuaire.Poste2 → Postes2.Structure2).
+  // Fixtures : Alice Martin (Poste 1, structure 1 = LAB1), Bob Durand (aucun poste).
+  describe('Ligne OPE sans numéro — en tête de liste et structure du porteur 1 par défaut', function () {
+    function pickPorteur1(query, text) {
+      const input = projectModalEl().querySelector('[data-ref="Porteur_1"]');
+      setValue(input, query);
+      fire(input, 'input');
+      const button = Array.from(input.parentElement.querySelector('.cp-ref-list').querySelectorAll('button')).find(b => b.textContent === text);
+      assertTrue(!!button, `porteur ${text} introuvable`);
+      button.click();
+    }
+    function openTbd(refKey) {
+      const input = refKey ? projectModalEl().querySelector(`[data-ref="${refKey}"]`) : ligneOpeInput();
+      fire(input, 'focus');
+      input.parentElement.querySelector('[data-create-ope-tbd]').click();
+      return opeModalEl();
+    }
+
+    it('le bouton « + Ligne OPE sans numéro » est le premier de la liste, avant les lignes existantes', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = ligneOpeInput();
+      fire(input, 'focus');
+      const buttons = Array.from(input.parentElement.querySelector('.cp-ref-list').querySelectorAll('button'));
+      assertTrue(buttons.length >= 4, 'le bouton et les trois lignes existantes');
+      assertTrue(buttons[0].hasAttribute('data-create-ope-tbd'), 'premier bouton = sans numéro');
+      assertTrue(buttons.slice(1).every(b => !b.hasAttribute('data-create-ope-tbd')), 'un seul bouton « sans numéro »');
+      assertTrue(buttons.slice(1).some(b => b.textContent === 'OPE-2026-001'), 'les lignes existantes suivent');
+    });
+
+    it('il reste en tête quand la recherche ne trouve rien (avec « + Créer la ligne OPE … » après lui) et Entrée ne le choisit jamais sans flèche', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      const input = ligneOpeInput();
+      setValue(input, 'OPE-2099-777');
+      fire(input, 'input');
+      const buttons = Array.from(input.parentElement.querySelector('.cp-ref-list').querySelectorAll('button'));
+      assertTrue(buttons[0].hasAttribute('data-create-ope-tbd'));
+      assertTrue(buttons[1].hasAttribute('data-create-ope'));
+      fireKey(input, 'Enter');
+      assertEqual(opeModalEl(), null, 'Entrée sans flèche n\'ouvre aucune modale');
+    });
+
+    it('porteur 1 choisi : la structure de son poste est préselectionnée pour une ligne sans numéro, avec une aide qui le dit', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickPorteur1('Alice', 'Alice Martin');
+      const modal = openTbd();
+      assertEqual(modal.querySelector('#cpo-nope').value, '');
+      assertEqual(modal.querySelector('#cpo-structure').value, '1', 'LAB1 = structure du poste d\'Alice');
+      assertIncludes(modal.querySelector('#cpo-structure').closest('.cp-field').querySelector('.cp-hint').textContent, 'porteur 1');
+    });
+
+    it('la structure proposée se change, et c\'est celle choisie qui est enregistrée', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickPorteur1('Alice', 'Alice Martin');
+      let modal = openTbd();
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertDeepEqual(window.__TEST_CALLS__[0].fields, { N_OPE: '', installe_chez: 1 }, 'enregistrer tel quel garde la structure du porteur 1');
+      assertEqual(ligneOpeInput().value, 'N° à venir · LAB1');
+      assertEqual(projectModalEl().querySelector('#cp-Ligne_OPE_installe_chez').value, 'LAB1');
+
+      window.__TEST_CALLS__.length = 0;
+      fireMouse(ligneOpeInput().parentElement.querySelector('.cp-ref-clear'), 'mousedown');
+      modal = openTbd();
+      modal.querySelector('#cpo-structure').value = '3';
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertDeepEqual(window.__TEST_CALLS__[0].fields, { N_OPE: '', installe_chez: 3 });
+    });
+
+    it('aucune structure par défaut : pas de porteur 1, porteur sans poste, ou poste hors Structures', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      assertEqual(openTbd().querySelector('#cpo-structure').value, '', 'aucun porteur 1 choisi');
+      opeModalEl().remove();
+      pickPorteur1('Bob', 'Bob Durand');
+      assertEqual(openTbd().querySelector('#cpo-structure').value, '', 'Bob n\'a pas de poste');
+      assertEqual(opeModalEl().querySelector('#cpo-structure').closest('.cp-field').querySelector('.cp-hint').textContent.includes('porteur 1'), false, 'pas d\'aide « porteur 1 » sans valeur reprise');
+      opeModalEl().remove();
+      const postes = window.CoreState.getTable('Postes2').map(p => (p.id === 1 ? { ...p, Structure2: 99 } : p));
+      window.CoreState.setTable('Postes2', postes);
+      pickPorteur1('Alice', 'Alice Martin');
+      assertEqual(openTbd().querySelector('#cpo-structure').value, '', 'structure inconnue : jamais une valeur hors liste');
+    });
+
+    it('un numéro tapé (« + Créer la ligne OPE … ») ne reçoit pas de structure par défaut : elle reste facultative', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickPorteur1('Alice', 'Alice Martin');
+      const input = ligneOpeInput();
+      setValue(input, 'OPE-2027-010');
+      fire(input, 'input');
+      input.parentElement.querySelector('[data-create-ope]').click();
+      assertEqual(opeModalEl().querySelector('#cpo-nope').value, 'OPE-2027-010');
+      assertEqual(opeModalEl().querySelector('#cpo-structure').value, '');
+    });
+
+    it('la modification d\'une ligne existante garde sa propre structure (jamais celle du porteur 1)', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickPorteur1('Alice', 'Alice Martin');
+      const modal = window.openEditOpeModal(3);
+      assertEqual(modal.querySelector('#cpo-structure').value, '3');
+    });
+
+    it('même comportement pour la ligne OPE d\'une OPE 2 (carte ajoutée) : structure du porteur 1 d\'office', async function () {
+      await loadFixtureState();
+      window.ProjectModal.open();
+      pickPorteur1('Alice', 'Alice Martin');
+      projectModalEl().querySelector('[data-ope-add]').click();
+      const modal = openTbd('Ligne_OPE_2');
+      assertEqual(modal.querySelector('#cpo-structure').value, '1');
+      await modal.querySelector('[data-cp-save]').onclick();
+      assertEqual(projectModalEl().querySelector('[data-ref="Ligne_OPE_2"]').value, 'N° à venir · LAB1');
+      assertEqual(projectModalEl().querySelector('#cp-Ligne_OPE_installe_chez_2').value, 'LAB1');
+      assertEqual(ligneOpeInput().value, '', 'l\'OPE 1 n\'est pas touchée');
+    });
+
+    it('ouverte sans projet (aucune option), la modale OPE n\'a pas de structure par défaut', async function () {
+      await loadFixtureState();
+      assertEqual(window.openCreateOpeModal('').querySelector('#cpo-structure').value, '');
+      opeModalEl().remove();
+      assertEqual(window.openCreateOpeModal('', null, { installeChez: 2 }).querySelector('#cpo-structure').value, '2', 'option explicite honorée');
+      opeModalEl().remove();
+      assertEqual(window.openCreateOpeModal('OPE-9', null, { installeChez: 2 }).querySelector('#cpo-structure').value, '', 'ignorée dès qu\'un numéro est donné');
+    });
+  });
 })();

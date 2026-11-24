@@ -134,6 +134,8 @@
 .cp-ref { position:relative; }
 .cp-ref-list { position:absolute; z-index:3; top:100%; right:0; left:0; margin-top:6px; max-height:220px; overflow:auto; border:1px solid var(--border,#dde2ea); border-radius:var(--radius-sm,7px); background:var(--surface,#fff); box-shadow:var(--shadow-float,0 14px 32px -8px rgba(9,16,35,.35),0 2px 8px rgba(9,16,35,.12)); }
 .cp-ref-list button { display:block; width:100%; padding:10px 12px; border:0; background:var(--surface,#fff); color:var(--text-muted,#667085); text-align:left; font:inherit; font-size:13px; cursor:pointer; }
+.cp-ref-list button[data-create-ope-tbd] { color:var(--accent,#2f6fed); font-weight:700; }
+.cp-ref-list button[data-create-ope-tbd]:not(:only-child) { border-bottom:1px solid var(--border,#dde2ea); }
 .cp-ref-list button:hover, .cp-ref-list button:focus-visible, .cp-ref-list button.is-active { outline:none; background:var(--accent-soft,#e8f0fe); color:var(--accent-hover,#2558c4); }
 
 /* Total du projet, collé en haut de l'onglet quand on défile (une seule ligne : le prévisionnel d'avant, plus le nombre d'OPE). */

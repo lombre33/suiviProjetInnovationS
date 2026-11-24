@@ -67,6 +67,21 @@
     { value: 'à determiner', label: 'À déterminer' }
   ];
 
+  // Structure du porteur 1 de la modale qui contient `fromInput` (Annuaire.Poste2 → Postes2.Structure2), id de Structures ou 0 :
+  // proposée comme lieu d'installation d'une ligne OPE créée sans numéro (demande d'Antoine du 24/11/2026).
+  function porteur1StructureId(fromInput) {
+    const refId = value => {
+      const raw = Array.isArray(value) ? value.find(item => item !== 'L') : (value && typeof value === 'object' ? value.id : value);
+      const id = Number(raw);
+      return Number.isFinite(id) && id > 0 ? id : 0;
+    };
+    const porteurId = refId(fromInput.closest('#cp-project-modal')?.querySelector('input[data-ref="Porteur_1"]')?.dataset.id);
+    const person = porteurId ? rows('Annuaire').find(r => Number(r.id) === porteurId) : null;
+    const poste = person ? rows('Postes2').find(r => Number(r.id) === refId(person.Poste2)) : null;
+    const structureId = poste ? refId(poste.Structure2) : 0;
+    return structureId && rows('Structures').some(r => Number(r.id) === structureId) ? structureId : 0;
+  }
+
   const opeActionLabel = value => (OPE_OPTIONS.find(o => o.value === value) || { label: text(value) }).label;
 
   function refField(parent, key, table, display, required = false) {
@@ -116,13 +131,14 @@
         }
       }
       // Ligne OPE sans numéro (Antoine, 12/11/2026) : même modale OPE, numéro laissé vide, on indique seulement où elle sera ouverte.
+      // En tête de la liste (demande du 24/11/2026), pour la trouver sans la faire défiler ; Entrée ne la choisit jamais sans flèche.
       if (table === 'Lignes_OPE' && typeof window.openCreateOpeModal === 'function') {
-        list.insertAdjacentHTML('beforeend', '<button type="button" data-create-ope-tbd>+ Ligne OPE sans numéro (où elle sera ouverte)</button>');
+        list.insertAdjacentHTML('afterbegin', '<button type="button" data-create-ope-tbd>+ Ligne OPE sans numéro (où elle sera ouverte)</button>');
       }
       list.classList.toggle('cp-hidden', !list.innerHTML);
       list.querySelectorAll('button').forEach(b => b.onclick = () => {
         if (b.dataset.createOpeTbd !== undefined) {
-          window.openCreateOpeModal('', input);
+          window.openCreateOpeModal('', input, { installeChez: porteur1StructureId(input) });
           return;
         }
         if (b.dataset.createPerson !== undefined) {

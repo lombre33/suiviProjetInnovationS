@@ -31,7 +31,9 @@
   }
 
   // `existing` : ligne à modifier (mode modification) ; sinon création, avec le texte tapé pour numéro.
-  function openOpeModal({ initialName = '', originInput, existing = null, onSaved } = {}) {
+  // `defaultInstalleChez` : structure proposée d'office à la création d'une ligne SANS numéro (celle du porteur 1 du projet, demande
+  // d'Antoine du 24/11/2026) ; sans effet si un numéro est déjà tapé ou en modification.
+  function openOpeModal({ initialName = '', originInput, existing = null, onSaved, defaultInstalleChez = 0 } = {}) {
     const old = document.getElementById('cp-ope-modal');
     if (old) old.remove();
     const modal = document.createElement('div');
@@ -68,6 +70,13 @@
     if (existing) {
       const chez = existing.installe_chez && typeof existing.installe_chez === 'object' ? existing.installe_chez.id : existing.installe_chez;
       structureSelect.value = chez ? String(chez) : '';
+    } else {
+      // Sans numéro, la structure où la ligne sera ouverte est obligatoire : on propose celle du porteur 1 (à changer si besoin).
+      const preset = Number(defaultInstalleChez) || 0;
+      if (preset && !opeInput.value.trim() && structures.some(s => Number(s.id) === preset)) {
+        structureSelect.value = String(preset);
+        structureWrap.querySelector('.cp-hint').textContent = 'Structure où la ligne est ou sera ouverte. Reprise du porteur 1 : à modifier si besoin.';
+      }
     }
 
     const close = () => modal.remove();
@@ -126,8 +135,9 @@
     return modal;
   }
 
-  function openCreateOpeModal(initialName = '', originInput) {
-    return openOpeModal({ initialName, originInput });
+  // options.installeChez : id de la Structure proposée par défaut pour une ligne sans numéro.
+  function openCreateOpeModal(initialName = '', originInput, options) {
+    return openOpeModal({ initialName, originInput, defaultInstalleChez: options && options.installeChez });
   }
 
   // Ouvre la ligne OPE `ligneId` en modification ; `onSaved(ligne)` est appelé une fois enregistrée.
