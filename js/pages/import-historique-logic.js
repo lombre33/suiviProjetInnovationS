@@ -74,7 +74,25 @@
   // l'import régulier leur ajoute une formule appliquée aux nouveaux enregistrements ; ici elles restent vides, l'outil lit la dernière
   // version de chaque ligne lui-même, par plus grand id).
   const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
-    .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }, { id: 'Lot', type: 'Text' }]);
+    .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }, { id: 'Lot', type: 'Text' },
+      // Nombre de lignes de l'envoi du script (champ « Lignes du lot » du formulaire) : permet de repérer un envoi arrivé à moitié.
+      { id: 'Lignes_du_lot', label: 'Lignes du lot', type: 'Int' }]);
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Montants écrits sur Lignes_OPE (24/11/2026) : une ligne OPE = un N° OPE ; le widget crée ces colonnes SIMPLES (aucune formule) et les remplit à
+  // la validation d'un envoi, avec le journal (annulable). `totalCPConsomme` n'est pas touchée : le Dashboard lit `Consomme_CP` en priorité.
+  // Le consommé et le disponible valent pour tout le N° OPE (ils se répètent sur chacune de ses lignes d'export) : on prend celui de la version la
+  // plus récente, on ne les additionne pas. L'attribué, lui, s'additionne d'une ligne de financement à l'autre.
+  // ---------------------------------------------------------------------------------------------------------------
+  const numColumn = (id, label) => ({ id, label, type: 'Numeric' });
+  const AMOUNT_COLUMNS = [
+    { id: 'Financeur', label: 'Financeur', type: 'Text' }, { id: 'Ligne_budgetaire', label: 'Ligne budgétaire', type: 'Text' },
+    numColumn('Montant_attribue', 'Montant attribué')].concat(YEAR_COLUMNS.map(id => numColumn(id, 'Attribué ' + id.slice(-4))), [
+    numColumn('Consomme_AE', 'Consommé AE'), numColumn('Consomme_CP', 'Consommé CP'), numColumn('Disponible_AE', 'Disponible AE'), numColumn('Disponible_CP', 'Disponible CP'),
+    { id: 'Date_debut_OPE', label: 'Début OPE', type: 'Date' }, { id: 'Date_fin_OPE', label: 'Fin OPE', type: 'Date' },
+    { id: 'Date_maj_conso', label: 'Montants au', type: 'Date' }, { id: 'Lot_maj', label: 'Envoi des montants', type: 'Text' }]);
+  const AMOUNT_META = ['Date_maj_conso', 'Lot_maj'];   // suivi : posés seulement quand un montant change
+  const AMOUNT_IDS = new Set(AMOUNT_COLUMNS.map(col => col.id));
 
   // ---------------------------------------------------------------------------------------------------------------
   // Lecture de l'export Excel (lignes déjà extraites du classeur par XlsxReader) -> lignes prêtes pour Import_Financements.
@@ -281,6 +299,35 @@
     return Array.from(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
   }
 
+  // Montants d'un N° OPE à partir de ses lignes d'export (dernières versions) : voir AMOUNT_COLUMNS. Une valeur absente de l'export n'est pas
+  // renvoyée (rien à écrire). `conflict` signale des lignes qui ne donnent pas le même consommé ou disponible pour le même N° OPE.
+  const SHARED_AMOUNTS = ['Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP'];
+  function aggregateOpe(lines) {
+    const rows = (lines || []).slice().sort((a, b) => Number(a.id) - Number(b.id));
+    const out = { conflict: false };
+    if (!rows.length) return out;
+    const latest = rows[rows.length - 1];
+    const total = id => { const values = rows.map(r => toNumber(r[id])).filter(v => v != null); return values.length ? values.reduce((a, b) => a + b, 0) : null; };
+    const newest = id => { for (let i = rows.length - 1; i >= 0; i--) { const v = toNumber(rows[i][id]); if (v != null) return v; } return null; };
+    const put = (id, value) => { if (value != null && value !== '') out[id] = value; };
+    put('Financeur', mostCommon(rows.map(r => text(r.Financeur)).filter(Boolean)));
+    put('Ligne_budgetaire', text(latest.Ligne_budgetaire) || mostCommon(rows.map(r => text(r.Ligne_budgetaire)).filter(Boolean)));
+    put('Montant_attribue', total('Montant_attribue'));
+    YEAR_COLUMNS.forEach(id => put(id, total(id)));
+    SHARED_AMOUNTS.forEach(id => {
+      put(id, newest(id));
+      const values = rows.map(r => toNumber(r[id])).filter(v => v != null);
+      if (values.length > 1 && values.some(v => !near(v, values[0]))) out.conflict = true;
+    });
+    const starts = rows.map(r => toNumber(r.Date_debut)).filter(v => v != null && v > 0), ends = rows.map(r => toNumber(r.Date_fin)).filter(v => v != null && v > 0);
+    put('Date_debut_OPE', starts.length ? Math.min(...starts) : null);
+    put('Date_fin_OPE', ends.length ? Math.max(...ends) : null);
+    const seconds = lotSeconds(latest.Lot) || toNumber(latest.Exporte_le);
+    put('Date_maj_conso', seconds ? Math.floor(seconds / 86400) * 86400 : null);
+    put('Lot_maj', text(latest.Lot));
+    return out;
+  }
+
   function groupProjects(lines, issues) {
     const blockedOpe = new Map();
     (issues || []).filter(issue => issue.level === 'error' && issue.check === 'ope-projets').forEach(issue => blockedOpe.set(opeKey(issue.ope), issue.message));
@@ -300,7 +347,7 @@
         return Object.assign(ope, {
           structure: mostCommon(ope.structures), structureCount: unique(ope.structures).length,
           financeur: mostCommon(ope.lines.map(l => text(l.Financeur)).filter(Boolean)), innovations: ope.lines.some(l => normalize(l.Financeur) === 'innovations'),
-          dateDebut: starts.length ? Math.min(...starts) : null
+          dateDebut: starts.length ? Math.min(...starts) : null, amounts: aggregateOpe(ope.lines)
         });
       });
       const starts = group.map(l => toNumber(l.Date_debut)).filter(v => v != null), ends = group.map(l => toNumber(l.Date_fin)).filter(v => v != null);
@@ -321,7 +368,7 @@
   // 4. Contexte Grist et rapprochement
   // ---------------------------------------------------------------------------------------------------------------
 
-  function buildContext({ projets, lignes, programmes, structures, isFormula, hasColumn, statusChoices, rankMode }) {
+  function buildContext({ projets, lignes, programmes, structures, isFormula, hasColumn, statusChoices, rankMode, withAmounts }) {
     const ligneIdsByKey = new Map(), ligneById = new Map(), projectsByLigne = new Map(), slotsByProject = new Map();
     (lignes || []).forEach(ligne => { ligneById.set(Number(ligne.id), ligne); const k = opeKey(ligne.N_OPE); if (k) pushTo(ligneIdsByKey, k, Number(ligne.id)); });
     const projectById = new Map();
@@ -344,7 +391,7 @@
       names: unique([s.Acronyme, s.Nom_Complet, s.Nom_Complet_clean].map(normalize).filter(Boolean))
     })).filter(s => s.label);
     return {
-      ligneIdsByKey, ligneById, projectsByLigne, slotsByProject, rankMode: RANK_MODES.includes(rankMode) ? rankMode : DEFAULT_RANK_MODE, projects, projectById, programmeList, structureList,
+      withAmounts: !!withAmounts, ligneIdsByKey, ligneById, projectsByLigne, slotsByProject, rankMode: RANK_MODES.includes(rankMode) ? rankMode : DEFAULT_RANK_MODE, projects, projectById, programmeList, structureList,
       programmeById: new Map(programmeList.map(p => [p.id, p])), structureById: new Map(structureList.map(s => [s.id, s])),
       statusChoices: statusChoices || [], // liste de choix de Projets.Statut_operationnel_projet (vide = inconnue : aucun contrôle)
       isFormula: isFormula || (() => false), hasColumn: hasColumn || (() => true)
@@ -554,7 +601,7 @@
       else if (!existingId && state !== 'bad') state = 'add';
       else if (existingId && state !== 'bad' && state !== 'fill' && state !== 'conf' && needsLink) state = 'fill';
       const rank = ranks.get(ope.key) || 1;
-      row.lines.push({ key: ope.key, ope: ope.ope, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
+      row.lines.push({ key: ope.key, ope: ope.ope, amounts: ope.amounts, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
     });
     // Pas encore décidé ou écarté : les valeurs restent visibles, sans couleur ni anomalie propre.
     if (row.plain) {
@@ -619,17 +666,41 @@
 
   // Ne garde que les colonnes que Grist accepte d'écrire : inexistantes ou calculées, elles feraient refuser toute l'action.
   // Exception : les rangs OPE 2 à 4 de Projets (Ligne_OPE_2…) n'existent peut-être pas encore, la page les crée juste avant d'écrire (plan.neededRank).
-  const isSlotColumn = (table, col) => table === 'Projets' && slotRanks().some(rank => rank > 1 && slotColumn(rank) === col);
+  // Les colonnes de montants de Lignes_OPE (AMOUNT_COLUMNS) sont créées de même juste avant l'écriture (plan.neededAmounts).
+  const isSlotColumn = (table, col) => (table === 'Projets' && slotRanks().some(rank => rank > 1 && slotColumn(rank) === col)) || (table === 'Lignes_OPE' && AMOUNT_IDS.has(col));
   function writable(ctx, table, fields) {
     const out = {};
     Object.keys(fields).forEach(col => { if ((isSlotColumn(table, col) || ctx.hasColumn(table, col)) && !ctx.isFormula(table, col)) out[col] = fields[col]; });
     return out;
   }
 
+  // Montants à écrire sur une ligne OPE : seulement ce qui change par rapport à la ligne de Grist (`current`, null pour une ligne à créer). L'export
+  // fait foi : une valeur différente de Grist la remplace (ces colonnes sont créées et remplies par l'import, personne ne les saisit). Les colonnes de
+  // suivi (Montants au, Envoi des montants) suivent seulement quand un montant change, pour que deux envois identiques n'écrivent rien.
+  function amountFields(amounts, current) {
+    if (!amounts) return null;
+    const fields = {}, before = {};
+    AMOUNT_COLUMNS.forEach(col => {
+      if (AMOUNT_META.includes(col.id) || !(col.id in amounts)) return;
+      const value = amounts[col.id], was = current ? current[col.id] : null;
+      const same = col.type === 'Numeric' ? toNumber(was) != null && near(toNumber(was), value)
+        : col.type === 'Date' ? (toNumber(was) || 0) === value : text(was) === text(value);
+      if (same) return;
+      fields[col.id] = value; before[col.id] = was === undefined ? null : was;
+    });
+    if (!Object.keys(fields).length) return null;
+    AMOUNT_META.forEach(id => {
+      if (!(id in amounts)) return;
+      fields[id] = amounts[id]; before[id] = current && current[id] !== undefined ? current[id] : null;
+    });
+    return { fields, before };
+  }
+
   function planFromTable(table, ctx) {
     const phase1 = [], phase2 = [], skipped = [], notReady = [];
     let neededRank = 1; // plus haut rang OPE (1 à 4) écrit par ce plan : au-delà de 1, ses colonnes de Projets sont à créer avant l'écriture
-    const counts = { projetsCrees: 0, projetsLies: 0, opesCreees: 0, opesCompletees: 0, dejaAJour: 0, misDeCote: 0, aConfirmer: 0, ecarts: table.ecarts };
+    let neededAmounts = false; // le plan écrit des montants : leurs colonnes de Lignes_OPE sont à créer avant l'écriture
+    const counts = { projetsCrees: 0, projetsLies: 0, opesCreees: 0, opesCompletees: 0, montantsEcrits: 0, dejaAJour: 0, misDeCote: 0, aConfirmer: 0, ecarts: table.ecarts };
     const opeRef = new Map(); // N° OPE (clé) -> id existant ou { tmp }
     const programmeId = label => { const p = ctx.programmeList.find(item => item.label === label); return p ? p.id : 0; };
     const structureId = label => { const s = ctx.structureList.find(item => item.label === label); return s ? s.id : 0; };
@@ -643,19 +714,32 @@
         const known = opeRef.get(line.key);
         if (known !== undefined) { refs.push(known); return; }
         const sid = line.cell.v ? structureId(line.cell.v) : 0;
+        const amount = ctx.withAmounts ? amountFields(line.amounts, line.ligne) : null;
         if (line.existingId) {
           refs.push(line.existingId); opeRef.set(line.key, line.existingId);
+          let op = null;
           if (line.cell.state === 'fill' && sid) {
             const fields = writable(ctx, 'Lignes_OPE', { installe_chez: sid });
             if (Object.keys(fields).length) {
-              phase1.push({ table: 'Lignes_OPE', kind: 'update', id: line.existingId, fields, before: { installe_chez: isEmptyRef(line.ligne.installe_chez) ? 0 : line.ligne.installe_chez }, label: `OPE ${line.ope}`, entry: entry.key });
+              op = { table: 'Lignes_OPE', kind: 'update', id: line.existingId, fields, before: { installe_chez: isEmptyRef(line.ligne.installe_chez) ? 0 : line.ligne.installe_chez }, label: `OPE ${line.ope}`, entry: entry.key };
               counts.opesCompletees++; changed = true;
             }
           }
+          if (amount) {
+            const fields = writable(ctx, 'Lignes_OPE', amount.fields);
+            if (Object.keys(fields).length) {
+              if (!op) op = { table: 'Lignes_OPE', kind: 'update', id: line.existingId, fields: {}, before: {}, label: `OPE ${line.ope}`, entry: entry.key };
+              Object.keys(fields).forEach(col => { op.fields[col] = fields[col]; op.before[col] = amount.before[col]; });
+              counts.montantsEcrits++; changed = true; neededAmounts = true;
+            }
+          }
+          if (op) phase1.push(op);
         } else {
           const tmp = 'ope:' + line.key;
           refs.push({ tmp }); opeRef.set(line.key, { tmp });
-          phase1.push({ table: 'Lignes_OPE', kind: 'add', tmp, fields: writable(ctx, 'Lignes_OPE', { N_OPE: line.ope, installe_chez: sid }), label: `OPE ${line.ope}`, entry: entry.key });
+          const fields = writable(ctx, 'Lignes_OPE', Object.assign({ N_OPE: line.ope, installe_chez: sid }, amount ? amount.fields : {}));
+          if (amount && Object.keys(amount.fields).some(col => col in fields)) { counts.montantsEcrits++; neededAmounts = true; }
+          phase1.push({ table: 'Lignes_OPE', kind: 'add', tmp, fields, label: `OPE ${line.ope}`, entry: entry.key });
           counts.opesCreees++; changed = true;
         }
       });
@@ -699,7 +783,7 @@
       }
       if (!changed) counts.dejaAJour++;
     });
-    return { phase1, phase2, skipped, notReady, counts, actionCount: phase1.length + phase2.length, neededRank };
+    return { phase1, phase2, skipped, notReady, counts, actionCount: phase1.length + phase2.length, neededRank, neededAmounts };
   }
 
   // Raccourci : le plan d'écriture directement depuis les entrées (sans tableau).
@@ -810,6 +894,13 @@
 
   // Identifiant d'un lot : date et heure UTC, à la seconde (« 2026-11-18T12:45:30Z »), comme le script d'envoi.
   function lotIdOf(date) { return new Date(date).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+  // Date d'un identifiant de lot (secondes Unix) : « 2026-11-24T14:05:30Z », ou l'ancien format du script « 2026-11-24 14:05:30 » ; null sinon.
+  function lotSeconds(lot) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})Z?$/.exec(text(lot));
+    if (!match) return null;
+    const [y, m, d, hh, mm, ss] = match.slice(1).map(Number), stamp = Date.UTC(y, m - 1, d, hh, mm, ss);
+    return Number.isFinite(stamp) ? stamp / 1000 : null;
+  }
 
   // Champs de la ligne Import_Lots d'un fichier chargé par le widget (statut « A valider » : rien n'est écrit ailleurs avant validation).
   function newLotFields({ lot, type, source, fichier, recuLe, lignes }) {
@@ -828,19 +919,24 @@
     return { lot, ids: legacy.map(row => Number(row.id)), create: exists ? null : Object.assign(newLotFields({ lot, recuLe: stamps.length ? Math.min(...stamps) : null, lignes: legacy.length }), { Statut: written ? 'Valide' : 'A valider', Note: 'Chargement antérieur aux lots' }) };
   }
 
-  // Validation (après écriture réussie) des lots « Reprise unique » à valider dont des lignes sont dans le tableau : photo du contrôle,
-  // lien vers le lot du journal, et le lot validé précédent passe en Remplace.
+  // Validation (après écriture réussie) des lots à valider dont des lignes sont dans le tableau (reprise unique ou envoi du script) : photo du
+  // contrôle, lien vers le lot du journal, et les lots validés d'avant passent en Remplace. Un envoi plus ancien encore à valider, dont plus aucune
+  // ligne ne compte (le plus récent remplace tout), passe en Remplace lui aussi : il n'y a plus rien à y relire.
   function planLotValidation(lotRows, { lots, counts, journalLot, now }) {
-    const rows = (lotRows || []).filter(row => row.Type === LOT_TYPE_ONESHOT), inTable = new Set(lots || []);
+    const rows = lotRows || [], inTable = new Set(lots || []);
     const todo = rows.filter(row => inTable.has(row.Lot) && row.Statut === 'A valider');
     if (!todo.length) return [];
+    const newest = todo.map(row => String(row.Lot)).sort().pop();
     const before = rows.filter(row => row.Statut === 'Valide' && !inTable.has(row.Lot)).sort((a, b) => String(b.Lot).localeCompare(String(a.Lot)));
     const previous = before.length ? before[0].Lot : '';
+    const stale = rows.filter(row => row.Statut === 'A valider' && !inTable.has(row.Lot) && String(row.Lot) < newest);
     const seconds = Math.floor((now ? new Date(now) : new Date()).getTime() / 1000);
     const c = counts || {};
-    return before.map(row => ['UpdateRecord', LOTS_TABLE, Number(row.id), { Statut: 'Remplace' }]).concat(todo.map(row => ['UpdateRecord', LOTS_TABLE, Number(row.id), {
-      Statut: 'Valide', Compare_a: previous, Ajoutees: c.add || 0, Modifiees: c.mod || 0, Inchangees: c.same || 0, Absentes: 0, Anomalies: c.left || 0, Valide_le: seconds, Lot_journal: journalLot || ''
-    }]));
+    return before.map(row => ['UpdateRecord', LOTS_TABLE, Number(row.id), { Statut: 'Remplace' }])
+      .concat(stale.map(row => ['UpdateRecord', LOTS_TABLE, Number(row.id), { Statut: 'Remplace', Note: 'Remplacé par l\'envoi ' + newest + ' avant sa validation' }]))
+      .concat(todo.map(row => ['UpdateRecord', LOTS_TABLE, Number(row.id), {
+        Statut: 'Valide', Compare_a: previous, Ajoutees: c.add || 0, Modifiees: c.mod || 0, Inchangees: c.same || 0, Absentes: c.gone || 0, Anomalies: c.left || 0, Valide_le: seconds, Lot_journal: journalLot || ''
+      }]));
   }
 
   // Annulation : le lot du fichier chargé (par son Lot) ou les lots écrits (par leur Lot_journal) passent en Annule, avec le motif.
@@ -913,6 +1009,7 @@
     KIND_LABEL, normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf, isoOfUnix, unixOfIso,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, matchLabel, effectiveDecision,
     buildTable, similarBad, applyChoice, planFromTable, buildPlan,
+    AMOUNT_COLUMNS, AMOUNT_META, aggregateOpe, lotSeconds,
     execute, planUndo, planUnload, lotIdOf, newLotFields, planLegacyLot, planLotValidation, planLotCancel, summarizeLots, checkTotals, readExport
   };
 })(window);

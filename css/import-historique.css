@@ -124,3 +124,16 @@ table.ih-t { border-collapse:separate; border-spacing:0; width:100%; min-width:1
   .ih-actions-bar { position:static; }
 }
 .ih-ln small.ih-rank { display:inline-block; margin-right:.25rem; padding:0 .3rem; border-radius:4px; background:rgba(0,0,0,.07); color:inherit; font-weight:700; font-size:.68rem; letter-spacing:.02em; }
+
+/* Envois reçus et montants à écrire (24/11/2026) */
+.ih-tag.is-bad { color:var(--ih-bad); background:var(--ih-bad-soft); }
+.ih-tag.is-skip { color:var(--text-muted); background:var(--surface-sunken); }
+.ih-plus { color:var(--ih-sure); }
+.ih-minus { color:var(--ih-bad); }
+.ih-lots li { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+.ih-money { max-height:340px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+.ih-money .ih-table { margin:0; }
+.ih-chgs { display:flex; flex-wrap:wrap; gap:2px 12px; }
+.ih-chg { font-size:12.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.ih-chg b { font-weight:700; color:var(--text-muted); margin-right:3px; }
+.ih-steps { margin:6px 0 10px 18px; padding:0; font-size:13px; display:flex; flex-direction:column; gap:4px; }

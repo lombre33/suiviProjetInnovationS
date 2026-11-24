@@ -751,7 +751,7 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
 Outil qui relie les lignes de l'export UB Invest (une ligne par N° OPE × financeur × ligne budgétaire, feuille `Reporting`, 24 colonnes) aux
 projets et aux lignes OPE de Grist. Code : `js/pages/import-historique-logic.js` (règles pures), `page-import-historique.js` (page),
 `css/import-historique.css`, tests `tests/suite-import-historique*.js`. Tables créées par le widget à l'ouverture (`ensureTable` /
-`ensureColumns`, jamais rien de converti) : `Import_Financements` (arrivée des lignes, 24 colonnes + `Cle_ligne`, `Exporte_le`, `Lot`),
+`ensureColumns`, jamais rien de converti) : `Import_Financements` (arrivée des lignes, 24 colonnes + `Cle_ligne`, `Exporte_le`, `Lot`, `Lignes_du_lot`),
 `Import_Journal` (chaque écriture, avant / après : un lot s'annule) et `Import_Lots` (un envoi = un lot, contrat dans
 `imports/import-lots-contrat.md` du dossier du projet).
 
@@ -765,6 +765,31 @@ projets et aux lignes OPE de Grist. Code : `js/pages/import-historique-logic.js`
   d'un projet à plusieurs lignes ;
 - crée les colonnes des rangs 2 à 4 juste avant d'écrire (`plan.neededRank`, `CoreOpes.missingColumns`) ; si leur création échoue, rien n'est écrit ;
 - annule un lot en tenant compte des quatre rangs (une ligne OPE qu'un autre projet range encore n'est jamais supprimée).
+
+**Envois du script UB Invest et montants (24/11/2026).** Le script (dépôt `script-export-ubinvest`, `src/envoyer_grist.py` ou `synchroniser.py`)
+renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même `Lot` (date et heure UTC, `2026-11-24T14:05:30Z`) et `Lignes du lot`
+(leur nombre, colonne `Lignes_du_lot` de `Import_Financements`). Code : `js/pages/import-lots-logic.js` (règles pures), `import-form.js`, la page.
+- **Nouvel envoi** : à l'ouverture, une ligne `Import_Lots` (`Macro`, `Script`, `A valider`) est créée par valeur de `Lot` inconnue ; l'envoi
+  d'essai (`essai…`) est ignoré ; un envoi dont `Lignes du lot` dépasse les lignes reçues est signalé « incomplet » et ne compte pas tant que le
+  script ne l'a pas renvoyé en entier. Rien n'est écrit ailleurs.
+- **Ce qui compte pour le tableau** (`ImportLotsLogic.activeRows`) : les lignes des envois ni refusés, ni annulés, ni incomplets (un envoi validé
+  reste compté). Une ligne disparue du dernier envoi garde sa version d'avant (comptée, signalée « disparue »). Boîte « Envois reçus » : liste
+  des envois du plus récent au plus ancien, écarts de chacun avec le dernier envoi validé (nouvelles, modifiées, disparues, inchangées), boutons
+  « Refuser » / « Rétablir » (seul `Import_Lots` change).
+- **Montants** (`ImportHistoriqueLogic.AMOUNT_COLUMNS`, option `withAmounts` du contexte) : « Écrire » écrit aussi, sur `Lignes_OPE`, des colonnes
+  **simples** créées par le widget juste avant (`plan.neededAmounts`, aucune formule, `totalCPConsomme` jamais touchée) : `Financeur`,
+  `Ligne_budgetaire`, `Montant_attribue`, `Attribue_2022` à `Attribue_2026`, `Consomme_AE`, `Consomme_CP`, `Disponible_AE`, `Disponible_CP`,
+  `Date_debut_OPE`, `Date_fin_OPE`, `Date_maj_conso` (date de l'envoi), `Lot_maj`. Un N° OPE = une ligne `Lignes_OPE` : l'attribué s'additionne
+  d'une ligne de financement à l'autre ; le consommé et le disponible valent pour tout le N° OPE (version la plus récente, jamais additionnés ; un
+  désaccord entre lignes est signalé). Seul ce qui change est écrit (avant / après au journal, donc annulable) ; deux envois identiques n'écrivent
+  rien. La boîte « Montants à écrire » liste, par N° OPE, chaque valeur d'avant et d'après.
+- **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
+  `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
+- **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques
+  `Cle_ligne` et `Exporte_le`, **non publié** ; publié seulement après la case d'accord (mêmes écritures que le bouton Publier de Grist : une ligne
+  `_grist_Shares`, le partage de la page, `shareOptions` de la section) ; dépublié par un clic (`shareOptions` vidé). Le widget ne connaît jamais le
+  lien (la clé n'est lisible nulle part) : la personne le copie (Partager → Copier le lien) dans `grist.txt` du script. Si les métadonnées ne se
+  lisent pas, aucun formulaire n'est créé à l'aveugle.
 
 ## Dernière page ouverte (12/11/2026)
 

@@ -456,9 +456,10 @@
     it('validation : le lot du tableau passe en Valide avec la photo du contrôle, le lot validé d\'avant en Remplace', function () {
       const lots = [lot(1, { Lot: '2026-10-01T08:00:00Z', Statut: 'Valide' }), lot(2, { Lot: '2026-11-18T10:00:00Z' }), lot(3, { Lot: '2026-11-18T11:00:00Z', Type: 'Macro' }), lot(4, { Lot: '2026-11-17T09:00:00Z', Statut: 'Refuse' })];
       const actions = L().planLotValidation(lots, { lots: ['2026-11-18T10:00:00Z', '2026-11-18T11:00:00Z'], counts: { add: 3, mod: 5, same: 7, left: 0 }, journalLot: 'LOT-20261118125000', now: Date.UTC(2026, 10, 18, 13, 0, 0) });
-      assertEqual(actions.length, 2);
+      assertEqual(actions.length, 3, 'le lot validé d\'avant en Remplace, puis les deux lots du tableau en Valide (reprise unique et envoi du script)');
       assertDeepEqual(actions[0], ['UpdateRecord', 'Import_Lots', 1, { Statut: 'Remplace' }]);
       assertDeepEqual(actions[1], ['UpdateRecord', 'Import_Lots', 2, { Statut: 'Valide', Compare_a: '2026-10-01T08:00:00Z', Ajoutees: 3, Modifiees: 5, Inchangees: 7, Absentes: 0, Anomalies: 0, Valide_le: Date.UTC(2026, 10, 18, 13) / 1000, Lot_journal: 'LOT-20261118125000' }]);
+      assertEqual(actions[2][2], 3); assertEqual(actions[2][3].Statut, 'Valide');
       assertDeepEqual(L().planLotValidation(lots, { lots: ['2026-11-17T09:00:00Z'], counts: {}, journalLot: 'X', now: Date.now() }), [], 'un lot refusé n\'est pas validé par une écriture');
       assertDeepEqual(L().planLotValidation(lots, { lots: ['2026-10-01T08:00:00Z'], counts: {}, journalLot: 'X', now: Date.now() }), [], 'déjà validé : rien à faire');
     });
@@ -566,15 +567,15 @@
       const created = calls.find(call => call.type === 'AddTable' && call.table === 'Import_Financements');
       assertTrue(!!created, 'la table du journal est créée par l\'outil');
       const byIdCol = Object.fromEntries(created.colDefs.map(col => [col.id, col]));
-      assertEqual(created.colDefs.length, 27, '24 colonnes de l\'export + Cle_ligne, Exporte_le et Lot');
+      assertEqual(created.colDefs.length, 28, '24 colonnes de l\'export + Cle_ligne, Exporte_le, Lot et Lignes du lot');
       assertEqual(byIdCol.N_OPE.label, 'N° OPE', 'l\'étiquette reprend l\'en-tête Excel : l\'import de fichier associe tout seul');
       assertEqual(byIdCol.Attribue_2024.label, 'Attribué 2024'); assertEqual(byIdCol.Etablissement.label, 'Établissement');
       assertEqual(byIdCol.Date_debut.type, 'Date'); assertEqual(byIdCol.Consomme_AE.type, 'Numeric');
       assertFalse(created.colDefs.some(col => col.isFormula), 'aucune colonne calculée : le formulaire doit pouvoir tout envoyer');
       ['Programme', 'Projet', 'Financeur', 'Financeurs_du_projet', 'N_OPE', 'Libelle_operation', 'Ligne_budgetaire', 'Statuts', 'N_decision', 'Structure', 'Etablissement', 'Date_debut', 'Date_fin', 'Montant_attribue', 'Part_du_projet',
-        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le', 'Lot'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
+        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le', 'Lot', 'Lignes_du_lot'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
       assertTrue(calls.some(call => call.type === 'AddTable' && call.table === 'Import_Journal'), 'le journal des écritures est créé aussi');
-      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (27 colonnes)');
+      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (28 colonnes)');
       assertFalse(calls.some(call => call.table === 'Lignes_OPE' || call.table === 'Projets'), 'rien n\'est touché dans Projets ni Lignes_OPE (pas de formule de montant, pas de conversion)');
       assertTrue(!!byId('ih-pick') && !!byId('ih-file') && !byId('ih-write'), 'bouton pour choisir le fichier, pas de tableau sur un journal vide');
       assertFalse(!!document.querySelector('.nav-btn[data-view="view-import-historique"]'), 'pas dans la barre de navigation');
@@ -778,7 +779,7 @@
   describe('Import historique — écriture, journal, annulation', function () {
     const GRIST_INITIAL = () => ({ projets: PROJETS.length, lignes: LIGNES.length });
 
-    it('écrit seulement Projets, Lignes_OPE et le journal ; Ligne_OPE au format liste Grist ; rien d\'autre, aucun montant', async function () {
+    it('écrit seulement Projets, Lignes_OPE et le journal ; Ligne_OPE au format liste Grist ; les montants seulement dans les colonnes simples de l\'outil', async function () {
       await setup();
       await fixAndWrite();
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
@@ -798,9 +799,10 @@
       assertEqual(projets.find(p => p.id === 14).Ligne_OPE.length, 2, 'DELTA : une ligne OPE de plus');
       assertEqual(projets.find(p => p.id === 10).Date_debut_Projet, UTC(2024, 1, 1));
       assertEqual(lignes.find(l => l.id === 1).installe_chez, 1, 'structure complétée sur la ligne OPE existante');
-      assertEqual(lignes.find(l => l.id === 1).totalCPConsomme, 1200, 'les montants ne sont pas touchés');
+      assertEqual(lignes.find(l => l.id === 1).totalCPConsomme, 1200, 'totalCPConsomme n\'est jamais touchée');
       const keys = new Set(calls.flatMap(c => Object.keys(c.fields || {})));
-      assertFalse(Array.from(keys).some(k => /Attribue|Consomme|Disponible|Montant|Total|Statut_Macro/.test(k)));
+      assertFalse(Array.from(keys).some(k => /totalCP|^Total_|Statut_Macro|^c20\d\d_/.test(k)), 'jamais totalCPConsomme ni une colonne de total');
+      assertTrue(Array.from(keys).filter(k => /Attribue|Consomme|Disponible|Montant/.test(k)).every(k => L().AMOUNT_COLUMNS.some(col => col.id === k)), 'les montants vont seulement dans les colonnes simples créées par l\'outil');
     });
 
     it('les corrections faites dans le tableau sont ce qui est écrit : programme choisi, valeur de l\'export prise à la place de celle de Grist', async function () {

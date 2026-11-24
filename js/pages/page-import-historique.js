@@ -18,6 +18,8 @@
   'use strict';
 
   const L = global.ImportHistoriqueLogic;
+  const K = global.ImportLotsLogic;
+  const F = global.ImportForm;
   const esc = value => CoreUtils.escapeHtml(value);
   const $ = id => document.getElementById(id);
   const FILTERS = [['all', 'Tous'], ['add', 'Ajouts'], ['mod', 'Modifications'], ['same', 'Inchangés'], ['todo', 'À régler'], ['skip', 'Écartés']];
@@ -32,7 +34,7 @@
       phase: 'idle', error: '', rows: [], lines: [], ignored: 0, total: 0, issues: [], entries: [], orphans: [], ctx: null, matches: new Map(),
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
-      result: null, undo: null, openBoxes: new Set(), _refocus: null,
+      result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false,
       prepared: [], upload: null
     };
   }
@@ -61,7 +63,8 @@
       projets: projets || [], lignes: lignes || [], programmes: programmes || [], structures: structures || [],
       isFormula: (table, col) => CoreGrist.isFormulaColumn(table, col),
       hasColumn: (table, col) => { const known = CoreGrist.knownColumns(table); return !known || known.has(col); },
-      statusChoices: CoreGrist.columnChoices('Projets', 'Statut_operationnel_projet')
+      statusChoices: CoreGrist.columnChoices('Projets', 'Statut_operationnel_projet'),
+      withAmounts: true
     });
     state.readAt = Date.now();
   }
@@ -72,8 +75,10 @@
   }
 
   function analyse() {
-    const versions = L.latestVersions(state.rows);
-    state.lines = versions.lines; state.ignored = versions.ignored; state.total = versions.total;
+    // Un envoi refusé ou annulé, l'essai et un envoi incomplet ne comptent pas (ImportLotsLogic.activeRows).
+    const active = K.activeRows(state.rows, state.lots);
+    const versions = L.latestVersions(active);
+    state.lines = versions.lines; state.ignored = versions.ignored; state.total = state.rows.length; state.setAside = state.rows.length - active.length;
     state.issues = L.checkLines(state.lines);
     const grouped = L.groupProjects(state.lines, state.issues);
     state.entries = grouped.entries; state.orphans = grouped.orphans;
@@ -112,6 +117,27 @@
     } catch (err) { console.warn('Import historique : rattachement des anciennes lignes à un lot impossible :', err); }
   }
 
+  // Formulaire du script (js/pages/import-form.js) : état lu dans les métadonnées de Grist. Au mieux : une lecture refusée est dite, jamais devinée
+  // (créer un formulaire « à l'aveugle » en ferait un doublon).
+  const metaIo = () => ({ fetch: name => CoreGrist.gristInstance.docApi.fetchTable(name), apply: async actions => (await CoreGrist.gristInstance.docApi.applyUserActions(actions)).retValues });
+  async function readForm() {
+    try { state.form = await F.read(metaIo(), L.SOURCE_TABLE); state.formError = ''; }
+    catch (err) { state.form = null; state.formError = CoreUtils.failureReason(err, { what: 'lecture du formulaire du script', table: '_grist_Views_section' }); }
+  }
+
+  // Envois du script arrivés depuis la dernière ouverture : une ligne Import_Lots « A valider » chacun (rien d'autre n'est écrit). Au mieux :
+  // un échec laisse la page utilisable, les envois comptent alors comme « à valider » (ImportLotsLogic.activeRows).
+  async function discoverLots() {
+    const plan = K.planDiscovery(state.rows, state.lots, new Date());
+    state.discovered = plan.created;
+    if (!plan.actions.length) return;
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions(plan.actions);
+      CoreGrist.invalidateTable(L.LOTS_TABLE);
+      state.lots = (await readTable(L.LOTS_TABLE)) || [];
+    } catch (err) { console.warn('Import historique : enregistrement des nouveaux envois impossible :', err); }
+  }
+
   async function load() {
     state.phase = 'loading'; state.error = ''; state.editing = null; render();
     try {
@@ -123,6 +149,8 @@
       state.rows = rows || [];
       await readGrist();
       await adoptLegacyRows();
+      await discoverLots();
+      await readForm();
       analyse();
       state.phase = 'ready';
     } catch (err) {
@@ -309,13 +337,115 @@
     let note;
     if (t.left) note = `<b>${plural(t.left, 'anomalie reste', 'anomalies restent')} à régler</b> avant d'écrire (cellules rouges).`;
     else if (!plan.actionCount) note = 'Rien à écrire : tout est déjà à jour dans Grist.';
-    else note = `<b>Prêt à écrire :</b> ${plural(c.projetsCrees, 'projet créé', 'projets créés')}, ${plural(c.projetsLies, 'projet complété', 'projets complétés')}, ${plural(c.opesCreees, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(c.opesCompletees, 'ligne OPE complétée', 'lignes OPE complétées')}. Rien n'est écrit avant ton clic.`;
+    else note = `<b>Prêt à écrire :</b> ${plural(c.projetsCrees, 'projet créé', 'projets créés')}, ${plural(c.projetsLies, 'projet complété', 'projets complétés')}, ${plural(c.opesCreees, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(c.opesCompletees, 'ligne OPE complétée', 'lignes OPE complétées')}${c.montantsEcrits ? `, ${plural(c.montantsEcrits, 'ligne OPE avec ses montants', 'lignes OPE avec leurs montants')}` : ''}. Rien n'est écrit avant ton clic.`;
     const blocked = !!t.left || !plan.actionCount;
     return `<div class="ih-actions-bar"><span class="ih-note">${note}</span>
       <button type="button" class="btn btn-secondary" id="ih-next"${t.left ? '' : ' disabled'}>Prochaine anomalie ↓</button>
       <label class="ih-ack"><input type="checkbox" id="ih-ack"${state.ack ? ' checked' : ''}${blocked ? ' disabled' : ''}> J'ai relu le tableau</label>
       <button type="button" class="btn btn-primary" id="ih-write"${blocked || !state.ack || state.writing ? ' disabled' : ''}>Écrire ${plural(plan.actionCount, 'action', 'actions')} dans Grist</button></div>`;
   }
+
+  // ----------------------------------------------------------------------------------------------------------
+  // Envois reçus (script UB Invest ou fichier) : un envoi n'écrit rien tant qu'il n'est pas validé ; « Écrire » valide ceux du tableau.
+  // ----------------------------------------------------------------------------------------------------------
+
+  const whenFr = seconds => (seconds ? new Date(seconds * 1000).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' à') : '—');
+  const LOT_TAG = { 'A valider': ['is-maybe', 'À valider'], Valide: ['is-ok', 'Validé'], Refuse: ['is-bad', 'Refusé'], Annule: ['is-bad', 'Annulé'], Remplace: ['is-skip', 'Remplacé'] };
+
+  function diffText(card) {
+    const d = card.diff;
+    if (!d) return '';
+    if (d.first) return `première réception : ${plural(d.added, 'ligne', 'lignes')}`;
+    const parts = [];
+    if (d.added) parts.push(`<b class="ih-plus">+${d.added}</b> ${d.added > 1 ? 'nouvelles' : 'nouvelle'}`);
+    if (d.changed) parts.push(`<b>${d.changed}</b> ${d.changed > 1 ? 'modifiées' : 'modifiée'}`);
+    if (d.gone) parts.push(`<b class="ih-minus">${d.gone}</b> ${d.gone > 1 ? 'disparues' : 'disparue'} (gardées, à vérifier)`);
+    parts.push(parts.length ? `${d.same} ${d.same > 1 ? 'inchangées' : 'inchangée'}` : 'identique à l\'envoi validé');
+    return parts.join(' · ');
+  }
+
+  function envoisHtml() {
+    const cards = K.lotCards(state.rows, state.lots);
+    state.cards = cards;
+    if (!cards.length) return '';
+    const review = cards.filter(card => card.status === 'A valider' && !card.excluded).length;
+    const items = cards.map(card => {
+      const [cls, label] = LOT_TAG[card.status] || ['is-skip', card.status];
+      const photo = card.photo ? [card.photo.added && plural(card.photo.added, 'projet ajouté', 'projets ajoutés'), card.photo.changed && plural(card.photo.changed, 'projet modifié', 'projets modifiés'), card.photo.gone && plural(card.photo.gone, 'ligne disparue', 'lignes disparues')].filter(Boolean).join(', ') : '';
+      const source = card.source === 'Fichier' ? `fichier ${esc(card.file || '')}` : 'script';
+      const action = card.status === 'A valider' ? `<button type="button" class="btn btn-secondary" data-ih-refuse="${esc(card.lot)}">Refuser</button>`
+        : card.status === 'Refuse' ? `<button type="button" class="btn btn-secondary" data-ih-restore="${esc(card.lot)}">Rétablir</button>` : '';
+      return `<li><span class="ih-mono">${esc(whenFr(card.time))}</span> <span class="ih-tag ${cls}">${label}</span>
+        <span class="ih-muted">· ${source} · ${plural(card.count, 'ligne', 'lignes')}${diffText(card) ? ' · ' + diffText(card) : ''}${photo ? ' · ' + photo : ''}</span>
+        ${card.excluded ? `<span class="ih-warn-inline">${esc(card.excluded)}</span>` : ''}${card.note && !card.excluded ? `<span class="ih-muted">· ${esc(card.note)}</span>` : ''} ${action}</li>`;
+    }).join('');
+    return boxHtml('envois', 'Envois reçus', review ? `<span class="ih-warn-inline">${plural(review, 'envoi à relire', 'envois à relire')}</span>` : plural(cards.length, 'envoi', 'envois'),
+      `<ul class="ih-lots">${items}</ul><p class="ih-muted">Un envoi n'écrit rien dans Grist tant que tu ne l'as pas validé : relis le tableau et les montants ci-dessous, puis « Écrire ». Un envoi refusé ne compte plus.</p>`, review > 0);
+  }
+
+  // Valeur d'un montant ou d'une date pour la relecture (jamais de nombre brut, dates en jj/mm/aaaa).
+  function formatAmount(type, value) {
+    if (value == null || value === '') return '—';
+    if (type === 'Date') return dateFr(new Date(value * 1000).toISOString().slice(0, 10));
+    if (type === 'Numeric') return money(value) + ' €';
+    return String(value);
+  }
+
+  function montantsHtml() {
+    const t = state.table, changes = K.amountChanges(t.plan);
+    const names = new Map(t.rows.map(row => [row.key, row.entry.name]));
+    const conflicts = state.entries.flatMap(entry => entry.opes.filter(ope => ope.amounts && ope.amounts.conflict).map(ope => ({ ope: ope.ope, project: entry.name })));
+    if (!changes.length && !conflicts.length) return '';
+    const MAX = 150;
+    const rows = changes.slice(0, MAX).map(item => {
+      const parts = item.changes.map(change => `<span class="ih-chg"><b>${esc(change.label)}</b> ${item.kind === 'add' || change.before == null || change.before === '' ? '' : esc(formatAmount(change.type, change.before)) + ' → '}${esc(formatAmount(change.type, change.after))}</span>`);
+      return `<tr><td class="ih-mono">${esc(item.ope)}${item.kind === 'add' ? ' <span class="ih-tag is-ok">nouvelle ligne</span>' : ''}</td><td>${esc(names.get(item.entry) || '')}</td><td class="ih-chgs">${parts.join(' ')}</td></tr>`;
+    }).join('');
+    const warn = conflicts.length ? `<p class="ih-warn"><strong>⚠</strong> ${plural(conflicts.length, 'N° OPE donne', 'N° OPE donnent')} un consommé différent d'une ligne de l'export à l'autre (la version la plus récente est retenue) : ${conflicts.slice(0, 6).map(c => `<span class="ih-mono">${esc(c.ope)}</span>`).join(', ')}${conflicts.length > 6 ? ', …' : ''}.</p>` : '';
+    const table = changes.length ? `<div class="ih-money"><table class="ih-table"><thead><tr><th>N° OPE</th><th>Projet</th><th>Ce qui change dans Lignes_OPE</th></tr></thead><tbody>${rows}</tbody></table></div>${changes.length > MAX ? `<p class="ih-muted">… et ${changes.length - MAX} autres.</p>` : ''}` : '<p class="ih-muted">Aucun montant ne change.</p>';
+    const review = (state.cards || []).some(card => card.status === 'A valider' && !card.excluded);
+    return boxHtml('montants', 'Montants à écrire dans Lignes_OPE', changes.length ? plural(changes.length, 'ligne OPE', 'lignes OPE') : 'aucun changement', warn + table
+      + '<p class="ih-muted">L\'attribué s\'additionne d\'une ligne de financement à l\'autre ; le consommé et le disponible valent pour tout le N° OPE (une seule fois). Colonnes simples créées par l\'outil, défaites avec le lot.</p>', review && changes.length > 0);
+  }
+
+  function formHtml() {
+    const f = state.form, table = L.SOURCE_TABLE;
+    let summary, body;
+    if (!f) {
+      summary = 'état illisible';
+      body = `<p class="ih-warn"><strong>⚠</strong> L'état du formulaire n'a pas pu être lu : ${esc(state.formError)}. Rien n'est créé tant qu'on ne sait pas s'il existe déjà.</p><p><button type="button" class="btn btn-secondary" id="ih-form-reload">Relire</button></p>`;
+    } else if (!f.exists) {
+      summary = 'à créer';
+      body = `<p>Le script UB Invest envoie ses lignes par un formulaire Grist, qui ne sait qu'<strong>ajouter</strong> des lignes à ${table}. L'outil le crée <strong>sans le publier</strong> : tu décides ensuite.</p>
+        <p><button type="button" class="btn btn-primary" id="ih-form-create"${state.formBusy ? ' disabled' : ''}>Créer le formulaire</button></p>`;
+    } else if (!f.published) {
+      summary = 'créé, pas publié';
+      body = `<p>Formulaire créé sur la page « ${esc(f.pageName)} » de Grist : <strong>pas publié</strong>, le script ne peut pas encore envoyer.</p>
+        <label class="ih-ack"><input type="checkbox" id="ih-form-accept"${state.formAccept ? ' checked' : ''}> Je comprends que le lien du formulaire permet à quiconque l'a d'ajouter des lignes à ${table} (rien d'autre : ni lire, ni modifier), et qu'aucun envoi ne compte avant ma validation.</label>
+        <p><button type="button" class="btn btn-primary" id="ih-form-publish"${state.formAccept && !state.formBusy ? '' : ' disabled'}>Publier le formulaire</button></p>`;
+    } else {
+      summary = 'publié';
+      body = `<p><span class="ih-tag is-ok">Publié</span> Le script peut envoyer. Il reste une seule chose à faire à la main, car seul Grist connaît le lien :</p>
+        <ol class="ih-steps"><li>Dans Grist, ouvre la page « ${esc(f.pageName)} », puis <strong>Partager</strong> → <strong>Copier le lien</strong> du formulaire.</li>
+        <li>Colle-le seul sur une ligne dans <span class="ih-mono">C:\Users\&lt;toi&gt;\.secrets\innovations\grist.txt</span> (jamais dans un message ni dans le code).</li>
+        <li>Teste : <span class="ih-mono">py src\envoyer_grist.py --essai</span>, puis <span class="ih-mono">--envoyer</span>.</li></ol>
+        <p><button type="button" class="btn btn-secondary" id="ih-form-unpublish"${state.formBusy ? ' disabled' : ''}>Dépublier le formulaire</button> <span class="ih-muted">Dépublié, le lien cesse de fonctionner ; rien ne se perd.</span></p>`;
+    }
+    return boxHtml('formulaire', 'Formulaire du script', summary, body, false);
+  }
+
+  async function formAction(run, message, what) {
+    if (state.formBusy) return;
+    state.formBusy = true; render();
+    try { state.form = await run(); state.result = { kind: 'info', message: typeof message === 'function' ? message(state.form) : message }; }
+    catch (err) { state.result = { kind: 'error', message: 'Formulaire du script : ' + CoreUtils.failureReason(err, { what, table: '_grist_Views_section' }) }; }
+    state.formBusy = false; state.formAccept = false;
+    await readForm(); render();
+  }
+  const createForm = () => formAction(() => F.create(metaIo(), L.SOURCE_TABLE),
+    form => `Formulaire créé (pas publié) sur la page « ${form.pageName} » de Grist${form.renamed === false ? ' : Grist n\'a pas laissé renommer la page' : ''}.`, 'création du formulaire');
+  const publishForm = () => { if (state.formAccept && state.form) formAction(() => F.publish(metaIo(), state.form), 'Formulaire publié. Copie son lien dans Grist (Partager) pour le script : voir les étapes dans « Formulaire du script ».', 'publication du formulaire'); };
+  const unpublishForm = () => formAction(() => F.unpublish(metaIo(), state.form), 'Formulaire dépublié : son lien ne fonctionne plus.', 'dépublication du formulaire');
 
   function lotsHtml() {
     const lots = L.summarizeLots(state.journal);
@@ -344,10 +474,11 @@
       const e = r.value;
       const n = e.ajouts.Projets.length + e.ajouts.Lignes_OPE.length + e.modifs.Projets.length + e.modifs.Lignes_OPE.length;
       if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(CoreUtils.failureReason(e.error, { what: 'écriture dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE }))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
-      return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.colonnesCreees && e.colonnesCreees.length ? ` ${plural(e.colonnesCreees.length, 'colonne créée', 'colonnes créées')} dans Projets pour ${e.rangMax > 2 ? `les OPE 2 à ${e.rangMax}` : 'l\'OPE 2'}.` : ''}${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
+      return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.colonnesCreees && e.colonnesCreees.length ? ` ${plural(e.colonnesCreees.length, 'colonne créée', 'colonnes créées')} dans Projets pour ${e.rangMax > 2 ? `les OPE 2 à ${e.rangMax}` : 'l\'OPE 2'}.` : ''}${e.colonnesMontants && e.colonnesMontants.length ? ` ${plural(e.colonnesMontants.length, 'colonne de montants créée', 'colonnes de montants créées')} dans Lignes_OPE.` : ''}${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
     }
     if (r.kind === 'loaded') return `<div class="ih-banner is-ok" role="status"><strong>✓ Fichier chargé.</strong> ${plural(r.count, 'ligne ajoutée', 'lignes ajoutées')} à ${L.SOURCE_TABLE} (lot ${esc(r.lotId)} « A valider », annulable plus bas).${r.lotError ? ` <b>Le lot n'a pas pu être enregistré dans ${L.LOTS_TABLE} :</b> ${esc(r.lotError)}.` : ''} Relis le tableau, corrige les anomalies, puis écris.</div>`;
     if (r.kind === 'undone') return `<div class="ih-banner is-ok" role="status"><strong>${r.unit ? '✓ Chargement annulé.' : '✓ Lot annulé.'}</strong> ${r.unit ? plural(r.done, 'ligne retirée', 'lignes retirées') : plural(r.done, 'action défaite', 'actions défaites')}${r.skipped ? `, ${plural(r.skipped, 'ligne laissée', 'lignes laissées')} car modifiée${r.skipped > 1 ? 's' : ''} depuis` : ''}.</div>`;
+    if (r.kind === 'info') return `<div class="ih-banner is-ok" role="status">${esc(r.message)}</div>`;
     return `<div class="ih-banner is-error" role="alert">${esc(r.message)}</div>`;
   }
 
@@ -443,7 +574,7 @@
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail des dépenses absent';
-    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button></p>${legendHtml()}</div>`;
+    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button></p>${legendHtml()}</div>`;
   }
 
   function render() {
@@ -461,17 +592,17 @@
     }
     if (!state.total) {
       const busy = state.upload && state.upload.phase !== 'error';
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}
+      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}${formHtml()}
         ${busy ? '' : `<div class="ih-empty"><p><strong>Charge l'export Excel</strong></p><p class="ih-muted">Choisis le fichier d'export de tous les projets. Il est lu ici, dans ton navigateur, et ses lignes sont ajoutées à Grist. Tu verras ensuite un tableau, une ligne par projet, pour tout vérifier avant d'écrire.</p><button type="button" class="btn btn-primary" id="ih-pick">Choisir le fichier Excel</button><p class="ih-muted">Les lignes arrivent autrement (formulaire) ? <button type="button" class="ih-link" id="ih-reload">Relire</button></p></div>`}`;
       return;
     }
     const t = state.table;
     const grid = root.querySelector('.ih-grid'), scrollLeft = grid ? grid.scrollLeft : 0, scrollTop = grid ? grid.scrollTop : 0;
     const blocked = t.rows.filter(r => r.match.status === 'blocked').length;
-    root.innerHTML = barHtml() + preparedHtml() + uploadHtml() + resultHtml() + summaryHtml()
+    root.innerHTML = barHtml() + preparedHtml() + uploadHtml() + resultHtml() + summaryHtml() + envoisHtml() + montantsHtml()
       + boxHtml('checks', 'Contrôles de l\'export', state.issues.length ? plural(state.issues.length, 'écart', 'écarts') + (blocked ? ` · ${plural(blocked, 'projet écarté', 'projets écartés')}` : '') : '7 sur 7 réussis', checksHtml(), false)
       + boxHtml('totals', 'Contrôle des totaux', state.totals && state.totals.available ? (state.totals.gaps ? plural(state.totals.gaps, 'écart', 'écarts') : 'concordants') : 'détail absent', totalsHtml(), state.totals && state.totals.gaps > 0)
-      + tableHtml() + actionsHtml() + lotsHtml();
+      + formHtml() + tableHtml() + actionsHtml() + lotsHtml();
     const newGrid = root.querySelector('.ih-grid');
     if (newGrid) { newGrid.scrollLeft = scrollLeft; newGrid.scrollTop = scrollTop; }
     const editor = root.querySelector('.editing .ih-in');
@@ -500,7 +631,10 @@
   // Écriture réussie : les lots du tableau passent en « Valide » (photo du contrôle, lien vers le lot du journal annulable).
   async function validateLots(table, result) {
     const lots = Array.from(new Set(state.lines.map(line => line.Lot).filter(Boolean)));
-    const actions = L.planLotValidation(state.lots, { lots, counts: { add: table.add, mod: table.mod, same: table.same, left: table.left }, journalLot: result.lot, now: new Date() });
+    // Lignes disparues : dans le dernier envoi validé, pas dans le plus récent (elles restent comptées, avec leur ancienne version).
+    const reference = K.referenceLot(state.lots), newest = lots.slice().sort().pop();
+    const gone = reference && newest && !lots.includes(reference) ? K.compareLots(K.rowsOfLot(state.rows, newest), K.rowsOfLot(state.rows, reference)).gone.length : 0;
+    const actions = L.planLotValidation(state.lots, { lots, counts: { add: table.add, mod: table.mod, same: table.same, left: table.left, gone }, journalLot: result.lot, now: new Date() });
     if (actions.length) await CoreGrist.gristInstance.docApi.applyUserActions(actions);
     CoreGrist.invalidateTable(L.LOTS_TABLE);
   }
@@ -521,6 +655,20 @@
     return missing.map(col => col.id);
   }
 
+  // Montants (24/11/2026) : leurs colonnes de Lignes_OPE sont créées par le widget juste avant d'écrire (colonnes simples, aucune formule).
+  async function ensureAmountColumns(plan) {
+    if (!plan.neededAmounts) return [];
+    const known = CoreGrist.knownColumns('Lignes_OPE');
+    const missing = L.AMOUNT_COLUMNS.filter(col => !known || !known.has(col.id));
+    if (!missing.length) return [];
+    try { await CoreGrist.ensureColumns('Lignes_OPE', missing); }
+    catch (error) {
+      throw Object.assign(new Error(`les colonnes des montants n'ont pas pu être créées dans la table Lignes_OPE (${error.message}). Rien n'a été écrit.`),
+        { cause: error, gristAccess: { op: 'write', table: 'Lignes_OPE', columns: missing.map(col => col.id), what: 'création des colonnes de montants dans Lignes_OPE' } });
+    }
+    return missing.map(col => col.id);
+  }
+
   async function write() {
     const t = state.table;
     if (state.writing || !t || t.left || !t.plan.actionCount) return;
@@ -537,8 +685,9 @@
     try {
       await ensureJournal();
       const createdColumns = await ensureSlotColumns(t.plan);
+      const amountColumns = await ensureAmountColumns(t.plan);
       const result = await L.execute(t.plan, io());
-      result.colonnesCreees = createdColumns; result.rangMax = t.plan.neededRank;
+      result.colonnesCreees = createdColumns; result.rangMax = t.plan.neededRank; result.colonnesMontants = amountColumns;
       state.result = { kind: 'written', value: result };
       written = !result.error;
       if (written) {
@@ -554,6 +703,20 @@
     await load();
     notifyChanged();
   }
+
+  // Refuser un envoi (il ne compte plus ni pour le tableau ni pour le Dashboard) ou le rétablir : seul Import_Lots change.
+  async function changeLotStatus(actions, message) {
+    if (!actions.length) return;
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions(actions);
+      state.result = { kind: 'info', message };
+    } catch (err) { state.result = { kind: 'error', message: 'Changement impossible : ' + CoreUtils.failureReason(err, { what: 'changement de statut d\'un envoi', table: L.LOTS_TABLE }) }; }
+    CoreGrist.invalidateTable(L.LOTS_TABLE);
+    state.ack = false;
+    await load();
+  }
+  const refuseLot = lot => changeLotStatus(K.planRefusal(state.lots, lot), `Envoi du ${whenFr(K.lotTime(lot))} refusé : il ne compte plus. « Rétablir » le remet à valider.`);
+  const restoreLot = lot => changeLotStatus(K.planRestore(state.lots, lot), `Envoi du ${whenFr(K.lotTime(lot))} rétabli : il est de nouveau à valider.`);
 
   async function startUndo(lot) {
     await readGrist();
@@ -627,6 +790,9 @@
       recompute(); render();
     } else if (target.matches('[data-ih-all]')) {
       state.applyAll = target.checked;
+    } else if (target.id === 'ih-form-accept') {
+      state.formAccept = target.checked;
+      const publish = $('ih-form-publish'); if (publish) publish.disabled = !target.checked || state.formBusy;
     } else if (target.id === 'ih-ack') {
       state.ack = target.checked;
       const btn = $('ih-write');
@@ -668,6 +834,12 @@
     else if (button.id === 'ih-next') goToNextAnomaly();
     else if (button.id === 'ih-write') write();
     else if (button.hasAttribute('data-ih-filter')) { const f = button.getAttribute('data-ih-filter'); state.filter = state.filter === f ? 'all' : f; state.editing = null; render(); }
+    else if (button.id === 'ih-form-create') createForm();
+    else if (button.id === 'ih-form-publish') publishForm();
+    else if (button.id === 'ih-form-unpublish') unpublishForm();
+    else if (button.id === 'ih-form-reload') { readForm().then(render); }
+    else if (button.hasAttribute('data-ih-refuse')) refuseLot(button.getAttribute('data-ih-refuse'));
+    else if (button.hasAttribute('data-ih-restore')) restoreLot(button.getAttribute('data-ih-restore'));
     else if (button.hasAttribute('data-ih-undo')) startUndo(button.getAttribute('data-ih-undo'));
     else if (button.hasAttribute('data-ih-undo-confirm')) confirmUndo(button.getAttribute('data-ih-undo-confirm'));
     else if (button.hasAttribute('data-ih-undo-cancel')) { state.undo = null; render(); }
