@@ -193,7 +193,7 @@
       assertFalse(action.includes('L,'), 'jamais la valeur brute de la ReferenceList');
     });
 
-    it('"installé chez" : liste vide ([\'L\']) ou structure inconnue → pas de mention, et plusieurs structures sont séparées par une virgule', async function () {
+    it('"installé chez" : liste vide ([\'L\']) → pas de mention ; structure illisible → « Structure (id N) non lisible » ; plusieurs structures séparées par une virgule', async function () {
       await loadFixtureState();
       project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest'; // INNOVX
       project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
@@ -208,7 +208,9 @@
       assertIncludes(actionOf('NOTIFY'), 'Relancer — installé chez LAB1, DIESE');
       project(10).Ligne_OPE_installe_chez = ['L', 999];
       window.renderTodo();
-      assertFalse(actionOf('INNOVX').includes('installé chez'), 'structure inconnue : aucune mention (pas d\'identifiant brut)');
+      // Structure que Grist ne montre pas à ce compte (règle d'accès) : dite « non lisible » (diagnostic d'accès, 24/11/2026), jamais l'identifiant brut.
+      assertIncludes(actionOf('INNOVX'), 'installé chez Structure (id 999) non lisible');
+      assertFalse(/installé chez 999/.test(actionOf('INNOVX')), 'pas d\'identifiant brut');
     });
 
     it('une valeur de statut imprévue (colonne absente ou vide) n\'affiche rien et ne plante pas', async function () {

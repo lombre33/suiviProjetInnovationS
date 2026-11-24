@@ -176,6 +176,7 @@ function resetLastView() {
 async function initializeApp() {
   try {
     mark('initialisation démarrée (DOM prêt)');
+    window.CoreAccess?.mountUi(); // pastilles ⚠ du diagnostic d'accès : cachées tant que tout va bien (aucune ligne ajoutée)
     restoreView(readStoredView().view); // la page retenue s'affiche tout de suite (copie locale), avant la lecture des tables
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
@@ -224,9 +225,13 @@ async function initializeApp() {
     }
     unlockDataComplete(); hideLoadingIndicator();
     mark('première page affichée'); window.PerfTrace?.logToConsole();
+    window.CoreAccess?.flush(); // tables lues : les colonnes attendues, les références et les refus s'affichent (pastilles, infobulles)
     // La page Instances ne charge ses données qu'à l'ouverture depuis la barre : retrouvée au rechargement, elle doit les charger elle-même.
     if (visibleViewId() === 'view-instances') Promise.resolve(window.InstancesPage?.open?.()).catch(() => {});
-  } catch (error) { console.error('Initialization error:', error); showError(`Échec de l'initialisation : ${error.message}`); }
+  } catch (error) {
+    console.error('Initialization error:', error);
+    if (window.CoreAccess) window.CoreAccess.toast(error, { lead: 'Échec de l\'initialisation', what: 'Démarrage du widget' }); else showError(`Échec de l'initialisation : ${error.message}`);
+  }
   finally { CoreGrist.closeSharedWindow?.(); unlockDataComplete(); hideLoadingIndicator(); }
 }
 function viewProject(projectId) {
@@ -248,6 +253,7 @@ async function refreshAfterProjectSaved() {
   try {
     applyTables(await CoreGrist.loadAllTables());
     renderAllViews();
+    window.CoreAccess?.flush();
   } catch (error) {
     console.error('Project refresh error:', error);
   }

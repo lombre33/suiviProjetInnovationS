@@ -127,7 +127,7 @@
         close();
       } catch (e) {
         button.disabled = false;
-        error.textContent = `${existing ? 'Enregistrement' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
+        global.CoreUtils.showErrorBox(error, e, `${existing ? 'Enregistrement' : 'Création'} impossible`, { what: `${existing ? 'modification' : 'création'} d'une ligne OPE (table Lignes_OPE)`, table: 'Lignes_OPE' });
       }
     };
 

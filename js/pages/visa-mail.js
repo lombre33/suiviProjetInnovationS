@@ -266,7 +266,7 @@
     const failures = [];
     for (const name of names) {
       try { return { name, rows: await rows(name) }; }
-      catch (err) { failures.push(`${name} : ${(err && err.message) || err}`); }
+      catch (err) { failures.push(`${name} : ${(window.CoreUtils?.failureReason ? window.CoreUtils.failureReason(err, { op: 'read', table: name }) : (err && err.message)) || err}`); }
     }
     throw Object.assign(new Error(failures.join(' ; ')), { failures });
   }

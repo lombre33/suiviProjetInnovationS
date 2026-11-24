@@ -103,7 +103,7 @@
     const raw = {};
     await Promise.all([
       ...READ_TABLES.map(async name => {
-        try { raw[name] = await global.CoreGrist.getTable(name); } catch (err) { raw[name] = []; if (name === 'Instances' || name === 'Suivi_Instance') raw[name + '__error'] = err.message; }
+        try { raw[name] = await global.CoreGrist.getTable(name); } catch (err) { raw[name] = []; if (name === 'Instances' || name === 'Suivi_Instance') { raw[name + '__error'] = err.message; raw[name + '__errorObj'] = err; } }
       }),
       fetchComposition(raw)
     ]);

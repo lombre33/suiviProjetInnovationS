@@ -1213,8 +1213,9 @@
   // touchée, donc enregistrer le projet garde la référence telle quelle.
   const REF_KINDS = { Lignes_OPE: 'Ligne OPE', Annuaire: 'Personne', Programmes: 'Programme', Structures: 'Structure', Suivi_Instance: 'Instance', Postes2: 'Poste' };
   const isRowId = id => /^\d+$/.test(String(id).trim()) && Number(id) > 0;
-  const unreadableRefLabel = (tableName, id) => `${REF_KINDS[tableName] || 'Élément'} (id ${String(id).trim()}) non lisible`;
-  function unreadableRefReason(tableName) {
+  const unreadableRefLabel = (tableName, id) => global.CoreAccess ? global.CoreAccess.unreadableLabel(tableName, id) : `${REF_KINDS[tableName] || 'Élément'} (id ${String(id).trim()}) non lisible`;
+  function unreadableRefReason(tableName, id) {
+    if (global.CoreAccess) return global.CoreAccess.unreadableReason(tableName, id);
     const failure = global.CoreGrist && typeof global.CoreGrist.readFailure === 'function' ? global.CoreGrist.readFailure(tableName) : '';
     return failure
       ? `La table ${tableName} n’a pas pu être lue avec vos droits d’accès (${failure}). La valeur reste rattachée au projet tant que vous ne la changez pas.`
@@ -1241,7 +1242,7 @@
       ? personLabel(raw)
       : (found ? (tableName === 'Annuaire' ? personLabel(found) : (tableName === 'Lignes_OPE' ? opeLabel(found) : label(found, displayFields || ['Nom', 'name', 'Acronyme', 'Nom_complet', 'Programme']))) : (unreadable ? unreadableRefLabel(tableName, id) : text(raw))));
     if (ref.input.dataset.unreadable) { delete ref.input.dataset.unreadable; ref.input.removeAttribute('title'); }
-    if (unreadable) { ref.input.dataset.unreadable = '1'; ref.input.title = unreadableRefReason(tableName); }
+    if (unreadable) { ref.input.dataset.unreadable = '1'; ref.input.title = unreadableRefReason(tableName, id); }
     (ref.paintAvatar || ref.refreshAvatar)?.();
   }
 
@@ -1486,7 +1487,9 @@
     try {
       await global.CoreGrist.ensureColumns('Projets', missing);
     } catch (error) {
-      throw new Error(`les colonnes ${upTo > 2 ? `des OPE 2 à ${upTo}` : 'de l\'OPE 2'} n'ont pas pu être créées dans la table Projets (${error.message}).`);
+      // `cause` : le diagnostic d'accès classe l'erreur de Grist (droit « structure » refusé…) au lieu de ce texte d'enveloppe.
+      throw Object.assign(new Error(`les colonnes ${upTo > 2 ? `des OPE 2 à ${upTo}` : 'de l\'OPE 2'} n'ont pas pu être créées dans la table Projets (${error.message}).`),
+        { cause: error, gristAccess: { op: 'write', table: 'Projets', columns: missing.map(col => col.id), what: `création des colonnes ${upTo > 2 ? `des OPE 2 à ${upTo}` : 'de l\'OPE 2'} dans Projets` } });
     }
   }
 
@@ -1578,7 +1581,8 @@
       m.classList.add('cp-hidden');
       global.dispatchEvent(new CustomEvent('project-created'));
     } catch (e) {
-      m.querySelector('#cp-project-error').textContent = (mode === 'edit' ? 'Modification impossible : ' : 'Création impossible : ') + e.message;
+      global.CoreUtils.showErrorBox(m.querySelector('#cp-project-error'), e, mode === 'edit' ? 'Modification impossible' : 'Création impossible',
+        { what: `${mode === 'edit' ? 'modification' : 'création'} du projet ${(m.querySelector('#cp-Acronyme') || {}).value || ''}`.trim(), table: 'Projets' });
     } finally {
       m._saving = false;
       saveButton.disabled = false;

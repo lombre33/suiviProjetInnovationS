@@ -102,7 +102,13 @@
     if (value == null || value === '') return '';
     const ids = Array.isArray(value) ? referencedIds(value) : (typeof value === 'number' ? [value] : null);
     if (!ids) return text(value).trim();
-    return ids.map(id => structureLabel(CoreUtils.findById(getStructures(), refId(id)))).filter(Boolean).join(', ');
+    // Structure que Grist ne montre pas à ce compte : « Structure (id 5) non lisible » plutôt que de la taire (diagnostic d'accès).
+    return ids.map(id => {
+      const structure = CoreUtils.findById(getStructures(), refId(id));
+      if (structure) return structureLabel(structure);
+      const hidden = window.CoreAccess ? CoreAccess.unresolvedRef('Structures', refId(id), 'Structure') : null;
+      return hidden ? hidden.label : '';
+    }).filter(Boolean).join(', ');
   }
   // Rôle déduit de la structure du poste (voir l'en-tête du fichier) : aucune
   // saisie manuelle, aucune ACL — seulement un mode d'affichage par défaut.
@@ -206,6 +212,8 @@
   let viewMode = 'me'; // 'me' | 'all' | id Annuaire (string)
   let currentPersonId = null;
   let detectedEmail = '';
+  // Ce qui a été tenté pour identifier « vous » (lu par le diagnostic d'accès : syncIdentity) : jamais l'adresse en clair dans le rapport.
+  const identityTrace = { source: '', prefsError: null, probeError: null, writeError: null, marker: false };
   let manualPersonId = '';
   const panelState = {};
   function panelKey(tab, idx) { return `${tab}:${idx}`; }
@@ -295,9 +303,14 @@
     el.hidden = !unidentified;
     if (!unidentified) return;
     const message = document.getElementById('todo-identify-text');
-    if (message) message.textContent = detectedEmail
-      ? `Votre adresse Grist (${detectedEmail}) ne correspond à aucune fiche de l'Annuaire.`
-      : 'Votre adresse Grist n\'a pas pu être lue.';
+    if (message) {
+      message.textContent = detectedEmail
+        ? `Votre adresse Grist (${detectedEmail}) ne correspond à aucune fiche de l'Annuaire.`
+        : 'Votre adresse Grist n\'a pas pu être lue.';
+      const why = identityExplain();
+      if (why.detail) message.title = why.detail; else message.removeAttribute('title');
+    }
+    syncIdentity();
     const select = document.getElementById('todo-me-select');
     if (select) {
       const people = getAnnuaire().map(p => ({ id: p.id, name: personName(p) })).filter(p => p.name)
@@ -392,6 +405,41 @@
     const byEmail = detectedEmail ? getAnnuaire().find(p => emailsOf(p.Email).includes(detectedEmail)) : null;
     const manual = !byEmail && manualId ? personById(manualId) : null;
     currentPersonId = byEmail ? byEmail.id : (manual ? manual.id : null);
+    identityTrace.matchedByEmail = !!byEmail;
+    syncIdentity();
+  }
+
+  // Pourquoi « vous » n'êtes pas reconnu(e) : l'adresse du compte est introuvable, ou elle ne correspond à aucune fiche de l'Annuaire visible
+  // par ce compte. Texte de l'infobulle de l'avis « non identifié » et du rapport Alt+Maj+D (onglet Accès) ; aucun appel Grist de plus.
+  function identityExplain() {
+    const A = window.CoreAccess;
+    if (!A || currentPersonId) return { headline: '', detail: '' };
+    const lines = [];
+    const reason = (err, ctx) => A.reason(err, ctx);
+    if (detectedEmail) {
+      const state = A.readState('Annuaire');
+      const rows = getAnnuaire().length;
+      if (state && !state.ok) lines.push(`La table Annuaire n'a pas pu être lue : ${reason(state.error, { op: 'read', table: 'Annuaire' })}`);
+      else if (!rows) lines.push('La table Annuaire est lue mais vide : soit elle l\'est dans Grist, soit toutes ses lignes sont cachées à votre compte par une règle d\'accès par ligne.');
+      else if (state && state.columns.length && !state.columns.includes('Email')) lines.push('La colonne Email de l\'Annuaire n\'arrive pas au widget : cachée à votre compte par une règle d\'accès par colonne, ou renommée. Sans elle aucune adresse ne peut correspondre.');
+      else lines.push(`${rows} fiche${rows > 1 ? 's' : ''} de l'Annuaire lue${rows > 1 ? 's' : ''} (celles que votre compte a le droit de voir), aucune ne porte cette adresse dans sa colonne Email. Vérifiez : 1. que votre fiche existe et que son adresse est écrite pareil (une fiche peut en porter plusieurs, « a@x ; b@y ») ; 2. qu'une règle d'accès par ligne sur Annuaire ne cache pas votre propre fiche à votre compte.`);
+      lines.push('« Qui êtes-vous ? » retient votre choix pour les prochaines ouvertures, sans modifier l\'Annuaire.');
+      return { headline: `Votre adresse Grist (${A.maskEmail(detectedEmail)}) ne correspond à aucune fiche de l'Annuaire`, detail: lines.join('\n') };
+    }
+    if (identityTrace.prefsError) lines.push(`Votre ligne de ${PREFS_TABLE} n'a pas pu être lue ou créée : ${reason(identityTrace.prefsError, { what: 'lecture de vos préférences', table: PREFS_TABLE })}`);
+    if (identityTrace.probeError) lines.push(`La ligne-sonde (une ligne créée puis supprimée dans ${PREFS_TABLE}, où Grist inscrit l'adresse du compte) a échoué : ${reason(identityTrace.probeError, { what: 'lecture de l\'adresse du compte', table: PREFS_TABLE })}`);
+    if (identityTrace.writeError) lines.push(`L'adresse n'a pas pu être enregistrée dans votre ligne : ${reason(identityTrace.writeError, { what: 'enregistrement de votre identité', table: PREFS_TABLE })}`);
+    if (!lines.length) lines.push(identityTrace.marker
+      ? `Une lecture a déjà échoué aujourd'hui (colonne Todo_email de ${PREFS_TABLE} : « (indisponible) … ») ; elle sera retentée demain.`
+      : `Email_utilisateur est vide dans votre ligne de ${PREFS_TABLE} et la ligne-sonde n'a pas rendu d'adresse : Grist ne connaît pas l'adresse de ce compte (accès anonyme ou lien public ?), ou la formule user.Email de la colonne Email_utilisateur a été modifiée.`);
+    return { headline: 'Votre adresse Grist n\'a pas pu être lue', detail: lines.join('\n') };
+  }
+  function syncIdentity() {
+    const A = window.CoreAccess;
+    if (!A || typeof A.setIdentity !== 'function') return;
+    const person = currentPersonId ? personName(personById(currentPersonId)) : '';
+    const why = identityExplain();
+    A.setIdentity({ ok: !!currentPersonId, email: detectedEmail, source: identityTrace.source, person, matched: !!currentPersonId && identityTrace.matchedByEmail, headline: why.headline, detail: why.detail });
   }
 
   // Grist ne remplit Email_utilisateur qu'à la CRÉATION d'une ligne. Deux cas où la ligne de la personne ne
@@ -420,7 +468,7 @@
       if (!(await emailFormulaAlreadyFixed(docApi))) {
         try {
           await docApi.applyUserActions([['ModifyColumn', PREFS_TABLE, 'Email_utilisateur', { isFormula: false, formula: EMAIL_TRIGGER_COLUMN.formula, recalcWhen: 0 }]]);
-        } catch (err) { console.warn('Correction de la formule Email_utilisateur impossible (droits ?) :', err.message); }
+        } catch (err) { identityTrace.formulaError = err; console.warn('Correction de la formule Email_utilisateur impossible (droits ?) :', err.message); }
       }
       const result = await docApi.applyUserActions([['AddRecord', PREFS_TABLE, null, {}]]);
       const probeId = CoreUtils.extractAddedRecordId(result);
@@ -434,6 +482,7 @@
       }
       return email;
     } catch (err) {
+      identityTrace.probeError = err;
       console.warn('Lecture de l\'email Grist (ligne-sonde) impossible :', err.message);
       return '';
     }
@@ -442,7 +491,7 @@
     try {
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
       CoreGrist.invalidateTable(PREFS_TABLE); // les pages chargées ensuite (Instances) relisent la ligne à jour
-    } catch (err) { console.warn('Enregistrement de l\'identité To Do a échoué :', err.message); }
+    } catch (err) { identityTrace.writeError = err; console.warn('Enregistrement de l\'identité To Do a échoué :', err.message); }
   }
 
   async function chooseMe(personId) {
@@ -478,8 +527,11 @@
       prefsRowId = row.id;
       const stored = text(row.Todo_email).trim();
       let email = validEmail(row.Email_utilisateur) || validEmail(row.Todo_email);
+      identityTrace.source = validEmail(row.Email_utilisateur) ? 'colonne Email_utilisateur de Preferences_Widget' : (email ? 'colonne Todo_email de Preferences_Widget' : '');
+      identityTrace.marker = !email && stored === unavailableMarker();
       if (!email && stored !== unavailableMarker()) {
         email = await probeUserEmail();
+        if (email) identityTrace.source = 'ligne-sonde dans Preferences_Widget';
         await writeOwnPrefs(email ? { Email_utilisateur: email, Todo_email: email } : { Todo_email: unavailableMarker() });
       } else if (email && !validEmail(row.Email_utilisateur)) {
         await writeOwnPrefs({ Email_utilisateur: email });
@@ -503,7 +555,9 @@
         }
       };
     } catch (err) {
+      identityTrace.prefsError = err;
       console.warn('Chargement des préférences To Do a échoué :', err.message);
+      syncIdentity();
     }
   }
 

@@ -71,7 +71,7 @@
   const todayIso = () => todayOverride || (L.parisParts(Date.now() / 1000) || {}).date || new Date().toISOString().slice(0, 10);
 
   const S = {
-    loaded: false, loading: null, error: '', raw: {}, store: null, model: null, defer: false, drag: null,
+    loaded: false, loading: null, error: '', errorHtml: '', raw: {}, store: null, model: null, defer: false, drag: null,
     prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() }
   };
@@ -131,7 +131,7 @@
     if (S.store) return;
     S.store = D.createStore(S.raw, {
       changed: () => { rebuild(); if (S.defer) scheduleRender(); else render(); },
-      failed: err => { if (global.CoreUtils) global.CoreUtils.showToast('Enregistrement impossible : ' + err.message, true); reloadFromGrist(); }
+      failed: err => { if (global.CoreUtils) global.CoreUtils.toastFailure(err, 'Enregistrement impossible', { what: 'modification dans la page Instances', page: 'Instances' }); reloadFromGrist(); }
     });
   }
   // Écrit des opérations ; `defer` : repousse le rendu (champs texte, pour ne pas perdre le clic qui a fait perdre le focus).
@@ -153,11 +153,13 @@
         if (!global.CoreGrist || !global.CoreGrist.gristInstance) throw new Error('Grist non disponible');
         if (!S.loaded) await D.ensureSchema();
         setRaw(await D.fetchAll());
-        if (S.raw.Instances__error) throw new Error('table Instances introuvable (' + S.raw.Instances__error + ')');
+        if (S.raw.Instances__error) throw Object.assign(new Error('table Instances introuvable (' + S.raw.Instances__error + ')'), { cause: S.raw.Instances__errorObj, gristAccess: { op: 'read', table: 'Instances' } });
         rebuild();
-        S.loaded = true; S.error = '';
+        S.loaded = true; S.error = ''; S.errorHtml = '';
       } catch (err) {
         S.error = "Page Instances indisponible : " + err.message + '. Il faut un droit d\'édition sur le document pour créer les tables de la page.';
+        // Quelle table, quelle colonne, quel droit : l'explication complète remplace le texte générique (aucun appel Grist de plus).
+        S.errorHtml = global.CoreAccess ? global.CoreAccess.errorHtml(err, { lead: 'Page Instances indisponible', what: 'ouverture de la page Instances (lecture, et création des tables Instance_*, Export_VP et des colonnes de Instances / Suivi_Instance)', page: 'Instances' }, { open: true }) : '';
         console.error('Page Instances :', err);
       } finally {
         S.loading = null;
@@ -758,9 +760,9 @@
   //  - « Tout générer (n) » : ouvre les courriers cochés (« À signer ») dans une page à imprimer ou à enregistrer en PDF, pour les faire signer.
   // ---------------------------------------------------------------------------------------------
   const reviewErrorText = err => (!err ? 'erreur inconnue'
-    : err.code === 'models-table-missing' ? 'la table des modèles de Publipostage+ n\'a pas pu être lue (' + (err.detail || err.message) + ')'
+    : err.code === 'models-table-missing' ? 'la table des modèles de Publipostage+ n\'a pas pu être lue (' + global.CoreUtils.failureReason(err.detail || err.message, { op: 'read', table: 'Publipostage_Templates' }) + ')'
       : err.code === 'model-missing' ? err.message + ' : choisissez-en un autre dans le paramétrage de l\'instance'
-        : err.message || 'erreur inconnue');
+        : global.CoreUtils.failureReason(err, { what: 'lecture du mail du projet' }) || 'erreur inconnue');
   const vemptyHtml = (title, detail, extra) => '<div class="vempty"><span>' + esc(title) + '</span>' + (detail ? '<span class="muted">' + esc(detail) + '</span>' : '') + (extra || '') + '</div>';
 
   // Lit le mail du projet affiché dans son modèle ; une lecture par (projet, modèle, messagerie), relancée par le bouton « Relire ».
@@ -958,7 +960,7 @@
     }).catch(err => {
       if (stale()) return;
       d.busy = false; d.dock = false; placeDock();
-      ownPreview(c, err && err.message ? err.message : 'lecture impossible');
+      ownPreview(c, err && err.message ? global.CoreUtils.failureReason(err, { what: 'lecture du courrier par Publipostage+' }) : 'lecture impossible');
     });
   }
   // L'aperçu du widget : seul courrier affiché sans Publipostage+ (pas de lecteur, ou lecture épurée en échec : `why` dit pourquoi).
@@ -1178,7 +1180,7 @@
     root.innerHTML = '<div class="in-wrap"><div data-region="main"></div><div data-region="viewer"></div><div class="in-ppdock" data-region="dock" aria-label="Courrier lu par Publipostage+"></div></div>';
   }
   function buildMain() {
-    if (!S.loaded) return withPrefix('<div class="loading">' + esc(S.error || 'Chargement…') + '</div>');
+    if (!S.loaded) return withPrefix('<div class="loading">' + (S.errorHtml || esc(S.error || 'Chargement…')) + '</div>');
     if (!S.model.instances.length) return withPrefix('<div class="loading">Aucune instance dans la table Instances de Grist.</div>');
     const V = computeView();
     S.view = V;
@@ -1310,7 +1312,7 @@
   function openAttachment(attachmentId, cell) {
     const win = global.open('', '_blank');
     attachmentUrl(attachmentId, cell).then(url => { if (win) win.location.href = url; else global.open(url, '_blank'); })
-      .catch(err => { if (win) win.close(); if (global.CoreUtils) global.CoreUtils.showToast('Lecture impossible : ' + err.message, true); });
+      .catch(err => { if (win) win.close(); if (global.CoreUtils) global.CoreUtils.toastFailure(err, 'Lecture impossible', { what: 'ouverture d\'une pièce jointe', table: cell && cell.tableId }); });
   }
   const openGfs = file => openAttachment(file.attachmentIds[0], gfsCell(file));
   function downloadCr(V) {
@@ -1399,7 +1401,7 @@
       pane.appendChild(frame);
     }).catch(err => {
       if (viewer.pdfKey !== key) return;
-      pane.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(err.message) + '</span></div>');
+      pane.innerHTML = withPrefix('<div class="vempty"><span>Document indisponible</span><span class="muted">' + esc(global.CoreUtils.failureReason(err, { what: 'ouverture du compte rendu (pièce jointe)' })) + '</span></div>');
     });
   }
   function renderViewer() {
@@ -1722,7 +1724,7 @@
       global.VisaMail.findModel(name, { cache: true }).then(found => {
         if (!found) { toast('Le modèle « ' + name + ' » n\'est plus dans Publipostage+.', true); return; }
         global.PageRedaction.open(cur.id, { modelId: found.id, from: 'view-instances', crumb: 'Instances · Relecture & envoi ·' });
-      }).catch(err => toast('Modèles de Publipostage+ illisibles : ' + (err && err.message ? err.message : 'erreur inconnue'), true));
+      }).catch(err => toast('Modèles de Publipostage+ illisibles : ' + global.CoreUtils.failureReason(err, { op: 'read', table: 'Publipostage_Templates' }), true));
     },
     'rev-open': (el, V) => {
       const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
@@ -1936,7 +1938,7 @@
   global.InstancesPage = {
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setWarm: on => { warmEnabled = !!on; }, _setReader: (on, opts) => { reader.on = !!on; reader.target = opts && opts.target || null; reader.opts = opts && opts.pace || {}; }, _reader: () => S.ui.rev.doc.reader, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
-      S.loaded = false; S.loading = null; S.error = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
+      S.loaded = false; S.loading = null; S.error = ''; S.errorHtml = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
       releaseDoc(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
       setRaw({}); dropGfs(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;

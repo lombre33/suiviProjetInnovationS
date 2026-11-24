@@ -116,7 +116,7 @@
     state.phase = 'loading'; state.error = ''; state.editing = null; render();
     try {
       try { await prepare(); }
-      catch (err) { throw new Error('Préparation de Grist impossible (création de ' + L.SOURCE_TABLE + ' et de ses colonnes) : ' + (err.message || err)); }
+      catch (err) { throw Object.assign(new Error('Préparation de Grist impossible (création de ' + L.SOURCE_TABLE + ' et de ses colonnes)'), { cause: err }); }
       let rows;
       try { rows = await CoreGrist.getTable(L.SOURCE_TABLE); }
       catch (err) { state.phase = 'missing'; render(); return; }
@@ -127,7 +127,7 @@
       state.phase = 'ready';
     } catch (err) {
       console.error('Import historique :', err);
-      state.phase = 'error'; state.error = err.message || String(err);
+      state.phase = 'error'; state.error = CoreUtils.failureReason(err, { what: 'ouverture de l\'import de l\'historique' });
     }
     render();
   }
@@ -343,7 +343,7 @@
     if (r.kind === 'written') {
       const e = r.value;
       const n = e.ajouts.Projets.length + e.ajouts.Lignes_OPE.length + e.modifs.Projets.length + e.modifs.Lignes_OPE.length;
-      if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(e.error.message || String(e.error))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
+      if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(CoreUtils.failureReason(e.error, { what: 'écriture dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE }))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
       return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
     }
     if (r.kind === 'loaded') return `<div class="ih-banner is-ok" role="status"><strong>✓ Fichier chargé.</strong> ${plural(r.count, 'ligne ajoutée', 'lignes ajoutées')} à ${L.SOURCE_TABLE} (lot ${esc(r.lotId)} « A valider », annulable plus bas).${r.lotError ? ` <b>Le lot n'a pas pu être enregistré dans ${L.LOTS_TABLE} :</b> ${esc(r.lotError)}.` : ''} Relis le tableau, corrige les anomalies, puis écris.</div>`;
@@ -424,15 +424,16 @@
         }
       } catch (err) {
         if (!added) { try { await docApi.applyUserActions([['UpdateRecord', L.JOURNAL_TABLE, Number(journal.retValues[0]), { Annule: true }]]); } catch (ignored) { /* le lot reste listé, vide */ } }
-        throw new Error(`${added ? plural(added, 'ligne est passée', 'lignes sont passées') + ' avant l\'arrêt (chargement annulable plus bas) : ' : ''}${err.message || err}`);
+        if (!added) throw err;
+        throw new Error(`${plural(added, 'ligne est passée', 'lignes sont passées')} avant l\'arrêt (chargement annulable plus bas) : ${CoreUtils.failureReason(err, { what: 'chargement du fichier dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE })}`);
       }
       let lotError = '';
       try { await docApi.applyUserActions([['AddRecord', L.LOTS_TABLE, null, L.newLotFields({ lot: u.lot, type: L.LOT_TYPE_ONESHOT, source: 'Fichier', fichier: u.name, recuLe: u.exporteLe, lignes: u.records.length })]]); }
-      catch (err) { lotError = err.message || String(err); }
+      catch (err) { lotError = CoreUtils.failureReason(err, { what: 'enregistrement du lot', table: L.LOTS_TABLE }); }
       state.result = { kind: 'loaded', count: added, lot, lotId: u.lot, lotError };
       state.upload = null;
     } catch (err) {
-      state.result = { kind: 'error', message: 'Chargement impossible : ' + (err.message || err) };
+      state.result = { kind: 'error', message: 'Chargement impossible : ' + (added ? err.message : CoreUtils.failureReason(err, { what: 'chargement du fichier dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE })) };
       state.upload = null;
     }
     CoreGrist.invalidateTable(L.SOURCE_TABLE); CoreGrist.invalidateTable(L.JOURNAL_TABLE); CoreGrist.invalidateTable(L.LOTS_TABLE);
@@ -510,7 +511,7 @@
     if (Date.now() - state.readAt > TABLE_MAX_AGE_MS) {
       // Grist a pu changer depuis la lecture : on relit, on garde les corrections, et on demande une nouvelle relecture avant d'écrire.
       try { state.rows = await CoreGrist.getTable(L.SOURCE_TABLE); await readGrist(); analyse(); state.result = { kind: 'error', message: 'Le tableau datait de plus de 10 minutes : il vient d\'être relu depuis Grist. Vérifie-le, puis écris.' }; }
-      catch (err) { state.result = { kind: 'error', message: 'Relecture de Grist impossible : ' + (err.message || err) }; }
+      catch (err) { state.result = { kind: 'error', message: 'Relecture de Grist impossible : ' + CoreUtils.failureReason(err, { op: 'read', table: L.SOURCE_TABLE }) }; }
       state.ack = false; render();
       return;
     }
@@ -524,9 +525,9 @@
       written = !result.error;
       if (written) {
         try { await validateLots(t, result); }
-        catch (err) { result.lotError = err.message || String(err); }
+        catch (err) { result.lotError = CoreUtils.failureReason(err, { what: 'validation des lots', table: L.LOTS_TABLE }); }
       }
-    } catch (err) { state.result = { kind: 'error', message: 'Écriture impossible : ' + (err.message || err) }; }
+    } catch (err) { state.result = { kind: 'error', message: 'Écriture impossible : ' + CoreUtils.failureReason(err, { what: 'écriture des corrections dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE }) }; }
     state.writing = false; state.ack = false;
     // Tout est écrit : un « nouveau projet » forcé ferait un doublon, on l'oublie. Les autres choix et les corrections restent,
     // sinon le tableau relu re-signalerait les mêmes anomalies sur des projets déjà traités.
@@ -565,7 +566,7 @@
       for (let i = 0; i < actions.length; i += L.CHUNK) await CoreGrist.gristInstance.docApi.applyUserActions(actions.slice(i, i + L.CHUNK));
       await cancelLots(undo);
       state.result = { kind: 'undone', done: undo.plan.actions.length, skipped: undo.plan.skipped.length, unit: undo.kind === 'chargement' };
-    } catch (err) { state.result = { kind: 'error', message: 'Annulation impossible : ' + (err.message || err) }; }
+    } catch (err) { state.result = { kind: 'error', message: 'Annulation impossible : ' + CoreUtils.failureReason(err, { what: 'annulation d\'un lot', table: L.SOURCE_TABLE }) }; }
     state.undo = null;
     await load();
     notifyChanged();

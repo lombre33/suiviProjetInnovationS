@@ -45,6 +45,12 @@ lignes ni les colonnes, seulement les valeurs déjà calculées côté Grist.
 Les tables sont chargées en parallèle (`Promise.all`), contrairement à ce que laisse
 entendre la note « Chargement séquentiel des tables → paralléliser » de `docs/SPEC.mdd`.
 
+## Règles d'accès Grist (24/11/2026)
+
+Les colonnes ci-dessous sont celles que chaque écran **attend** ; si un rôle ne les reçoit pas (règle d'accès par colonne), l'écran s'affiche vide ou incomplet sans erreur.
+`js/core/access-expectations.js` tient la liste, par écran, de ce qui est lu ; `docs/acces-grist-diagnostic.md` explique les messages détaillés, la pastille ⚠ et l'onglet « Accès »
+d'Alt+Maj+D (Tester les accès, règles lues, références non lisibles, identité).
+
 ## Bulles d'aide (descriptions de colonnes)
 
 `CoreGrist.loadColumnDescriptions()` (`js/core/grist-api.js`), appelée une fois au

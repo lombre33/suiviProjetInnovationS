@@ -67,6 +67,9 @@ temps est de la mise en page du navigateur (12 000 nœuds DOM pour Administratif
 - Nouvelle page : l'ajouter à `VIEW_RENDERERS` dans `js/app.js` (rendue à l'ouverture, pas au démarrage).
 - Champ de recherche qui enregistre une préférence : `CoreUtils.debounce` (voir `saveUserPreferencesSoon`).
 - Ne pas faire écrire dans Grist à chaque frappe ou à chaque survol.
+- **Diagnostic d'accès** (`js/core/access-diagnostic.js`, voir `docs/acces-grist-diagnostic.md`) : il ne doit jamais ajouter d'appel Grist au démarrage. Il enveloppe
+  `docApi` en place en rendant **la promesse d'origine** (un `return result.then(...)` ajoute un tour de microtâche et casse l'ordre des continuations), et ne relit
+  les tables ou les règles d'accès que sur le bouton « Tester les accès ». Message d'erreur d'une écriture : `CoreUtils.toastFailure` / `showErrorBox`, jamais `err.message` brut.
 
 ## Mesurer
 

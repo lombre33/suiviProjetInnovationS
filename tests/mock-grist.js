@@ -168,6 +168,8 @@
     }
     // Noms de pièces jointes et jeton d'accès mémorisés (js/core/attachments.js) : propres à chaque test.
     if (global.CoreAttachments && typeof global.CoreAttachments.resetCaches === 'function') global.CoreAttachments.resetCaches();
+    // Diagnostic d'accès (js/core/access-diagnostic.js) : lectures, journal et identité d'un test ne doivent pas déborder sur le suivant.
+    if (global.CoreAccess && typeof global.CoreAccess._reset === 'function') global.CoreAccess._reset();
     // CoreGrist caches its ready() promise/instance module-privately; give tests a
     // fresh handshake each time by re-running ready() (idempotent: sets the same
     // window.grist as gristInstance again).

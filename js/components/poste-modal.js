@@ -337,7 +337,7 @@
         close();
       } catch (e) {
         button.disabled = false;
-        error.textContent = `${editing ? 'Modification' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
+        global.CoreUtils.showErrorBox(error, e, `${editing ? 'Modification' : 'Création'} impossible`, { what: `${editing ? 'modification' : 'création'} d'un poste (table Postes2)`, table: 'Postes2' });
       }
     };
 

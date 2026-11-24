@@ -89,7 +89,7 @@
   }
   // Message d'échec avec son détail technique (diagnostic) ; le bouton « Télécharger » reste le recours.
   function failure(session, headline, err) {
-    const detail = err && err.message ? err.message : String(err || '');
+    const detail = global.CoreAccess && err ? global.CoreAccess.reason(err, { what: 'lecture du PDF joint', table: '_grist_Attachments' }) : (err && err.message ? err.message : String(err || ''));
     console.warn(`Visionneuse PDF — ${headline}`, err);
     const box = el('div', 'pdfv-error', { role: 'alert' });
     const strong = el('strong');

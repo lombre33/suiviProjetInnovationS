@@ -906,7 +906,7 @@
         try {
           clickEdit();
           await wait(50);
-          assertIncludes(byId('toast').textContent, 'Impossible d\'ouvrir la fiche du projet : boum');
+          assertIncludes(byId('toast').textContent, 'Impossible d\'ouvrir la fiche du projet : Erreur inattendue : « boum »');
           assertFalse(byId('view-redaction').classList.contains('hidden'));
         } finally { window.ProjectModal = modal; }
       });

@@ -96,7 +96,10 @@
   function fetchRaw(name) {
     const read = () => gristInstance.docApi.fetchTable(name);
     const promise = global.PerfTrace ? global.PerfTrace.track('lecture : ' + name, read, global.PerfTrace.cellsOfTable) : read();
-    return promise.then(data => { learnColumns(name, data); return data; }, err => { seenColumns.delete(name); throw err; }); // une lecture en échec (table absente) efface ce qu'on croyait savoir
+    // Une lecture en échec (table absente, refusée) efface ce qu'on croyait savoir ; le diagnostic d'accès note ce que chaque table a rendu
+    // (lignes, colonnes reçues) ou la raison de son échec, sans aucun appel de plus (js/core/access-diagnostic.js).
+    return promise.then(data => { learnColumns(name, data); if (global.CoreAccess) global.CoreAccess.noteRead(name, data); return data; },
+      err => { seenColumns.delete(name); if (global.CoreAccess) global.CoreAccess.noteReadFailure(name, err); throw err; });
   }
   // Une table lue existe et a ces colonnes : connaissance positive, tenue À PART du schéma (knownSchema, que knownColumns() expose tel quel :
   // « null » quand les métadonnées sont illisibles). Sert seulement à ensureTable / ensureColumns : aucune requête pour une table déjà lue,
@@ -121,9 +124,11 @@
         while (!window.grist && Date.now() < maxWait) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
-        if (!window.grist) throw new Error(`Grist API non disponible après ${timeoutMs} ms`);
+        if (!window.grist) throw new Error(`Grist API non disponible après ${timeoutMs} ms : le widget n'est pas ouvert dans Grist (ou le script grist-plugin-api.js est bloqué par le réseau ou le navigateur)`);
         await (global.PerfTrace ? global.PerfTrace.track('grist.ready (accès au document)', () => window.grist.ready({ requiredAccess: 'full' })) : window.grist.ready({ requiredAccess: 'full' }));
         gristInstance = window.grist;
+        // Chaque lecture / écriture ratée est enregistrée avec son contexte (table, ligne, colonnes) pour expliquer le refus en clair.
+        if (global.CoreAccess) global.CoreAccess.instrument(gristInstance.docApi);
         return gristInstance;
       })();
       return readyPromise;
@@ -148,6 +153,8 @@
     },
     // Message d'erreur de la dernière lecture ratée de cette table ('' si elle a été lue).
     readFailure(name) { return readFailures.get(name) || ''; },
+    // Tables lues au démarrage (le « Tester les accès » du diagnostic les relit).
+    tableNames() { return TABLE_NAMES.slice(); },
     openSharedWindow() { sharedWindowOpen = true; },
     closeSharedWindow() { sharedWindowOpen = false; sharedFetches.clear(); },
     // À appeler après avoir écrit dans la table (ajout de ligne, de colonne) : la prochaine

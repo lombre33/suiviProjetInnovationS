@@ -84,6 +84,15 @@
   const rowById = (tableName, id) => CoreUtils.findById(tableRows(tableName), id);
   const refId = value => (value && typeof value === 'object') ? (value.id ?? value) : value;
   const referencedIds = value => Array.isArray(value) ? value.filter(item => item !== 'L' && item != null && item !== 0) : [];
+  // Référence dont la ligne n'est pas lisible (règle d'accès Grist, table refusée, ligne supprimée) : « Personne (id 12) non lisible » plutôt
+  // que le numéro brut ; refTips donne la raison probable pour l'infobulle (js/core/access-diagnostic.js). Une valeur texte reste telle quelle.
+  const unresolved = (tableName, value, kind) => tableName && window.CoreAccess && !rowById(tableName, refId(value)) ? CoreAccess.unresolvedRef(tableName, refId(value), kind) : null;
+  const refTips = (value, tableName, kind) => {
+    if (Array.isArray(value)) return value.filter(item => item !== 'L').flatMap(item => refTips(item, tableName, kind));
+    if (!value || (typeof value === 'object' && value.id == null)) return [];
+    const missing = unresolved(tableName, value, kind);
+    return missing ? [`${missing.label} — ${missing.title}`] : [];
+  };
   const refLabel = (value, tableName, fields = []) => {
     if (Array.isArray(value)) return value.filter(item => item !== 'L').map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ');
     if (!value) return '';
@@ -93,7 +102,8 @@
       for (const name of fields) if (candidate[name] != null && candidate[name] !== '') return text(candidate[name]);
       return text(candidate.NOM || candidate.nom_et_Prenom || candidate.name || candidate.label || candidate.Acronyme || candidate.id);
     }
-    return text(value);
+    const missing = unresolved(tableName, value);
+    return missing ? missing.label : text(value);
   };
   const valueLabel = (value, tableName, fields) => Array.isArray(value) ? value.map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ') : refLabel(value, tableName, fields);
   const programmeLabel = value => valueLabel(value, 'Programmes', ['Programme']);
@@ -101,7 +111,9 @@
     if (Array.isArray(value)) return value.map(instanceLabel).filter(Boolean).join(', ');
     const suivi = rowById('Suivi_Instance', refId(value));
     if (suivi) return refLabel(suivi, null, ['Nom', 'name']) || valueLabel(suivi.Instance, 'Instances', ['Instances']);
-    return valueLabel(value, 'Instances', ['Instances']);
+    if (!value || rowById('Instances', refId(value)) || typeof value === 'object') return valueLabel(value, 'Instances', ['Instances']);
+    const missing = unresolved('Suivi_Instance', value, 'Instance');
+    return missing ? missing.label : text(value);
   };
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
@@ -145,15 +157,31 @@
   }
   function opeInfo(project) {
     const ligne = ligneOpeFor(project);
-    if (!ligne) return { id: null, label: 'Aucune ligne OPE', muted: true, complete: false };
+    if (!ligne) {
+      // Une ligne OPE est bien rattachée au projet mais Grist ne la montre pas à ce compte (règle d'accès) : pas « Aucune ligne OPE »,
+      // qui ferait croire à un oubli de saisie (diagnostic d'accès, 24/11/2026).
+      const ids = referencedIds(project.Ligne_OPE);
+      const hidden = ids.length && window.CoreAccess ? CoreAccess.unresolvedRef('Lignes_OPE', ids[0], 'Ligne OPE') : null;
+      if (hidden) return { id: null, label: hidden.label, title: hidden.title, muted: false, complete: false, unreadable: true };
+      return { id: null, label: 'Aucune ligne OPE', muted: true, complete: false };
+    }
     const structure = structureFor(ligne);
-    const structureLabel = structure ? text(structure.Acronyme || structure.Nom_Complet) : '';
+    const structureHidden = !structure && ligne.installe_chez && window.CoreAccess ? CoreAccess.unresolvedRef('Structures', refId(ligne.installe_chez), 'Structure') : null;
+    const structureLabel = structure ? text(structure.Acronyme || structure.Nom_Complet) : (structureHidden ? structureHidden.label : '');
     const numero = text(ligne.N_OPE).trim();
     // Ligne dont on sait seulement où elle sera ouverte : pas encore de numéro (12/11/2026).
-    return { id: ligne.id, label: `${numero ? 'OPE n°' + numero : 'N° OPE à venir'}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false, complete: !!numero && !!structureLabel };
+    return {
+      id: ligne.id, label: `${numero ? 'OPE n°' + numero : 'N° OPE à venir'}${structureLabel ? ' — chez ' + structureLabel : ''}`, muted: false,
+      complete: !!numero && !!structureLabel, unreadable: !!structureHidden, title: structureHidden ? structureHidden.title : ''
+    };
   }
   // Alerte rouge (Antoine, 12/11/2026) : projet à « OPE disponible UB Invest » sans ligne OPE complète (numéro ET structure).
-  function opeAlert(project, idx) { return idx === OPE_DISPONIBLE_INDEX && !opeInfo(project).complete; }
+  // Pas d'alerte quand la ligne (ou sa structure) est seulement illisible pour ce compte : on ne sait pas si elle est complète.
+  function opeAlert(project, idx) {
+    if (idx !== OPE_DISPONIBLE_INDEX) return false;
+    const info = opeInfo(project);
+    return !info.complete && !info.unreadable;
+  }
 
   // État d'affichage, purement local à la session tant que les préférences ne sont pas chargées.
   const selectedLieux = new Set(LIEUX.map(l => l.key)); // bascule DIESE / AUTRE : au moins un reste actif
@@ -272,7 +300,7 @@
       project.Commentaire_ligne_OPE = value;
       return true;
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'enregistrement du commentaire', { what: `commentaire de la ligne OPE du projet ${project.Acronyme || project.Projet || project.id}` });
       return false;
     }
   }
@@ -296,7 +324,7 @@
       }
       render();
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'écriture', { what: `changement d'étape d'installation du projet ${project.Acronyme || project.Projet || project.id}` });
       render(); // le menu de la carte revient au jalon réellement enregistré
     }
   }
@@ -309,11 +337,13 @@
   // Haut de carte (Antoine, 12/11/2026) : bulle avec le nom du programme, et une marque propre aux projets en
   // convention de reversement ; un clic sur la marque ouvre la modale projet sur l'onglet Convention.
   function cardTop(project) {
-    const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
+    const programmeValue = field(project, ['Programme', 'Programme_Axe_InnovationS']);
+    const programme = programmeLabel(programmeValue);
+    const programmeTips = refTips(programmeValue, 'Programmes', 'Programme');
     const convention = project.Convention_de_reversement === true;
     if (!programme && !convention) return '';
     return `<div class="install-card-top">` +
-      (programme ? `<span class="install-chip install-chip-programme" title="Programme">${escape(programme)}</span>` : '') +
+      (programme ? `<span class="install-chip install-chip-programme" title="${escape(programmeTips.length ? 'Programme — ' + programmeTips.join('\n') : 'Programme')}">${escape(programme)}</span>` : '') +
       (convention ? `<button type="button" class="install-chip install-chip-convention" data-open-convention="${escape(project.id)}" title="Ouvrir le projet, onglet Convention">${ICON_CONVENTION}Convention</button>` : '') +
       `</div>`;
   }
@@ -331,8 +361,8 @@
       `<button type="button" class="install-card-identity" data-open-project="${escape(project.id)}"><span class="install-acronym">${escape(project.Acronyme || project.Projet || 'Sans acronyme')}</span></button>` +
       `<div class="install-badges">` +
       (ope.id != null
-        ? `<button type="button" class="${opeClasses}" data-open-ope="${escape(ope.id)}" title="Ouvrir la ligne OPE">${escape(ope.label)}</button>`
-        : `<span class="${opeClasses}">${escape(ope.label)}</span>`) +
+        ? `<button type="button" class="${opeClasses}" data-open-ope="${escape(ope.id)}" title="${escape(ope.title ? 'Ouvrir la ligne OPE — ' + ope.title : 'Ouvrir la ligne OPE')}">${escape(ope.label)}</button>`
+        : `<span class="${opeClasses}"${ope.title ? ` title="${escape(ope.title)}"` : ''}>${escape(ope.label)}</span>`) +
       (alert ? `<span class="install-chip install-chip-alert">OPE à compléter</span>` : '') +
       (action ? `<span class="install-chip install-chip-action">${escape(action.label)}</span>` : '') +
       `</div>` +

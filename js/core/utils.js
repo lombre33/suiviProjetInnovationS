@@ -13,7 +13,9 @@
     console.error(`[${timestamp}] ❌ ${msg}`, err);
   }
 
-  function showToast(msg, isError = false) {
+  // `options` (facultatif) : { title : infobulle (le détail d'une erreur), duration : durée d'affichage en ms (défaut 4000),
+  // onClick : action au clic (ouvre le détail du diagnostic d'accès, voir js/core/access-diagnostic.js) }.
+  function showToast(msg, isError = false, options = null) {
     debugLog(`Toast: ${msg}`, { isError });
     const t = document.getElementById('toast');
     if (!t) {
@@ -23,8 +25,34 @@
     t.textContent = msg;
     t.classList.remove('hidden');
     t.classList.toggle('error', isError);
+    const clickable = !!(options && typeof options.onClick === 'function');
+    t.classList.toggle('has-detail', clickable);
+    if (options && options.title) t.title = options.title; else t.removeAttribute('title');
+    t.onclick = clickable ? () => { t.classList.add('hidden'); options.onClick(); } : null;
     clearTimeout(showToast._timer);
-    showToast._timer = setTimeout(() => t.classList.add('hidden'), 4000);
+    showToast._timer = setTimeout(() => t.classList.add('hidden'), (options && options.duration) || 4000);
+  }
+
+  // Échec d'une lecture / écriture Grist : message expliqué (quelle table, quelle règle d'accès probable, quoi vérifier ; détail au clic,
+  // voir js/core/access-diagnostic.js). Sans ce module, l'ancien message court. `lead` : début du message ; `ctx.what` : ce que
+  // l'utilisateur faisait (« changement d'étape de INNOVX »).
+  function toastFailure(err, lead, ctx) {
+    if (global.CoreAccess && typeof global.CoreAccess.toast === 'function') return global.CoreAccess.toast(err, Object.assign({ lead }, ctx || {}));
+    showToast(`${lead} (${(err && err.message) || err})`, true);
+    return null;
+  }
+
+  // Même chose pour le bandeau d'erreur d'une modale : titre expliqué + détail repliable (`el` : l'élément d'erreur de la modale).
+  function showErrorBox(el, err, lead, ctx) {
+    if (!el) return;
+    if (global.CoreAccess && typeof global.CoreAccess.showErrorBox === 'function') global.CoreAccess.showErrorBox(el, err, Object.assign({ lead }, ctx || {}));
+    else el.textContent = `${lead} : ${(err && err.message) || err || 'erreur inconnue'}`;
+  }
+
+  // Le texte à mettre à la place du message brut d'une erreur Grist : la raison en clair (règle d'accès, table absente…), puis le message d'origine.
+  function failureReason(err, ctx) {
+    if (global.CoreAccess && typeof global.CoreAccess.reason === 'function') return global.CoreAccess.reason(err, ctx);
+    return (err && err.message) || String(err || 'erreur inconnue');
   }
 
   function toRecords(columnarTable) {
@@ -222,5 +250,5 @@
     return debounced;
   }
 
-  global.CoreUtils = { indexBy, findById, debounce, encodeList, decodeList, debugLog, debugError, showToast, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, opeLabel, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
+  global.CoreUtils = { indexBy, findById, debounce, encodeList, decodeList, debugLog, debugError, showToast, toastFailure, showErrorBox, failureReason, toRecords, findLabelForRef, gristDateToInput, inputDateToGrist, opeLabel, escapeHtml, formatCurrency, extractAddedRecordId, wireRefListKeyNav };
 })(window);

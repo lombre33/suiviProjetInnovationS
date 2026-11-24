@@ -44,7 +44,8 @@
           const table = await api.docApi.fetchTable('_grist_Attachments');
           (table.id || []).forEach((id, i) => meta.set(id, text(table.fileName?.[i])));
         } catch (err) {
-          console.warn('Lecture des pièces jointes impossible :', err.message);
+          // Déjà consigné par le diagnostic d'accès (fetchTable instrumenté) : les noms de fichiers ne s'afficheront pas.
+          console.warn('Lecture des pièces jointes impossible :', global.CoreAccess ? global.CoreAccess.reason(err, { op: 'read', table: '_grist_Attachments' }) : err.message);
         }
       }
       return meta;
@@ -115,7 +116,7 @@
   }
   const fail = (win, err) => {
     if (win) win.close();
-    if (global.CoreUtils) global.CoreUtils.showToast(`Ouverture impossible : ${err.message}`, true);
+    if (global.CoreUtils) global.CoreUtils.toastFailure(err, 'Ouverture impossible', { what: 'ouverture d\'une pièce jointe', table: '_grist_Attachments' });
   };
 
   // Télécharge une pièce jointe : nouvel onglet dirigé vers l'adresse de Grist, qui force le

@@ -1,0 +1,29 @@
+/* Diagnostic des droits d'accès (js/core/access-diagnostic.js) : pastilles ⚠, onglets du panneau Alt+Maj+D, message d'erreur détaillé.
+   Rien n'est visible tant que tout va bien (attribut hidden) : aucune ligne ajoutée aux écrans. */
+
+/* Pastille de l'en-tête, et de la barre de filtres d'un écran concerné. */
+.access-badge, .access-flag { display:inline-flex; align-items:center; justify-content:center; gap:5px; flex:none; border:1px solid var(--warning-soft-border); background:var(--warning-soft); color:var(--warning); border-radius:999px; font:inherit; font-size:12px; font-weight:800; cursor:pointer; line-height:1; }
+.access-badge { padding:6px 10px; }
+.access-flag { width:30px; height:30px; padding:0; margin-left:auto; }
+.access-badge:hover, .access-flag:hover { background:#ffe7c2; border-color:#f5c27a; }
+.access-badge:focus-visible, .access-flag:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.access-badge[hidden], .access-flag[hidden] { display:none; }
+.access-count { min-width:1ch; }
+/* En-tête : la pastille suit le nom du widget (dans le <h1>), la navigation garde sa place. */
+.header h1 .access-badge { margin-left:2px; }
+
+/* Message d'erreur cliquable : le détail complet s'ouvre dans le diagnostic. */
+.toast.has-detail { cursor:pointer; max-width:min(560px, calc(100vw - 40px)); line-height:1.4; }
+.toast.has-detail:hover { filter:brightness(.95); }
+
+/* Onglets du panneau Diagnostic (Chargement / Accès). */
+.perf-panel-tabs { display:inline-flex; gap:2px; padding:2px; border-radius:999px; background:var(--surface-sunken); }
+.perf-tab { border:0; background:transparent; color:var(--text-muted); padding:5px 12px; border-radius:999px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.perf-tab.is-on { background:var(--surface); color:var(--accent); box-shadow:var(--shadow-card); }
+.perf-panel [data-perf-probe][hidden] { display:none; }
+
+/* Explication d'une erreur dans le bandeau d'une modale : titre, puis détail repliable. */
+.access-explain { display:block; }
+.access-explain details { margin-top:4px; font-weight:500; color:var(--text); }
+.access-explain summary { cursor:pointer; color:var(--accent); font-size:12.5px; }
+.access-explain details > div { margin-top:4px; font-size:12.5px; line-height:1.45; }

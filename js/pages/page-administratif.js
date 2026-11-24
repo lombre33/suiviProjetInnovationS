@@ -157,6 +157,15 @@
   const tableRows = name => (window.CoreState && CoreState.getTable(name)) || [];
   const rowById = (tableName, id) => CoreUtils.findById(tableRows(tableName), id);
   const refId = value => (value && typeof value === 'object') ? (value.id ?? value) : value;
+  // Référence dont la ligne n'est pas lisible (règle d'accès Grist, table refusée, ligne supprimée) : « Personne (id 12) non lisible » plutôt
+  // que le numéro brut ; refTips donne la raison probable pour l'infobulle (js/core/access-diagnostic.js). Une valeur texte reste telle quelle.
+  const unresolved = (tableName, value, kind) => tableName && window.CoreAccess && !rowById(tableName, refId(value)) ? CoreAccess.unresolvedRef(tableName, refId(value), kind) : null;
+  const refTips = (value, tableName, kind) => {
+    if (Array.isArray(value)) return value.filter(item => item !== 'L').flatMap(item => refTips(item, tableName, kind));
+    if (!value || (typeof value === 'object' && value.id == null)) return [];
+    const missing = unresolved(tableName, value, kind);
+    return missing ? [`${missing.label} — ${missing.title}`] : [];
+  };
   const refLabel = (value, tableName, fields = []) => {
     if (Array.isArray(value)) return value.filter(item => item !== 'L').map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ');
     if (!value) return ''; // référence vide (0 côté Grist) — jamais afficher "0"
@@ -166,7 +175,8 @@
       for (const name of fields) if (candidate[name] != null && candidate[name] !== '') return text(candidate[name]);
       return text(candidate.NOM || candidate.nom_et_Prenom || candidate.name || candidate.label || candidate.Acronyme || candidate.id);
     }
-    return text(value);
+    const missing = unresolved(tableName, value);
+    return missing ? missing.label : text(value);
   };
   const valueLabel = (value, tableName, fields) => Array.isArray(value) ? value.map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ') : refLabel(value, tableName, fields);
   const programmeLabel = value => valueLabel(value, 'Programmes', ['Programme']);
@@ -176,13 +186,16 @@
     const row = rowById('Annuaire', refId(value));
     if (row) return text(row.nom_et_Prenom || [row.NOM, row.Prenom].filter(Boolean).join(' '));
     if (value && typeof value === 'object') return text(value.nom_et_Prenom || [value.NOM, value.Prenom].filter(Boolean).join(' ') || value.name || value.id);
-    return text(value);
+    const missing = unresolved('Annuaire', value, 'Personne');
+    return missing ? missing.label : text(value);
   };
   const instanceLabel = value => {
     if (Array.isArray(value)) return value.map(instanceLabel).filter(Boolean).join(', ');
     const suivi = rowById('Suivi_Instance', refId(value));
     if (suivi) return refLabel(suivi, null, ['Nom', 'name']) || valueLabel(suivi.Instance, 'Instances', ['Instances']);
-    return valueLabel(value, 'Instances', ['Instances']);
+    if (!value || rowById('Instances', refId(value)) || typeof value === 'object') return valueLabel(value, 'Instances', ['Instances']);
+    const missing = unresolved('Suivi_Instance', value, 'Instance');
+    return missing ? missing.label : text(value);
   };
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
@@ -569,7 +582,7 @@
 
   async function advanceNotif(projectId, acronym) {
     const row = notifRowFor(projectId);
-    if (!row) { CoreUtils.showToast(`Aucune fiche Notifications pour ${acronym}`, true); return; }
+    if (!row) { CoreUtils.showToast(`Aucune fiche Notifications pour ${acronym}${window.CoreAccess ? ' : ' + window.CoreAccess.missingRowNote('Notifications') : ''}`, true); return; }
     const idx = NOTIF_STAGES.indexOf(text(row.notifications_Statut));
     if (idx === -1 || idx >= NOTIF_STAGES.length - 1) return;
     const nextValue = NOTIF_STAGES[idx + 1];
@@ -583,7 +596,7 @@
       if (LAST_ACTION_FIELD in stamp) Object.assign(project, stamp);
       CoreUtils.showToast(`${acronym} → ${stripOrdinal(nextValue)}`);
       render();
-    } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
+    } catch (err) { CoreUtils.toastFailure(err, 'Échec de l\'écriture', { what: `passage à l'étape suivante de la notification de ${acronym}` }); }
   }
 
   // Glisser-déposer d'une carte vers un autre volet Conventions (remplace le
@@ -600,7 +613,7 @@
       Object.entries(fields).forEach(([name, value]) => setProjectField(project.id, name, value));
       CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(nextValue)}`);
       render();
-    } catch (err) { CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true); }
+    } catch (err) { CoreUtils.toastFailure(err, 'Échec de l\'écriture', { what: `changement d'étape de convention du projet ${project.Acronyme || project.Projet || project.id}` }); }
   }
 
   async function saveProjectColumn(project, column, value, errorLabel) {
@@ -609,7 +622,7 @@
       await writeProjectColumn(project, column, value);
       return true;
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'enregistrement ${errorLabel} (${err.message})`, true);
+      CoreUtils.toastFailure(err, `Échec de l'enregistrement ${errorLabel}`, { what: `${errorLabel} du projet ${project.Acronyme || project.Projet || project.id}`, columns: [column] });
       return false;
     }
   }
@@ -631,7 +644,7 @@
       await writeProjectColumn(project, column, epoch);
       return true;
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'enregistrement ${errorLabel} (${err.message})`, true);
+      CoreUtils.toastFailure(err, `Échec de l'enregistrement ${errorLabel}`, { what: `${errorLabel} du projet ${project.Acronyme || project.Projet || project.id}`, columns: [column] });
       return false;
     }
   }
@@ -844,11 +857,11 @@
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId,
         { Mail_visa_modele: visaMailPrefs.model, Mail_visa_client: visaMailPrefs.client }]]);
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'enregistrement du réglage du mail (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'enregistrement du réglage du mail', { what: 'réglage du modèle de mail de demande de visa (vos préférences)' });
     }
   }
   const visaMailErrorText = err => err.code === 'models-table-missing'
-    ? `Aucun modèle de mail : la table des modèles de Publipostage+ n'a pas pu être lue (${err.detail || err.message}).`
+    ? `Aucun modèle de mail : la table des modèles de Publipostage+ n'a pas pu être lue (${err.detail || err.message}).${window.CoreAccess ? ' ' + window.CoreAccess.explain(err.detail || err.message, { op: 'read', table: 'Publipostage_Templates' }).headline + '.' : ''}`
     : `Mail de demande de visa impossible (${err.message})`;
   let visaMailBusy = false;
   async function startVisaMail(anchor, project) {
@@ -924,11 +937,12 @@
     if (!parts.length) return '?';
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
   }
-  const personName = id => (rowById('Annuaire', id) && personLabel(id)) || `Personne n° ${id} (absente de l'Annuaire)`;
+  const personName = id => (rowById('Annuaire', id) && personLabel(id)) || (window.CoreAccess ? CoreAccess.unreadableLabel('Annuaire', id, 'Personne') : `Personne n° ${id} (absente de l'Annuaire)`);
+  const personTip = id => rowById('Annuaire', id) || !window.CoreAccess ? '' : CoreAccess.unreadableReason('Annuaire', id);
   const taggedIds = project => referencedIds(readField(project, NEXT_STEP_RESP_FIELD));
   async function setResponsables(project, ids) {
     const saving = writeProjectColumn(project, NEXT_STEP_RESP_FIELD, ['L', ...ids]).then(() => true, err => {
-      CoreUtils.showToast(`Échec de l'enregistrement des responsables (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'enregistrement des responsables', { what: `responsables de la prochaine étape du projet ${project.Acronyme || project.Projet || project.id}`, columns: [NEXT_STEP_RESP_FIELD] });
       return false;
     });
     refreshTagsCell(project); // valeur locale déjà posée : affichage immédiat
@@ -1022,7 +1036,7 @@
       await writing;
       if (target !== stored) CoreUtils.showToast(`${project.Acronyme || project.Projet} → ${stripOrdinal(CONV_STAGES[target])}`);
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'écriture (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'écriture', { what: `changement du statut de convention du projet ${project.Acronyme || project.Projet || project.id}` });
       render();
     }
   }
@@ -1044,7 +1058,7 @@
       try { await writing; } catch (err) { syncLastActionInput(project); throw err; }
       return true;
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'enregistrement du commentaire (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'enregistrement du commentaire', { what: `commentaire du projet ${project ? (project.Acronyme || project.Projet || project.id) : projectId}`, columns: ['comentaire_general_Suivi_projet'] });
       return false;
     }
   }
@@ -1112,14 +1126,19 @@
   function notifCard(project) {
     const idx = notifStageIndex(project.id);
     const isLast = idx === NOTIF_STAGES.length - 1;
-    const holder = personLabel(field(project, ['Porteur_1', 'Porteur', 'porteur_1'])) || 'Porteur non renseigné';
-    const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
+    const holderValue = field(project, ['Porteur_1', 'Porteur', 'porteur_1']);
+    const programmeValue = field(project, ['Programme', 'Programme_Axe_InnovationS']);
+    const holder = personLabel(holderValue) || 'Porteur non renseigné';
+    const programme = programmeLabel(programmeValue);
+    const tip = tips => tips.length ? ` title="${escape(tips.join('\n'))}"` : '';
+    const holderTip = tip(refTips(holderValue, 'Annuaire', 'Personne'));
+    const programmeTip = tip(refTips(programmeValue, 'Programmes', 'Programme'));
     const cto = ctoRef(project);
     return `<div class="admin-card" data-project-id="${escape(project.id)}">` +
       `<button type="button" class="admin-card-identity" data-open-project="${escape(project.id)}">` +
       `<span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>` +
-      `<span class="admin-card-caption">${escape(holder)}</span></button>` +
-      `<div class="admin-card-badges">${startDateChip(project, 'notif', isLast)}${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}` +
+      `<span class="admin-card-caption"${holderTip}>${escape(holder)}</span></button>` +
+      `<div class="admin-card-badges">${startDateChip(project, 'notif', isLast)}${programme ? `<span class="programme-badge"${programmeTip}>${escape(programme)}</span>` : ''}` +
       `${cto ? `<span class="admin-cto-badge">${escape(cto)}</span>` : ''}</div>` +
       `<div class="admin-notes-line admin-notif-line">${commentBlock(project)}${lastActionBlock(project)}</div>` + redactButton(project) +
       (isLast
@@ -1263,7 +1282,7 @@
       await writeProjectColumn(project, FILE_FIELD, CoreAttachments.encode([...filesOf(project), ...created]));
       added = true;
     } catch (err) {
-      CoreUtils.showToast(`Échec de l'envoi de la convention (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'envoi de la convention', { what: `ajout de la convention PDF au projet ${project.Acronyme || project.Projet || project.id}`, columns: [FILE_FIELD] });
     }
     uploading.delete(key);
     refreshFileCell(project, 'upload');
@@ -1275,7 +1294,7 @@
   async function detachConventionFile(project, fileId) {
     const name = fileLabel(fileId);
     const saving = writeProjectColumn(project, FILE_FIELD, CoreAttachments.encode(filesOf(project).filter(id => id !== fileId))).then(() => true, err => {
-      CoreUtils.showToast(`Échec du retrait de la convention (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec du retrait de la convention', { what: `retrait de la convention PDF du projet ${project.Acronyme || project.Projet || project.id}`, columns: [FILE_FIELD] });
       return false;
     });
     refreshFileCell(project, 'upload'); // valeur locale déjà posée : affichage immédiat
@@ -1345,7 +1364,7 @@
     const rest = ids.slice(shown.length);
     const tags = shown.map(pid => {
       const name = personName(pid);
-      return `<span class="admin-tag" data-person="${escape(pid)}" title="${escape(name)}">` +
+      return `<span class="admin-tag" data-person="${escape(pid)}" title="${escape(personTip(pid) ? name + ' — ' + personTip(pid) : name)}">` +
         `<span class="admin-avatar" style="--hue:${hueFor(pid)}" aria-hidden="true">${escape(initialsFor(pid, name))}</span>` +
         `<span class="visually-hidden">${escape(name)}</span>` +
         `<button type="button" class="admin-tag-x" data-untag="${id}:${escape(pid)}" aria-label="Retirer ${escape(name)}">×</button></span>`;

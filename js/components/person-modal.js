@@ -302,7 +302,7 @@
         global.dispatchEvent(new CustomEvent('directory-changed', { detail: { table: 'Annuaire', id: Number(id), created: !editing } }));
       } catch (e) {
         button.disabled = false;
-        error.textContent = `${editing ? 'Modification' : 'Création'} impossible : ${e?.message || 'erreur inconnue'}`;
+        global.CoreUtils.showErrorBox(error, e, `${editing ? 'Modification' : 'Création'} impossible`, { what: `${editing ? 'modification' : 'création'} d'une fiche de l'Annuaire`, table: 'Annuaire' });
       }
     };
     nomInput.focus();

@@ -208,10 +208,16 @@
       `<span class="db-st"></span><span class="db-pr"></span><span class="db-att"></span><span class="db-cons"><b>${esc(L.eur(o[m.measure]))}</b></span></button>` +
       (open ? `<div class="db-exp">${expensesHtml(o.expenses, 0)}</div>` : '') + '</div>';
   }
+  // Pourquoi les dépenses manquent : la raison de Grist (règle d'accès, table absente…) en clair, le détail complet à l'infobulle.
+  function expensesErrorNote() {
+    const ex = global.CoreAccess ? global.CoreAccess.explain(state.expensesError, { op: 'read', table: EXPENSES_TABLE, page: 'Dashboard' }) : null;
+    if (!ex) return `Table ${EXPENSES_TABLE} illisible : ${esc(state.expensesError)}`;
+    return `<span title="${esc(ex.text)}">Table ${EXPENSES_TABLE} illisible : ${esc(ex.headline)}. Le consommé reste à 0 tant qu'elle n'est pas lisible (détail : survol, ou Alt+Maj+D).</span>`;
+  }
   function footnoteHtml(m) {
     const notes = [];
     if (state.expensesState === 'loading' || state.expensesState === 'idle') notes.push('Chargement des dépenses…');
-    if (state.expensesState === 'error') notes.push(`Table ${EXPENSES_TABLE} illisible : ${esc(state.expensesError)}`);
+    if (state.expensesState === 'error') notes.push(expensesErrorNote());
     if (m.outOfRange) notes.push(`${m.outOfRange.count} dépense${m.outOfRange.count > 1 ? 's' : ''} d'un exercice hors 2023-2026 (${esc(L.eur(m.outOfRange[m.measure]))} ${m.measure}) non comptée${m.outOfRange.count > 1 ? 's' : ''}.`);
     const gaps = m.gapCount;
     if (gaps && (gaps.gap || gaps.nodetail)) {
@@ -329,7 +335,7 @@
       scheduleStatusRefresh();
     } catch (err) {
       row.Statut_operationnel_projet = before;
-      CoreUtils.showToast(`Échec de l'enregistrement du statut (${err.message})`, true);
+      CoreUtils.toastFailure(err, 'Échec de l\'enregistrement du statut', { what: `changement du statut du projet ${row.Acronyme || row.Projet || id}`, columns: ['Statut_operationnel_projet'] });
       datasetCache = null; render();
     }
   }
@@ -417,8 +423,48 @@
   const persist = () => saveSoon();
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveSoon.flush(); });
 
+  // --- Accès Grist (diagnostic Alt+Maj+D, onglet Accès) -----------------------------------------------
+  // Les totaux se calculent sur ce que Grist montre à ce compte : une ligne OPE ou un programme caché par une règle d'accès par ligne ne produit
+  // aucune erreur, le consommé est simplement plus bas et le projet passe « Sans programme ». Contrôle à la demande (aucun appel Grist).
+  function accessCheck() {
+    const A = global.CoreAccess;
+    const readable = name => { const s = A.readState(name); return !!s && s.ok; };
+    const refs = value => (Array.isArray(value) ? value : [value]).filter(v => typeof v === 'number' && v > 0);
+    const many = (n, one, other) => `${n} ${n > 1 ? other : one}`;
+    const out = [];
+    const projets = table('Projets');
+    if (!projets.length) return out;
+    if (readable('Lignes_OPE')) {
+      const known = new Set(table('Lignes_OPE').map(row => row.id));
+      const hidden = new Set(); let projects = 0;
+      projets.forEach(row => {
+        const ids = global.CoreOpes ? CoreOpes.ligneIds(row) : refs(row.Ligne_OPE);
+        const gone = ids.filter(id => !known.has(id));
+        if (gone.length) { projects += 1; gone.forEach(id => hidden.add(id)); }
+      });
+      if (hidden.size) out.push({
+        table: 'Lignes_OPE',
+        headline: `Dashboard : ${many(projects, 'projet est rattaché', 'projets sont rattachés')} à ${many(hidden.size, 'ligne OPE que votre compte ne peut pas lire', 'lignes OPE que votre compte ne peut pas lire')}`,
+        effect: ['Le consommé de ces lignes n\'est pas compté : les totaux « consommé » sont sous-estimés.', 'Leurs dépenses détaillées (Depenses_OPE) apparaissent comme dépenses sans projet.'],
+        detail: `Lignes_OPE est lue (${table('Lignes_OPE').length} lignes) mais ne contient pas les lignes n° ${Array.from(hidden).sort((a, b) => a - b).slice(0, 12).join(', ')}${hidden.size > 12 ? '…' : ''} que les projets référencent : règle d'accès par ligne sur Lignes_OPE (dans Grist : Règles d'accès → Lignes_OPE), ou lignes supprimées. Comparez avec « Voir en tant que ».`
+      });
+    }
+    if (readable('Programmes')) {
+      const known = new Set(table('Programmes').map(row => row.id));
+      const lost = projets.filter(row => refs(row.Programme).some(id => !known.has(id)));
+      if (lost.length) out.push({
+        table: 'Programmes',
+        headline: `Dashboard : ${many(lost.length, 'projet est classé', 'projets sont classés')} « Sans programme » alors qu'un programme leur est rattaché`,
+        effect: ['Ces projets sont regroupés sous « Sans programme » et échappent au filtre du programme concerné.'],
+        detail: 'Le programme existe dans Grist mais Programmes ne le montre pas à votre compte (règle d\'accès par ligne sur Programmes), ou il a été supprimé.'
+      });
+    }
+    return out;
+  }
+
   // --- Démarrage ----------------------------------------------------------------------------------------
   function init() {
+    if (global.CoreAccess && typeof global.CoreAccess.addCheck === 'function') global.CoreAccess.addCheck('Dashboard', accessCheck);
     const view = $('view-dashboard');
     if (!view) return;
     view.addEventListener('click', onClick);

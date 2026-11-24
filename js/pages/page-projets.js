@@ -68,6 +68,15 @@
     if (value && typeof value === 'object') return value.id ?? value;
     return value;
   };
+  // Référence dont la ligne n'est pas lisible (règle d'accès Grist, table refusée ou ligne supprimée) : « Personne (id 12) non lisible »
+  // plutôt que le numéro brut ; l'infobulle (refTips) donne la raison probable. Une valeur texte (liste de choix) reste telle quelle.
+  const unresolved = (tableName, value, kind) => tableName && window.CoreAccess && !rowById(tableName, refId(value)) ? CoreAccess.unresolvedRef(tableName, refId(value), kind) : null;
+  const refTips = (value, tableName, kind) => {
+    if (Array.isArray(value)) return value.filter(item => item !== 'L').flatMap(item => refTips(item, tableName, kind));
+    if (value && typeof value === 'object' && value.id == null) return [];
+    const missing = unresolved(tableName, value, kind);
+    return missing ? [`${missing.label} — ${missing.title}`] : [];
+  };
   const refLabel = (value, tableName, fields = []) => {
     if (Array.isArray(value)) return value.filter(item => item !== 'L').map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ');
     const row = tableName && value != null && value !== '' ? rowById(tableName, refId(value)) : null;
@@ -76,6 +85,8 @@
       for (const name of fields) if (candidate[name] != null && candidate[name] !== '') return text(candidate[name]);
       return text(candidate.NOM || candidate.nom_et_Prenom || candidate.name || candidate.label || candidate.Acronyme || candidate.id);
     }
+    const missing = value != null && value !== '' ? unresolved(tableName, value) : null;
+    if (missing) return missing.label;
     return value == null ? '' : text(value);
   };
   const valueLabel = (value, tableName, fields) => Array.isArray(value) ? value.map(item => refLabel(item, tableName, fields)).filter(Boolean).join(', ') : refLabel(value, tableName, fields);
@@ -85,14 +96,17 @@
     const row = rowById('Annuaire', refId(value));
     if (row) return text(row.nom_et_Prenom || [row.NOM, row.Prenom].filter(Boolean).join(' '));
     if (value && typeof value === 'object') return text(value.nom_et_Prenom || [value.NOM, value.Prenom].filter(Boolean).join(' ') || value.name || value.id);
-    return text(value);
+    const missing = value != null && value !== '' ? unresolved('Annuaire', value, 'Personne') : null;
+    return missing ? missing.label : text(value);
   };
   const instanceLabel = value => {
     if (Array.isArray(value)) return value.map(instanceLabel).filter(Boolean).join(', ');
     const suivi = rowById('Suivi_Instance', refId(value));
     // Mirror project-modal resolution: prefer Suivi_Instance.Nom / .name, fall back to linked Instances.Instances.
     if (suivi) return refLabel(suivi, null, ['Nom', 'name']) || valueLabel(suivi.Instance, 'Instances', ['Instances']);
-    return valueLabel(value, 'Instances', ['Instances']);
+    if (rowById('Instances', refId(value)) || (value && typeof value === 'object')) return valueLabel(value, 'Instances', ['Instances']);
+    const missing = value != null && value !== '' ? unresolved('Suivi_Instance', value, 'Instance') : null;
+    return missing ? missing.label : text(value);
   };
   const normalized = value => text(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const field = (project, names) => { for (const name of names) if (project[name] != null && project[name] !== '') return project[name]; return ''; };
@@ -407,12 +421,19 @@
   const saveUserPreferencesSoon = CoreUtils.debounce(() => saveUserPreferences(), 600);
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveUserPreferencesSoon.flush(); }); // page masquée : on n'attend plus
   function card(project) {
-    const holder = personLabel(field(project, ['Porteur_1', 'Porteur', 'porteur_1'])) || 'Porteur non renseigné';
-    const accompanist = personLabel(field(project, ['Accompagnateur'])) || 'Accompagnateur non renseigné';
-    const programme = programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS']));
+    const holderValue = field(project, ['Porteur_1', 'Porteur', 'porteur_1']);
+    const accompanistValue = field(project, ['Accompagnateur']);
+    const programmeValue = field(project, ['Programme', 'Programme_Axe_InnovationS']);
+    const holder = personLabel(holderValue) || 'Porteur non renseigné';
+    const accompanist = personLabel(accompanistValue) || 'Accompagnateur non renseigné';
+    const programme = programmeLabel(programmeValue);
+    const tip = tips => tips.length ? ` title="${escape(tips.join('\n'))}"` : '';
+    const holderTip = tip(refTips(holderValue, 'Annuaire', 'Personne'));
+    const accompanistTip = tip(refTips(accompanistValue, 'Annuaire', 'Personne'));
+    const programmeTip = tip(refTips(programmeValue, 'Programmes', 'Programme'));
     const substatus = valueLabel(field(project, ['Statut_operationnel_projet', 'Conventions_statut', 'Statut_Financier'])) || 'Statut macro non renseigné';
     const convention = !!project.Convention_de_reversement || !!project.Convention_de_reversement_le_cas_echeant;
-    return `<button type="button" class="project-card" data-project-id="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>${programme ? `<span class="programme-badge">${escape(programme)}</span>` : ''}<span class="project-holder"><strong>Porteur :</strong> ${escape(holder)}</span><span class="project-holder"><strong>Accompagnateur :</strong> ${escape(accompanist)}</span><span class="project-substatus"><strong>Statut macro :</strong> ${escape(substatus)}</span>${convention ? '<span class="convention-badge">Convention</span>' : ''}</button>`;
+    return `<button type="button" class="project-card" data-project-id="${escape(project.id)}"><span class="project-acronym">${escape(project.Acronyme || 'Sans acronyme')}</span>${programme ? `<span class="programme-badge"${programmeTip}>${escape(programme)}</span>` : ''}<span class="project-holder"${holderTip}><strong>Porteur :</strong> ${escape(holder)}</span><span class="project-holder"${accompanistTip}><strong>Accompagnateur :</strong> ${escape(accompanist)}</span><span class="project-substatus"><strong>Statut macro :</strong> ${escape(substatus)}</span>${convention ? '<span class="convention-badge">Convention</span>' : ''}</button>`;
   }
   // Champ de recherche + liste à cases : au focus, la liste s'ouvre et le résumé est sélectionné (la première
   // lettre tapée le remplace par la recherche) ; ↑/↓ choisissent une proposition, Entrée la coche, Échap efface
@@ -466,7 +487,38 @@
       }, 150);
     });
   }
+  // Diagnostic d'accès (Alt+Maj+D, onglet Accès) : projets qu'aucune colonne du Kanban n'accueille. Sans Statut_Macro (colonne masquée par une règle
+  // d'accès par colonne, ou renommée) ou avec un statut inconnu, classifyStatus() renvoie null et le projet n'apparaît nulle part, sans erreur.
+  // Contrôle à la demande, sans appel Grist.
+  function accessCheck() {
+    const A = window.CoreAccess;
+    const projects = getProjects();
+    const lost = projects.filter(project => classifyStatus(project) === null);
+    if (!lost.length) return [];
+    const state = A.readState('Projets');
+    const received = state ? state.columns : [];
+    const noColumn = received.length && !received.includes('Statut_Macro') && !received.includes('Statut');
+    const unknown = new Map();
+    let empty = 0;
+    lost.forEach(project => {
+      const value = text(field(project, ['Statut_Macro', 'Statut'])).trim();
+      if (!value) empty += 1; else unknown.set(value, (unknown.get(value) || 0) + 1);
+    });
+    const unknownList = Array.from(unknown.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([value, n]) => `« ${value} » (${n})`).join(', ');
+    const why = [];
+    if (noColumn) why.push('La colonne Statut_Macro n\'arrive pas au widget : cachée à votre compte par une règle d\'accès par colonne sur Projets, ou renommée. Sans elle aucun projet ne peut être classé.');
+    if (empty && !noColumn) why.push(`${empty} projet${empty > 1 ? 's' : ''} sans Statut_Macro (cellule vide) : les remplir dans Grist, ou vérifier que la colonne n'est pas cachée à votre compte pour certaines lignes (règle d'accès par ligne et colonne).`);
+    if (unknownList) why.push(`Statut_Macro non reconnu par le widget : ${unknownList}. Libellés attendus : voir docs/grist_structure.`);
+    return [{
+      table: 'Projets', level: noColumn ? 'denied' : 'warn',
+      headline: `Kanban : ${lost.length} projet${lost.length > 1 ? 's' : ''} sur ${projects.length} n'apparaissent dans aucune colonne`,
+      effect: ['Ces projets restent absents du Kanban, sans message d\'erreur (ils figurent toujours dans Grist).'],
+      detail: why.join('\n')
+    }];
+  }
+
   function init() {
+    if (window.CoreAccess && typeof CoreAccess.addCheck === 'function') CoreAccess.addCheck('Kanban', accessCheck);
     renderFilters();
     Object.keys(COMBOS).forEach(setupMultiCombo);
     render();

@@ -63,6 +63,11 @@
   const byId = (rows, id) => (id ? CoreUtils.findById(rows, id) : undefined);
   const structLabel = row => (row ? text(row.Acronyme) || text(row.Nom_Complet) : '');
   const etabLabel = row => (row ? text(row.Acronyme) || text(row.Nom_complet) : '');
+  // Référence vers une fiche que Grist ne montre pas à ce compte (règle d'accès, table refusée, ligne supprimée) : {label, title} ou null
+  // (diagnostic d'accès, 24/11/2026) — « Poste (id 4) non lisible » plutôt que « Sans poste », qui ferait croire à un oubli de saisie.
+  const hiddenRef = (tableName, value, kind) => { const id = refId(value); return id && window.CoreAccess ? CoreAccess.unresolvedRef(tableName, id, kind) : null; };
+  const tipOf = refs => refs.filter(Boolean).map(ref => `${ref.label} — ${ref.title}`).join('\n');
+  const titleAttr = tip => tip ? ` title="${esc(tip)}"` : '';
   const help = (tableId, colId) => (window.HelpTooltip ? HelpTooltip.markup(tableId, colId) : '');
   const frDate = iso => { const [y, m, d] = String(iso).split('-'); return `${d}/${m}/${y}`; };
 
@@ -89,13 +94,15 @@
       const mere = structure ? byId(structures, refId(structure.Directon_Structure_mere)) : null;
       const tutelle = structure ? byId(etabs, refId(structure.Etablissement_Tutuelle_gestionaire)) : null;
       const employeur = byId(etabs, refId(row.Employeur_tutelle));
+      const structureHidden = !structure ? hiddenRef('Structures', row.Structure2, 'Structure') : null;
+      const employeurHidden = !employeur ? hiddenRef('Etablissements', row.Employeur_tutelle, 'Établissement') : null;
       const finDay = dateDay(row.Date_de_fin);
       const finLeft = finDay == null ? null : finDay - today;
       return {
         id: row.id, row,
         titre: text(row.Titre) || text(row.Nom_du_poste), prec: text(row.Precisions_Poste),
-        structure: structLabel(structure), structureNom: text(structure && structure.Nom_Complet), mere: structLabel(mere), tutelle: etabLabel(tutelle),
-        employeur: etabLabel(employeur),
+        structure: structLabel(structure) || (structureHidden ? structureHidden.label : ''), structureNom: text(structure && structure.Nom_Complet), mere: structLabel(mere), tutelle: etabLabel(tutelle),
+        employeur: etabLabel(employeur) || (employeurHidden ? employeurHidden.label : ''), hiddenTip: tipOf([structureHidden, employeurHidden]),
         contrat: text(row.type_de_contrat), typePoste: text(row.Type_de_poste), grade: text(row.grade),
         fin: finDay == null ? null : dayToIso(finDay), finLeft, finSoon: finLeft != null && finLeft <= SOON_DAYS,
         titulaires: [], vacant: true, issue: false
@@ -122,6 +129,7 @@
       const name = text(row.nom_et_Prenom) || `${prenom} ${nom}`.trim() || `Personne ${row.id}`;
       const poste = posteById.get(refId(row.Poste2)) || null;
       const secondary = posteById.get(refId(row.Poste_secondaire)) || null;
+      const posteHidden = !poste ? hiddenRef('Postes2', row.Poste2, 'Poste') : null;
       const mine = projectsOf.get(row.id) || { porteur: [], vp: [], accomp: [] };
       const sortProjects = list => list.slice().sort((a, b) => projectLabel(a).localeCompare(projectLabel(b), 'fr'));
       const projects = { porteur: sortProjects(mine.porteur), vp: sortProjects(mine.vp), accomp: sortProjects(mine.accomp) };
@@ -133,7 +141,8 @@
         types: listValues(row.Type), comm: listValues(row.Communaute_metier), accomp: row.Accompagnateur_de_l_innovation_ === true,
         assistantId: refId(row.email_Assitant_e_le_cas_echeant),
         poste, secondary,
-        titre: poste ? poste.titre : '', prec: poste ? poste.prec : '',
+        posteHidden, hiddenTip: poste ? poste.hiddenTip : tipOf([posteHidden]),
+        titre: poste ? poste.titre : (posteHidden ? posteHidden.label : ''), prec: poste ? poste.prec : '',
         structure: poste ? poste.structure : '', mere: poste ? poste.mere : '', tutelle: poste ? poste.tutelle : '', employeur: poste ? poste.employeur : '',
         projects, projectLabel,
         nProj: new Set([...projects.porteur, ...projects.vp, ...projects.accomp]).size,
@@ -165,7 +174,7 @@
       if (sameName.length > 1) person.issues.push({ key: 'dup-name', text: ISSUE_TEXT['dup-name'], otherId: otherOf(sameName, person) });
       if (sameEmail && sameEmail.length > 1) person.issues.push({ key: 'dup-email', text: ISSUE_TEXT['dup-email'], otherId: otherOf(sameEmail, person) });
       if (!person.email) person.issues.push({ key: 'no-email', text: ISSUE_TEXT['no-email'], otherId: 0 });
-      if (!person.poste) person.issues.push({ key: 'no-poste', text: ISSUE_TEXT['no-poste'], otherId: 0 });
+      if (!person.poste && !person.posteHidden) person.issues.push({ key: 'no-poste', text: ISSUE_TEXT['no-poste'], otherId: 0 });
     });
 
     // Choix des filtres : les valeurs de Grist pour Type (jamais une liste en dur), puis celles que les données ajoutent.
@@ -255,7 +264,7 @@
     return `<div class="annu-row${state.selectedId === person.id ? ' is-sel' : ''}" data-person="${person.id}">` +
       `<div class="annu-who c-nom">${avatar(person)}<button type="button" class="annu-name" data-annu="open" data-id="${person.id}">${esc(person.name)}</button>` +
         (person.accomp ? '<span class="annu-star" title="Accompagnateur de l\'innovation" role="img" aria-label="Accompagnateur de l\'innovation">★</span>' : '') + '</div>' +
-      `<div class="c-poste"><span class="annu-t1">${esc(person.titre || 'Sans poste')}</span><span class="annu-t2">${esc(person.prec)}</span></div>` +
+      `<div class="c-poste"><span class="annu-t1"${titleAttr(person.hiddenTip)}>${esc(person.titre || 'Sans poste')}</span><span class="annu-t2">${esc(person.prec)}</span></div>` +
       `<div class="c-struct"><span class="annu-t1">${esc(person.structure || '—')}</span><span class="annu-t2">${esc(person.mere)}</span></div>` +
       `<div class="c-etab">${employeurPill(person.employeur)}</div>` +
       `<div class="c-type annu-pills">${typePills(person.types)}</div>` +
@@ -266,7 +275,7 @@
   function personCard(person) {
     return `<article class="annu-pc${state.selectedId === person.id ? ' is-sel' : ''}" data-person="${person.id}">` +
       `<div class="annu-pc-top">${avatar(person)}<div style="min-width:0;flex:1"><button type="button" class="annu-name" style="max-width:100%" data-annu="open" data-id="${person.id}">${esc(person.name)}</button>` +
-        `<span class="annu-t2">${esc(person.titre || 'Sans poste')}</span></div>${alertButton(person)}</div>` +
+        `<span class="annu-t2"${titleAttr(person.hiddenTip)}>${esc(person.titre || 'Sans poste')}</span></div>${alertButton(person)}</div>` +
       (person.employeur || person.structure
         ? `<div class="annu-pills">${person.employeur ? employeurPill(person.employeur) : ''}${person.structure ? `<span class="annu-pill is-plain">${esc(person.structure)}</span>` : ''}</div>` : '') +
       `<div class="annu-pills">${typePills(person.types)}</div>` +
@@ -332,6 +341,7 @@
   const kv = (label, value, helpHtml) => `<div class="annu-kv"><span class="k">${label}${helpHtml || ''}</span><span class="v">${value}</span></div>`;
   function treeHtml(person) {
     const poste = person.poste;
+    if (!poste && person.posteHidden) return `<div class="annu-lvl"><span class="annu-elb"></span><span class="k">Poste</span><span class="v annu-warn-t"${titleAttr(person.hiddenTip)}>${esc(person.posteHidden.label)}</span></div>`;
     if (!poste) return '<div class="annu-lvl"><span class="annu-elb"></span><span class="k">Poste</span><span class="v annu-warn-t">Aucun poste rattaché</span></div>';
     const levels = [];
     if (poste.tutelle) levels.push(['Tutelle', `<span class="annu-pill"${hueStyle(poste.tutelle)}>${esc(poste.tutelle)}</span>`]);
@@ -351,7 +361,7 @@
   function drawerHtml(person, dir) {
     const poste = person.poste;
     const assistant = person.assistantId ? dir.personById.get(person.assistantId) : null;
-    const titleLine = poste ? person.titre + (person.prec ? ` · ${person.prec}` : '') : 'Sans poste';
+    const titleLine = poste ? person.titre + (person.prec ? ` · ${person.prec}` : '') : (person.posteHidden ? person.posteHidden.label : 'Sans poste');
     const secondary = person.secondary
       ? kv('Poste secondaire', esc(person.secondary.titre + (person.secondary.structure ? ` — ${person.secondary.structure}` : '')), help('Annuaire', 'Poste_secondaire')) : '';
     const contrat = poste

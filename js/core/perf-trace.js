@@ -88,7 +88,15 @@
     return lines;
   }
 
-  function report() {
+  // Section « Accès » (permissions Grist) : js/core/access-diagnostic.js, quand il est chargé.
+  function accessLines() {
+    try { return global.CoreAccess && typeof global.CoreAccess.reportLines === 'function' ? global.CoreAccess.reportLines() : []; }
+    catch (err) { return ['Permissions et accès : rapport indisponible (' + ((err && err.message) || err) + ')']; }
+  }
+
+  // `section` : 'load' (chargement seul), 'access' (permissions seules) ; sans argument, le rapport complet.
+  function report(section) {
+    if (section === 'access') return accessLines().join('\n');
     const lines = [];
     lines.push('Diagnostic de chargement — widget Suivi Projet InnovationS');
     lines.push(`Date : ${new Date().toLocaleString('fr-FR')}`);
@@ -118,6 +126,10 @@
     }
     lines.push('');
     resourceLines().forEach(line => lines.push(line));
+    if (section !== 'load') {
+      const access = accessLines();
+      if (access.length) { lines.push(''); lines.push('='.repeat(78)); access.forEach(line => lines.push(line)); }
+    }
     return lines.join('\n');
   }
 
@@ -139,23 +151,44 @@
       done(global.document.execCommand('copy'));
     } catch (err) { done(false); }
   }
-  function open() {
+  // `options.tab` : 'load' (chargement, par défaut) ou 'access' (permissions : ouverte par la pastille ⚠ et par les messages d'erreur).
+  function open(options) {
     if (!global.document || !global.document.body) return null;
     close();
+    let tab = options && options.tab === 'access' ? 'access' : 'load';
     panel = global.document.createElement('div');
     panel.className = 'perf-panel';
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'Diagnostic de chargement');
-    panel.innerHTML = '<div class="perf-panel-head"><strong>Diagnostic de chargement</strong><span class="perf-panel-status" role="status"></span>' +
+    panel.setAttribute('aria-label', 'Diagnostic de chargement et d\'accès');
+    panel.innerHTML = '<div class="perf-panel-head"><strong>Diagnostic</strong>' +
+      '<span class="perf-panel-tabs" role="tablist"><button type="button" class="perf-tab" role="tab" data-perf-tab="load">Chargement</button>' +
+      '<button type="button" class="perf-tab" role="tab" data-perf-tab="access">Accès</button></span>' +
+      '<span class="perf-panel-status" role="status"></span>' +
+      '<button type="button" class="btn btn-secondary" data-perf-probe title="Relit les tables et cherche les règles d\'accès (propriétaires) : quelques appels Grist, uniquement à votre demande">Tester les accès</button>' +
       '<button type="button" class="btn btn-secondary" data-perf-refresh>Actualiser</button>' +
       '<button type="button" class="btn btn-primary" data-perf-copy>Copier</button>' +
       '<button type="button" class="btn btn-secondary" data-perf-close aria-label="Fermer">Fermer</button></div>' +
-      '<textarea class="perf-panel-text" readonly spellcheck="false" aria-label="Rapport de chargement"></textarea>';
+      '<textarea class="perf-panel-text" readonly spellcheck="false" aria-label="Rapport de diagnostic"></textarea>';
     const textarea = panel.querySelector('textarea'), status = panel.querySelector('.perf-panel-status');
-    textarea.value = report();
-    panel.querySelector('[data-perf-copy]').addEventListener('click', () => copyReport(textarea, status));
-    panel.querySelector('[data-perf-refresh]').addEventListener('click', () => { textarea.value = report(); status.textContent = ''; });
+    const probeButton = panel.querySelector('[data-perf-probe]');
+    probeButton.hidden = !(global.CoreAccess && typeof global.CoreAccess.probe === 'function');
+    const show = () => {
+      textarea.value = report(tab);
+      panel.querySelectorAll('[data-perf-tab]').forEach(button => { const on = button.dataset.perfTab === tab; button.classList.toggle('is-on', on); button.setAttribute('aria-selected', String(on)); });
+      textarea.scrollTop = 0;
+    };
+    panel.querySelectorAll('[data-perf-tab]').forEach(button => button.addEventListener('click', () => { tab = button.dataset.perfTab; status.textContent = ''; show(); }));
+    // « Copier » met toujours le rapport complet (chargement + accès) : c'est ce qu'on colle dans la conversation.
+    panel.querySelector('[data-perf-copy]').addEventListener('click', () => { const view = textarea.value; textarea.value = report(); copyReport(textarea, status); textarea.value = view; });
+    panel.querySelector('[data-perf-refresh]').addEventListener('click', () => { show(); status.textContent = ''; });
+    probeButton.addEventListener('click', async () => {
+      status.textContent = 'Test en cours…'; probeButton.disabled = true;
+      try { await global.CoreAccess.probe(); tab = 'access'; status.textContent = 'Test terminé.'; }
+      catch (err) { status.textContent = 'Test impossible : ' + ((err && err.message) || err); }
+      probeButton.disabled = false; show();
+    });
     panel.querySelector('[data-perf-close]').addEventListener('click', close);
+    show();
     global.document.body.appendChild(panel);
     global.document.addEventListener('keydown', onPanelKey, true);
     return panel;

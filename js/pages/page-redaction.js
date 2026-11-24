@@ -449,7 +449,7 @@
       if (extracted.skipped) { done(null, name, `modèle ${extracted.skipped} : non analysé`); return; }
       const presentedTable = (ui.linked && ui.linked.table) || PROJECT_TABLE;
       done(RedactionVariables.analyse(extracted.variables, { formulas: info.formulas, presentedTable }), name, 'analysé');
-    } catch (err) { done(null, '', `lecture impossible : ${err.message}`); }
+    } catch (err) { done(null, '', `lecture impossible : ${window.CoreUtils?.failureReason ? window.CoreUtils.failureReason(err, { op: 'read', table: TEMPLATES_TABLE }) : err.message}`); }
   }
 
   // publipostage+ a écrit dans le document (auto-enregistrement du modèle, par exemple) : le modèle affiché a pu changer.
@@ -675,7 +675,8 @@
       if (token === ui.openToken && ui.wantEdit && ui.frame) openInEditor(opts.modelId);
     }).catch(err => {
       console.error('Ouverture de la page Rédaction échouée :', err);
-      window.CoreUtils?.showToast(`Impossible d'ouvrir publipostage+ : ${err.message}`, true);
+      if (window.CoreUtils?.toastFailure) window.CoreUtils.toastFailure(err, 'Impossible d\'ouvrir publipostage+', { what: 'ouverture de publipostage+ (lecture des tables du projet et des modèles)' });
+      else window.CoreUtils?.showToast(`Impossible d'ouvrir publipostage+ : ${err.message}`, true);
     });
     return ui.opening;
   }
@@ -741,7 +742,8 @@
       modal.open(project);
     } catch (err) {
       console.error('Ouverture de la fiche du projet échouée :', err);
-      window.CoreUtils?.showToast(`Impossible d'ouvrir la fiche du projet : ${err.message}`, true);
+      if (window.CoreUtils?.toastFailure) window.CoreUtils.toastFailure(err, 'Impossible d\'ouvrir la fiche du projet', { what: 'ouverture de la fiche du projet' });
+      else window.CoreUtils?.showToast(`Impossible d'ouvrir la fiche du projet : ${err.message}`, true);
     }
   }
 
