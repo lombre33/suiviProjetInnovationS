@@ -812,6 +812,7 @@
     const when = io.now ? io.now() : new Date();
     const lot = 'LOT-' + stamp(when), horodatage = when.toISOString();
     const ids = new Map(), result = { lot, ajouts: { Lignes_OPE: [], Projets: [] }, modifs: { Lignes_OPE: [], Projets: [] }, journalise: 0, error: null };
+    const listOf = (kind, table) => { if (!result[kind][table]) result[kind][table] = []; return result[kind][table]; }; // une autre table (Depenses_OPE : import du détail)
     const run = async ops => {
       for (let start = 0; start < ops.length; start += CHUNK) {
         const chunk = ops.slice(start, start + CHUNK);
@@ -820,7 +821,7 @@
         catch (error) { result.error = error; return false; }
         const rows = chunk.map((op, i) => {
           const id = op.kind === 'add' ? Number(returned[i]) : op.id;
-          if (op.kind === 'add') { ids.set(op.tmp, id); result.ajouts[op.table].push(id); } else result.modifs[op.table].push(id);
+          if (op.kind === 'add') { ids.set(op.tmp, id); listOf('ajouts', op.table).push(id); } else listOf('modifs', op.table).push(id);
           return { Lot: lot, Horodatage: horodatage, Table_modifiee: op.table, Ligne: id, Operation: op.kind === 'add' ? 'ajout' : 'modif', Apres: JSON.stringify(resolveRefs(op.fields, ids)), Avant: JSON.stringify(op.before || null), Annule: false };
         });
         try { await io.addJournal(rows); result.journalise += rows.length; }
@@ -872,6 +873,13 @@
         }));
       if (stillUsed) { skipped.push({ row, why: 'encore utilisée par un projet' }); return; }
       actions.push(['RemoveRecord', 'Lignes_OPE', Number(row.Ligne)]); done.push(row.id);
+    });
+    // Lignes ajoutées dans une autre table (détail des dépenses) : supprimées si personne n'y a touché depuis.
+    rows.filter(r => r.Operation === 'ajout' && r.Table_modifiee === DETAIL_TABLE).forEach(row => {
+      const current = find(DETAIL_TABLE, row.Ligne);
+      if (!current) { skipped.push({ row, why: 'ligne disparue' }); return; }
+      if (!rowMatches(current, JSON.parse(row.Apres || '{}'))) { skipped.push({ row, why: 'modifiée depuis l\'import' }); return; }
+      actions.push(['RemoveRecord', DETAIL_TABLE, Number(row.Ligne)]); done.push(row.id);
     });
     return { actions, skipped, done };
   }
@@ -1009,7 +1017,7 @@
     KIND_LABEL, normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf, isoOfUnix, unixOfIso,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, matchLabel, effectiveDecision,
     buildTable, similarBad, applyChoice, planFromTable, buildPlan,
-    AMOUNT_COLUMNS, AMOUNT_META, aggregateOpe, lotSeconds,
+    AMOUNT_COLUMNS, AMOUNT_META, aggregateOpe, lotSeconds, convertCell,
     execute, planUndo, planUnload, lotIdOf, newLotFields, planLegacyLot, planLotValidation, planLotCancel, summarizeLots, checkTotals, readExport
   };
 })(window);

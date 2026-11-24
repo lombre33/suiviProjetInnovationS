@@ -20,6 +20,7 @@
   const L = global.ImportHistoriqueLogic;
   const K = global.ImportLotsLogic;
   const F = global.ImportForm;
+  const D = global.ImportDetailLogic;
   const esc = value => CoreUtils.escapeHtml(value);
   const $ = id => document.getElementById(id);
   const FILTERS = [['all', 'Tous'], ['add', 'Ajouts'], ['mod', 'Modifications'], ['same', 'Inchangés'], ['todo', 'À régler'], ['skip', 'Écartés']];
@@ -34,7 +35,7 @@
       phase: 'idle', error: '', rows: [], lines: [], ignored: 0, total: 0, issues: [], entries: [], orphans: [], ctx: null, matches: new Map(),
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
-      result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false,
+      result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
       prepared: [], upload: null
     };
   }
@@ -55,7 +56,7 @@
     await CoreGrist.ready();
     const [projets, lignes, programmes, structures, detail, journal, lots] = await Promise.all(
       ['Projets', 'Lignes_OPE', 'Programmes', 'Structures', L.DETAIL_TABLE, L.JOURNAL_TABLE, L.LOTS_TABLE].map(readTable));
-    state.tables = { Projets: projets || [], Lignes_OPE: lignes || [] };
+    state.tables = { Projets: projets || [], Lignes_OPE: lignes || [], [L.DETAIL_TABLE]: detail || [] };
     state.detail = detail || [];
     state.journal = journal || [];
     state.lots = lots || [];
@@ -391,6 +392,7 @@
     return String(value);
   }
 
+  const AMOUNT_MAIN = new Set(['Montant_attribue', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP']);
   function montantsHtml() {
     const t = state.table, changes = K.amountChanges(t.plan);
     const names = new Map(t.rows.map(row => [row.key, row.entry.name]));
@@ -398,7 +400,12 @@
     if (!changes.length && !conflicts.length) return '';
     const MAX = 150;
     const rows = changes.slice(0, MAX).map(item => {
-      const parts = item.changes.map(change => `<span class="ih-chg"><b>${esc(change.label)}</b> ${item.kind === 'add' || change.before == null || change.before === '' ? '' : esc(formatAmount(change.type, change.before)) + ' → '}${esc(formatAmount(change.type, change.after))}</span>`);
+      // Les cinq montants qui comptent s'affichent toujours ; le reste (attribué par année, dates, financeur, ligne budgétaire) seulement quand une valeur
+      // déjà présente change : à la première écriture, il serait du bruit (une ligne par champ), il est résumé en une mention.
+      const shownChanges = item.changes.filter(change => AMOUNT_MAIN.has(change.id) || (item.kind !== 'add' && change.before != null && change.before !== ''));
+      const hidden = item.changes.length - shownChanges.length;
+      const parts = shownChanges.map(change => `<span class="ih-chg"><b>${esc(change.label)}</b> ${item.kind === 'add' || change.before == null || change.before === '' ? '' : esc(formatAmount(change.type, change.before)) + ' → '}${esc(formatAmount(change.type, change.after))}</span>`)
+        .concat(hidden ? [`<span class="ih-muted">+ ${plural(hidden, 'autre champ', 'autres champs')}</span>`] : []);
       return `<tr><td class="ih-mono">${esc(item.ope)}${item.kind === 'add' ? ' <span class="ih-tag is-ok">nouvelle ligne</span>' : ''}</td><td>${esc(names.get(item.entry) || '')}</td><td class="ih-chgs">${parts.join(' ')}</td></tr>`;
     }).join('');
     const warn = conflicts.length ? `<p class="ih-warn"><strong>⚠</strong> ${plural(conflicts.length, 'N° OPE donne', 'N° OPE donnent')} un consommé différent d'une ligne de l'export à l'autre (la version la plus récente est retenue) : ${conflicts.slice(0, 6).map(c => `<span class="ih-mono">${esc(c.ope)}</span>`).join(', ')}${conflicts.length > 6 ? ', …' : ''}.</p>` : '';
@@ -447,6 +454,104 @@
   const publishForm = () => { if (state.formAccept && state.form) formAction(() => F.publish(metaIo(), state.form), 'Formulaire publié. Copie son lien dans Grist (Partager) pour le script : voir les étapes dans « Formulaire du script ».', 'publication du formulaire'); };
   const unpublishForm = () => formAction(() => F.unpublish(metaIo(), state.form), 'Formulaire dépublié : son lien ne fonctionne plus.', 'dépublication du formulaire');
 
+  // ----------------------------------------------------------------------------------------------------------
+  // Détail des dépenses (export FD02, une fois par mois) : fichier Excel lu ici, comparé à Depenses_OPE, relu, puis écrit avec le journal.
+  // ----------------------------------------------------------------------------------------------------------
+
+  let detailInput = null;
+  function ensureDetailInput() {
+    if (detailInput && detailInput.isConnected) return detailInput;
+    const host = $('view-import-historique') || document.body;
+    detailInput = document.createElement('input');
+    detailInput.type = 'file'; detailInput.id = 'ih-file-fd02'; detailInput.hidden = true;
+    detailInput.accept = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    detailInput.addEventListener('change', () => { const file = detailInput.files && detailInput.files[0]; if (file) readDetailFile(file); detailInput.value = ''; });
+    host.appendChild(detailInput);
+    return detailInput;
+  }
+
+  async function readDetailFile(file) {
+    state.fd = { phase: 'reading', name: file.name }; state.fdAck = false; state.result = null; render();
+    try {
+      const book = await global.XlsxReader.read(await file.arrayBuffer());
+      const parsed = D.readFd02(book.rows, global.XlsxReader.excelDateToUnix);
+      if (parsed.missing.length || parsed.errorCount || !parsed.records.length) { state.fd = { phase: 'error', name: file.name, parsed }; render(); return; }
+      // Lecture fraîche : Depenses_OPE a pu changer (import précédent, autre onglet).
+      CoreGrist.invalidateTable(L.DETAIL_TABLE);
+      const existing = (await readTable(L.DETAIL_TABLE)) || [];
+      const opeKeys = new Set(state.ctx ? state.ctx.ligneIdsByKey.keys() : []);
+      state.fd = { phase: 'ready', name: file.name, sheet: book.sheetName, parsed, plan: D.planDetail({ records: parsed.records, existing, opeKeys }), existing: existing.length };
+    } catch (err) { state.fd = { phase: 'error', name: file.name, message: err.message || String(err) }; }
+    render();
+  }
+
+  const FD_LIMIT = 150;
+  function detailHtml() {
+    const f = state.fd, inGrist = state.detail.length;
+    const summary = f && f.phase === 'ready' ? `${plural(f.plan.counts.lignes, 'ligne', 'lignes')} à relire` : `${plural(inGrist, 'ligne', 'lignes')} dans ${L.DETAIL_TABLE}`;
+    const pick = label => `<button type="button" class="btn ${f && f.phase === 'ready' ? 'btn-secondary' : 'btn-primary'}" id="ih-fd-pick">${label}</button>`;
+    let body;
+    if (!f) {
+      body = `<p>Chaque mois, charge l'export FD02 « Consommation détaillée des AE » (fichier Excel). Il est lu ici, dans ton navigateur : rien n'est écrit avant ta relecture. Les lignes de ${L.DETAIL_TABLE} sont retrouvées par leur engagement (exercice, code opération, numéro d'EJ…), jamais supprimées.</p><p>${pick('Choisir le fichier FD02')}</p>`;
+    } else if (f.phase === 'reading') body = `<p class="ih-muted" role="status">Lecture de ${esc(f.name)}…</p>`;
+    else if (f.phase === 'writing') body = `<p class="ih-muted" role="status">Écriture dans ${L.DETAIL_TABLE}…</p>`;
+    else if (f.phase === 'error') {
+      const p = f.parsed;
+      let why;
+      if (f.message) why = esc(f.message);
+      else if (p.noHeader) why = 'ce n\'est pas un export FD02 (aucune ligne d\'en-têtes avec « Exercice » et « Code Opération »).';
+      else if (p.missing.length) why = `il manque ${plural(p.missing.length, 'colonne', 'colonnes')} : ${p.missing.map(m => '« ' + esc(m) + ' »').join(', ')}${p.unknown.length ? `. Colonnes non reconnues : ${p.unknown.map(esc).join(', ')}` : ''}.`;
+      else if (p.errorCount) why = `${plural(p.errorCount, 'valeur illisible', 'valeurs illisibles')}. ${p.errors.map(e => `Ligne ${e.line}, « ${esc(e.column)} » : ${esc(e.value)}`).join(' ; ')}${p.errorCount > p.errors.length ? ' ; …' : ''}`;
+      else why = 'aucune ligne avec un code opération.';
+      body = `<div class="ih-banner is-error" role="alert"><strong>Fichier non chargé</strong> (${esc(f.name)}) : ${why}</div><p>${pick('Choisir un autre fichier')}</p>`;
+    } else {
+      const p = f.parsed, c = f.plan.counts;
+      const notes = [];
+      if (p.donneesAu) notes.push('données au ' + dateFr(new Date(p.donneesAu * 1000).toISOString().slice(0, 10)));
+      if (p.exercices.length) notes.push((p.exercices.length > 1 ? 'exercices ' : 'exercice ') + p.exercices.join(', '));
+      if (p.ignored) notes.push(plural(p.ignored, 'ligne sans code opération ignorée', 'lignes sans code opération ignorées'));
+      if (p.unknown.length) notes.push('colonnes non utilisées : ' + p.unknown.map(esc).join(', '));
+      const warnings = [];
+      if (f.plan.noOpe.length) warnings.push(`${plural(f.plan.noOpe.length, 'N° OPE du fichier n\'est', 'N° OPE du fichier ne sont')} dans aucune ligne OPE de Grist (leurs dépenses apparaîtront « sans projet ») : ${f.plan.noOpe.slice(0, 6).map(k => `<span class="ih-mono">${esc(k)}</span>`).join(', ')}${f.plan.noOpe.length > 6 ? ', …' : ''}.`);
+      if (c.cles) warnings.push(`${plural(c.cles, 'ligne a la même clé qu\'une autre', 'lignes ont la même clé qu\'une autre')} : numérotées dans l'ordre du fichier.`);
+      if (c.absentes) warnings.push(`${plural(c.absentes, 'ligne de Grist n\'est plus dans ce fichier', 'lignes de Grist ne sont plus dans ce fichier')} (même exercice) : gardées telles quelles.`);
+      const rows = f.plan.changes.slice(0, FD_LIMIT).map(ch => `<tr><td class="ih-mono">${esc(ch.ope)}</td><td>${esc(ch.object)}</td><td class="ih-chgs">${ch.kind === 'add' ? '<span class="ih-tag is-ok">nouvelle ligne</span>' : ch.diffs.map(d => `<span class="ih-chg"><b>${esc(d.label)}</b> ${esc(formatAmount(d.type, d.before))} → ${esc(formatAmount(d.type, d.after))}</span>`).join(' ')}</td></tr>`).join('');
+      const table = f.plan.changes.length ? `<div class="ih-money"><table class="ih-table"><thead><tr><th>N° OPE</th><th>Objet de gestion</th><th>Ce qui change dans ${L.DETAIL_TABLE}</th></tr></thead><tbody>${rows}</tbody></table></div>${f.plan.changes.length > FD_LIMIT ? `<p class="ih-muted">… et ${f.plan.changes.length - FD_LIMIT} autres.</p>` : ''}` : '<p class="ih-okline"><strong>✓</strong> Rien à écrire : tout est déjà dans Grist.</p>';
+      body = `<p><strong>${esc(f.name)}</strong> <span class="ih-muted">· feuille ${esc(f.sheet || '')}${notes.length ? ' · ' + notes.join(' · ') : ''}</span></p>
+        <p>${plural(c.lignes, 'ligne', 'lignes')} : <b class="ih-plus">+${c.ajoutees}</b> ${c.ajoutees > 1 ? 'nouvelles' : 'nouvelle'} · <b>${c.modifiees}</b> ${c.modifiees > 1 ? 'modifiées' : 'modifiée'} · ${c.inchangees} ${c.inchangees > 1 ? 'inchangées' : 'inchangée'}</p>
+        ${warnings.map(w => `<p class="ih-warn"><strong>⚠</strong> ${w}</p>`).join('')}${table}
+        <div class="ih-actions-bar"><label class="ih-ack"><input type="checkbox" id="ih-fd-ack"${state.fdAck ? ' checked' : ''}${f.plan.actionCount ? '' : ' disabled'}> J'ai relu les changements</label>
+        <button type="button" class="btn btn-primary" id="ih-fd-write"${f.plan.actionCount && state.fdAck ? '' : ' disabled'}>Écrire ${plural(f.plan.actionCount, 'ligne', 'lignes')} dans ${L.DETAIL_TABLE}</button>
+        ${pick('Choisir un autre fichier')} <button type="button" class="btn btn-secondary" id="ih-fd-cancel">Annuler</button></div>`;
+    }
+    return boxHtml('detail', 'Détail des dépenses (FD02)', summary, body, !!f && f.phase !== 'reading');
+  }
+
+  async function writeDetail() {
+    const f = state.fd;
+    if (!f || f.phase !== 'ready' || !state.fdAck || !f.plan.actionCount) return;
+    f.phase = 'writing'; render();
+    try {
+      // Depenses_OPE est créée par le Dashboard à sa première ouverture : sinon, ici, à l'identique.
+      if (!(await CoreGrist.ensureTable(L.DETAIL_TABLE, D.COLUMNS))) await CoreGrist.ensureColumns(L.DETAIL_TABLE, D.COLUMNS);
+      await ensureJournal();
+      const result = await L.execute(f.plan, io());
+      state.result = { kind: 'detail', value: result, plan: f.plan, name: f.name };
+      if (!result.error) {
+        const seconds = Math.floor(Date.now() / 1000), c = f.plan.counts;
+        const previous = state.lots.filter(row => row.Type === 'Détail' && row.Statut === 'Valide').map(row => row.Lot).sort().pop() || '';
+        const fields = Object.assign(L.newLotFields({ lot: L.lotIdOf(new Date()), type: 'Détail', source: 'Fichier', fichier: f.name, recuLe: seconds, lignes: c.lignes }),
+          { Statut: 'Valide', Donnees_au: f.parsed.donneesAu || null, Compare_a: previous, Ajoutees: c.ajoutees, Modifiees: c.modifiees, Inchangees: c.inchangees, Absentes: c.absentes, Anomalies: 0, Valide_le: seconds, Lot_journal: result.lot });
+        try { await CoreGrist.gristInstance.docApi.applyUserActions([['AddRecord', L.LOTS_TABLE, null, fields]]); CoreGrist.invalidateTable(L.LOTS_TABLE); }
+        catch (err) { result.lotError = CoreUtils.failureReason(err, { what: 'enregistrement du lot', table: L.LOTS_TABLE }); }
+      }
+    } catch (err) { state.result = { kind: 'error', message: 'Écriture du détail impossible : ' + CoreUtils.failureReason(err, { what: 'écriture dans ' + L.DETAIL_TABLE, table: L.DETAIL_TABLE }) }; }
+    state.fd = null; state.fdAck = false;
+    CoreGrist.invalidateTable(L.DETAIL_TABLE); CoreGrist.invalidateTable(L.JOURNAL_TABLE);
+    await load();
+    notifyChanged();
+  }
+
   function lotsHtml() {
     const lots = L.summarizeLots(state.journal);
     if (!lots.length) return '';
@@ -475,6 +580,11 @@
       const n = e.ajouts.Projets.length + e.ajouts.Lignes_OPE.length + e.modifs.Projets.length + e.modifs.Lignes_OPE.length;
       if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(CoreUtils.failureReason(e.error, { what: 'écriture dans ' + L.SOURCE_TABLE, table: L.SOURCE_TABLE }))} ${n ? `${plural(n, 'écriture est passée', 'écritures sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
       return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(e.ajouts.Projets.length, 'projet créé', 'projets créés')}, ${plural(e.modifs.Projets.length, 'projet complété', 'projets complétés')}, ${plural(e.ajouts.Lignes_OPE.length, 'ligne OPE créée', 'lignes OPE créées')}, ${plural(e.modifs.Lignes_OPE.length, 'ligne OPE complétée', 'lignes OPE complétées')}. Journal enregistré.${e.colonnesCreees && e.colonnesCreees.length ? ` ${plural(e.colonnesCreees.length, 'colonne créée', 'colonnes créées')} dans Projets pour ${e.rangMax > 2 ? `les OPE 2 à ${e.rangMax}` : 'l\'OPE 2'}.` : ''}${e.colonnesMontants && e.colonnesMontants.length ? ` ${plural(e.colonnesMontants.length, 'colonne de montants créée', 'colonnes de montants créées')} dans Lignes_OPE.` : ''}${e.lotError ? ` <b>Le lot n'a pas pu être marqué « Valide » dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
+    }
+    if (r.kind === 'detail') {
+      const e = r.value, n = (e.ajouts[L.DETAIL_TABLE] || []).length, m = (e.modifs[L.DETAIL_TABLE] || []).length;
+      if (e.error) return `<div class="ih-banner is-error" role="alert"><strong>Écriture interrompue.</strong> ${esc(CoreUtils.failureReason(e.error, { what: 'écriture dans ' + L.DETAIL_TABLE, table: L.DETAIL_TABLE }))} ${n + m ? `${plural(n + m, 'ligne est passée', 'lignes sont passées')} avant l'arrêt${e.journalError ? ', mais le journal n\'a pas pu être enregistré : le lot ne sera pas annulable' : ` (lot ${esc(e.lot)}, annulable ci-dessous)`}.` : 'Rien n\'a été écrit.'}</div>`;
+      return `<div class="ih-banner is-ok" role="status"><strong>✓ Écrit.</strong> Lot ${esc(e.lot)} : ${plural(n, 'ligne ajoutée', 'lignes ajoutées')}, ${plural(m, 'ligne modifiée', 'lignes modifiées')} dans ${L.DETAIL_TABLE} (${esc(r.name)}). Journal enregistré, annulable ci-dessous.${e.lotError ? ` <b>Le lot n'a pas pu être enregistré dans ${L.LOTS_TABLE} :</b> ${esc(e.lotError)}.` : ''}</div>`;
     }
     if (r.kind === 'loaded') return `<div class="ih-banner is-ok" role="status"><strong>✓ Fichier chargé.</strong> ${plural(r.count, 'ligne ajoutée', 'lignes ajoutées')} à ${L.SOURCE_TABLE} (lot ${esc(r.lotId)} « A valider », annulable plus bas).${r.lotError ? ` <b>Le lot n'a pas pu être enregistré dans ${L.LOTS_TABLE} :</b> ${esc(r.lotError)}.` : ''} Relis le tableau, corrige les anomalies, puis écris.</div>`;
     if (r.kind === 'undone') return `<div class="ih-banner is-ok" role="status"><strong>${r.unit ? '✓ Chargement annulé.' : '✓ Lot annulé.'}</strong> ${r.unit ? plural(r.done, 'ligne retirée', 'lignes retirées') : plural(r.done, 'action défaite', 'actions défaites')}${r.skipped ? `, ${plural(r.skipped, 'ligne laissée', 'lignes laissées')} car modifiée${r.skipped > 1 ? 's' : ''} depuis` : ''}.</div>`;
@@ -592,8 +702,8 @@
     }
     if (!state.total) {
       const busy = state.upload && state.upload.phase !== 'error';
-      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}${formHtml()}
-        ${busy ? '' : `<div class="ih-empty"><p><strong>Charge l'export Excel</strong></p><p class="ih-muted">Choisis le fichier d'export de tous les projets. Il est lu ici, dans ton navigateur, et ses lignes sont ajoutées à Grist. Tu verras ensuite un tableau, une ligne par projet, pour tout vérifier avant d'écrire.</p><button type="button" class="btn btn-primary" id="ih-pick">Choisir le fichier Excel</button><p class="ih-muted">Les lignes arrivent autrement (formulaire) ? <button type="button" class="ih-link" id="ih-reload">Relire</button></p></div>`}`;
+      root.innerHTML = `<div class="project-filters ih-bar"><button type="button" class="btn btn-secondary" id="ih-back">← Retour</button><strong class="ih-title">Import de l'historique financier</strong></div>${preparedHtml()}${resultHtml()}${uploadHtml()}${formHtml()}${detailHtml()}
+        ${busy ? '' : `<div class="ih-empty"><p><strong>Charge l'export Excel</strong></p><p class="ih-muted">Choisis le fichier d'export de tous les projets. Il est lu ici, dans ton navigateur, et ses lignes sont ajoutées à Grist. Tu verras ensuite un tableau, une ligne par projet, pour tout vérifier avant d'écrire.</p><button type="button" class="btn btn-primary" id="ih-pick">Choisir le fichier Excel</button><p class="ih-muted">Les lignes arrivent autrement (formulaire) ? <button type="button" class="ih-link" id="ih-reload">Relire</button></p></div>`}${lotsHtml()}`;
       return;
     }
     const t = state.table;
@@ -602,7 +712,7 @@
     root.innerHTML = barHtml() + preparedHtml() + uploadHtml() + resultHtml() + summaryHtml() + envoisHtml() + montantsHtml()
       + boxHtml('checks', 'Contrôles de l\'export', state.issues.length ? plural(state.issues.length, 'écart', 'écarts') + (blocked ? ` · ${plural(blocked, 'projet écarté', 'projets écartés')}` : '') : '7 sur 7 réussis', checksHtml(), false)
       + boxHtml('totals', 'Contrôle des totaux', state.totals && state.totals.available ? (state.totals.gaps ? plural(state.totals.gaps, 'écart', 'écarts') : 'concordants') : 'détail absent', totalsHtml(), state.totals && state.totals.gaps > 0)
-      + formHtml() + tableHtml() + actionsHtml() + lotsHtml();
+      + formHtml() + detailHtml() + tableHtml() + actionsHtml() + lotsHtml();
     const newGrid = root.querySelector('.ih-grid');
     if (newGrid) { newGrid.scrollLeft = scrollLeft; newGrid.scrollTop = scrollTop; }
     const editor = root.querySelector('.editing .ih-in');
@@ -790,6 +900,9 @@
       recompute(); render();
     } else if (target.matches('[data-ih-all]')) {
       state.applyAll = target.checked;
+    } else if (target.id === 'ih-fd-ack') {
+      state.fdAck = target.checked;
+      const write = $('ih-fd-write'); if (write) write.disabled = !target.checked || !state.fd || !state.fd.plan.actionCount;
     } else if (target.id === 'ih-form-accept') {
       state.formAccept = target.checked;
       const publish = $('ih-form-publish'); if (publish) publish.disabled = !target.checked || state.formBusy;
@@ -834,6 +947,9 @@
     else if (button.id === 'ih-next') goToNextAnomaly();
     else if (button.id === 'ih-write') write();
     else if (button.hasAttribute('data-ih-filter')) { const f = button.getAttribute('data-ih-filter'); state.filter = state.filter === f ? 'all' : f; state.editing = null; render(); }
+    else if (button.id === 'ih-fd-pick') ensureDetailInput().click();
+    else if (button.id === 'ih-fd-write') writeDetail();
+    else if (button.id === 'ih-fd-cancel') { state.fd = null; state.fdAck = false; render(); }
     else if (button.id === 'ih-form-create') createForm();
     else if (button.id === 'ih-form-publish') publishForm();
     else if (button.id === 'ih-form-unpublish') unpublishForm();
@@ -868,7 +984,7 @@
   }
 
   async function open() {
-    wire(); ensureFileInput();
+    wire(); ensureFileInput(); ensureDetailInput();
     if (global.SuiviApp && typeof global.SuiviApp.showView === 'function') global.SuiviApp.showView('view-import-historique');
     else { document.querySelectorAll('.view').forEach(view => view.classList.add('hidden')); $('view-import-historique')?.classList.remove('hidden'); }
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));

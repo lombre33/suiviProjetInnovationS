@@ -804,6 +804,15 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   `_grist_Shares`, le partage de la page, `shareOptions` de la section) ; dépublié par un clic (`shareOptions` vidé). Le widget ne connaît jamais le
   lien (la clé n'est lisible nulle part) : la personne le copie (Partager → Copier le lien) dans `grist.txt` du script. Si les métadonnées ne se
   lisent pas, aucun formulaire n'est créé à l'aveugle.
+- **Détail des dépenses FD02** (boîte du même nom, une fois par mois ; code : `js/pages/import-detail-logic.js`) : le fichier Excel « Consommation
+  détaillée AE » se choisit dans la page (lecture locale, rien ne part avant « Écrire »). Titre en ligne 3 (« Données au JJ/MM/AAAA »), 28 colonnes
+  dont 4 vides, reconnues par leur intitulé, pas par leur place ; un fichier d'un autre format est refusé avec la raison. Les lignes alimentent
+  **directement** `Depenses_OPE` (pas de table d'arrivée) : une ligne par objet de gestion, clé = exercice + N° OPE + type d'objet + N° EJ + nature
+  + sous-SO + code analytique + destination (doublons numérotés `#2`, `#3`). Comparaison avec l'existant : nouvelles, modifiées (avant → après),
+  inchangées ; **rien n'est jamais supprimé** (un fichier partiel n'efface pas le reste, un fichier cumulatif ne duplique rien). Un N° OPE du fichier
+  absent de `Lignes_OPE` est signalé : ses dépenses sont écrites « sans projet ». « Écrire » ajoute une ligne `Import_Lots` (`Détail`, `Fichier`,
+  `Valide`) et journalise avant / après dans `Import_Journal` : le lot s'annule comme les autres (lignes ajoutées retirées, valeurs rétablies).
+  La table `Depenses_OPE` et ses colonnes manquantes sont créées par le widget si besoin (le Dashboard la crée aussi à sa première ouverture).
 
 ## Dernière page ouverte (12/11/2026)
 
