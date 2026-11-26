@@ -21,7 +21,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const PREFS_COLUMNS = [
     { id: 'Dash_annees', type: 'Text' }, { id: 'Dash_programmes', type: 'Text' }, { id: 'Dash_statuts', type: 'Text' },
-    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }
+    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }, { id: 'Dash_bailleurs', type: 'Text' }
   ];
   const EXPENSES_TABLE = 'Depenses_OPE';
   // Export FD02 « Consommation détaillée des AE », une ligne par objet de gestion. Code_operation = Lignes_OPE.N_OPE.
@@ -47,7 +47,7 @@
   const table = name => (global.CoreState && CoreState.getTable(name)) || [];
 
   const state = Object.assign(L.defaultState(), {
-    openProgrammes: new Set(), openExpenses: new Set(), orphansOpen: false, // jamais retenus : repliés à chaque ouverture
+    openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), orphansOpen: false, // jamais retenus : repliés à chaque ouverture
     expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: ''
   });
   let model = null;
@@ -55,7 +55,7 @@
   let statusRefresh = null;
 
   function resetState() {
-    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
+    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
     model = null; datasetCache = null;
     dropBi(); biFailure = null;
     clearTimeout(statusRefresh); statusRefresh = null;
@@ -169,6 +169,88 @@
       (extra ? note(extra) : '') + gapNote;
   }
 
+
+  // « + Idex » (ou « + InnovationS » en mode Idex seul) : le projet a une OPE d'un autre bailleur, non comptée dans ses montants.
+  function idexBadgeHtml(entry) {
+    if (!entry.excludedOpes || !model) return '';
+    const b = model.bailleur;
+    const label = b.idex && !b.innovations ? '+ InnovationS' : '+ Idex';
+    const which = b.idex && !b.innovations ? 'InnovationS' : 'Idex';
+    const n = entry.excludedOpes;
+    return `<span class="db-idex" title="${esc(`${n > 1 ? `${n} OPE de ce projet ont` : '1 OPE de ce projet a'} pour bailleur ${which} : non comptée${n > 1 ? 's' : ''} dans ces montants (puces du bandeau pour les ajouter).`)}">${label}</span>`;
+  }
+
+  // --- Détail d'un projet : une ligne par OPE, puis les dépenses de l'OPE en trois blocs par grande masse ---------------------
+  const MASSE_BLOCKS = [['M10_Fonctionnement', 'Fonctionnement'], ['M20_Investissement', 'Investissement'], ['M30_Personnel', 'Personnel'], ['', 'Autres dépenses (masse non reconnue)']];
+  const opeFilter = key => state.opeFilters.get(key) || { from: '', to: '', q: '', sort: 'date', dir: 'desc' };
+  const opeFilterActive = f => !!(f.from || f.to || text(f.q));
+  const dateIso = value => text(value);
+  function opeVisibleExpenses(ope) {
+    const f = opeFilter(ope.key), q = L.fold(f.q);
+    const list = ope.expenses.filter(e => {
+      if (f.from && (!e.date || e.date < f.from)) return false;
+      if (f.to && (!e.date || e.date > f.to)) return false;
+      if (q && !L.fold(`${e.fournisseur} ${e.libelle} ${e.ej} ${e.nature} ${e.destinationLibelle} ${e.etat}`).includes(q)) return false;
+      return true;
+    });
+    const dir = f.dir === 'asc' ? 1 : -1;
+    const by = { date: e => e.date || '', fournisseur: e => L.fold(e.fournisseur), libelle: e => L.fold(e.libelle), AE: e => e.AE, CP: e => e.CP, ej: e => e.ej }[f.sort] || (e => e.date || '');
+    return list.slice().sort((a, b) => { const x = by(a), y = by(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || a.id - b.id; });
+  }
+  function sortHead(key, label, ope, extraClass) {
+    const f = opeFilter(ope.key), on = f.sort === key;
+    return `<th${extraClass ? ` class="${extraClass}"` : ''} aria-sort="${on ? (f.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button type="button" class="db-sortbtn${on ? ' is-sorted' : ''}" data-db-opesort="${esc(ope.key)}:${key}" title="Trier par ${esc(label.toLowerCase())}">${esc(label)}${on ? (f.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button></th>`;
+  }
+  function masseBlockHtml(ope, mass, label, list) {
+    const m = model ? model.measure : 'CP';
+    const rows = list.filter(e => e.masse === mass);
+    const cons = rows.reduce((sum, e) => sum + e[m], 0);
+    const att = mass ? ope.attMasse[mass] : 0;
+    const fig = mass ? `<span>Attribué <b>${esc(L.eur(att))}</b></span><span>Consommé ${m} <b>${esc(L.eur(cons))}</b></span>` : `<span>Consommé ${m} <b>${esc(L.eur(cons))}</b></span>`;
+    const head = `<div class="db-mhead"><b>${esc(label)}</b><span class="db-tag">${rows.length} dépense${rows.length > 1 ? 's' : ''}</span><span class="db-mfig">${fig}</span></div>`;
+    if (!rows.length) return `<div class="db-mblock" data-db-masse="${esc(mass || 'autres')}">${head}<p class="db-exp-empty">Aucune dépense détaillée${opeFilterActive(opeFilter(ope.key)) ? ' pour ce filtre' : ' pour ces années'}.</p></div>`;
+    const ae = rows.reduce((sum, e) => sum + e.AE, 0), cp = rows.reduce((sum, e) => sum + e.CP, 0);
+    const body = rows.map(e => `<tr><td class="db-nowrap">${esc(e.date ? e.date.split('-').reverse().join('/') : '')}</td><td>${esc(e.fournisseur)}</td>` +
+      `<td class="db-exp-obj" title="${esc(e.libelle)}">${esc(e.libelle)}</td><td class="db-nowrap">${esc(e.ej)}</td><td title="${esc(e.destinationLibelle)}">${esc(e.nature)}${e.destination ? ` · ${esc(e.destination)}` : ''}</td>` +
+      `<td>${esc(e.etat)}</td><td class="db-num">${e.AE ? esc(L.eur(e.AE)) : ''}</td><td class="db-num">${e.CP ? esc(L.eur(e.CP)) : ''}</td></tr>`).join('');
+    return `<div class="db-mblock" data-db-masse="${esc(mass || 'autres')}">${head}<div class="db-exp-scroll"><table class="db-exp-table"><thead><tr>` +
+      `${sortHead('date', 'Date', ope)}${sortHead('fournisseur', 'Fournisseur', ope)}${sortHead('libelle', 'Objet', ope)}${sortHead('ej', 'N° EJ', ope)}<th>Nature · destination</th><th>État</th>${sortHead('AE', 'AE', ope, 'db-num')}${sortHead('CP', 'CP', ope, 'db-num')}</tr></thead>` +
+      `<tbody>${body}</tbody><tfoot><tr><td colspan="6">${rows.length} dépense${rows.length > 1 ? 's' : ''}</td><td class="db-num">${esc(L.eur(ae))}</td><td class="db-num">${esc(L.eur(cp))}</td></tr></tfoot></table></div></div>`;
+  }
+  // Les trois blocs (et « Autres » seulement quand une dépense n'est pas classée), réécrits seuls pendant la frappe d'un filtre.
+  function opeBlocksHtml(ope) {
+    const list = opeVisibleExpenses(ope);
+    const hasOther = list.some(e => !e.masse);
+    return MASSE_BLOCKS.filter(([mass]) => mass || hasOther).map(([mass, label]) => masseBlockHtml(ope, mass, label, list)).join('');
+  }
+  function opePanelHtml(entry, ope) {
+    const f = opeFilter(ope.key);
+    const tools = `<div class="db-ope-tools"><label>Du ${DateInput.markup({ cls: 'db-dp', iso: f.from, aria: `Dépenses de ${ope.codes[0] || 'l\'OPE'} à partir du`, attrs: `data-db-opedate="from:${esc(ope.key)}"` })}</label>` +
+      `<label>au ${DateInput.markup({ cls: 'db-dp', iso: f.to, aria: `Dépenses de ${ope.codes[0] || 'l\'OPE'} jusqu'au`, attrs: `data-db-opedate="to:${esc(ope.key)}"` })}</label>` +
+      `<input type="search" placeholder="Fournisseur, objet, n° EJ…" value="${esc(f.q)}" data-db-opeq="${esc(ope.key)}" aria-label="Rechercher dans les dépenses de cette OPE">` +
+      `<button type="button" class="db-linkbtn" data-db-opeclear="${esc(ope.key)}"${opeFilterActive(f) ? '' : ' hidden'}>Effacer les filtres</button></div>`;
+    const noLine = ope.withoutLine ? '<p class="db-exp-empty">Aucune ligne OPE n\'est rattachée à cette OPE : pas de dépense détaillée possible.</p>' : '';
+    const undetailed = ope.undetailed ? `<p class="db-exp-note">${esc(L.eur(ope.undetailed))} consommés sur la ligne OPE sans détail de dépense (total de la ligne OPE, non ventilé par année).</p>` : '';
+    return `<div class="db-opep" data-db-opepanel="${esc(ope.key)}">${noLine}${ope.withoutLine ? '' : tools}<div data-db-blocks="${esc(ope.key)}">${ope.withoutLine ? '' : opeBlocksHtml(ope)}</div>${undetailed}</div>`;
+  }
+  function opeRowHtml(entry, ope, many) {
+    const open = state.openOpes.has(ope.key);
+    const bailleur = L.bailleurClass(ope.bailleur) === 'idx' ? `<span class="db-idex" title="Bailleur de cette OPE">${esc(ope.bailleur)}</span>` : '';
+    const caption = [ope.libelle, ope.withoutLine ? 'aucune ligne OPE' : ''].filter(Boolean).join(' · ');
+    return `<div class="db-row db-orow${open ? ' is-open' : ''}" data-db-orow="${esc(ope.key)}">` +
+      `<span class="db-name"><button type="button" class="db-ope-toggle" data-db-ope="${esc(ope.key)}" aria-expanded="${open}" aria-label="${esc(`Dépenses de l'OPE ${ope.rank} de ${entry.project.acronyme}`)}">${ICON_CHEVRON}</button>` +
+      `<span class="db-opn">OPE ${ope.rank}</span><span class="db-ocode">${esc(ope.codes.join(', ') || '(sans numéro)')}</span>${bailleur}${caption ? `<span class="db-cap" title="${esc(caption)}">${esc(caption)}</span>` : ''}</span>` +
+      `<span class="db-st"></span><span class="db-pr">${progressHtml(ope.cons, ope.att, ope.pct, ope.over)}</span>` +
+      `<span class="db-att">${esc(L.eur(ope.att))}</span><span class="db-cons${ope.over ? ' is-over' : ''}">${esc(L.eur(ope.cons))}</span></div>` +
+      (open ? opePanelHtml(entry, ope) : '');
+  }
+  // Un projet à une seule OPE : les trois blocs directement sous le projet ; plusieurs OPE : une ligne par OPE, dépliable.
+  function projectDetailHtml(entry) {
+    const gap = gapNoteHtml(entry.project.gap);
+    if (entry.opes.length === 1) return `<div class="db-exp db-exp-opes">${opePanelHtml(entry, entry.opes[0])}${gap ? `<div class="db-opep">${gap}</div>` : ''}</div>`;
+    return `<div class="db-exp db-exp-opes">${entry.opes.map(ope => opeRowHtml(entry, ope, true)).join('')}${gap ? `<div class="db-opep">${gap}</div>` : ''}</div>`;
+  }
+
   function projectRowHtml(entry, statuses, helpHtml) {
     const project = entry.project, open = state.openExpenses.has(project.id);
     const status = project.statut;
@@ -179,12 +261,12 @@
     const n = entry.expenses.length;
     return `<div class="db-row db-prow${open ? ' is-open' : ''}" data-project-id="${esc(project.id)}">` +
       `<span class="db-name db-pj"><button type="button" class="db-exp-toggle" data-db-exp="${esc(project.id)}" aria-expanded="${open}" title="Dépenses détaillées" aria-label="${esc(`Dépenses de ${project.acronyme}`)}">${ICON_CHEVRON}<span class="db-n${n ? '' : ' is-zero'}">${n}</span></button>` +
-      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${gapBadgeHtml(project)}</span>` +
+      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${idexBadgeHtml(entry)}${gapBadgeHtml(project)}</span>` +
       `${project.titre ? `<span class="db-cap" title="${esc(project.titre)}">${esc(project.titre)}</span>` : ''}</span></span>` +
       `<span class="db-st"><span class="db-stwrap" style="${pillStyle(status)}"><i class="db-dot" style="background:${dot}"></i>${select}<svg class="db-stchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span><span class="db-saved" data-db-saved="${esc(project.id)}" hidden>${ICON_CHECK}Enregistré</span></span>` +
       `<span class="db-pr">${progressHtml(entry.cons, entry.att, entry.pct, entry.over)}</span>` +
       `<span class="db-att">${esc(L.eur(entry.att))}</span><span class="db-cons${entry.over ? ' is-over' : ''}">${esc(L.eur(entry.cons))}</span></div>` +
-      (open ? `<div class="db-exp">${expensesHtml(entry.expenses, entry.undetailed, project.gap)}</div>` : '');
+      (open ? projectDetailHtml(entry) : '');
   }
   function progressHtml(cons, att, pct, over) {
     const w = att > 0 ? Math.min(100, Math.round((cons / att) * 100)) : 0;
@@ -220,6 +302,7 @@
     if (state.expensesState === 'loading' || state.expensesState === 'idle') notes.push('Chargement des dépenses…');
     if (state.expensesState === 'error') notes.push(expensesErrorNote());
     if (m.outOfRange) notes.push(`${m.outOfRange.count} dépense${m.outOfRange.count > 1 ? 's' : ''} d'un exercice hors 2023-2026 (${esc(L.eur(m.outOfRange[m.measure]))} ${m.measure}) non comptée${m.outOfRange.count > 1 ? 's' : ''}.`);
+    if (m.bailleur.hidden && !m.bailleur.idex) notes.push(`${m.bailleur.hidden} projet${m.bailleur.hidden > 1 ? 's' : ''} dont toutes les OPE sont Idex ${m.bailleur.hidden > 1 ? 'ne sont pas comptés' : 'n\'est pas compté'} (puce « Idex » du bandeau pour ${m.bailleur.hidden > 1 ? 'les' : 'le'} voir).`);
     const gaps = m.gapCount;
     if (gaps && (gaps.gap || gaps.nodetail)) {
       const parts = [];
@@ -249,6 +332,14 @@
   function renderBand(m) {
     const years = $('db-years');
     if (years) years.innerHTML = m.years.map(year => `<button type="button" class="db-year${m.selYears.includes(year) ? ' is-on' : ''}" data-db-year="${year}" aria-pressed="${m.selYears.includes(year)}">${esc(L.yearLabel(year))}</button>`).join('');
+    const bailleurs = $('db-bailleurs');
+    if (bailleurs) {
+      const b = m.bailleur;
+      const idexTip = `${b.idexProjects} projet${b.idexProjects > 1 ? 's ont' : ' a'} au moins une OPE Idex (ou d'un autre bailleur que InnovationS).${b.hidden && !b.idex ? ` ${b.hidden} projet${b.hidden > 1 ? 's' : ''} masqué${b.hidden > 1 ? 's' : ''} car ${b.hidden > 1 ? 'toutes leurs OPE sont' : 'toutes ses OPE sont'} Idex.` : ''} Idex n'est pas compté par défaut.`;
+      bailleurs.hidden = !b.idexProjects && !b.idex;
+      bailleurs.innerHTML = `<button type="button" class="db-year${b.innovations ? ' is-on' : ''}" data-db-bailleur="inn" aria-pressed="${b.innovations}" title="Compter les OPE dont le bailleur est InnovationS (valeur par défaut)">InnovationS</button>` +
+        `<button type="button" class="db-year is-idex${b.idex ? ' is-on' : ''}" data-db-bailleur="idx" aria-pressed="${b.idex}" title="${esc(idexTip)}">Idex</button>`;
+    }
     document.querySelectorAll('[data-db-measure]').forEach(btn => { const on = btn.dataset.dbMeasure === m.measure; btn.classList.toggle('is-on', on); btn.setAttribute('aria-pressed', String(on)); });
     const toggle = $('db-toggle-charts');
     if (toggle) { toggle.setAttribute('aria-expanded', String(state.charts)); toggle.classList.toggle('is-collapsed', !state.charts); }
@@ -400,7 +491,7 @@
   }
 
   function onClick(event) {
-    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine]') : null;
+    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine],[data-db-bailleur],[data-db-ope],[data-db-opesort],[data-db-opeclear]') : null;
     if (!target) return;
     if (target.dataset.dbYear !== undefined) {
       state.years = L.toggleYear(state, Number(target.dataset.dbYear), model.years);
@@ -427,7 +518,36 @@
       biFailure = null; render();
     } else if (target.dataset.dbReset !== undefined) {
       resetFilters();
+    } else if (target.dataset.dbBailleur !== undefined) {
+      toggleBailleur(target.dataset.dbBailleur);
+    } else if (target.dataset.dbOpe !== undefined) {
+      toggleSet(state.openOpes, target.dataset.dbOpe); render();
+    } else if (target.dataset.dbOpesort !== undefined) {
+      const cut = target.dataset.dbOpesort.lastIndexOf(':'), key = target.dataset.dbOpesort.slice(0, cut), column = target.dataset.dbOpesort.slice(cut + 1); // la clé d'OPE contient déjà un « : »
+      const f = Object.assign({}, opeFilter(key));
+      f.dir = f.sort === column ? (f.dir === 'asc' ? 'desc' : 'asc') : (column === 'date' || column === 'AE' || column === 'CP' ? 'desc' : 'asc');
+      setOpeFilter(key, { sort: column, dir: f.dir }, true);
+    } else if (target.dataset.dbOpeclear !== undefined) {
+      setOpeFilter(target.dataset.dbOpeclear, { from: '', to: '', q: '' }, false);
     }
+  }
+  // Puces du bandeau : on ne peut jamais décocher la dernière (les deux décochées = InnovationS).
+  function toggleBailleur(which) {
+    const inn = state.innovations !== false, idx = !!state.idex;
+    if (which === 'inn') { if (inn && !idx) return; state.innovations = !inn; }
+    else { if (idx && !inn) return; state.idex = !idx; }
+    render(); persist();
+  }
+  // Filtres d'une OPE : réécrit seulement les blocs (le champ reste actif pendant la frappe).
+  function setOpeFilter(key, patch, blocksOnly) {
+    state.opeFilters.set(key, Object.assign({}, opeFilter(key), patch));
+    if (!blocksOnly) { render(); return; }
+    const panel = document.querySelector(`[data-db-opepanel="${CSS.escape(key)}"]`);
+    const clear = panel && panel.querySelector('[data-db-opeclear]');
+    if (clear) clear.hidden = !opeFilterActive(opeFilter(key));
+    const owner = (model && model.groups.flatMap(g => g.projects).flatMap(e => e.opes).find(o => o.key === key)) || null;
+    const host = document.querySelector(`[data-db-blocks="${CSS.escape(key)}"]`);
+    if (owner && host) host.innerHTML = opeBlocksHtml(owner); else render();
   }
   function resetFilters() {
     Object.assign(state, { years: null, programmes: [], statuts: [], search: '' });
@@ -448,6 +568,8 @@
     if (L.MEASURES.includes(text(row.Dash_mesure))) state.measure = text(row.Dash_mesure);
     state.charts = text(row.Dash_graphiques) === '1'; // replié par défaut : seul « 1 » (ouvert) est retenu
     state.engine = text(row.Dash_moteur) === 'maison' ? 'maison' : 'bi'; // Grist-BI par défaut ; seul « maison » est retenu
+    const bailleurs = text(row.Dash_bailleurs); // vide = InnovationS seul ; « idex » = Idex seul ; « les-deux » = les deux
+    state.innovations = bailleurs !== 'idex'; state.idex = bailleurs === 'idex' || bailleurs === 'les-deux';
   }
   async function loadDashboardUserPreferences() {
     if (!global.CoreGrist || !CoreGrist.gristInstance) return;
@@ -473,7 +595,8 @@
     if (!prefsRowId || !global.CoreGrist || !CoreGrist.gristInstance) return;
     const fields = {
       Dash_annees: Array.isArray(state.years) ? encodeList(state.years.map(String)) : '', Dash_programmes: encodeList(state.programmes), Dash_statuts: encodeList(state.statuts),
-      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : '', Dash_moteur: state.engine === 'maison' ? 'maison' : ''
+      Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : '', Dash_moteur: state.engine === 'maison' ? 'maison' : '',
+      Dash_bailleurs: state.idex ? (state.innovations !== false ? 'les-deux' : 'idex') : ''
     };
     try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
     catch (err) { console.warn('Enregistrement des préférences Dashboard a échoué :', err.message); }
@@ -528,6 +651,18 @@
     if (!view) return;
     view.addEventListener('click', onClick);
     view.addEventListener('change', event => { const select = event.target.closest && event.target.closest('[data-db-status]'); if (select) changeStatus(select); });
+    // Dates et recherche des dépenses d'une OPE (DateInput : « input » à la frappe, ISO ou null tant que la saisie est incomplète).
+    const onOpeField = event => {
+      const t = event.target;
+      if (t && t.dataset && t.dataset.dbOpeq !== undefined) setOpeFilter(t.dataset.dbOpeq, { q: t.value }, true);
+      else if (t && t.dataset && t.dataset.dbOpedate !== undefined) {
+        const [side, key] = t.dataset.dbOpedate.split(/:(.*)/s);
+        const iso = DateInput.iso(t);
+        if (iso !== null) setOpeFilter(key, { [side]: iso }, true);
+      }
+    };
+    view.addEventListener('input', onOpeField);
+    view.addEventListener('change', onOpeField);
     setupCombo('db-filter-programme'); setupCombo('db-filter-statut');
     const search = $('db-filter-search');
     if (search) search.addEventListener('input', () => { state.search = search.value; render(); persist(); });

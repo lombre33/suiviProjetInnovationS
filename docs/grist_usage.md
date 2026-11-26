@@ -839,9 +839,9 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
 - **Écrit dans Grist** : seulement `Projets.Statut_operationnel_projet` (liste déroulante d'un projet : écriture optimiste, rétablie
   avec un message si Grist refuse ; `Statut_Macro` est une formule, donc non modifiable ; relecture groupée des autres pages 2,5 s
   après) et la ligne de préférences de l'utilisateur.
-- **Préférences** (`Preferences_Widget`, 7 colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
+- **Préférences** (`Preferences_Widget`, colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
   année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
-  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI). Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI), `Dash_bailleurs`. Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
 - **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
   l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
   bloquer le reste.
@@ -861,7 +861,22 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   Vérifié en local avec le **vrai Grist-BI** (copie du dépôt, client `grist-plugin-api` réel, Chromium) : connexion, lecture de la table,
   configuration d'origine, quatre tuiles affichées ; reste à voir dans un vrai Grist (deux iframes imbriquées, droits en lecture seule : la
   configuration modifiée n'est alors pas enregistrée). Tests : `tests/suite-dashboard-bi.js` avec un faux Grist-BI (`tests/fake-grist-bi.html`).
-- Pas dans cette version : filtre sur le financeur, export.
+- **Bailleur par OPE (26/11/2026, maquette validée, non validé dans un vrai Grist)** : Idex n'est **pas** compté par défaut. Le bailleur se lit OPE
+  par OPE dans `Projets.Bailleur`, `Bailleur_2/_3/_4` (vide ou « InnovationS » = InnovationS, tout le reste = « Idex et autres »). Deux puces
+  « InnovationS » / « Idex » dans le bandeau (jamais aucune : les deux éteintes valent InnovationS). Un projet est listé s'il a au moins une OPE
+  comptée, ses montants = somme de ses OPE comptées ; un projet dont une OPE n'est pas comptée porte « + Idex » (« + InnovationS » en mode Idex
+  seul) ; un projet entièrement Idex est masqué (nombre rappelé en bas de page et dans l'infobulle de la puce). Totaux, volets, graphiques et table
+  plate de Grist-BI suivent ce choix. Retenu par personne : `Dash_bailleurs` (vide = InnovationS, `idex`, `les-deux`). Logique :
+  `DashboardLogic.bailleurClass`, `compute(...).bailleur`.
+- **Dépenses détaillées par OPE puis par grande masse (26/11/2026)** : sous un projet, le volet « Dépenses » montre **une ligne par OPE** (numéro,
+  libellé, bailleur si Idex, attribué, consommé ; un projet à une seule OPE ouvre directement le détail). Chaque OPE s'ouvre sur **trois blocs** :
+  Fonctionnement, Investissement, Personnel (attribué de la masse = `cAAAA_M10/M20/M30`, consommé de la masse = somme des dépenses de la mesure
+  choisie), plus un bloc « Autres dépenses (masse non reconnue) » seulement si une dépense n'est pas classée. Le classement lit
+  `Depenses_OPE.Nature_depense` (`M10…`, `M20…`, `M30…` ou le libellé « Fonctionnement / Investissement / Personnel » ; **à confirmer sur les
+  vraies valeurs**, `DashboardLogic.masseOf`). Au-dessus des blocs : dates « du / au » (DateInput jj/mm/aaaa), recherche (fournisseur, objet, n° EJ,
+  nature, destination, état), « Effacer les filtres » ; en-têtes triables (date, fournisseur, objet, n° EJ, AE, CP ; date décroissante par défaut).
+  Ces filtres de volet ne sont **pas retenus** (ils se remettent à zéro quand on quitte la page).
+- Pas dans cette version : export.
 
 ## Import financier (page cachée Alt+Maj+I, 18/11/2026 ; OPE multiples 24/11/2026)
 

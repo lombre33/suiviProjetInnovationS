@@ -451,21 +451,24 @@
       unload();
     });
 
-    it('sous chaque projet, un volet « Dépenses » (replié par défaut) liste les lignes de l\'export, la plus récente d\'abord', async function () {
+    it('sous chaque projet, un volet « Dépenses » (replié par défaut) liste les lignes de l\'export en trois blocs par grande masse, la plus récente d\'abord', async function () {
       await load();
       click(head('FARE'));
       assertEqual(list().querySelectorAll('.db-exp').length, 0, 'replié par défaut');
       const toggle = prow('ALPHA').querySelector('[data-db-exp]');
       assertEqual(toggle.querySelector('.db-n').textContent, '2', 'nombre de dépenses sur la flèche');
       click(toggle);
-      const rows = Array.from(list().querySelectorAll('.db-exp tbody tr'));
-      assertEqual(rows.length, 2);
-      assertIncludes(rows[0].textContent, 'ZETA');
-      assertIncludes(rows[0].textContent, '03/02/2025', 'date au format français');
-      assertIncludes(rows[1].textContent, 'ACME');
-      assertIncludes(rows[1].textContent, 'Achat de matériel');
-      assertIncludes(rows[1].textContent, '4500001');
-      assertEqual(norm(list().querySelector('.db-exp tfoot').textContent), '2 dépenses700 €500 €', 'totaux AE puis CP');
+      const blocks = Array.from(list().querySelectorAll('.db-exp [data-db-masse]'));
+      assertDeepEqual(blocks.map(block => block.dataset.dbMasse), ['M10_Fonctionnement', 'M20_Investissement', 'M30_Personnel', 'autres'], 'trois grandes masses, puis « Autres » car une dépense n\'a pas de nature');
+      assertIncludes(blocks[0].textContent, 'Aucune dépense détaillée', 'un bloc sans dépense le dit');
+      const invest = Array.from(blocks[1].querySelectorAll('tbody tr')), autres = Array.from(blocks[3].querySelectorAll('tbody tr'));
+      assertEqual(invest.length, 1); assertEqual(autres.length, 1);
+      assertIncludes(autres[0].textContent, 'ZETA');
+      assertIncludes(autres[0].textContent, '03/02/2025', 'date au format français');
+      assertIncludes(invest[0].textContent, 'ACME');
+      assertIncludes(invest[0].textContent, 'Achat de matériel');
+      assertIncludes(invest[0].textContent, '4500001');
+      assertEqual(norm(blocks[1].querySelector('tfoot').textContent), '1 dépense500 €300 €', 'totaux AE puis CP du bloc');
       assertIncludes(list().querySelector('.db-exp').textContent, '630 €', 'le reliquat sans détail est signalé');
       click(prow('ALPHA').querySelector('[data-db-exp]'));
       assertEqual(list().querySelectorAll('.db-exp').length, 0, 'se replie');
@@ -848,7 +851,7 @@
     it('les colonnes Dash_* sont créées dans Preferences_Widget', async function () {
       await load();
       await loadPrefs();
-      ['Dash_annees', 'Dash_programmes', 'Dash_statuts', 'Dash_recherche', 'Dash_mesure', 'Dash_graphiques', 'Dash_moteur'].forEach(col => {
+      ['Dash_annees', 'Dash_programmes', 'Dash_statuts', 'Dash_recherche', 'Dash_mesure', 'Dash_graphiques', 'Dash_moteur', 'Dash_bailleurs'].forEach(col => {
         const added = window.__TEST_CALLS__.some(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget' && c.colId === col) || window.CoreGrist.knownColumns('Preferences_Widget').has(col);
         assertTrue(added, `colonne ${col}`);
       });

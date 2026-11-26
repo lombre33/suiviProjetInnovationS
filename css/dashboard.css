@@ -158,6 +158,37 @@
 .db-foot { margin:2px 2px 0; font-size:11.5px; color:var(--text-muted); }
 .db-empty { display:flex; flex-direction:column; align-items:center; gap:10px; padding:34px 16px; text-align:center; color:var(--text-muted); }
 
+/* Bailleur (26/11/2026) : puces InnovationS / Idex dans le bandeau ; « + Idex » sur les projets dont une OPE n'est pas comptée. */
+.db-year.is-idex.is-on { background:#e08a17; color:#fff; }
+.db-idex { display:inline-flex; align-items:center; flex:none; height:18px; padding:0 7px; border-radius:999px; background:#fff4e5; border:1px solid #f2c88a; color:#8a4b08; font-size:10.5px; font-weight:800; white-space:nowrap; }
+.db-bailleur-note { margin:2px 2px 0; font-size:11.5px; color:var(--text-muted); }
+/* Détail par OPE puis par grande masse (26/11/2026). */
+.db-exp.db-exp-opes { padding:0; }
+.db-orow { grid-template-columns:minmax(0,1fr) 224px 160px 112px 112px; min-height:42px; padding:6px 14px 6px 40px; border-top:1px solid var(--surface-sunken); background:#fafbfd; }
+.db-orow:first-child { border-top:0; }
+.db-ope-toggle { display:inline-flex; align-items:center; flex:none; height:26px; padding:0 4px 0 0; border:0; border-radius:999px; background:transparent; font:inherit; color:var(--text-muted); cursor:pointer; }
+.db-ope-toggle:hover { background:var(--surface-sunken); color:var(--text); }
+.db-orow:not(.is-open) .db-ope-toggle .db-chev { transform:rotate(-90deg); }
+.db-opn { display:inline-flex; align-items:center; flex:none; height:19px; padding:0 8px; border-radius:999px; background:var(--surface-sunken); color:#46536a; font-size:11px; font-weight:800; white-space:nowrap; }
+.db-ocode { font-size:13px; font-weight:800; white-space:nowrap; }
+.db-opep { padding:8px 14px 12px 52px; border-top:1px solid var(--surface-sunken); background:var(--surface); }
+.db-exp-opes .db-opep { padding-left:64px; }
+.db-ope-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; margin:0 0 8px; font-size:12px; color:var(--text-muted); }
+.db-ope-tools label { display:inline-flex; align-items:center; gap:6px; font-weight:700; }
+.db-ope-tools input[type="search"], .db-ope-tools .dp-input { height:30px; padding:0 9px; border:1px solid var(--border); border-radius:8px; font:inherit; font-size:12.5px; background:var(--surface); color:var(--text); }
+.db-ope-tools input[type="search"] { width:220px; }
+.db-ope-tools .db-linkbtn { margin-left:auto; }
+.db-mblock { margin:0 0 10px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.db-mhead { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; padding:7px 12px; background:var(--surface-sunken); }
+.db-mhead b { font-size:12.5px; font-weight:800; }
+.db-mhead .db-mfig { margin-left:auto; display:flex; gap:14px; font-size:11.5px; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+.db-mhead .db-mfig b { color:var(--text); }
+.db-mblock .db-exp-table { margin:0; }
+.db-mblock .db-exp-empty { margin:0; padding:8px 12px; }
+.db-sortbtn { appearance:none; border:0; background:transparent; padding:0; font:inherit; font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:inherit; cursor:pointer; white-space:nowrap; }
+.db-sortbtn:hover { color:var(--text); }
+.db-sortbtn.is-sorted { color:var(--accent-hover); }
+.db-exp-table th.db-num .db-sortbtn { text-align:right; }
 @media (max-width: 980px) {
   .db-charts-grid { grid-template-columns:minmax(0,1fr); }
   .db-kpis { flex-direction:row; flex-wrap:wrap; gap:16px 32px; }
@@ -175,3 +206,4 @@
   .db-hamt { display:none; }
   .db-exp { padding-left:14px; }
 }
+.db-bailleurs[hidden] { display:none; }

@@ -25,6 +25,11 @@
  * Détail par OPE (24/11/2026, plusieurs OPE par projet) : project.opes = une entrée par OPE du projet (rang 1 toujours, rangs 2 à 4 quand ils portent
  *    des données) avec ses lignes OPE, son attribué par année (colonnes de CET OPE) et son consommé (dépenses de ses lignes + reliquat « sans année » ligne par
  *    ligne). Une ligne OPE posée sur deux rangs du même projet n'est comptée qu'au premier. Les totaux du projet restent la somme de toutes les OPE.
+ *  - Bailleur de chaque OPE (26/11/2026) : Projets.Bailleur, Bailleur_2/_3/_4 (Choice InnovationS / Idex, vide = InnovationS ; toute autre valeur compte avec Idex). Le Dashboard ne compte
+ *    qu'InnovationS par défaut ; la puce « Idex » du bandeau ajoute les OPE Idex. Le calcul est fait OPE par OPE : un projet n'est listé que si une de ses OPE est comptée, ses
+ *    montants sont la somme des OPE comptées, et « + Idex » (idexHidden) marque un projet dont une OPE Idex n'est pas comptée. Un projet dont toutes les OPE sont comptées garde ses totaux d'origine.
+ *  - Dépenses détaillées par OPE puis par grande masse (26/11/2026) : ope.expenses (dépenses des lignes de l'OPE, une ligne OPE posée sur deux rangs ne compte qu'au premier) classées en
+ *    Fonctionnement / Investissement / Personnel d'après Depenses_OPE.Nature_depense (« M10 », « M20 », « M30 » ou le libellé de la masse) ; le reste va dans « Autres ».
  *  - Consommé CP d'une ligne OPE : Lignes_OPE.totalCPConsomme seule (l'import UB Invest y écrit le consommé CP ; la colonne Consomme_CP n'existera jamais, décision d'Antoine du 24/11).
  *
  * Choix de présentation : une dépense dont l'exercice sort de 2023-2026 n'est comptée nulle part (elle est signalée en bas de
@@ -77,6 +82,19 @@
     if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) return '';
     return new Date(value * 1000).toISOString().slice(0, 10);
   }
+  // Bailleur d'une OPE : vide ou InnovationS → 'inn', tout le reste (Idex, autre bailleur) → 'idx'.
+  const bailleurClass = value => { const f = fold(value); return !f || f === 'innovations' ? 'inn' : 'idx'; };
+  const bailleurLabel = value => text(value) || 'InnovationS';
+  // Grande masse d'une dépense FD02 d'après Nature_depense : « M10 »/« M20 »/« M30 » (avec ou sans suite) ou le libellé de la masse ; '' = non classée.
+  const MASSE_LABELS = { M10_Fonctionnement: 'Fonctionnement', M20_Investissement: 'Investissement', M30_Personnel: 'Personnel' };
+  function masseOf(nature) {
+    const f = fold(nature).replace(/\s+/g, '');
+    if (!f) return '';
+    if (/^m?10(?!\d)/.test(f) || f.includes('fonctionnement')) return 'M10_Fonctionnement';
+    if (/^m?20(?!\d)/.test(f) || f.includes('investissement')) return 'M20_Investissement';
+    if (/^m?30(?!\d)/.test(f) || f.includes('personnel')) return 'M30_Personnel';
+    return '';
+  }
   const yearLabel = year => (year === NO_YEAR ? NO_YEAR_LABEL : String(year));
   // Consommé CP d'une ligne OPE : totalCPConsomme (l'import UB Invest y écrit le consommé CP, il n'y a pas de colonne Consomme_CP).
   const lineCP = line => num(line.totalCPConsomme);
@@ -90,13 +108,21 @@
   function opeEntries(row, ligneById, opes) {
     const ranks = opes ? opes.ranks().filter(rank => rank === 1 || opes.hasData(opes.read(row, rank))) : [1];
     return ranks.map(rank => {
-      const ids = opes ? opes.read(row, rank).ligneIds : refIds(row.Ligne_OPE);
+      const read = opes ? opes.read(row, rank) : null;
+      const ids = read ? read.ligneIds : refIds(row.Ligne_OPE);
       const att = {};
-      YEARS.forEach(year => { att[year] = rankAmount(row, year, rank, opes); });
+      const attMasse = {};
+      MASSES.forEach(mass => { attMasse[mass] = {}; });
+      YEARS.forEach(year => {
+        att[year] = rankAmount(row, year, rank, opes);
+        MASSES.forEach(mass => { attMasse[mass][year] = num(row[`c${year}_${mass}${rank > 1 ? `_${rank}` : ''}`]); });
+      });
+      const lines = ids.map(id => ligneById.get(id)).filter(Boolean);
       return {
-        rank, ligneIds: ids, att, budget: BUDGET_YEARS.reduce((sum, year) => sum + rankAmount(row, year, rank, opes), 0),
-        lines: ids.map(id => ligneById.get(id)).filter(Boolean).map(line => ({ id: line.id, key: opeKey(line.N_OPE), code: text(line.N_OPE), CP: lineCP(line), AE: num(line.Consomme_AE) })),
-        cons: null
+        rank, ligneIds: ids, att, attMasse, budget: BUDGET_YEARS.reduce((sum, year) => sum + rankAmount(row, year, rank, opes), 0),
+        bailleur: bailleurLabel(read ? read.bailleur : ''),
+        lines: lines.map(line => ({ id: line.id, key: opeKey(line.N_OPE), code: text(line.N_OPE), libelle: text(line.N_OPE_LibelleOperation), CP: lineCP(line), AE: num(line.Consomme_AE) })),
+        cons: null, keys: new Set(), expenses: []
       };
     });
   }
@@ -181,7 +207,7 @@
         nature: text(row.Nature_depense), destination: text(row.Destination), destinationLibelle: text(row.Libelle_destination),
         ej: text(row.Num_EJ), typeObjet: text(row.Type_objet), libelle: text(row.Libelle_objet),
         date: isoDate(row.Date_creation), fournisseur: text(row.Fournisseur), etat: text(row.Etat),
-        AE: num(row.AE_consomme), CP: num(row.CP_consomme), domaine: text(row.Domaine)
+        AE: num(row.AE_consomme), CP: num(row.CP_consomme), domaine: text(row.Domaine), masse: masseOf(row.Nature_depense)
       };
       const owner = opeOwner.get(opeKey(row.Code_operation));
       if (owner) { // détail par code opération, tous exercices (sert à la pastille « écart »)
@@ -214,11 +240,15 @@
         ope.lines.forEach(line => {
           if (seenLines.has(line.id)) return;
           seenLines.add(line.id);
-          if (line.key) keys.add(line.key);
+          if (line.key) { keys.add(line.key); ope.keys.add(line.key); }
           const detail = line.key ? project.detailByKey.get(line.key) : null;
           undetailed += Math.max(0, line.CP - (detail ? detail.CP : 0));
         });
-        project.expenses.forEach(expense => { if (keys.has(expense.key)) MEASURES.forEach(measure => { ope.cons[measure][expense.year] += expense[measure]; }); });
+        project.expenses.forEach(expense => {
+          if (!keys.has(expense.key)) return;
+          ope.expenses.push(expense);
+          MEASURES.forEach(measure => { ope.cons[measure][expense.year] += expense[measure]; });
+        });
         ope.cons.CP[NO_YEAR] = undetailed;
       });
     });
@@ -227,9 +257,9 @@
   }
 
   // --- Filtres et calcul --------------------------------------------------------------------------
-  // state : { years: null | [..] (null = toutes), programmes: [], statuts: [], search: '', measure: 'CP' | 'AE' }
+  // state : { years: null | [..] (null = toutes), programmes: [], statuts: [], search: '', measure: 'CP' | 'AE', innovations: true, idex: false (bailleurs comptés ; jamais aucun) }
   // Graphiques repliés par défaut (demande d'Antoine du 18/11/2026) ; les totaux restent visibles dans la ligne « Total » de la liste.
-  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: false, engine: 'bi' }; } // engine : 'bi' (Grist-BI) ou 'maison'
+  function defaultState() { return { years: null, programmes: [], statuts: [], search: '', measure: 'CP', charts: false, engine: 'bi', innovations: true, idex: false }; } // engine : 'bi' (Grist-BI) ou 'maison'
 
   // `dated` = consommé rattaché à une année : le reliquat « Sans année » (total de la ligne OPE, cumulé depuis l'origine, donc pas
   // comparable à l'attribué 2023-2026) n'est jamais signalé comme un dépassement.
@@ -245,6 +275,24 @@
     const allYears = selYears.length === availableYears.length;
     const query = fold(state.search);
 
+    // Bailleurs comptés (OPE par OPE) : InnovationS par défaut, Idex à la demande ; jamais aucun (les deux décochés = InnovationS).
+    const includeIdx = !!state.idex;
+    const includeInn = state.innovations !== false || !includeIdx;
+    const counted = ope => (bailleurClass(ope.bailleur) === 'inn' ? includeInn : includeIdx);
+    // Ce que le projet montre : ses OPE comptées (montants, dépenses, lignes). Toutes comptées = totaux d'origine du projet ; aucune = projet absent (null).
+    function viewOf(project) {
+      const opes = project.opes.filter(counted);
+      if (!opes.length) return null;
+      const excluded = project.opes.length - opes.length;
+      if (!excluded) return { att: project.att, cons: project.cons, expenses: project.expenses, undetailedCP: project.undetailedCP, opes, excluded: 0 };
+      const att = {}, cons = { CP: {}, AE: {} };
+      YEARS.forEach(year => { att[year] = opes.reduce((sum, ope) => sum + (ope.att[year] || 0), 0); });
+      MEASURES.forEach(measure => YEARS.concat([NO_YEAR]).forEach(year => { cons[measure][year] = opes.reduce((sum, ope) => sum + (ope.cons[measure][year] || 0), 0); }));
+      const keys = new Set();
+      opes.forEach(ope => ope.keys.forEach(key => keys.add(key)));
+      return { att, cons, expenses: project.expenses.filter(expense => keys.has(expense.key)), undetailedCP: cons.CP[NO_YEAR], opes, excluded };
+    }
+
     const passes = project => (!state.programmes.length || state.programmes.includes(project.programme))
       && (!state.statuts.length || state.statuts.includes(project.statut))
       && (!query || fold(`${project.acronyme} ${project.titre}`).includes(query));
@@ -252,13 +300,16 @@
     // Une ligne par projet visible et par année choisie.
     const rows = [];
     const perProject = [];
+    let hiddenByBailleur = 0;
     dataset.projects.filter(passes).forEach(project => {
-      const mine = selYears.map(year => ({ project, programme: project.programme, year, att: project.att[year] || 0, cons: project.cons[measure][year] || 0 }));
+      const view = viewOf(project);
+      if (!view) { hiddenByBailleur += 1; return; }
+      const mine = selYears.map(year => ({ project, programme: project.programme, year, att: view.att[year] || 0, cons: view.cons[measure][year] || 0 }));
       const total = sumRows(mine);
       // Quand toutes les années sont choisies, un projet sans montant reste listé (statut à renseigner) ; sinon il disparaît.
       if (!allYears && total.att + total.cons === 0) return;
       rows.push(...mine);
-      perProject.push({ project, att: total.att, cons: total.cons, dated: total.dated });
+      perProject.push({ project, view, att: total.att, cons: total.cons, dated: total.dated });
     });
 
     // Graphiques : détail progressif année > programme > projet (graphique 1) et programme > année > projet (graphique 2).
@@ -305,15 +356,22 @@
         programme, count: entries.length, att: total.att, cons: total.cons, pct: pctText(total.cons, total.att), over: total.dated > total.att,
         statusCounts: Array.from(counts.entries()).map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'fr')),
         projects: entries.map(entry => {
-          const expenses = entry.project.expenses.filter(expense => selYears.includes(expense.year));
-          // Une ligne par OPE (attribué et consommé sur les années choisies) : l'interface ne les montre qu'à partir de deux OPE.
-          const opeRows = entry.project.opes.map(ope => {
+          const expenses = entry.view.expenses.filter(expense => selYears.includes(expense.year));
+          // Une ligne par OPE comptée (attribué et consommé sur les années choisies, dépenses détaillées, attribué par masse).
+          const opeRows = entry.view.opes.map(ope => {
             const t = sumRows(selYears.map(year => ({ year, att: ope.att[year] || 0, cons: ope.cons[measure][year] || 0 })));
-            return { rank: ope.rank, codes: ope.lines.map(line => line.code).filter(Boolean), withoutLine: ope.lines.length === 0, att: t.att, cons: t.cons, over: t.dated > t.att, pct: pctText(t.cons, t.att) };
+            const attMasse = {};
+            MASSES.forEach(mass => { attMasse[mass] = selYears.reduce((sum, year) => sum + (ope.attMasse[mass][year] || 0), 0); });
+            return {
+              key: `${entry.project.id}:${ope.rank}`, rank: ope.rank, codes: ope.lines.map(line => line.code).filter(Boolean), libelle: ope.lines.map(line => line.libelle).filter(Boolean).join(' · '),
+              withoutLine: ope.lines.length === 0, bailleur: ope.bailleur, att: t.att, cons: t.cons, over: t.dated > t.att, pct: pctText(t.cons, t.att),
+              expenses: ope.expenses.filter(expense => selYears.includes(expense.year)), attMasse,
+              undetailed: selYears.includes(NO_YEAR) && measure === 'CP' ? (ope.cons.CP[NO_YEAR] || 0) : 0
+            };
           });
           return {
             project: entry.project, att: entry.att, cons: entry.cons, over: entry.dated > entry.att, pct: pctText(entry.cons, entry.att),
-            expenses, undetailed: selYears.includes(NO_YEAR) && measure === 'CP' ? entry.project.undetailedCP : 0, opes: opeRows
+            expenses, undetailed: selYears.includes(NO_YEAR) && measure === 'CP' ? entry.view.undetailedCP : 0, opes: opeRows, excludedOpes: entry.view.excluded
           };
         }).sort((a, b) => a.project.acronyme.localeCompare(b.project.acronyme, 'fr'))
       };
@@ -332,6 +390,7 @@
       kpi: { att: total.att, cons: total.cons, pct: pctText(total.cons, total.att), pctN: pctN(total.cons, total.att), reste: Math.max(0, total.att - total.cons), over: total.dated > total.att },
       chartA: chart(['year', 'programme'], 'Années'), chartB: chart(['programme', 'year'], 'Programmes'),
       groups, count: perProject.length, gapCount,
+      bailleur: { innovations: includeInn, idex: includeIdx, idexProjects: dataset.projects.filter(project => project.opes.some(ope => bailleurClass(ope.bailleur) === 'idx')).length, hidden: hiddenByBailleur },
       options: { programmes: Array.from(new Set(dataset.projects.map(project => project.programme))).sort((a, b) => (a === NO_PROGRAMME) - (b === NO_PROGRAMME) || a.localeCompare(b, 'fr')), statuses },
       orphans: noProjectFilter && orphanExpenses.length ? { expenses: orphanExpenses, AE: orphanExpenses.reduce((s, e) => s + e.AE, 0), CP: orphanExpenses.reduce((s, e) => s + e.CP, 0) } : null,
       outOfRange: dataset.outOfRange.count ? dataset.outOfRange : null
@@ -377,7 +436,7 @@
   global.DashboardLogic = {
     YEARS, NO_YEAR, NO_YEAR_LABEL, NO_PROGRAMME, MEASURES, MASSES, GAP_TOLERANCE, STATUS_FALLBACK, STATUS_COLORS,
     buildDataset, compute, defaultState, drillState, toggleYear, statusColors, yearLabel,
-    eur, compact, pctN, pctText, refIds, isoDate, opeKey, fold,
+    eur, compact, pctN, pctText, refIds, isoDate, opeKey, fold, bailleurClass, masseOf, MASSE_LABELS,
     BI_TABLE, BI_COLUMNS, biRows
   };
 })(window);
