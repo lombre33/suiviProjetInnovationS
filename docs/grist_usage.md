@@ -888,6 +888,16 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   signalé par un bandeau ; la ligne de résumé affiche « N choix enregistrés automatiquement » et « Repartir de zéro » (avec confirmation). Le
   brouillon ne touche ni `Projets` ni `Lignes_OPE` ; après « Écrire », il suit la mémoire (les choix « nouveau projet » écrits sont oubliés). La case
   « J'ai relu le tableau » n'est jamais gardée : il faut la recocher. Code : section « Brouillon de tri » de `js/pages/page-import-historique.js`.
+- **OPE partagée par plusieurs projets (OPE RH)** (26/11/2026, Antoine : une OPE RH sert à de nombreux projets « ingénierie » pendant tout le programme,
+  avec beaucoup de réattributions, sans prolongation) : la clé d'une ligne de l'export est maintenant **N° OPE + projet + financeur + ligne budgétaire**
+  (avant, sans le projet, trois projets sur la même OPE ne laissaient qu'une ligne : la dernière lue, les autres projets perdus et l'attribué de
+  l'OPE faux). Le contrôle « un N° OPE = un seul projet » n'écarte plus personne : c'est une information. Une OPE est **partagée** quand l'export la
+  donne à plusieurs projets, ou quand `Lignes_OPE.Type_ligne_OPE` vaut `RH` dans Grist. Une OPE partagée : (1) ne sert **pas** à retrouver le projet
+  (sinon le 2e projet serait fusionné dans le 1er) : le projet se retrouve par le N° décision puis par le nom ; (2) n'est jamais « déjà sur un autre
+  projet » : elle est rattachée à chaque projet sans clic ; (3) porte les montants de **l'OPE entière** (attribué = somme des lignes de tous les
+  projets ; consommé et disponible non additionnés) et n'est créée qu'une fois. Pastille « partagée » dans la colonne des lignes OPE. Limite : un
+  projet renommé sur UB Invest entre deux envois compte comme une autre ligne (le nom fait partie de la clé) ; deux noms de projets très proches
+  (« ingenierie_a », « ingenierie_b ») font proposer « nom proche » à confirmer. Décision d'Antoine attendue (carte du 26/11).
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques

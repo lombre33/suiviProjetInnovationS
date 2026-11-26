@@ -423,7 +423,7 @@
         inner = `<span class="ih-mono">${esc(line.ope)}</span>${editorHtml(line.cell)}`;
       } else {
         const c = line.cell, conflict = line.conflict && !line.conflict.resolved;
-        inner = `${row.lines.length > 1 || line.rank > 1 ? `<small class="ih-rank" title="Rang de la ligne dans le projet">OPE ${line.rank}</small> ` : ''}<span class="ih-mono">${esc(line.ope)}</span> · <span>${esc(c.v || c.raw || '—')}</span>`
+        inner = `${row.lines.length > 1 || line.rank > 1 ? `<small class="ih-rank" title="Rang de la ligne dans le projet">OPE ${line.rank}</small> ` : ''}<span class="ih-mono">${esc(line.ope)}</span>${line.shared ? ' <small class="ih-rank" title="OPE partagée par plusieurs projets (OPE RH) : rattachée à chacun">partagée</small>' : ''} · <span>${esc(c.v || c.raw || '—')}</span>`
           + (line.state === 'bad' ? `<small class="err">${esc(conflict ? 'Déjà sur ' + line.conflict.owner : c.err)}</small>${!conflict && c.hint ? `<small class="hint">proche : ${esc(c.hint)}</small>` : ''}` : '')
           + (c.state === 'conf' ? `<small class="alt">export : ${esc(c.alt)}</small>` : '');
       }
