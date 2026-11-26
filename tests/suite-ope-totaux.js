@@ -44,6 +44,8 @@
       O().createdColumnsOf(rank).forEach(col => { if (!table[col]) table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
     }
     const wanted = Object.assign({}, ORIGINALS, formulas || {});
+    // Colonnes de totaux déjà créées par le widget (formules passées à la main) : elles existent aussi dans le magasin du mock.
+    Object.keys(formulas || {}).forEach(col => { if (formulas[col] !== null && !table[col]) table[col] = table.id.map(() => 0); });
     // Les colonnes calculées existent aussi dans le magasin du mock (ModifyColumn exige que la colonne existe).
     COLUMNS.forEach(col => { if (wanted[col] !== null && !table[col]) table[col] = table.id.map(() => 0); });
     window.__mockSetTable('Projets', table);
@@ -217,7 +219,8 @@
       await installMeta(3);
       await T().adapt(3);
       assertEqual(window.__TEST_CALLS__.filter(call => ['RemoveColumn', 'RenameColumn', 'AddTable'].includes(call.type)).length, 0);
-      assertTrue(calls('AddColumn').every(call => /^Total_(\w+_)?OPE_[1-3]$/.test(call.colId)), 'seulement Total_..._OPE_n');
+      assertTrue(calls('AddColumn').every(call => /^Total_(\w+_)?OPE_[1-3]$/.test(call.colId) || /^Total_(Fonctionnement|Investissement|Personnel)_20\d\d$/.test(call.colId)),
+        'seulement des colonnes de totaux (par OPE ou croisées)');
       assertEqual(modifies().length, 8);
     });
 
@@ -373,7 +376,7 @@
   // Modèle de courrier de notification (Antoine, 26/11/2026) : un tableau par OPE — lignes Fonctionnement / Investissement / Personnel, colonnes 2026 à 2029,
   // « Total Projet » en bout de ligne, ligne « Total » en bas. Chaque case a sa colonne dédiée dans Projets.
   describe('Totaux par OPE — colonnes dédiées au courrier de notification', function () {
-    const added = () => calls('AddColumn').map(call => call.colId);
+    const added = () => calls('AddColumn').map(call => call.colId).filter(id => /_OPE_\d$/.test(id));
     const OPE_COLUMNS = rank => ['Fonctionnement', 'Investissement', 'Personnel'].map(mass => `Total_${mass}_OPE_${rank}`)
       .concat([2026, 2027, 2028, 2029].map(year => `Total_${year}_OPE_${rank}`), [`Total_OPE_${rank}`]);
 
@@ -388,11 +391,12 @@
     it('chacune est une formule numérique qui additionne les montants de CETTE OPE seulement (l\'OPE 1 : les colonnes d\'origine), avec une bulle d\'aide', function () {
       const byId = Object.fromEntries(O().totalDefinitions(2).map(def => [def.id, def]));
       assertTrue(Object.values(byId).every(def => def.type === 'Numeric' && def.isFormula === true && def.description), 'Numeric, formule, description');
-      assertIncludes(byId.Total_Fonctionnement_OPE_2.formula, 'return (rec.c2026_M10_Fonctionnement_2 or 0) + (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2028_M10_Fonctionnement_2 or 0) + (rec.c2029_M10_Fonctionnement_2 or 0)');
-      assertIncludes(byId.Total_2027_OPE_2.formula, 'return (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2027_M20_Investissement_2 or 0) + (rec.c2027_M30_Personnel_2 or 0)');
+      assertIncludes(byId.Total_Fonctionnement_OPE_2.formula, 'total = (rec.c2026_M10_Fonctionnement_2 or 0) + (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2028_M10_Fonctionnement_2 or 0) + (rec.c2029_M10_Fonctionnement_2 or 0)');
+      assertIncludes(byId.Total_2027_OPE_2.formula, 'total = (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2027_M20_Investissement_2 or 0) + (rec.c2027_M30_Personnel_2 or 0)');
+      assertIncludes(byId.Total_2027_OPE_2.formula, 'if total == 0:\n   return ""\nreturn total', 'vide à 0 : un courrier n\'imprime pas de 0');
       assertEqual((byId.Total_OPE_2.formula.match(/or 0\)/g) || []).length, 12, 'toutes les masses, 2026 à 2029');
       const one = Object.fromEntries(O().totalDefinitions(1).map(def => [def.id, def]));
-      assertIncludes(one.Total_Personnel_OPE_1.formula, '(rec.c2026_M30_Personnel or 0) + (rec.c2027_M30_Personnel or 0)');
+      assertIncludes(one.Total_Personnel_OPE_1.formula, 'total = (rec.c2026_M30_Personnel or 0) + (rec.c2027_M30_Personnel or 0)');
       assertTrue(!one.Total_Personnel_OPE_1.formula.includes('_2 or'), 'l\'OPE 1 ne lit jamais les colonnes des autres OPE');
     });
 
@@ -406,7 +410,7 @@
       await installMeta(1);
       const result = await T().adapt(1);
       assertDeepEqual(added(), OPE_COLUMNS(1));
-      assertDeepEqual(result.created, OPE_COLUMNS(1));
+      assertDeepEqual(result.created.filter(id => /_OPE_\d$/.test(id)), OPE_COLUMNS(1));
       assertTrue(window.__TEST_CALLS__.map(call => call.type).lastIndexOf('AddColumn') < window.__TEST_CALLS__.findIndex(call => call.type === 'ModifyColumn'), 'créées avant');
       assertTrue(calls('AddColumn').every(call => call.colInfo.isFormula === true && call.colInfo.type === 'Numeric' && !('description' in call.colInfo)));
     });
@@ -468,6 +472,136 @@
       await installMeta(1);
       await T().adaptAndNotify(1);
       assertIncludes(flat(toastEl().textContent), '8 colonnes de totaux par OPE créées dans Projets');
+    });
+  });
+
+  // ===========================================================================================================
+  // Tableau « budget total attribué » (Antoine, 26/11/2026) : masses en lignes, années 2026 à 2029 en colonnes, toutes OPE réunies. La ligne « Total »,
+  // la colonne « Total Projet » et le total général existent déjà (Total_2026…, Total_Fonctionnement…, Montant_attribue_Total) ; il manquait les 12 cases.
+  describe('Totaux croisés du projet — masse × année, toutes OPE réunies', function () {
+    const MASSES = ['Fonctionnement', 'Investissement', 'Personnel'];
+    const YEARS_ALL = [2026, 2027, 2028, 2029];
+    const CROSS = [].concat(...YEARS_ALL.map(year => MASSES.map(mass => `Total_${mass}_${year}`)));
+    const crossAdded = () => calls('AddColumn').map(call => call.colId).filter(id => /^Total_(Fonctionnement|Investissement|Personnel)_20\d\d$/.test(id));
+    const spec = id => O().ownedSpecs().find(item => item.id === id);
+
+    it('douze colonnes Total_<masse>_<année> (jamais en collision avec les totaux existants, même sans tenir compte de la casse)', function () {
+      assertDeepEqual(O().crossDefinitions(1).map(def => def.id), CROSS);
+      assertEqual(O().crossColumn('P', 2028), 'Total_Personnel_2028');
+      const all = O().ownedSpecs().map(item => item.id).concat(T().targets().map(target => target.colId));
+      assertEqual(new Set(all.map(id => id.toLowerCase())).size, all.length, 'aucun doublon de colId, Grist ne distingue pas la casse');
+    });
+
+    it('chaque case additionne les montants de la masse et de l\'année pour les OPE 1 à n, « vide » à 0, avec une bulle d\'aide', function () {
+      const one = Object.fromEntries(O().crossDefinitions(1).map(def => [def.id, def]));
+      assertIncludes(one.Total_Fonctionnement_2026.formula, 'total = (rec.c2026_M10_Fonctionnement or 0)\nif total == 0:\n   return ""\nreturn total');
+      assertIncludes(one.Total_Fonctionnement_2026.formula, '(OPE 1 à 1)');
+      const three = Object.fromEntries(O().crossDefinitions(3).map(def => [def.id, def]));
+      assertIncludes(three.Total_Investissement_2028.formula, 'total = (rec.c2028_M20_Investissement or 0) + (rec.c2028_M20_Investissement_2 or 0) + (rec.c2028_M20_Investissement_3 or 0)\n');
+      assertTrue(!three.Total_Investissement_2028.formula.includes('_4'), 'jamais une OPE qui n\'existe pas');
+      assertIncludes(three.Total_Investissement_2028.formula, '(OPE 1 à 3)');
+      assertTrue(Object.values(three).every(def => def.type === 'Numeric' && def.isFormula === true && /toutes OPE réunies/.test(def.description)), 'Numeric, formule, bulle');
+    });
+
+    it('sans les colonnes 2029 d\'OPE 1 : neuf cases, aucune ne lit 2029', function () {
+      const defs = O().crossDefinitions(2, { with2029: false });
+      assertEqual(defs.length, 9);
+      assertTrue(defs.every(def => !def.id.endsWith('2029') && !def.formula.includes('c2029')));
+    });
+
+    it('projet classique : les douze cases sont créées avec les totaux par OPE, en un seul envoi, avant la réécriture des formules', async function () {
+      await installMeta(1);
+      const spy = spyBatches();
+      try { var result = await T().adapt(1); } finally { spy.restore(); }
+      assertDeepEqual(crossAdded().slice().sort(), CROSS.slice().sort());
+      assertEqual(spy.batches.filter(batch => batch.includes('AddColumn')).length, 1, 'colonnes par OPE et croisées dans un même envoi');
+      assertTrue(CROSS.every(id => result.created.includes(id)));
+      assertEqual(calls('AddColumn').filter(call => CROSS.includes(call.colId)).map(call => call.colInfo.formula.split('\n')[1]).filter(line => line.includes('_2')).length, 0, 'aucune OPE 2 pour un projet classique');
+    });
+
+    it('plusieurs OPE : les douze cases additionnent l\'OPE 1 et l\'OPE 2', async function () {
+      await installMeta(2);
+      await T().adapt(2);
+      const added2 = Object.fromEntries(calls('AddColumn').map(call => [call.colId, call.colInfo.formula]));
+      assertEqual(crossAdded().length, 12, 'douze cases, pas une par OPE');
+      assertIncludes(added2.Total_Personnel_2027, 'total = (rec.c2027_M30_Personnel or 0) + (rec.c2027_M30_Personnel_2 or 0)');
+    });
+
+    it('une OPE ajoutée plus tard : les cases existantes passent de « OPE 1 à 2 » à « OPE 1 à 3 », dans le même envoi que les totaux', async function () {
+      const formulas = {};
+      O().crossDefinitions(2).forEach(def => { formulas[def.id] = def.formula; });
+      await installMeta(3, formulas);
+      const spy = spyBatches();
+      try { var result = await T().adapt(3); } finally { spy.restore(); }
+      const crossModifies = modifies().filter(call => CROSS.includes(call.colId));
+      assertEqual(crossModifies.length, 12);
+      assertIncludes(crossModifies.find(call => call.colId === 'Total_Fonctionnement_2026').colInfo.formula, '(OPE 1 à 3)');
+      assertIncludes(crossModifies.find(call => call.colId === 'Total_Fonctionnement_2026').colInfo.formula, '(rec.c2026_M10_Fonctionnement_3 or 0)');
+      assertDeepEqual(result.refreshed.slice().sort(), CROSS.slice().sort());
+      assertEqual(spy.batches.filter(batch => batch.includes('ModifyColumn')).length, 1, 'tout ou rien');
+      assertEqual(crossAdded().length, 0, 'jamais recréées');
+    });
+
+    it('déjà à jour : aucune réécriture', async function () {
+      const formulas = {};
+      O().crossDefinitions(2).forEach(def => { formulas[def.id] = def.formula; });
+      await installMeta(2, formulas);
+      const result = await T().adapt(2);
+      assertEqual(result.refreshed.length, 0);
+      assertEqual(modifies().filter(call => CROSS.includes(call.colId)).length, 0);
+    });
+
+    it('une case modifiée à la main n\'est jamais touchée, elle est signalée', async function () {
+      const formulas = {};
+      O().crossDefinitions(1).forEach(def => { formulas[def.id] = def.formula; });
+      formulas.Total_Personnel_2026 = 'return $c2026_M30_Personnel * 2';
+      await installMeta(2, formulas);
+      const result = await T().adapt(2);
+      assertTrue(!modifies().some(call => call.colId === 'Total_Personnel_2026'));
+      assertTrue(result.untouched.some(item => item.colId === 'Total_Personnel_2026' && /à la main/.test(item.reason)));
+      assertEqual(result.refreshed.length, 11, 'les autres cases sont mises à jour');
+    });
+
+    it('les totaux par OPE de la première version (sans « vide à 0 ») sont remplacés, une formule modifiée à la main non', async function () {
+      const first = O().ownedSpecs().find(item => item.id === 'Total_Fonctionnement_OPE_1');
+      const edited = 'return $c2026_M10_Fonctionnement';
+      await installMeta(1, { Total_Fonctionnement_OPE_1: O().ownedLegacyFormula(first, true), Total_Personnel_OPE_1: edited });
+      const result = await T().adapt(1);
+      const step = modifies().find(call => call.colId === 'Total_Fonctionnement_OPE_1');
+      assertEqual(step.colInfo.formula, O().ownedFormula(first, 1, true));
+      assertTrue(!modifies().some(call => call.colId === 'Total_Personnel_OPE_1'));
+      assertTrue(result.untouched.some(item => item.colId === 'Total_Personnel_OPE_1'));
+    });
+
+    it('si Grist refuse de créer les colonnes : rien n\'est réécrit, aucune exception', async function () {
+      await installMeta(2);
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[0] === 'AddColumn')) throw new Error('refus (test)');
+        return original.call(this, actions);
+      };
+      try {
+        const result = await T().adapt(2);
+        assertEqual(result.ok, false);
+        assertEqual(modifies().length, 0);
+      } finally { window.grist.docApi.applyUserActions = original; }
+    });
+
+    it('le message dit combien de cases du projet ont été créées et combien ont été mises à jour', async function () {
+      await installMeta(1);
+      await T().adaptAndNotify(1);
+      assertIncludes(flat(toastEl().textContent), '12 colonnes de totaux du projet, toutes OPE réunies, créées dans Projets');
+      window.__TEST_CALLS__.length = 0;
+      T()._reset();
+      const formulas = {};
+      O().crossDefinitions(1).forEach(def => { formulas[def.id] = def.formula; });
+      await installMeta(2, formulas);
+      await T().adaptAndNotify(2);
+      assertIncludes(flat(toastEl().textContent), 'colonnes de totaux mises à jour');
+    });
+
+    it('la spec d\'une case donne bien la masse et l\'année', function () {
+      assertDeepEqual([spec('Total_Investissement_2027').years, spec('Total_Investissement_2027').natures.map(n => n.key)], [[2027], ['I']]);
     });
   });
 

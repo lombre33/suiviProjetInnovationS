@@ -124,6 +124,21 @@
     return { action: 'adapt', formula: build(target, text.split('\n'), upTo, want2029) };
   }
 
+  // Colonnes de totaux gérées par le widget (par OPE, croisées) : que faire de la formule d'une colonne qui existe déjà ? Elle est réécrite
+  // seulement si c'est une formule du widget, jamais modifiée à la main : l'état actuel, ou un état antérieur (moins d'OPE, sans 2029, première
+  // version sans « vide à 0 »). {action: 'none' | 'adapt' | 'skip', reason, formula}
+  function ownedPlan(spec, formula, reach, with2029) {
+    const text = normalize(formula);
+    const expected = opes().ownedFormula(spec, reach, with2029);
+    if (text === expected) return { action: 'none' };
+    const earlier = [];
+    for (let rank = 1; rank <= opes().MAX; rank++) [true, false].forEach(year => {
+      if (opes().ownedApplies(spec, year)) earlier.push(opes().ownedFormula(spec, rank, year), opes().ownedLegacyFormula(spec, year));
+    });
+    if (!earlier.some(candidate => candidate && candidate === text)) return { action: 'skip', reason: 'formule modifiée à la main' };
+    return { action: 'adapt', formula: expected };
+  }
+
   // 2029 ne s'ajoute que si les trois colonnes d'OPE 1 existent dans Projets (sinon la formule lirait une colonne absente).
   const has2029Columns = columnIds => opes().NATURES.every(nature => columnIds.has(opes().amountColumn(1, YEAR_2029, nature)));
   // Plus haut rang dont les colonnes de montants existent toutes dans Projets, de façon continue à partir de l'OPE 2.
@@ -168,7 +183,8 @@
       const with2029 = has2029Columns(ids);
       const reach = completeRank(ids, with2029);
       // Colonnes de totaux PAR OPE (courrier de notification) : créées d'abord, en un seul envoi ; l'OPE 1 toujours, les autres quand leurs colonnes existent.
-      const missingTotals = opes().missingTotalColumns(ids, reach, { with2029 });
+      // Puis les totaux croisés du projet (masse × année, toutes OPE) : un seul envoi pour les deux familles.
+      const missingTotals = opes().missingTotalColumns(ids, reach, { with2029 }).concat(opes().missingCrossColumns(ids, reach, { with2029 }));
       if (missingTotals.length) await global.CoreGrist.ensureColumns(TABLE, missingTotals);
       const actions = [];
       const adapted = [];
@@ -180,10 +196,19 @@
         if (step.action === 'adapt') { actions.push(['ModifyColumn', TABLE, target.colId, { formula: step.formula }]); adapted.push(target.colId); }
         else if (step.action === 'skip') untouched.push({ colId: target.colId, reason: step.reason });
       });
+      // Colonnes de totaux déjà créées par le widget : mises à jour quand une OPE (ou 2029) s'ajoute ; une formule modifiée à la main n'est jamais touchée.
+      const refreshed = [];
+      opes().ownedSpecs().forEach(spec => {
+        const current = formulas[spec.id];
+        if (!current || !current.isFormula || !opes().ownedApplies(spec, with2029) || (spec.kind === 'ope' && spec.rank > reach)) return;
+        const step = ownedPlan(spec, current.formula, reach, with2029);
+        if (step.action === 'adapt') { actions.push(['ModifyColumn', TABLE, spec.id, { formula: step.formula }]); refreshed.push(spec.id); }
+        else if (step.action === 'skip') untouched.push({ colId: spec.id, reason: step.reason });
+      });
       if (actions.length) await grist.docApi.applyUserActions(actions);
       if (actions.length && global.CoreGrist.invalidateTable) global.CoreGrist.invalidateTable(TABLE);
       verifiedUpTo = Math.max(verifiedUpTo, reach);
-      return { ok: true, upTo: reach, with2029, adapted, untouched, created: missingTotals.map(def => def.id), checked: true };
+      return { ok: true, upTo: reach, with2029, adapted, untouched, refreshed, created: missingTotals.map(def => def.id), checked: true };
     } catch (error) {
       failedUpTo = Math.max(failedUpTo, wanted);
       return { ok: false, error, adapted: [], untouched: [] };
@@ -203,14 +228,18 @@
     }
     const custom = result.untouched.filter(item => item.reason !== 'colonne absente');
     const created = result.created || [];
-    if (!result.adapted.length && !custom.length && !created.length) return result;
+    const refreshed = result.refreshed || [];
+    if (!result.adapted.length && !custom.length && !created.length && !refreshed.length) return result;
     const message = [];
-    if (created.length) message.push(`${created.length} colonnes de totaux par OPE créées dans Projets (Total_OPE_1, Total_2026_OPE_1, Total_Fonctionnement_OPE_1…).`);
+    const perOpe = created.filter(id => /_OPE_\d$/.test(id)), cross = created.filter(id => !/_OPE_\d$/.test(id));
+    if (perOpe.length) message.push(`${perOpe.length} colonnes de totaux par OPE créées dans Projets (Total_OPE_1, Total_2026_OPE_1, Total_Fonctionnement_OPE_1…).`);
+    if (cross.length) message.push(`${cross.length} colonnes de totaux du projet, toutes OPE réunies, créées dans Projets (Total_Fonctionnement_2026, Total_Investissement_2026…).`);
+    if (refreshed.length) message.push(`${refreshed.length} colonnes de totaux mises à jour (${refreshed.join(', ')}).`);
     if (result.adapted.length) message.push(`Totaux de Projets adaptés ${scope(result.upTo, result.with2029)} : ${result.adapted.join(', ')} (la formule d'origine reste en commentaire).`);
     if (custom.length) message.push(`Non modifiés : ${custom.map(item => `${item.colId} (${item.reason})`).join(', ')}.`);
     utils.showToast(message.join(' '), custom.length > 0, { duration: 12000 });
     return result;
   }
 
-  global.CoreOpeTotals = { TABLE, YEARS, targets, columnsOf, referencedColumns, isOriginal, build, parseAdapted, plan, completeRank, has2029Columns, adapt, adaptAndNotify, _reset };
+  global.CoreOpeTotals = { TABLE, YEARS, targets, columnsOf, referencedColumns, isOriginal, build, parseAdapted, plan, ownedPlan, completeRank, has2029Columns, adapt, adaptAndNotify, _reset };
 }(window));

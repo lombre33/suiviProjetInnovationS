@@ -176,19 +176,34 @@ ajouter **2029** (si les colonnes `c2029_*` existent) et les **OPE 2 à 4** dont
   d'origine gardée ; une formule marquée puis **modifiée à la main** n'est plus touchée ;
 - jamais bloquant : un refus de Grist (droit de structure) n'empêche pas l'enregistrement, il est dit une seule fois par session.
 
-**Totaux par OPE (colonnes dédiées au courrier de notification, 26/11/2026)** : pour remplir un tableau « une OPE par bloc » dans un modèle Publipostage+,
-le widget crée, **pour chaque OPE existante** (1 à 4), 8 colonnes **calculées** (Numeric, formule, bulle d'aide) qui additionnent les montants de cette OPE
-seulement (l'OPE 1 lit les colonnes d'origine, les OPE 2 à 4 leurs colonnes `_2/_3/_4`) :
+**Totaux par OPE et totaux croisés du projet (colonnes dédiées aux courriers de notification, 26/11/2026)** : pour remplir les tableaux d'un modèle
+Publipostage+, le widget crée des colonnes **calculées** (Numeric, formule, bulle d'aide, **jamais écrites**) :
 
-| Case du tableau | Colonne (OPE n) |
+*Par OPE* (pour chaque OPE existante de 1 à 4 : 8 colonnes, additionnent les montants de cette OPE seulement ; l'OPE 1 lit les colonnes d'origine, les
+OPE 2 à 4 leurs colonnes `_2/_3/_4`) :
+
+| Case du tableau d'une OPE | Colonne (OPE n) |
 |---|---|
 | « Total Projet » de la ligne Fonctionnement / Investissement / Personnel | `Total_Fonctionnement_OPE_n`, `Total_Investissement_OPE_n`, `Total_Personnel_OPE_n` |
 | ligne « Total » sous chaque année 2026 / 2027 / 2028 / 2029 | `Total_2026_OPE_n`, `Total_2027_OPE_n`, `Total_2028_OPE_n`, `Total_2029_OPE_n` |
 | case en bas à droite (total de l'OPE) | `Total_OPE_n` |
 
-Elles sont créées avec les formules adaptées (même moment, même message) et **jamais écrites** par le widget ; déjà présentes, elles ne sont jamais
-recréées. Si Grist refuse la création (droit de structure), les formules ne sont pas réécrites non plus (tout ou rien). Sans les colonnes `c2029_*`
-d'OPE 1, 7 colonnes seulement sont créées pour l'OPE 1 (rien sur 2029).
+*Croisées, pour tout le projet* (tableau « budget total attribué » : toutes les OPE réunies, 12 colonnes `Total_<masse>_<année>`, formule = somme des OPE 1 à n
+existantes) :
+
+| Ligne \ Année | 2026 | 2027 | 2028 | 2029 | « Total Projet » |
+|---|---|---|---|---|---|
+| Fonctionnement | `Total_Fonctionnement_2026` | `Total_Fonctionnement_2027` | `Total_Fonctionnement_2028` | `Total_Fonctionnement_2029` | `Total_Fonctionnement` |
+| Investissement | `Total_Investissement_2026` | `Total_Investissement_2027` | `Total_Investissement_2028` | `Total_Investissement_2029` | `Total_investissement` (i minuscule : nom d'origine) |
+| Personnel | `Total_Personnel_2026` | `Total_Personnel_2027` | `Total_Personnel_2028` | `Total_Personnel_2029` | `Total_Personnel` |
+| **Total** | `Total_2026` | `Total_2027` | `Total_2028` | `Total_2029` | `Montant_attribue_Total` |
+
+Règles communes : formule « vide à 0 » (une case sans montant reste vide dans le courrier, comme `Total_2026`) ; en-tête de la formule = marqueur du widget
+(`# Colonne calculée par le widget (OPE 1 à n, 2029 inclus)`) ; créées en **un seul envoi**, avant la réécriture des formules d'origine ; jamais recréées ;
+quand une OPE (ou 2029) s'ajoute, les colonnes **croisées** et les totaux par OPE déjà créés sont **réécrits** (`CoreOpeTotals.ownedPlan`), seulement s'ils
+portent encore une formule du widget (état actuel ou antérieur, y compris la première version sans « vide à 0 ») : **une formule modifiée à la main n'est jamais
+touchée** (elle est signalée). Si Grist refuse la création (droit de structure), les formules d'origine ne sont pas réécrites non plus (tout ou rien). Sans
+les colonnes `c2029_*` d'OPE 1 : pas de colonne 2029 (7 par OPE, 9 croisées). Tout passe par `CoreOpes.ownedSpecs()` (une spec par colonne).
 
 **`c2026_M10_Fonctionnement` n'est pas le total du projet** quand il y a plusieurs OPE : c'est le montant de l'OPE 1 ; les OPE 2 à 4 ont leurs colonnes
 `_2/_3/_4`. Pour un projet classique (une seule OPE), c'est à la fois l'OPE 1 et le total du projet. Les totaux du projet sont dans `Total_*` et

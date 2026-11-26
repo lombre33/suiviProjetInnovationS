@@ -79,33 +79,75 @@
     return defs;
   }
 
-  // Totaux PAR OPE (demande d'Antoine du 26/11/2026, modèle de courrier de notification : un tableau par OPE, avec « Total Projet » par masse, une ligne
-  // « Total » par année et le total de l'OPE). Colonnes CALCULÉES de Projets créées par le widget, jamais écrites, pour chaque OPE de 1 à 4 :
-  //   Total_Fonctionnement_OPE_n, Total_Investissement_OPE_n, Total_Personnel_OPE_n (toutes années de l'OPE),
-  //   Total_2026_OPE_n … Total_2029_OPE_n (toutes masses de l'OPE), Total_OPE_n (tout).
-  // Distinctes de Total_2026… / Total_Fonctionnement… / Montant_attribue_Total, qui additionnent TOUTES les OPE du projet (js/core/ope-totals.js).
+  // Totaux CALCULÉS que le widget crée et gère dans Projets (demandes d'Antoine du 26/11/2026, modèles de courrier de notification et tableau
+  // « budget total attribué »). Colonnes de formule, jamais écrites par le widget :
+  //  - PAR OPE (1 à 4) : Total_Fonctionnement_OPE_n, Total_Investissement_OPE_n, Total_Personnel_OPE_n (toutes années de l'OPE),
+  //    Total_2026_OPE_n … Total_2029_OPE_n (toutes masses de l'OPE), Total_OPE_n (tout) ;
+  //  - CROISÉES, pour TOUT le projet (OPE 1 à n additionnées) : Total_Fonctionnement_2026 … Total_Personnel_2029 (une masse, une année : 12 cases).
+  // Distinctes de Total_2026… / Total_Fonctionnement… / Montant_attribue_Total (formules d'origine de Projets, js/core/ope-totals.js), qui
+  // restent la ligne « Total », la colonne « Total Projet » et le total général du même tableau.
   const totalMassColumn = (rank, nature) => `Total_${natureOf(nature).label}_OPE_${rank}`;
   const totalYearColumn = (rank, year) => `Total_${year}_OPE_${rank}`;
   const totalOpeColumn = rank => `Total_OPE_${rank}`;
-  // `with2029` faux : les colonnes de 2029 de l'OPE 1 n'existent pas dans ce document, les totaux s'arrêtent à 2028 (comme les formules d'origine).
-  function totalDefinitions(rank, options) {
-    const years = YEARS.filter(year => year < 2029 || !options || options.with2029 !== false);
-    const sum = columns => columns.map(col => `(rec.${col} or 0)`).join(' + ');
-    const who = rank === 1 ? 'l\'OPE 1' : `l'OPE ${rank}`;
-    const def = (id, columns, description) => ({ id, type: 'Numeric', isFormula: true, formula: `# Colonne calculée créée par le widget : ne pas modifier.\nreturn ${sum(columns)}`, description });
-    const defs = [];
-    NATURES.forEach(nature => defs.push(def(totalMassColumn(rank, nature), years.map(year => amountColumn(rank, year, nature)),
-      `Total ${nature.label} de ${who} (${years[0]}-${years[years.length - 1]}) : somme des montants saisis dans la fiche projet. Colonne calculée par le widget.`)));
-    years.forEach(year => defs.push(def(totalYearColumn(rank, year), NATURES.map(nature => amountColumn(rank, year, nature)),
-      `Total ${year} de ${who} (fonctionnement + investissement + personnel). Colonne calculée par le widget.`)));
-    defs.push(def(totalOpeColumn(rank), [].concat(...years.map(year => NATURES.map(nature => amountColumn(rank, year, nature)))),
-      `Total de ${who} (toutes masses, ${years[0]}-${years[years.length - 1]}). Colonne calculée par le widget.`));
-    return defs;
+  const crossColumn = (nature, year) => `Total_${natureOf(nature).label}_${year}`;
+
+  // Toutes les colonnes de totaux gérées : {id, kind: 'ope' | 'cross', rank (pour 'ope'), years, natures, what}.
+  function ownedSpecs() {
+    const specs = [];
+    const whoIs = rank => `l'OPE ${rank}`;
+    ranks().forEach(rank => {
+      NATURES.forEach(nature => specs.push({ id: totalMassColumn(rank, nature), kind: 'ope', rank, years: YEARS, natures: [nature], what: `Total ${nature.label} de ${whoIs(rank)}` }));
+      YEARS.forEach(year => specs.push({ id: totalYearColumn(rank, year), kind: 'ope', rank, years: [year], natures: NATURES, what: `Total ${year} de ${whoIs(rank)} (fonctionnement + investissement + personnel)` }));
+      specs.push({ id: totalOpeColumn(rank), kind: 'ope', rank, years: YEARS, natures: NATURES, what: `Total de ${whoIs(rank)} (toutes masses)` });
+    });
+    YEARS.forEach(year => NATURES.forEach(nature => specs.push({ id: crossColumn(nature, year), kind: 'cross', years: [year], natures: [nature],
+      what: `Total ${nature.label} ${year} du projet, toutes OPE réunies` })));
+    return specs;
   }
-  // Colonnes de totaux par OPE à créer pour les OPE 1 à `upTo` : celles que `existing` (Set de colId connus) n'a pas encore.
+  // `with2029` faux : les colonnes de 2029 de l'OPE 1 n'existent pas dans ce document, les totaux s'arrêtent à 2028 (comme les formules d'origine).
+  const ownedYears = (spec, with2029) => spec.years.filter(year => year < 2029 || with2029 !== false);
+  const ownedApplies = (spec, with2029) => ownedYears(spec, with2029).length > 0;
+  // Colonnes de montants additionnées : l'OPE de la colonne (par OPE) ou les OPE 1 à `reach` (croisée).
+  function ownedColumns(spec, reach, with2029) {
+    const columnRanks = spec.kind === 'ope' ? [spec.rank] : ranks().filter(rank => rank <= (reach || 1));
+    return [].concat(...columnRanks.map(rank => [].concat(...ownedYears(spec, with2029).map(year => spec.natures.map(nature => amountColumn(rank, year, nature))))));
+  }
+  const ownedScope = (spec, reach, with2029) => (spec.kind === 'ope' ? `OPE ${spec.rank}` : `OPE 1 à ${reach || 1}`) +
+    (spec.years.length > 1 && with2029 !== false ? ', 2029 inclus' : '');
+  // « vide » à 0 comme Total_2026… : un courrier ne doit pas imprimer de 0 dans une ligne sans montant.
+  function ownedFormula(spec, reach, with2029) {
+    const terms = ownedColumns(spec, reach, with2029).map(col => `(rec.${col} or 0)`).join(' + ');
+    return `# Colonne calculée par le widget (${ownedScope(spec, reach, with2029)}) : ne pas modifier, réécrite par le widget quand une OPE s'ajoute.\n` +
+      `total = ${terms}\nif total == 0:\n   return ""\nreturn total`;
+  }
+  // Première version des totaux par OPE (26/11/2026, 09:21) : somme simple, sans « vide à 0 ». Reconnue pour être remplacée ; jamais une autre.
+  const ownedLegacyFormula = (spec, with2029) => (spec.kind === 'ope'
+    ? `# Colonne calculée créée par le widget : ne pas modifier.\nreturn ${ownedColumns(spec, 1, with2029).map(col => `(rec.${col} or 0)`).join(' + ')}` : '');
+  function ownedDefinition(spec, reach, with2029) {
+    const years = ownedYears(spec, with2029);
+    const range = spec.years.length > 1 ? ` (${years[0]}-${years[years.length - 1]})` : '';
+    return { id: spec.id, type: 'Numeric', isFormula: true, formula: ownedFormula(spec, reach, with2029),
+      description: `${spec.what}${range} : somme des montants saisis dans la fiche projet. Colonne calculée par le widget.` };
+  }
+  const ownedSpecsOf = (kind, rank) => ownedSpecs().filter(spec => spec.kind === kind && (kind === 'cross' || spec.rank === rank));
+  // Totaux de l'OPE `rank` (8 colonnes, 7 sans 2029).
+  function totalDefinitions(rank, options) {
+    const with2029 = !options || options.with2029 !== false;
+    return ownedSpecsOf('ope', rank).filter(spec => ownedApplies(spec, with2029)).map(spec => ownedDefinition(spec, 1, with2029));
+  }
+  // Totaux croisés du projet pour les OPE 1 à `upTo` (12 colonnes, 9 sans 2029).
+  function crossDefinitions(upTo, options) {
+    const with2029 = !options || options.with2029 !== false;
+    return ownedSpecsOf('cross').filter(spec => ownedApplies(spec, with2029)).map(spec => ownedDefinition(spec, upTo || 1, with2029));
+  }
+  // Colonnes de totaux à créer pour les OPE 1 à `upTo` : celles que `existing` (Set de colId connus) n'a pas encore.
   function missingTotalColumns(existing, upTo, options) {
     const known = existing || new Set();
     return [].concat(...ranks().filter(rank => rank <= (upTo || 1)).map(rank => totalDefinitions(rank, rank === 1 ? options : null))).filter(def => !known.has(def.id));
+  }
+  function missingCrossColumns(existing, upTo, options) {
+    const known = existing || new Set();
+    return crossDefinitions(upTo, options).filter(def => !known.has(def.id));
   }
 
   // Identifiants d'une valeur ReferenceList de Grist (['L', 3, 5]), d'une référence simple (3) ou d'un objet {id}.
@@ -199,7 +241,8 @@
 
   global.CoreOpes = {
     MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
-    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns, referenceDisplaySpecs, ensureDisplays, totalMassColumn, totalYearColumn, totalOpeColumn, totalDefinitions, missingTotalColumns,
+    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns, referenceDisplaySpecs, ensureDisplays, totalMassColumn, totalYearColumn, totalOpeColumn, crossColumn, totalDefinitions, crossDefinitions, missingTotalColumns, missingCrossColumns,
+    ownedSpecs, ownedApplies, ownedColumns, ownedFormula, ownedLegacyFormula,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals
   };
 }(window));
