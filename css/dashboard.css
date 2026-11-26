@@ -12,7 +12,7 @@
 .db-filters input.is-active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
 .db-filters .db-spacer { flex:1 1 0; }
 /* Une seule ligne dans un widget de largeur courante : les trois champs se partagent la place restante */
-.db-filters .filter-combo, .db-filters .filter-search { flex:1 1 130px; min-width:110px; max-width:230px; }
+.db-filters .filter-combo, .db-filters .filter-search { flex:1 1 110px; min-width:100px; max-width:230px; }
 .db-filters .filter-combo input, .db-filters .filter-search input { min-width:0; width:100%; text-overflow:ellipsis; }
 .db-reset { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); cursor:pointer; flex:none; }
 .db-reset:hover { background:var(--surface-sunken); color:var(--text); }
@@ -177,6 +177,8 @@
 .db-ope-tools label { display:inline-flex; align-items:center; gap:6px; font-weight:700; }
 .db-ope-tools input[type="search"], .db-ope-tools .dp-input { height:30px; padding:0 9px; border:1px solid var(--border); border-radius:8px; font:inherit; font-size:12.5px; background:var(--surface); color:var(--text); }
 .db-ope-tools input[type="search"] { width:220px; }
+.db-ope-tools [data-dp-wrap] { width:150px; }
+.db-ope-tools [data-dp-wrap] input { width:100%; }
 .db-ope-tools .db-linkbtn { margin-left:auto; }
 .db-mblock { margin:0 0 10px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
 .db-mhead { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; padding:7px 12px; background:var(--surface-sunken); }
@@ -226,7 +228,7 @@
 .db-kid { background:#fafbfd; min-height:42px; }
 .db-kid .db-name { padding-left:34px; }
 .db-elb { flex:none; color:var(--text-muted); font-weight:800; }
-.db-stlabel { padding:0 4px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.db-stlabel { height:28px; line-height:28px; padding:0 14px 0 26px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media (max-width: 860px) {
   .db-colhead { display:flex; }
   .db-colhead > span:not(.db-lhs) { display:none; }
@@ -301,3 +303,6 @@
 .db-hzb { appearance:none; height:28px; padding:0 12px; border-radius:999px; border:1px solid var(--border); background:var(--surface); font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
 .db-hzb.is-on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-hover); }
 .db-hzn { margin-left:auto; font-size:11.5px; color:var(--text-muted); }
+
+/* Bandeau sur une seule ligne : le mot « Alertes » s'efface quand la place manque (le bouton garde l'icône et le nombre) */
+@media (max-width: 1500px) { .db-alerts-label { display:none; } }
