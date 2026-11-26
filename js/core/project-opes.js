@@ -68,9 +68,10 @@
       return Object.assign({ id, isFormula: false }, def, description ? { description } : {});
     };
     const defs = [
-      withHelp(ligneColumn(rank), { type: 'RefList:Lignes_OPE' }),
+      // `display` : sans colonne affichée Grist montrerait le numéro de ligne (voir CoreGrist, applyReferenceDisplay) ; on recopie le réglage de l'OPE 1.
+      withHelp(ligneColumn(rank), { type: 'RefList:Lignes_OPE', display: { like: BASE.ligne, column: 'N_OPE' } }),
       // Juste après la ligne : la formule en dépend, et les actions partent dans cet ordre dans un seul applyUserActions groupé.
-      withHelp(installeColumn(rank), { type: 'RefList:Structures', isFormula: true, formula: `$${ligneColumn(rank)}.installe_chez` }),
+      withHelp(installeColumn(rank), { type: 'RefList:Structures', isFormula: true, formula: `$${ligneColumn(rank)}.installe_chez`, display: { like: BASE.installe, column: 'Acronyme' } }),
       withHelp(actionColumn(rank), { type: 'Choice', widgetOptions: JSON.stringify({ choices: ACTION_CHOICES.slice() }) }),
       withHelp(commentColumn(rank), { type: 'Text' })
     ];
@@ -150,6 +151,15 @@
     return defs;
   }
 
+  // Colonnes référence des OPE 2 à `upTo` avec leur colonne affichée : pour régler l'affichage de celles créées avant que le widget le fasse.
+  const referenceDisplaySpecs = upTo => ranks().filter(rank => rank > 1 && rank <= (upTo || MAX)).flatMap(rank => columnDefinitions(rank).filter(def => def.display));
+  // Au mieux : règle la colonne affichée de ces colonnes dans Grist (jamais bloquant pour l'enregistrement qui l'appelle).
+  async function ensureDisplays(upTo) {
+    if (!global.CoreGrist || typeof global.CoreGrist.ensureReferenceDisplay !== 'function') return [];
+    try { return await global.CoreGrist.ensureReferenceDisplay('Projets', referenceDisplaySpecs(upTo)); }
+    catch (error) { console.warn('Colonne affichée des colonnes d\'OPE non réglée :', error.message); return []; }
+  }
+
   // Type d'une ligne OPE (demande d'Antoine du 24/11/2026) : colonne Choice de Lignes_OPE, créée par le widget au premier enregistrement qui en a besoin.
   const LINE_TYPE_COLUMN = 'Type_ligne_OPE';
   const LINE_TYPES = Object.freeze(['Reversement', 'RH', 'Projet']);
@@ -160,7 +170,7 @@
 
   global.CoreOpes = {
     MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
-    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns,
+    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns, referenceDisplaySpecs, ensureDisplays,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals
   };
 }(window));

@@ -1578,6 +1578,8 @@
       const opeCount = refs._opeCountToSave();
       if (opeCount > 1) {
         await ensureOpeColumns(m, opeCount);
+        // Colonne affichée des colonnes référence des OPE 2 à 4 (sinon Grist y montre des numéros de ligne), y compris celles créées avant.
+        await global.CoreOpes.ensureDisplays(opeCount);
         // Totaux de Projets (formules Grist) : additionnés sur les OPE 2 à 4 existantes, au mieux (un refus ne bloque jamais l'enregistrement).
         if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(opeCount);
       }

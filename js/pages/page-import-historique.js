@@ -878,6 +878,7 @@
           { cause: error, gristAccess: { op: 'write', table: 'Projets', columns: missing.map(col => col.id), what: `création des colonnes ${which} dans Projets` } });
       }
     }
+    await global.CoreOpes.ensureDisplays(plan.neededRank); // colonne affichée des colonnes référence des OPE 2 à 4 (jamais bloquant)
     // Totaux de Projets (formules Grist) additionnés sur les OPE 2 à 4 existantes (js/core/ope-totals.js) ; au mieux, ne bloque jamais l'import.
     if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(plan.neededRank);
     return missing.map(col => col.id);

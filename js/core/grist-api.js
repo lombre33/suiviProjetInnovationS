@@ -64,6 +64,63 @@
     }
   }
 
+  // Colonne affichée (« SHOW COLUMN ») d'une colonne référence. Une colonne Ref / RefList créée par l'API n'en a AUCUNE : Grist y montre le numéro de
+  // ligne (« 3 ») au lieu de la valeur (Antoine, 26/11/2026, sur Ligne_OPE_installe_chez_2). Le réglage d'une colonne = visibleCol (la colonne de la table
+  // cible à montrer) + displayCol (colonne d'aide gristHelper_Display, créée par l'action SetDisplayFormula) — ce que fait l'interface de Grist.
+  // RÈGLE : toute colonne référence créée par le widget porte `display: { like?, column? }` (`like` : colonne de la même table dont on recopie le réglage,
+  // `column` : colonne de la table cible à montrer sinon) ; à défaut, la première colonne « texte » de la table cible, comme le fait Grist.
+  const isRefType = type => /^Ref(List)?:/.test(String(type || ''));
+  const refTarget = type => String(type).split(':')[1];
+  const IDENTIFYING_TYPES = ['Text', 'Any', 'Numeric', 'Int', 'Date', 'DateTime', 'Choice'];
+  // Mémoire de la session : « table.colonne » dont l'affichage est déjà réglé ou vérifié (aucune relecture des métadonnées ensuite).
+  const displayChecked = new Set();
+  function pickDisplayColumn(cols, targetRef) {
+    const candidates = [];
+    cols.id.forEach((ref, i) => {
+      const colId = String(cols.colId[i] || '');
+      if (cols.parentId[i] !== targetRef || /^(gristHelper_|manualSort$)/.test(colId)) return;
+      if (IDENTIFYING_TYPES.includes(String(cols.type ? cols.type[i] : '').split(':')[0])) candidates.push({ ref, pos: cols.parentPos ? Number(cols.parentPos[i]) || 0 : i });
+    });
+    candidates.sort((a, b) => a.pos - b.pos);
+    return candidates.length ? candidates[0].ref : 0;
+  }
+  // Règle l'affichage des colonnes référence de `specs` ([{id, type, display?}]) qui n'en ont pas encore (jamais celle d'une colonne déjà réglée,
+  // à la main ou par un passage précédent). Rend les colId réglés ; lève si Grist refuse (droits de structure) : l'appelant décide d'en tenir compte.
+  async function applyReferenceDisplay(tableId, specs) {
+    const refs = specs.filter(spec => isRefType(spec.type));
+    if (!refs.length) return [];
+    const [tables, cols] = await Promise.all([gristInstance.docApi.fetchTable('_grist_Tables'), gristInstance.docApi.fetchTable('_grist_Tables_column')]);
+    const tableRefOf = id => tables.id[tables.tableId.indexOf(id)];
+    const colAt = (parent, colId) => cols.id.findIndex((ref, i) => cols.parentId[i] === parent && cols.colId[i] === colId);
+    const tableRef = tableRefOf(tableId);
+    const actions = [], done = [];
+    refs.forEach(spec => {
+      const at = colAt(tableRef, spec.id);
+      if (at === -1) return;
+      const already = cols.visibleCol && cols.displayCol && cols.visibleCol[at] && cols.displayCol[at];
+      if (already) { displayChecked.add(`${tableId}.${spec.id}`); return; }
+      const targetRef = tableRefOf(refTarget(spec.type));
+      if (!targetRef) return;
+      const display = spec.display || {};
+      let visible = 0;
+      if (display.like && cols.visibleCol) { const base = colAt(tableRef, display.like); if (base !== -1) visible = cols.visibleCol[base] || 0; }
+      if (!visible && display.column) { const target = colAt(targetRef, display.column); if (target !== -1) visible = cols.id[target]; }
+      if (!visible) visible = pickDisplayColumn(cols, targetRef);
+      if (!visible) return;
+      actions.push(['UpdateRecord', '_grist_Tables_column', cols.id[at], { visibleCol: visible }]);
+      actions.push(['SetDisplayFormula', tableId, null, cols.id[at], `$${spec.id}.${cols.colId[cols.id.indexOf(visible)]}`]);
+      done.push(spec.id);
+    });
+    if (actions.length) await gristInstance.docApi.applyUserActions(actions);
+    refs.forEach(spec => { if (done.includes(spec.id)) displayChecked.add(`${tableId}.${spec.id}`); });
+    return done;
+  }
+  // Au mieux, comme describeColumns : la colonne existe, seul son affichage resterait un numéro.
+  async function displayNewColumns(tableId, columns) {
+    try { await applyReferenceDisplay(tableId, columns); }
+    catch (err) { console.warn(`Colonne affichée des colonnes référence de ${tableId} non réglée :`, err.message); }
+  }
+
   let gristInstance = null;
   let readyPromise = null;
   // Descriptions de colonnes (bulles d'aide) : {tableId: {colId: description}},
@@ -170,10 +227,11 @@
       if (columnsOf(tableId)) return false;
       const existing = await gristInstance.docApi.listTables();
       if (existing.includes(tableId)) return false;
-      await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns]]);
+      await gristInstance.docApi.applyUserActions([['AddTable', tableId, columns.map(({ display, ...col }) => col)]]);
       knownSchema.set(tableId, new Set(['id', ...columns.map(col => col.id)]));
       seenColumns.delete(tableId);
       sharedFetches.delete(tableId);
+      await displayNewColumns(tableId, columns);
       return true;
     },
     // Ajoute les colonnes manquantes à une table déjà existante (ensureTable ne
@@ -192,7 +250,7 @@
       const missing = columns.filter(col => !existingIds.has(col.id));
       if (!missing.length) { knownSchema.set(tableId, existingIds); seenColumns.delete(tableId); return false; }
       await gristInstance.docApi.applyUserActions(missing.map(col => {
-        const { id, description, ...colInfo } = col;
+        const { id, description, display, ...colInfo } = col;
         return ['AddColumn', tableId, id, colInfo];
       }));
       missing.forEach(col => existingIds.add(col.id));
@@ -200,7 +258,17 @@
       seenColumns.delete(tableId);
       sharedFetches.delete(tableId);
       await describeColumns(tableId, missing);
+      await displayNewColumns(tableId, missing);
       return true;
+    },
+    // Règle l'affichage des colonnes référence DÉJÀ créées qui n'en ont pas (créées avant la règle, ou à la main sans « colonne affichée »). Une fois par
+    // session et par colonne ; rend les colId réglés ; lève si Grist refuse (l'appelant fait au mieux).
+    async ensureReferenceDisplay(tableId, specs) {
+      if (!gristInstance) throw new Error('CoreGrist not ready - call ready() first');
+      const known = columnsOf(tableId);
+      const pending = specs.filter(spec => isRefType(spec.type) && !displayChecked.has(`${tableId}.${spec.id}`) && (!known || known.has(spec.id)));
+      if (!pending.length) return [];
+      return applyReferenceDisplay(tableId, pending);
     },
     // À appeler une fois au démarrage (js/app.js) : peuple le cache lu par
     // getColumnDescription(). Ne renvoie rien et n'écrit jamais rien dans Grist ;
@@ -236,6 +304,7 @@
         choiceOptionsMap = choiceMap;
         formulaMap = formulas;
         knownSchema.clear(); seenColumns.clear(); // le schéma lu fait foi
+        displayChecked.clear();
         schema.forEach((set, tableId) => knownSchema.set(tableId, set));
       } catch (err) {
         console.warn('Chargement des descriptions de colonnes a échoué :', err.message);

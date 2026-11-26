@@ -138,6 +138,16 @@ fait par des colonnes de `Projets`.
 | `Ligne_OPE_installe_chez_n` | **Formule** `$Ligne_OPE_n.installe_chez`, ReferenceList → `Structures` (26/11/2026 : les OPE d'un projet sont le plus souvent dans des structures différentes ; même nature que `Ligne_OPE_installe_chez` de l'OPE 1). **Jamais écrite par le widget** (absente de `columnsOf`, `MODAL_FIELDS`) ; lue par la page To Do (« installé chez » = toutes les structures des OPE du projet, sans doublon). |
 | `c2026_M10_Fonctionnement_n`, `c2026_M20_Investissement_n`, `c2026_M30_Personnel_n`, puis 2027, 2028 et 2029 (mêmes suffixes) | Numeric (jamais une formule) |
 
+**Colonne affichée des colonnes référence créées par le widget** (26/11/2026, signalé par Antoine : « j'ai un ID qui s'affiche et pas la bonne
+valeur ») : une colonne `Ref` / `RefList` créée par l'API n'a **aucune « colonne affichée »** (réglage « SHOW COLUMN » de Grist) : Grist y montre le numéro de
+ligne. Le widget règle donc, à la création, `visibleCol` (colonne de la table cible) puis `SetDisplayFormula` (colonne d'aide `gristHelper_Display`), dans
+`CoreGrist` (`applyReferenceDisplay`). **Règle pour toute nouvelle colonne référence** : la déclarer avec `display: { like, column }` (`like` : colonne de la même
+table dont on recopie le réglage, `column` : colonne de la table cible à montrer sinon) ; à défaut, la première colonne de texte de la table cible, comme Grist.
+Pour les OPE 2 à 4 : `Ligne_OPE_n` → `N_OPE`, `Ligne_OPE_installe_chez_n` → le réglage de `Ligne_OPE_installe_chez` (repli `Acronyme`). Les colonnes créées
+avant la règle sont réparées au prochain enregistrement d'un projet à plusieurs OPE (ou import), une fois par session ; une colonne déjà réglée n'est jamais
+touchée. Au mieux : un refus de Grist (droits de structure) ne bloque rien. Les colonnes référence créées avant le 26/11 par les pages Instances et Administratif
+n'ont pas été rétro-réglées.
+
 Règles : une OPE est « utilisée » dès qu'elle a une ligne, un commentaire, un montant ou une action autre que `à determiner`
 (`CoreOpes.count`) ; retirer une OPE vide ses colonnes à l'enregistrement et les suivantes remontent d'un rang (l'OPE 3 devient l'OPE 2) ;
 une colonne de rang 2 à 4 absente de Grist n'est jamais écrite pour un rang vide. Le total croisé est calculé à l'écran, jamais écrit.

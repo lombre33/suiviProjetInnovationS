@@ -93,6 +93,17 @@
     return null;
   }
 
+  // Comme Grist : une colonne d'aide (gristHelper_Display) est créée et devient le displayCol de la colonne, quand les métadonnées sont installées.
+  function setDisplayFormula(tableId, fieldRef, colRef, formula) {
+    const metaCols = store._grist_Tables_column;
+    if (metaCols && metaCols.displayCol) {
+      const at = metaCols.id.indexOf(Number(colRef));
+      if (at !== -1) metaCols.displayCol[at] = 100000 + Number(colRef);
+    }
+    global.__TEST_CALLS__.push({ type: 'SetDisplayFormula', table: tableId, fieldRef, colRef, formula });
+    return null;
+  }
+
   function addColumn(tableId, colId, colInfo) {
     const table = store[tableId];
     if (!table) throw new Error(`Mock Grist: table ${tableId} does not exist`);
@@ -146,6 +157,7 @@
           if (type === 'AddTable') return addTable(action[1], action[2]);
           if (type === 'AddColumn') return addColumn(action[1], action[2], action[3]);
           if (type === 'ModifyColumn') return modifyColumn(action[1], action[2], action[3]);
+          if (type === 'SetDisplayFormula') return setDisplayFormula(action[1], action[2], action[3], action[4]);
           throw new Error(`Mock Grist: unsupported action type ${type}`);
         });
         return { actionNum: global.__TEST_CALLS__.length, retValues };
