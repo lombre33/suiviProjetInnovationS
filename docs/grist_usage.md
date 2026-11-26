@@ -841,7 +841,7 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   après) et la ligne de préférences de l'utilisateur.
 - **Préférences** (`Preferences_Widget`, colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
   année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
-  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI), `Dash_bailleurs`. Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI), `Dash_bailleurs`, `Dash_regroupement`, `Dash_reattributions`. Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
 - **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
   l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
   bloquer le reste.
@@ -876,6 +876,23 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   vraies valeurs**, `DashboardLogic.masseOf`). Au-dessus des blocs : dates « du / au » (DateInput jj/mm/aaaa), recherche (fournisseur, objet, n° EJ,
   nature, destination, état), « Effacer les filtres » ; en-têtes triables (date, fournisseur, objet, n° EJ, AE, CP ; date décroissante par défaut).
   Ces filtres de volet ne sont **pas retenus** (ils se remettent à zéro quand on quitte la page).
+- **Regroupement Axe › Action › Projet (26/11/2026, maquette validée, non validé dans un vrai Grist)** : choix « Axe › Action › Projet | Programme › Projet » dans
+  l'en-tête de la liste (pas de nouvelle ligne), retenu par personne (`Dash_regroupement`, vide = axe ; le choix n'est proposé que si `Programmes.Axe_InnovationS`
+  ou `Actions_InnovationS` contient quelque chose). L'axe vient de `Programmes.Axe_InnovationS` (Choice), les actions de `Programmes.Actions_InnovationS`
+  (ChoiceList) : **un projet est compté une fois dans son axe et dans chacune des actions de son programme** (repère « 2 actions » ; la somme des actions
+  peut dépasser l'axe). Un programme sans axe : groupe « Sans axe renseigné » (aucun projet ne disparaît) ; un axe dont le programme n'a pas d'action :
+  « Sans action renseignée ». Les graphiques Grist-BI suivent le choix : `Dashboard_Financier` porte `Axe` et `Action` (les actions d'un projet réunies :
+  « A1 + A2 », un projet n'y est jamais compté deux fois) ; les tuiles d'origine passent à l'axe (attribué et consommé) et à l'action (reste), seulement si la
+  configuration de Grist-BI n'a pas été modifiée. Les graphiques « faits main » restent par programme.
+- **Réattributions sous leur projet (26/11/2026, non validé dans un vrai Grist)** : une réattribution (ou prolongation) est une ligne de `Projets` reliée à son
+  projet d'origine par `Projet_Parent_le_cas_echeant_` (colonne du Grist d'Antoine, absente de `docs/grist_structure`). Choix « Réattributions sous leur projet |
+  À plat » dans l'en-tête de la liste, seulement si au moins un projet a un parent (`Dash_reattributions`, vide = sous leur projet). Sous leur projet : le projet
+  d'origine porte **projet + réattributions** (montants des lignes filles = complément, décision d'Antoine du 26/11) avec le repère « + N réattributions » qui
+  déplie les lignes (n° de décision `prolongation_numeroDecisionInitial`, date `prolongation_DateCTOInitial` ou à défaut `Instance_ratache_date`, tri par date) ;
+  le pourcentage se calcule sur ce total. À plat : une ligne par projet, « initial » et « réattribution » en repère. **Les totaux ne changent pas.** Le **consommé
+  reste sur le projet d'origine** : une ligne OPE partagée est portée par le premier projet **sans parent** (avant : le premier dans l'ordre de `Projets`), et le
+  consommé cumulé « Sans année » d'une ligne OPE n'est plus recompté par un second projet qui la partage (correction : il l'était en double). Une réattribution dont
+  le projet d'origine n'est pas dans la liste (autre programme, filtre) reste seule, marquée « réattribution ».
 - Pas dans cette version : export.
 
 ## Import financier (page cachée Alt+Maj+I, 18/11/2026 ; OPE multiples 24/11/2026)

@@ -207,3 +207,27 @@
   .db-exp { padding-left:14px; }
 }
 .db-bailleurs[hidden] { display:none; }
+
+/* Regroupement axe › action, réattributions sous leur projet (26/11/2026) */
+.db-colhead .db-lhs { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; text-transform:none; letter-spacing:0; }
+.db-seg { display:inline-flex; gap:2px; padding:2px; border-radius:999px; background:var(--surface-sunken); }
+.db-seg button { appearance:none; border:0; background:transparent; height:24px; padding:0 10px; border-radius:999px; font:inherit; font-size:11.5px; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; }
+.db-seg button:hover { color:var(--text); }
+.db-seg button.is-on { background:var(--surface); color:var(--text); box-shadow:var(--shadow-card); }
+.db-vol.db-sub { border:0; border-top:1px solid var(--surface-sunken); border-radius:0; box-shadow:none; background:transparent; }
+.db-vol.db-sub .db-vhead { min-height:42px; padding-left:34px; background:#fafbfd; }
+.db-vol.db-sub .db-pn { font-size:13px; }
+.db-vol.db-sub .db-vbody .db-name { padding-left:14px; }
+.db-multi { background:var(--accent-soft); color:var(--accent-hover); }
+.db-reat { background:#fdf1dc; color:#8a5a00; }
+.db-kidsbtn { appearance:none; border:0; font-family:inherit; cursor:pointer; background:var(--accent-soft); color:var(--accent-hover); }
+.db-kidsbtn:hover { filter:brightness(.96); }
+.db-kidsbtn.is-open { background:var(--accent); color:#fff; }
+.db-kid { background:#fafbfd; min-height:42px; }
+.db-kid .db-name { padding-left:34px; }
+.db-elb { flex:none; color:var(--text-muted); font-weight:800; }
+.db-stlabel { padding:0 4px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width: 860px) {
+  .db-colhead { display:flex; }
+  .db-colhead > span:not(.db-lhs) { display:none; }
+}

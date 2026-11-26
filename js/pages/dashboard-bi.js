@@ -40,13 +40,24 @@
     { id: 'p_tree', type: 'treemap', aggFn: 'sum', dimension: 'Projet', measure: 'Reste', title: 'Reste à consommer par projet' }
   ];
 
+  // Même quatre graphiques quand la liste est regroupée par axe InnovationS (26/11/2026) : l'attribué et le consommé par axe, le reste à
+  // consommer par action. `Action` réunit les actions d'un projet qui en a plusieurs (« A1 + A2 ») : la table plate ne compte jamais un projet deux fois
+  // (la liste, elle, le compte dans chaque action).
+  const PRESET_TILES_AXE = [
+    { id: 'p_annee', type: 'bar', aggFn: 'sum', dimension: 'Annee', drillDimensions: ['Axe', 'Action', 'Projet'], seriesColumn: 'Mesure', measure: 'Montant', title: 'Attribué et consommé par année' },
+    { id: 'p_prog', type: 'bar', aggFn: 'sum', horizontal: true, dimension: 'Axe', drillDimensions: ['Action', 'Projet'], seriesColumn: 'Mesure', measure: 'Montant', sortMode: 'value-desc', title: 'Attribué et consommé par axe' },
+    { id: 'p_reste', type: 'bar', aggFn: 'sum', horizontal: true, dimension: 'Action', measure: 'Reste', sortMode: 'value-desc', title: 'Reste à consommer par action' },
+    { id: 'p_tree', type: 'treemap', aggFn: 'sum', dimension: 'Projet', measure: 'Reste', title: 'Reste à consommer par projet' }
+  ];
+
   const clone = value => JSON.parse(JSON.stringify(value));
 
-  function presetConfig() {
-    return { pages: [{ id: 'page_default', name: 'Page 1', tiles: clone(PRESET_TILES) }], currentPageId: 'page_default', bookmarks: [], blend: null };
+  // mode : 'programme' (défaut) ou 'axe' — les graphiques suivent le regroupement choisi dans la liste.
+  function presetConfig(mode) {
+    return { pages: [{ id: 'page_default', name: 'Page 1', tiles: clone(mode === 'axe' ? PRESET_TILES_AXE : PRESET_TILES) }], currentPageId: 'page_default', bookmarks: [], blend: null };
   }
-  function presetRow(tableId, now) {
-    return { TableId: tableId, ConfigJSON: JSON.stringify(presetConfig()), Nom: REPORT_NAME, TypeRapport: 'rapport', DateModif: Math.floor((now || Date.now()) / 1000), ModifiePar: '' };
+  function presetRow(tableId, now, mode) {
+    return { TableId: tableId, ConfigJSON: JSON.stringify(presetConfig(mode)), Nom: REPORT_NAME, TypeRapport: 'rapport', DateModif: Math.floor((now || Date.now()) / 1000), ModifiePar: '' };
   }
 
   // http(s) uniquement (jamais javascript: ni data:) : l'iframe obtient, via le pont, la table de données de cette page.
@@ -88,6 +99,7 @@
     let reloadTimer = null;
     let readyTimer = null;
     let signature = JSON.stringify(opts.rows || []);
+    let mode = opts.mode === 'axe' ? 'axe' : 'programme';
 
     const setStatus = next => { status = next; if (typeof opts.onStatus === 'function') { try { opts.onStatus(next); } catch (err) { /* l'afficheur ne casse pas le widget */ } } };
 
@@ -109,7 +121,7 @@
     if (destroyed) return null;
     if (saved) doc.importState(saved);
     doc.setReadOnlyTable(DL.BI_TABLE, DL.BI_COLUMNS, opts.rows || []);
-    doc.ensureTable(CONFIG_TABLE, CONFIG_COLUMNS, [presetRow(DL.BI_TABLE)]);
+    doc.ensureTable(CONFIG_TABLE, CONFIG_COLUMNS, [presetRow(DL.BI_TABLE, null, mode)]);
 
     const frame = document.createElement('iframe');
     frame.className = 'db-bi-frame';
@@ -142,11 +154,24 @@
       getStatus: () => status,
       getLog: () => bridge.getLog(),
       // Nouvelle table (filtres de la page changés) : Grist-BI ne relit pas ses données seul, on le recharge.
-      update(rows) {
+      // `nextMode` : le regroupement de la liste a changé ; les graphiques d'origine de l'autre regroupement sont remplacés, une configuration
+      // modifiée dans Grist-BI n'est jamais écrasée (« Rétablir les 4 graphiques » la remet).
+      update(rows, nextMode) {
         if (destroyed) return false;
+        const wanted = nextMode === undefined ? mode : (nextMode === 'axe' ? 'axe' : 'programme');
         const next = JSON.stringify(rows || []);
-        if (next === signature) return false;
+        if (next === signature && wanted === mode) return false;
         signature = next;
+        if (wanted !== mode) {
+          const config = doc.getTable(CONFIG_TABLE);
+          const index = config ? config.TableId.indexOf(DL.BI_TABLE) : -1;
+          const untouched = index === -1 || config.ConfigJSON[index] === JSON.stringify(presetConfig(mode));
+          if (untouched) {
+            const row = presetRow(DL.BI_TABLE, null, wanted);
+            doc.docApi.applyUserActions(index === -1 ? [['AddRecord', CONFIG_TABLE, null, row]] : [['UpdateRecord', CONFIG_TABLE, config.id[index], { ConfigJSON: row.ConfigJSON, DateModif: row.DateModif }]]).catch(() => {});
+          }
+          mode = wanted;
+        }
         doc.setReadOnlyTable(DL.BI_TABLE, DL.BI_COLUMNS, rows || []);
         clearTimeout(reloadTimer);
         reloadTimer = setTimeout(() => { if (!destroyed) load(); }, RELOAD_DELAY_MS);
@@ -157,7 +182,7 @@
         if (destroyed) return;
         const config = doc.getTable(CONFIG_TABLE);
         const index = config ? config.TableId.indexOf(DL.BI_TABLE) : -1;
-        const row = presetRow(DL.BI_TABLE);
+        const row = presetRow(DL.BI_TABLE, null, mode);
         if (index === -1) await doc.docApi.applyUserActions([['AddRecord', CONFIG_TABLE, null, row]]);
         else await doc.docApi.applyUserActions([['UpdateRecord', CONFIG_TABLE, config.id[index], { ConfigJSON: row.ConfigJSON, DateModif: row.DateModif }]]);
         load();
@@ -172,5 +197,5 @@
     };
   }
 
-  global.DashboardBi = { config, GRIST_BI_URL, STATE_KEY, OPTIONS_KEY, CONFIG_TABLE, CONFIG_COLUMNS, PRESET_TILES, presetConfig, presetRow, resolveTarget, safeUrl, mount };
+  global.DashboardBi = { config, GRIST_BI_URL, STATE_KEY, OPTIONS_KEY, CONFIG_TABLE, CONFIG_COLUMNS, PRESET_TILES, PRESET_TILES_AXE, presetConfig, presetRow, resolveTarget, safeUrl, mount };
 })(window);

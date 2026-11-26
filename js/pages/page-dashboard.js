@@ -21,7 +21,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const PREFS_COLUMNS = [
     { id: 'Dash_annees', type: 'Text' }, { id: 'Dash_programmes', type: 'Text' }, { id: 'Dash_statuts', type: 'Text' },
-    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }, { id: 'Dash_bailleurs', type: 'Text' }
+    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }, { id: 'Dash_bailleurs', type: 'Text' }, { id: 'Dash_regroupement', type: 'Text' }, { id: 'Dash_reattributions', type: 'Text' }
   ];
   const EXPENSES_TABLE = 'Depenses_OPE';
   // Export FD02 « Consommation détaillée des AE », une ligne par objet de gestion. Code_operation = Lignes_OPE.N_OPE.
@@ -47,7 +47,7 @@
   const table = name => (global.CoreState && CoreState.getTable(name)) || [];
 
   const state = Object.assign(L.defaultState(), {
-    openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), orphansOpen: false, // jamais retenus : repliés à chaque ouverture
+    openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), openKids: new Set(), orphansOpen: false, // jamais retenus : repliés à chaque ouverture
     expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: ''
   });
   let model = null;
@@ -55,7 +55,7 @@
   let statusRefresh = null;
 
   function resetState() {
-    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
+    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), openKids: new Set(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
     model = null; datasetCache = null;
     dropBi(); biFailure = null;
     clearTimeout(statusRefresh); statusRefresh = null;
@@ -251,6 +251,35 @@
     return `<div class="db-exp db-exp-opes">${entry.opes.map(ope => opeRowHtml(entry, ope, true)).join('')}${gap ? `<div class="db-opep">${gap}</div>` : ''}</div>`;
   }
 
+  const frDate = iso => String(iso || '').split('-').reverse().join('/');
+  const staticPill = status => `<span class="db-stwrap" style="${pillStyle(status)}"><i class="db-dot" style="background:${L.statusColors(status).dot}"></i><span class="db-stlabel">${esc(status || '—')}</span></span>`;
+  // Repères d'une ligne projet : plusieurs actions (liste par action), « initial » / « réattribution » (mode À plat), « + N réattributions » (dépliable).
+  function roleBadgesHtml(entry) {
+    const project = entry.project;
+    let html = '';
+    if (entry.multi) html += `<span class="db-tag db-multi" title="Le programme de ce projet a plusieurs actions : il est compté dans chacune (la somme des actions peut dépasser l'axe)">${entry.multi} actions</span>`;
+    if (entry.kids && entry.kids.length) {
+      const open = state.openKids.has(project.id), n = entry.kids.length;
+      html += `<button type="button" class="db-tag db-kidsbtn${open ? ' is-open' : ''}" data-db-kids="${esc(project.id)}" aria-expanded="${open}" title="Lignes de réattribution rattachées à ce projet (montants additionnés dans ce total)">+ ${n} réattribution${n > 1 ? 's' : ''}</button>`;
+    } else if (entry.role === 'initial') html += '<span class="db-tag" title="Ce projet a des réattributions, affichées sur leur propre ligne (mode « À plat »)">initial</span>';
+    else if (entry.role === 'reattrib') html += `<span class="db-tag db-reat" title="Réattribution : même OPE que son projet d'origine, le consommé est compté sur le projet d'origine">réattribution</span>`;
+    return html;
+  }
+  function kidRowsHtml(entry) {
+    const kids = entry.kids || [];
+    if (!kids.length || !state.openKids.has(entry.project.id)) return '';
+    return kids.map((kid, index) => {
+      const p = kid.project;
+      const label = kids.length > 1 ? `Réattribution ${index + 1}` : 'Réattribution';
+      const when = p.decisionDate ? `le ${frDate(p.decisionDate)}` : '';
+      const cons = kid.cons ? esc(L.eur(kid.cons)) : '—';
+      return `<div class="db-row db-prow db-kid" data-project-id="${esc(p.id)}">` +
+        `<span class="db-name db-pj"><span class="db-elb" aria-hidden="true">↳</span><span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(p.id)}" title="Ouvrir la fiche de cette réattribution">${esc(label)}</button>${p.decision ? `<span class="db-tag">${esc(p.decision)}</span>` : ''}</span>${when ? `<span class="db-cap">${esc(when)}</span>` : ''}</span></span>` +
+        `<span class="db-st">${staticPill(p.statut)}</span><span class="db-pr"></span>` +
+        `<span class="db-att">${esc(L.eur(kid.att))}</span><span class="db-cons" title="${kid.cons ? '' : 'Même ligne OPE que le projet : le consommé est compté une seule fois, sur le projet d\'origine'}">${cons}</span></div>`;
+    }).join('');
+  }
+
   function projectRowHtml(entry, statuses, helpHtml) {
     const project = entry.project, open = state.openExpenses.has(project.id);
     const status = project.statut;
@@ -261,12 +290,12 @@
     const n = entry.expenses.length;
     return `<div class="db-row db-prow${open ? ' is-open' : ''}" data-project-id="${esc(project.id)}">` +
       `<span class="db-name db-pj"><button type="button" class="db-exp-toggle" data-db-exp="${esc(project.id)}" aria-expanded="${open}" title="Dépenses détaillées" aria-label="${esc(`Dépenses de ${project.acronyme}`)}">${ICON_CHEVRON}<span class="db-n${n ? '' : ' is-zero'}">${n}</span></button>` +
-      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${idexBadgeHtml(entry)}${gapBadgeHtml(project)}</span>` +
+      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${roleBadgesHtml(entry)}${idexBadgeHtml(entry)}${gapBadgeHtml(project)}</span>` +
       `${project.titre ? `<span class="db-cap" title="${esc(project.titre)}">${esc(project.titre)}</span>` : ''}</span></span>` +
       `<span class="db-st"><span class="db-stwrap" style="${pillStyle(status)}"><i class="db-dot" style="background:${dot}"></i>${select}<svg class="db-stchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span><span class="db-saved" data-db-saved="${esc(project.id)}" hidden>${ICON_CHECK}Enregistré</span></span>` +
       `<span class="db-pr">${progressHtml(entry.cons, entry.att, entry.pct, entry.over)}</span>` +
-      `<span class="db-att">${esc(L.eur(entry.att))}</span><span class="db-cons${entry.over ? ' is-over' : ''}">${esc(L.eur(entry.cons))}</span></div>` +
-      (open ? projectDetailHtml(entry) : '');
+      `<span class="db-att">${esc(L.eur(entry.att))}</span><span class="db-cons${entry.over ? ' is-over' : ''}"${entry.role === 'reattrib' && !entry.cons ? ' title="Même ligne OPE que le projet d\'origine : le consommé est compté sur celui-ci"' : ''}>${entry.role === 'reattrib' && !entry.cons ? '—' : esc(L.eur(entry.cons))}</span></div>` +
+      kidRowsHtml(entry) + (open ? projectDetailHtml(entry) : '');
   }
   function progressHtml(cons, att, pct, over) {
     const w = att > 0 ? Math.min(100, Math.round((cons / att) * 100)) : 0;
@@ -281,6 +310,19 @@
       `<span class="db-st db-dots">${dots}</span><span class="db-pr">${progressHtml(group.cons, group.att, group.pct, group.over)}</span>` +
       `<span class="db-att"><b>${esc(L.eur(group.att))}</b></span><span class="db-cons${group.over ? ' is-over' : ''}"><b>${esc(L.eur(group.cons))}</b></span></button>` +
       (open ? `<div class="db-vbody">${group.projects.map(entry => projectRowHtml(entry, statuses, helpHtml)).join('')}</div>` : '') + '</div>';
+  }
+  // Volet par axe InnovationS (ses actions dedans) ou par action (ses projets dessous) ; mêmes têtes que les volets de programme.
+  function groupVolHtml(group, m, statuses, helpHtml, sub) {
+    const open = state.openProgrammes.has(group.key);
+    const dots = group.statusCounts.map(s => `<span class="db-dotn" title="${esc(`${s.label || 'Sans statut'} : ${s.n}`)}"><i class="db-dot" style="background:${L.statusColors(s.label).dot}"></i>${s.n}</span>`).join('');
+    const note = group.noAxe ? '<span class="db-tag db-reat" title="Ces projets appartiennent à un programme sans axe : à renseigner dans la colonne Axe_InnovationS de la table Programmes">à renseigner dans Grist</span>' : '';
+    let body = '';
+    if (open) body = `<div class="db-vbody">${(group.subs || []).map(subGroup => groupVolHtml(subGroup, m, statuses, helpHtml, true)).join('')}${group.projects.map(entry => projectRowHtml(entry, statuses, helpHtml)).join('')}</div>`;
+    return `<div class="db-vol${sub ? ' db-sub' : ''}${open ? ' is-open' : ''}" data-db-group="${esc(group.key)}">` +
+      `<button type="button" class="db-row db-vhead" data-db-vol="${esc(group.key)}" aria-expanded="${open}">` +
+      `<span class="db-name">${ICON_CHEVRON}<span class="db-pn">${esc(group.label)}</span><span class="db-tag">${group.count} projet${group.count > 1 ? 's' : ''}</span>${note}</span>` +
+      `<span class="db-st db-dots">${dots}</span><span class="db-pr">${progressHtml(group.cons, group.att, group.pct, group.over)}</span>` +
+      `<span class="db-att"><b>${esc(L.eur(group.att))}</b></span><span class="db-cons${group.over ? ' is-over' : ''}"><b>${esc(L.eur(group.cons))}</b></span></button>${body}</div>`;
   }
   function orphansHtml(m) {
     const o = m.orphans;
@@ -322,10 +364,15 @@
   }
   function listHtml(m) {
     const help = global.HelpTooltip ? HelpTooltip.markup('Projets', 'Statut_operationnel_projet') : '';
-    const head = `<div class="db-row db-colhead" aria-hidden="true"><span>Programme · projet</span><span>Statut du projet${help}</span><span>Consommation</span><span class="db-r">Attribué</span><span class="db-r">Consommé</span></div>`;
+    const seg = (label, attr, value, current, buttons) => `<span class="db-seg" role="group" aria-label="${esc(label)}">${buttons.map(([id, text, tip]) => `<button type="button" class="${current === id ? 'is-on' : ''}" ${attr}="${id}" aria-pressed="${current === id}" title="${esc(tip)}">${esc(text)}</button>`).join('')}</span>`;
+    const groupSeg = m.axeAvailable ? seg('Regrouper par', 'data-db-groupby', '', m.groupBy, [['axe', 'Axe › Action › Projet', 'Un volet par axe InnovationS, puis par action (Programmes.Axe_InnovationS et Actions_InnovationS)'], ['programme', 'Programme › Projet', 'Un volet par programme']]) : '';
+    const reatSeg = m.reattrib.available ? seg('Réattributions', 'data-db-reattrib', '', m.reattrib.group ? 'group' : 'flat', [['group', 'Réattributions sous leur projet', 'Une réattribution passe sous son projet, le total du projet est le projet initial plus ses réattributions'], ['flat', 'À plat', 'Une ligne par ligne de Projets, comme dans la table']]) : '';
+    const first = groupSeg || reatSeg ? `<span class="db-lhs">${groupSeg}${reatSeg}</span>` : `<span class="db-lhs">${m.groupBy === 'axe' ? 'Axe · projet' : 'Programme · projet'}</span>`;
+    const head = `<div class="db-row db-colhead">${first}<span aria-hidden="true">Statut du projet${help}</span><span aria-hidden="true">Consommation</span><span class="db-r" aria-hidden="true">Attribué</span><span class="db-r" aria-hidden="true">Consommé</span></div>`;
     const total = totalHtml(m);
     if (!m.groups.length && !m.orphans) return `${head}<div class="db-card db-empty"><span>Aucun projet ne correspond à ces filtres.</span><button type="button" class="btn btn-secondary" data-db-reset>Réinitialiser les filtres</button></div>${footnoteHtml(m)}`;
-    return head + total + m.groups.map(group => volHtml(group, m, m.options.statuses, help)).join('') + orphansHtml(m) + footnoteHtml(m);
+    const volets = m.groupBy === 'axe' ? m.axeGroups.map(group => groupVolHtml(group, m, m.options.statuses, help, false)) : m.groups.map(group => volHtml(group, m, m.options.statuses, help));
+    return head + total + volets.join('') + orphansHtml(m) + footnoteHtml(m);
   }
 
   // Bandeau : années, listes à cases, mesure, bouton des graphiques.
@@ -391,17 +438,17 @@
       setTimeout(render, 0); // hors du rappel : le rendu retire l'iframe
     }
   }
-  function mountBi(zone, rows) {
+  function mountBi(zone, rows, mode) {
     dropBi();
     zone.innerHTML = '<div class="db-bi"><button type="button" class="db-bi-reset" title="Rétablir les quatre graphiques d\'origine de Grist-BI (annule vos changements dans Grist-BI)">Rétablir les 4 graphiques</button></div>';
-    const entry = { host: zone.firstChild, ctl: null, rows };
+    const entry = { host: zone.firstChild, ctl: null, rows, mode };
     entry.host.querySelector('.db-bi-reset').addEventListener('click', () => { if (entry.ctl) entry.ctl.resetPreset(); });
     bi = entry;
-    global.DashboardBi.mount(entry.host, { grist: gristApi(), rows, onStatus: status => onBiStatus(entry, status) })
+    global.DashboardBi.mount(entry.host, { grist: gristApi(), rows, mode, onStatus: status => onBiStatus(entry, status) })
       .then(ctl => {
         if (bi !== entry) { if (ctl) ctl.destroy(); return; }
         entry.ctl = ctl;
-        if (ctl) ctl.update(entry.rows); // les filtres ont pu changer pendant la préparation
+        if (ctl) ctl.update(entry.rows, entry.mode); // les filtres ont pu changer pendant la préparation
       })
       .catch(err => {
         console.warn('Grist-BI : montage impossible', err && err.message);
@@ -421,7 +468,7 @@
     if (!state.charts) { dropBi(); zone.innerHTML = ''; return; } // repliés : rien n'est dessiné
     if (wantBi) {
       const rows = L.biRows(m);
-      if (bi && zone.contains(bi.host)) { bi.rows = rows; if (bi.ctl) bi.ctl.update(rows); } else mountBi(zone, rows);
+      if (bi && zone.contains(bi.host)) { bi.rows = rows; bi.mode = m.groupBy; if (bi.ctl) bi.ctl.update(rows, m.groupBy); } else mountBi(zone, rows, m.groupBy);
       return;
     }
     dropBi();
@@ -491,7 +538,7 @@
   }
 
   function onClick(event) {
-    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine],[data-db-bailleur],[data-db-ope],[data-db-opesort],[data-db-opeclear]') : null;
+    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine],[data-db-bailleur],[data-db-ope],[data-db-opesort],[data-db-opeclear],[data-db-groupby],[data-db-reattrib],[data-db-kids]') : null;
     if (!target) return;
     if (target.dataset.dbYear !== undefined) {
       state.years = L.toggleYear(state, Number(target.dataset.dbYear), model.years);
@@ -518,6 +565,12 @@
       biFailure = null; render();
     } else if (target.dataset.dbReset !== undefined) {
       resetFilters();
+    } else if (target.dataset.dbGroupby !== undefined) {
+      state.groupBy = target.dataset.dbGroupby === 'programme' ? 'programme' : 'axe'; render(); persist();
+    } else if (target.dataset.dbReattrib !== undefined) {
+      state.reattrib = target.dataset.dbReattrib === 'flat' ? 'flat' : 'group'; render(); persist();
+    } else if (target.dataset.dbKids !== undefined) {
+      toggleSet(state.openKids, Number(target.dataset.dbKids)); render();
     } else if (target.dataset.dbBailleur !== undefined) {
       toggleBailleur(target.dataset.dbBailleur);
     } else if (target.dataset.dbOpe !== undefined) {
@@ -570,6 +623,8 @@
     state.engine = text(row.Dash_moteur) === 'maison' ? 'maison' : 'bi'; // Grist-BI par défaut ; seul « maison » est retenu
     const bailleurs = text(row.Dash_bailleurs); // vide = InnovationS seul ; « idex » = Idex seul ; « les-deux » = les deux
     state.innovations = bailleurs !== 'idex'; state.idex = bailleurs === 'idex' || bailleurs === 'les-deux';
+    state.groupBy = text(row.Dash_regroupement) === 'programme' ? 'programme' : 'axe'; // axe › action › projet par défaut
+    state.reattrib = text(row.Dash_reattributions) === 'flat' ? 'flat' : 'group';  // réattributions sous leur projet par défaut
   }
   async function loadDashboardUserPreferences() {
     if (!global.CoreGrist || !CoreGrist.gristInstance) return;
@@ -596,7 +651,8 @@
     const fields = {
       Dash_annees: Array.isArray(state.years) ? encodeList(state.years.map(String)) : '', Dash_programmes: encodeList(state.programmes), Dash_statuts: encodeList(state.statuts),
       Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : '', Dash_moteur: state.engine === 'maison' ? 'maison' : '',
-      Dash_bailleurs: state.idex ? (state.innovations !== false ? 'les-deux' : 'idex') : ''
+      Dash_bailleurs: state.idex ? (state.innovations !== false ? 'les-deux' : 'idex') : '',
+      Dash_regroupement: state.groupBy === 'programme' ? 'programme' : '', Dash_reattributions: state.reattrib === 'flat' ? 'flat' : ''
     };
     try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
     catch (err) { console.warn('Enregistrement des préférences Dashboard a échoué :', err.message); }
