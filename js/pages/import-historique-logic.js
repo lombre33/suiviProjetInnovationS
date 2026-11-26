@@ -213,7 +213,9 @@
   // ---------------------------------------------------------------------------------------------------------------
 
   // Clé d'une ligne : N° OPE + financeur + ligne budgétaire (à confirmer par Antoine sur le vrai export).
-  const lineKeyOf = row => [opeKey(row.N_OPE), normalize(row.Financeur), normalize(row.Ligne_budgetaire)].join('|');
+  // Une ligne = un projet sur une OPE pour un financeur et une ligne budgétaire. Le projet est dans la clé : une OPE RH est partagée par de nombreux
+  // projets (Antoine, 26/11), qui ont le même financeur et la même ligne budgétaire ; sans lui, une seule de leurs lignes survivait (la dernière lue).
+  const lineKeyOf = row => [opeKey(row.N_OPE), normalize(row.Projet), normalize(row.Financeur), normalize(row.Ligne_budgetaire)].join('|');
 
   // Le journal grossit à chaque envoi : on garde la dernière version de chaque ligne (plus grand id, comme la synthèse Grist).
   // Une ligne sans N° OPE n'est pas rattachable : elle est comptée à part.
@@ -239,7 +241,7 @@
     { id: 'cp-ae', label: 'Consommé CP ≤ consommé AE' },
     { id: 'parts', label: 'Parts d\'un projet = 100 %' },
     { id: 'financeurs', label: 'Financeurs du projet = financeurs de ses lignes' },
-    { id: 'ope-projets', label: 'Un N° OPE appartient à un seul projet' },
+    { id: 'ope-projets', label: 'N° OPE partagé par plusieurs projets (information)' },
     { id: 'dates', label: 'Date fin ≥ date début' }
   ];
 
@@ -282,9 +284,11 @@
     });
     const projectsOfOpe = new Map();
     lines.forEach(line => { if (text(line.Projet)) pushTo(projectsOfOpe, opeKey(line.N_OPE), line); });
+    // Une OPE portée par plusieurs projets est normale (OPE RH : une par programme pour de nombreux projets, Antoine 26/11) : simple information,
+    // les lignes restent dans l'import et chaque projet garde la sienne.
     projectsOfOpe.forEach(group => {
       const names = unique(group.map(projectKey));
-      if (names.length > 1) group.forEach(line => add('error', 'ope-projets', line, `Le N° OPE ${text(line.N_OPE)} est rattaché à ${names.length} projets différents dans l'export : ${unique(group.map(l => text(l.Projet))).join(' / ')}`));
+      if (names.length > 1) add('warn', 'ope-projets', group[0], `Le N° OPE ${text(group[0].N_OPE)} est partagé par ${names.length} projets dans l'export (normal pour une OPE RH) : ${unique(group.map(l => text(l.Projet))).slice(0, 4).join(' / ')}${names.length > 4 ? '…' : ''}`);
     });
     return issues;
   }
@@ -327,6 +331,11 @@
     (issues || []).filter(issue => issue.level === 'error' && issue.check === 'ope-projets').forEach(issue => blockedOpe.set(opeKey(issue.ope), issue.message));
     const groups = new Map(), orphans = [];
     lines.forEach(line => { if (text(line.Projet)) pushTo(groups, projectKey(line), line); else orphans.push(line); });
+    // Une OPE partagée par plusieurs projets : ses montants valent pour l'OPE entière (somme des lignes de tous les projets), pas pour un seul projet.
+    const linesOfOpe = new Map();
+    groups.forEach(group => group.forEach(line => pushTo(linesOfOpe, opeKey(line.N_OPE), line)));
+    const sharedOpes = new Map();
+    linesOfOpe.forEach((list, key) => { const n = unique(list.map(projectKey)).length; if (n > 1) sharedOpes.set(key, n); });
     const entries = Array.from(groups, ([key, group]) => {
       const opeMap = new Map();
       group.forEach(line => {
@@ -341,7 +350,8 @@
         return Object.assign(ope, {
           structure: mostCommon(ope.structures), structureCount: unique(ope.structures).length,
           financeur: mostCommon(ope.lines.map(l => text(l.Financeur)).filter(Boolean)), innovations: ope.lines.some(l => normalize(l.Financeur) === 'innovations'),
-          dateDebut: starts.length ? Math.min(...starts) : null, amounts: aggregateOpe(ope.lines)
+          dateDebut: starts.length ? Math.min(...starts) : null, shared: sharedOpes.has(ope.key), sharedBy: sharedOpes.get(ope.key) || 1,
+          amounts: aggregateOpe(sharedOpes.has(ope.key) ? linesOfOpe.get(ope.key) : ope.lines)
         });
       });
       const starts = group.map(l => toNumber(l.Date_debut)).filter(v => v != null), ends = group.map(l => toNumber(l.Date_fin)).filter(v => v != null);
@@ -392,14 +402,17 @@
     };
   }
 
+  // OPE partagée : portée par plusieurs projets dans l'export, ou déclarée « RH » dans Grist (Lignes_OPE.Type_ligne_OPE).
+  const isSharedOpe = (ope, ctx) => !!ope.shared || (ctx.ligneIdsByKey.get(ope.key) || []).some(id => { const ligne = ctx.ligneById.get(id); return !!ligne && text(ligne.Type_ligne_OPE) === 'RH'; });
   const candidateOf = (project, score, why) => ({ id: project.id, label: project.label, name: project.name, score, why });
 
   // Résultat : { status: 'sure' | 'maybe' | 'new' | 'conflict', rung, projectId, candidates, reason }
   function matchEntry(entry, ctx) {
     if (entry.blocked) return { status: 'blocked', rung: 0, projectId: null, candidates: [], reason: entry.blocked };
     // 1. N° OPE déjà rattaché à un projet
+    // Une OPE partagée par plusieurs projets (OPE RH) ne désigne aucun projet en particulier : elle ne sert pas à retrouver le projet.
     const byOpe = new Map();
-    entry.opes.forEach(ope => (ctx.ligneIdsByKey.get(ope.key) || []).forEach(ligneId => (ctx.projectsByLigne.get(ligneId) || []).forEach(projectId => pushTo(byOpe, projectId, ope.ope))));
+    entry.opes.filter(ope => !isSharedOpe(ope, ctx)).forEach(ope => (ctx.ligneIdsByKey.get(ope.key) || []).forEach(ligneId => (ctx.projectsByLigne.get(ligneId) || []).forEach(projectId => pushTo(byOpe, projectId, ope.ope))));
     if (byOpe.size === 1) {
       const [projectId, opes] = Array.from(byOpe)[0], project = ctx.projectById.get(projectId);
       return { status: 'sure', rung: 1, projectId, candidates: [candidateOf(ctx.projects.find(p => p.id === projectId), 1, 'N° OPE')], reason: `N° OPE ${unique(opes).join(', ')} déjà dans ce projet`, project };
@@ -584,7 +597,8 @@
         id: key + '|s|' + ope.key, kind: 's', g: ligne ? structureLabelOf(ctx, ligne.installe_chez) : null, e: ope.structure ? canonStructure(ope.structure) : null,
         neu: !existingId, edits, check: structureCheck
       });
-      const owners = existingId ? (ctx.projectsByLigne.get(existingId) || []).filter(pid => !shownProject || pid !== shownProject.id) : [];
+      const sharedOpe = isSharedOpe(ope, ctx);
+      const owners = existingId && !sharedOpe ? (ctx.projectsByLigne.get(existingId) || []).filter(pid => !shownProject || pid !== shownProject.id) : [];
       const conflictId = key + '|c|' + ope.key;
       const ownerProject = owners.length ? ctx.projects.find(p => p.id === owners[0]) : null;
       const conflict = owners.length ? { id: conflictId, owner: ownerProject ? ownerProject.label : '#' + owners[0], resolved: edits.get(conflictId) === 'keep' } : null;
@@ -595,7 +609,7 @@
       else if (!existingId && state !== 'bad') state = 'add';
       else if (existingId && state !== 'bad' && state !== 'fill' && state !== 'conf' && needsLink) state = 'fill';
       const rank = ranks.get(ope.key) || 1;
-      row.lines.push({ key: ope.key, ope: ope.ope, amounts: ope.amounts, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
+      row.lines.push({ key: ope.key, ope: ope.ope, amounts: ope.amounts, shared: sharedOpe, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
     });
     // Pas encore décidé ou écarté : les valeurs restent visibles, sans couleur ni anomalie propre.
     if (row.plain) {

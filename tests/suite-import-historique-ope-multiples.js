@@ -36,9 +36,9 @@
   const NOW = Date.UTC(2026, 10, 24);
 
   // Contexte + tableau pour un journal (lignes d'export) et l'état de Grist.
-  function build({ journal, projets = [], lignes = [], rankMode, decisions }) {
+  function build({ journal, projets = [], lignes = [], rankMode, decisions, withAmounts }) {
     const lines = L().latestVersions(withIds(journal)).lines, grouped = L().groupProjects(lines, L().checkLines(lines));
-    const ctx = L().buildContext({ projets, lignes, programmes: PROGRAMMES, structures: STRUCTURES, rankMode });
+    const ctx = L().buildContext({ projets, lignes, programmes: PROGRAMMES, structures: STRUCTURES, rankMode, withAmounts });
     const matches = new Map(grouped.entries.map(entry => [entry.key, L().matchEntry(entry, ctx)]));
     return { ctx, matches, entries: grouped.entries, table: L().buildTable({ entries: grouped.entries, matches, decisions: decisions || new Map(), edits: new Map(), ctx, now: NOW }) };
   }
@@ -309,6 +309,86 @@
       const banner = document.querySelector('.ih-banner').textContent;
       assertIncludes(banner, 'de l\'OPE 2'); assertIncludes(banner, 'Rien n\'a été écrit');
       assertEqual(window.__TEST_CALLS__.filter(call => ['AddRecord', 'UpdateRecord'].includes(call.type) && ['Projets', 'Lignes_OPE'].includes(call.table)).length, 0);
+    });
+  });
+  // ===========================================================================================================
+  describe('Import — une OPE partagée par plusieurs projets (OPE RH) : chaque projet garde sa ligne', function () {
+    // Antoine (26/11) : une OPE RH sert à de nombreux projets (projets d'ingénierie) pendant tout le programme. Avant, la clé d'une ligne n'avait pas
+    // le projet : trois projets sur la même OPE (même financeur, même ligne budgétaire) ne laissaient qu'une ligne, la dernière lue.
+    const rh = (project, amount, extra = {}) => line('OPE-RH', 'InnovationS', 2022, project, Object.assign({ Montant_attribue: amount, Consomme_AE: 50, Consomme_CP: 40, Disponible_AE: 10, Disponible_CP: 20 }, extra));
+    const THREE = () => withIds([rh('Encadrement doctoral', 100), rh('Plateforme de calcul', 200), rh('Veille réglementaire', 300)]);
+
+    it('trois projets sur la même OPE : trois lignes gardées, une par projet (avant : une seule)', function () {
+      const kept = L().latestVersions(THREE()).lines;
+      assertEqual(kept.length, 3);
+      assertDeepEqual(kept.map(l => l.Projet).sort(), ['Encadrement doctoral', 'Plateforme de calcul', 'Veille réglementaire']);
+    });
+
+    it('deux versions de la ligne d\'un même projet : la plus récente gagne, comme avant', function () {
+      const kept = L().latestVersions(withIds([rh('Encadrement doctoral', 100), rh('Plateforme de calcul', 200), rh('Encadrement doctoral', 150)])).lines;
+      assertEqual(kept.length, 2);
+      assertEqual(kept.find(l => l.Projet === 'Encadrement doctoral').Montant_attribue, 150);
+    });
+
+    it('l\'OPE partagée est une information, pas une erreur : aucune ligne exclue, aucun projet bloqué', function () {
+      const lines = L().latestVersions(THREE()).lines, issues = L().checkLines(lines);
+      const shared = issues.filter(i => i.check === 'ope-projets');
+      assertEqual(shared.length, 1, 'une seule information pour l\'OPE'); assertEqual(shared[0].level, 'warn');
+      assertIncludes(shared[0].message, '3 projets');
+      assertEqual(issues.filter(i => i.level === 'error').length, 0);
+      assertTrue(L().groupProjects(lines, issues).entries.every(entry => !entry.blocked));
+    });
+
+    it('chaque projet sait que son OPE est partagée, et les montants de l\'OPE sont la somme des lignes de tous les projets', function () {
+      const lines = L().latestVersions(THREE()).lines, grouped = L().groupProjects(lines, L().checkLines(lines));
+      grouped.entries.forEach(entry => {
+        assertTrue(entry.opes[0].shared); assertEqual(entry.opes[0].sharedBy, 3);
+        assertEqual(entry.opes[0].amounts.Montant_attribue, 600, 'attribué de l\'OPE = 100 + 200 + 300');
+        assertEqual(entry.opes[0].amounts.Consomme_AE, 50, 'le consommé vaut pour l\'OPE, il n\'est pas additionné');
+      });
+    });
+
+    it('l\'OPE déjà rangée dans un projet de Grist ne fait pas retrouver ce projet à un autre projet qui la partage : nouveau, pas « sûr »', function () {
+      const projets = [{ id: 10, Projet: 'Encadrement doctoral', Programme: 1, Ligne_OPE: ['L', 1] }];
+      const b = build({ journal: THREE(), projets, lignes: [{ id: 1, N_OPE: 'OPE-RH' }] });
+      const by = name => b.matches.get(b.entries.find(e => e.name === name).key);
+      assertEqual(by('Plateforme de calcul').status, 'new', 'B n\'est pas fusionné dans A à cause de l\'OPE partagée');
+      assertEqual(by('Veille réglementaire').status, 'new');
+      assertEqual(by('Encadrement doctoral').status, 'maybe', 'A est retrouvé par son nom, à confirmer');
+      assertEqual(by('Encadrement doctoral').projectId, 10);
+    });
+
+    it('la ligne partagée n\'est jamais « déjà sur un autre projet » : elle est rattachée à chaque projet, sans anomalie ni clic', function () {
+      const projets = [{ id: 10, Projet: 'Encadrement doctoral', Programme: 1, Ligne_OPE: ['L', 1] }];
+      const decisions = new Map(); // A est « à confirmer » : on le confirme comme le ferait Antoine
+      const probe = build({ journal: THREE(), projets, lignes: [{ id: 1, N_OPE: 'OPE-RH' }] });
+      probe.entries.filter(e => e.name === 'Encadrement doctoral').forEach(e => decisions.set(e.key, { mode: 'project', projectId: 10, confirmed: true }));
+      const b = build({ journal: THREE(), projets, lignes: [{ id: 1, N_OPE: 'OPE-RH' }], decisions });
+      b.table.rows.forEach(row => { row.lines.forEach(l => { assertEqual(l.conflict, null, row.entry.name + ' : pas de conflit'); assertTrue(l.shared); }); assertEqual(row.anomalies, 0, row.entry.name + ' : aucune anomalie'); });
+      const nouveau = b.table.rows.find(r => r.entry.name === 'Plateforme de calcul');
+      assertEqual(nouveau.state, 'add');
+      assertEqual(nouveau.lines[0].existingId, 1, 'la ligne OPE existante est réutilisée, pas recréée');
+    });
+
+    it('une OPE déclarée « RH » dans Grist (Type_ligne_OPE) est partagée même quand un seul projet la porte dans l\'envoi', function () {
+      const projets = [{ id: 10, Projet: 'Cartographie des sols', Programme: 1, Ligne_OPE: ['L', 1] }, { id: 11, Projet: 'Banc d essai moteur', Programme: 1, Ligne_OPE: ['L', 1] }];
+      const journal = withIds([rh('Plateforme de calcul', 200)]);
+      const b = build({ journal, projets, lignes: [{ id: 1, N_OPE: 'OPE-RH', Type_ligne_OPE: 'RH' }] });
+      assertEqual(b.matches.get(b.entries[0].key).status, 'new', 'deux projets de Grist ont l\'OPE RH : aucun conflit, projet nouveau');
+      assertEqual(b.table.rows[0].lines[0].conflict, null);
+      const sans = build({ journal, projets, lignes: [{ id: 1, N_OPE: 'OPE-RH' }] });
+      assertEqual(sans.matches.get(sans.entries[0].key).status, 'conflict', 'sans le type RH, l\'ambiguïté reste à trancher');
+    });
+
+    it('le plan écrit : une seule ligne OPE créée avec le montant de tout le monde, trois projets qui la référencent', function () {
+      const projets = [], b = build({ journal: THREE(), projets, lignes: [], withAmounts: true });
+      const plan = b.table.plan;
+      const opes = plan.phase1.filter(op => op.table === 'Lignes_OPE' && op.kind === 'add');
+      assertEqual(opes.length, 1, 'une seule ligne OPE pour trois projets');
+      assertEqual(opes[0].fields.Montant_attribue, 600);
+      const created = plan.phase2.filter(op => op.table === 'Projets' && op.kind === 'add');
+      assertEqual(created.length, 3);
+      created.forEach(op => assertDeepEqual(op.fields.Ligne_OPE, ['L', { tmp: opes[0].tmp }]));
     });
   });
 })();

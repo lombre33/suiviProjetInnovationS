@@ -149,12 +149,13 @@
       ['annees', 'disponible', 'cp-ae', 'parts', 'financeurs', 'dates'].forEach(check => assertTrue(checks.includes(check), 'écart « ' + check + ' » signalé'));
     });
 
-    it('une ligne sans nom de projet, ou un N° OPE rattaché à deux projets, est une erreur qui exclut la ligne', function () {
+    it('une ligne sans nom de projet est une erreur qui exclut la ligne ; un N° OPE partagé par deux projets est une simple information (OPE RH)', function () {
       const issues = L().checkLines([{ _key: 'a', N_OPE: 'A', Projet: '' }, { _key: 'b', N_OPE: 'B', Projet: 'P1' }, { _key: 'c', N_OPE: 'B', Projet: 'P2', Financeur: 'Z' }]);
       assertTrue(issues.some(i => i.check === 'projet-vide' && i.level === 'error'));
-      assertEqual(issues.filter(i => i.check === 'ope-projets' && i.level === 'error').length, 2);
+      assertEqual(issues.filter(i => i.check === 'ope-projets' && i.level === 'error').length, 0, 'plus d\'erreur : une OPE RH sert à de nombreux projets (Antoine 26/11)');
+      assertEqual(issues.filter(i => i.check === 'ope-projets' && i.level === 'warn').length, 1);
       const grouped = L().groupProjects([{ _key: 'b', N_OPE: 'B', Projet: 'P1' }, { _key: 'c', N_OPE: 'B', Projet: 'P2' }], issues);
-      assertTrue(grouped.entries.every(entry => entry.blocked), 'les deux projets sont écartés');
+      assertTrue(grouped.entries.every(entry => !entry.blocked), 'les deux projets sont gardés');
     });
 
     it('les parts en pourcentage (40 + 60) sont aussi acceptées', function () {
@@ -759,14 +760,14 @@
       assertTrue(byId('ih-write').disabled);
     });
 
-    it('un N° OPE rattaché à deux projets dans l\'export : projets écartés (« À corriger »), jamais écrits', async function () {
-      const bad = [Object.assign({ id: 1 }, alpha, { Projet: 'P1', N_OPE: 'B' }), Object.assign({ id: 2 }, alpha, { Projet: 'P2', N_OPE: 'B', Financeur: 'IDEX' })];
-      await setup({ journal: bad });
-      assertEqual(document.querySelectorAll('.ih-tr.is-skip').length, 2);
-      assertIncludes(document.querySelector('.ih-tr').textContent, 'N° OPE B');
-      assertFalse(!!document.querySelector('.ih-tr [data-ih-cell$="|status"]'), 'pas de choix possible : l\'export doit être corrigé');
-      assertEqual(P().state.table.plan.actionCount, 0);
-      assertTrue(byId('ih-write').disabled);
+    it('un N° OPE partagé par deux projets dans l\'export (OPE RH) : les deux projets sont gardés, la ligne OPE est créée une seule fois', async function () {
+      const shared = [Object.assign({ id: 1 }, alpha, { Projet: 'P1', N_OPE: 'B' }), Object.assign({ id: 2 }, alpha, { Projet: 'P2', N_OPE: 'B', Financeur: 'IDEX' })];
+      await setup({ journal: shared });
+      assertEqual(document.querySelectorAll('.ih-tr.is-skip').length, 0, 'aucun projet écarté');
+      assertEqual(P().state.table.rows.length, 2);
+      assertIncludes(document.querySelector('.ih-tr').textContent, 'partagée');
+      const opes = P().state.table.plan.phase1.filter(op => op.table === 'Lignes_OPE' && op.kind === 'add');
+      assertEqual(opes.length, 1, 'une seule ligne OPE pour les deux projets');
     });
 
     it('le contrôle des totaux s\'affiche sous le bandeau quand le détail des dépenses existe', async function () {
