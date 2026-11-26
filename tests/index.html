@@ -36,6 +36,10 @@
       <input id="filter-instance" type="search" placeholder="Toutes les instances" autocomplete="off" role="combobox" aria-controls="filter-instance-list" aria-autocomplete="list">
       <span id="filter-instance-list" class="combo-list" role="listbox" hidden></span>
     </label>
+    <label class="filter-combo filter-bailleur"><span class="visually-hidden">Bailleur</span>
+      <input id="filter-bailleur" type="search" placeholder="Tous les bailleurs" autocomplete="off" role="combobox" aria-controls="filter-bailleur-list" aria-autocomplete="list">
+      <span id="filter-bailleur-list" class="combo-list" role="listbox" hidden></span>
+    </label>
     <label class="filter-search"><span class="visually-hidden">Recherche</span><input id="filter-search" type="search" placeholder="Acronyme, titre…" autocomplete="off"></label>
     <button id="clear-filters" class="filter-reset" type="button" aria-label="Réinitialiser les filtres" title="Réinitialiser les filtres" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg></button>
     <div id="kanban-hidden-columns" class="kanban-hidden-columns" hidden></div>
@@ -299,6 +303,7 @@
     // Test suites, one per audited feature.
     await loadScript('suite-kanban.js');
     await loadScript('suite-kanban-filtres-recherche.js');
+    await loadScript('suite-kanban-bailleur.js');
     await loadScript('suite-help-tooltip.js');
     await loadScript('suite-date-input.js');
     await loadScript('suite-project-modal.js');

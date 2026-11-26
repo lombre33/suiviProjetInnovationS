@@ -734,7 +734,7 @@
       const after = await window.CoreGrist.getTable('Preferences_Widget');
       assertTrue('Install_lieux' in after[0], 'la colonne Install_lieux doit avoir été ajoutée');
       assertFalse('Install_repliees' in after[0], 'les anciennes colonnes des volets ne sont plus créées');
-      const addColumnCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget');
+      const addColumnCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Preferences_Widget' && c.colId !== 'Filtre_bailleur'); // Filtre_bailleur : ajoutée par le Kanban lui-même
       assertEqual(addColumnCalls.length, 5, 'les 5 colonnes Install_* (lieux, parties dépliées, 3 filtres) doivent être ajoutées');
       const addTableCalls = window.__TEST_CALLS__.filter(c => c.type === 'AddTable' && c.table === 'Preferences_Widget');
       assertEqual(addTableCalls.length, 1, 'la table ne doit pas être recréée, seulement complétée');

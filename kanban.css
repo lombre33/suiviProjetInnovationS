@@ -9,6 +9,8 @@
 .project-filters select, .project-filters input { min-width:190px; height:36px; padding:0 11px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font:inherit; font-size:13px; font-weight:500; }
 .project-filters select:focus, .project-filters input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .filter-search input { min-width:220px; }
+/* Filtre Bailleur (26/11/2026) : discret, plus étroit que Programme / Instance ; au repos (les deux bailleurs cochés) il ressemble à un filtre vide. */
+.project-filters .filter-bailleur input { min-width:0; width:140px; }
 /* Filtre actif (liste cochée ou recherche saisie, 24/11/2026) : champ surligné, comme dans le Dashboard et l'Annuaire. */
 .project-filters input.is-active, .project-filters .filter-combo.is-active input { border-color:var(--accent); background:var(--accent-soft); color:var(--accent-hover); font-weight:700; }
 /* « Réinitialiser » en icône, visible seulement quand un filtre est actif (place économisée dans le bandeau). */
@@ -51,6 +53,7 @@
   .kanban-board { grid-template-columns:repeat(2, minmax(200px, 1fr)); }
   .project-filters label, .project-filters select, .project-filters input { width:100%; }
   .filter-search input { min-width:0; }
+  .project-filters .filter-bailleur input { width:100%; }
 }
 @media (max-width:520px) { .kanban-board { grid-template-columns:1fr; } }
 

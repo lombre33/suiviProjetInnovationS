@@ -42,6 +42,9 @@
     { id: 'Filtre_instance', type: 'Text' },
     { id: 'Filtre_recherche', type: 'Text' }
   ];
+  // Filtre Bailleur (demande du 26/11/2026) : colonne ajoutée après coup, donc créée au mieux (ensureBailleurPref) et jamais écrite tant que Grist ne la connaît pas.
+  const BAILLEUR_PREF = { id: 'Filtre_bailleur', type: 'Text', description: 'Filtre Bailleur du Kanban retenu pour cet utilisateur (vide : tous les bailleurs). Écrit par le widget.' };
+  let bailleurPrefKnown = false;
   const PREFS_ROWID_STORAGE_KEY = 'suiviProjetInnovationS:prefsRowId';
   let prefsRowId = null;
   const encodeColumnList = CoreUtils.encodeList; // colonnes repliées / masquées, et libellés des filtres (qui peuvent contenir une virgule)
@@ -191,8 +194,25 @@
     return {
       programmes: multiComboValues('filter-programme'),
       instances: multiComboValues('filter-instance'),
+      bailleurs: bailleurFilter(),
       search: normalized(document.getElementById('filter-search')?.value)
     };
+  }
+  // Filtre Bailleur : par défaut, tous les bailleurs (rien n'est masqué). Une sélection vide revient à ce défaut : on ne peut pas tout décocher.
+  // Un projet reste visible dès qu'une de ses OPE est financée par un bailleur coché (une OPE sans bailleur vaut InnovationS).
+  function bailleurChoices() {
+    const known = (window.CoreOpes && CoreOpes.BAILLEURS) ? CoreOpes.BAILLEURS.slice() : [];
+    getProjects().forEach(project => CoreOpes.bailleurs(project).forEach(value => { if (!known.includes(value)) known.push(value); }));
+    return known;
+  }
+  function bailleurSelected() {
+    const stored = multiComboValues('filter-bailleur');
+    return stored.length ? stored : bailleurChoices();
+  }
+  // null : aucun filtrage (les deux bailleurs cochés d'origine, ou rien d'enregistré) ; sinon la liste des bailleurs retenus.
+  function bailleurFilter() {
+    const stored = multiComboValues('filter-bailleur');
+    return stored.length ? stored : null;
   }
   function filteredProjects() {
     const filters = currentFilters();
@@ -200,13 +220,14 @@
     return getProjects().filter(project => {
       if (filters.programmes.length && !filters.programmes.includes(programmeLabel(field(project, ['Programme', 'Programme_Axe_InnovationS'])))) return false;
       if (filters.instances.length && !filters.instances.includes(instanceLabel(field(project, ['Instance_ratachee', 'Instance', 'Instances'])))) return false;
+      if (filters.bailleurs && !CoreOpes.bailleurs(project).some(value => filters.bailleurs.includes(value))) return false;
       return !filters.search || normalized(text(project.Acronyme)).includes(filters.search) || normalized(text(project.Projet)).includes(filters.search);
     });
   }
   // Un filtre est actif dès qu'un programme / une instance est coché ou qu'une recherche est saisie.
   function hasActiveFilter() {
     const filters = currentFilters();
-    return !!(filters.programmes.length || filters.instances.length || filters.search);
+    return !!(filters.programmes.length || filters.instances.length || filters.bailleurs || filters.search);
   }
   // Instances : la séance la plus récente d'abord (un tri alphabétique plaçait « CTO#10 » avant « CTO#5 »), les séances
   // sans date à la fin, par ordre alphabétique (demande du 24/11/2026).
@@ -256,18 +277,24 @@
   // Les deux filtres à liste à cases (js/components/filter-combo.js : recherche dans la liste, clavier, valeurs épinglées).
   const COMBOS = {
     'filter-programme': { fields: ['Programme', 'Programme_Axe_InnovationS'], placeholder: 'Tous les programmes', summaryLabel: 'programmes sélectionnés' },
-    'filter-instance': { fields: ['Instance_ratachee', 'Instance', 'Instances'], placeholder: 'Toutes les instances', summaryLabel: 'instances sélectionnées', pinned: pinnedInstanceOptions }
+    'filter-instance': { fields: ['Instance_ratachee', 'Instance', 'Instances'], placeholder: 'Toutes les instances', summaryLabel: 'instances sélectionnées', pinned: pinnedInstanceOptions },
+    // Bailleur : les deux cochés d'origine (champ au repos, comme un filtre vide) ; tout recocher ou tout décocher revient à ce défaut (rien d'enregistré).
+    'filter-bailleur': {
+      placeholder: 'Tous les bailleurs', summaryLabel: 'bailleurs sélectionnés',
+      options: bailleurChoices, getSelected: bailleurSelected, neutral: () => bailleurFilter() === null,
+      normalize: next => (next.length === 0 || bailleurChoices().every(value => next.includes(value)) ? [] : next)
+    }
   };
   const combos = {};
   function setupMultiCombo(id) {
     const config = COMBOS[id];
     if (!config || combos[id]) return;
     combos[id] = FilterCombo.attach({
-      id, placeholder: config.placeholder, summaryLabel: config.summaryLabel, pinned: config.pinned, eager: true,
-      options: () => options(config.fields),
-      getSelected: () => multiComboValues(id),
+      id, placeholder: config.placeholder, summaryLabel: config.summaryLabel, pinned: config.pinned, eager: true, neutral: config.neutral,
+      options: config.options || (() => options(config.fields)),
+      getSelected: config.getSelected || (() => multiComboValues(id)),
       setSelected: next => {
-        document.getElementById(id).dataset.selectedValues = encodeColumnList(next);
+        document.getElementById(id).dataset.selectedValues = encodeColumnList(config.normalize ? config.normalize(next) : next);
         render();
         saveUserPreferences();
       }
@@ -338,13 +365,25 @@
     if (programmeInput && row.Filtre_programme) programmeInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Filtre_programme));
     const instanceInput = document.getElementById('filter-instance');
     if (instanceInput && row.Filtre_instance) instanceInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Filtre_instance));
+    const bailleurInput = document.getElementById('filter-bailleur');
+    if (bailleurInput && row.Filtre_bailleur) bailleurInput.dataset.selectedValues = encodeColumnList(decodeColumnList(row.Filtre_bailleur));
     const search = document.getElementById('filter-search');
     if (search && row.Filtre_recherche) search.value = row.Filtre_recherche;
+  }
+  // Colonne du filtre Bailleur : créée au mieux (au premier chargement qui la manque). Sans droit de structure, le filtre fonctionne mais n'est pas retenu.
+  async function ensureBailleurPref() {
+    try { await CoreGrist.ensureColumns(PREFS_TABLE, [BAILLEUR_PREF]); bailleurPrefKnown = true; }
+    catch (err) {
+      const known = CoreGrist.knownColumns ? CoreGrist.knownColumns(PREFS_TABLE) : null;
+      bailleurPrefKnown = !!(known && known.has(BAILLEUR_PREF.id));
+      console.warn('Colonne du filtre Bailleur non créée (le filtre ne sera pas retenu) :', err.message);
+    }
   }
   async function loadUserPreferences() {
     if (!window.CoreGrist || !CoreGrist.gristInstance) return;
     try {
       await CoreGrist.ensureTable(PREFS_TABLE, PREFS_COLUMNS);
+      await ensureBailleurPref();
       const rows = await CoreGrist.getTable(PREFS_TABLE, { shared: true }); // lecture partagée au démarrage (js/app.js)
       const cachedId = getCachedPrefsRowId();
       const row = cachedId != null ? rows.find(r => r.id === cachedId) : null;
@@ -365,7 +404,7 @@
       // (ex. "Projet en cours" repliée) avec un "rien n'est replié/masqué" non
       // voulu par l'utilisateur.
       const hasSavedPreferences = !!(text(row.Kanban_colonnes_repliees) || text(row.Kanban_colonnes_masquees) ||
-        text(row.Filtre_programme) || text(row.Filtre_instance) || text(row.Filtre_recherche));
+        text(row.Filtre_programme) || text(row.Filtre_instance) || text(row.Filtre_bailleur) || text(row.Filtre_recherche));
       if (!hasSavedPreferences) return;
       COLUMNS.forEach(c => { columnState[c.key].collapsed = false; columnState[c.key].hidden = false; });
       decodeColumnList(row.Kanban_colonnes_repliees).forEach(key => { if (columnState[key]) columnState[key].collapsed = true; });
@@ -385,6 +424,7 @@
       Filtre_instance: encodeColumnList(multiComboValues('filter-instance')),
       Filtre_recherche: document.getElementById('filter-search')?.value || ''
     };
+    if (bailleurPrefKnown) fields.Filtre_bailleur = encodeColumnList(multiComboValues('filter-bailleur')); // jamais écrite avant que Grist connaisse la colonne : un champ inconnu ferait rejeter toute l'écriture
     try {
       await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]);
     } catch (err) {
@@ -445,7 +485,7 @@
     render();
     document.getElementById('filter-search')?.addEventListener('input', () => { render(); saveUserPreferencesSoon(); });
     document.getElementById('clear-filters')?.addEventListener('click', () => {
-      ['filter-programme', 'filter-instance'].forEach(id => {
+      ['filter-programme', 'filter-instance', 'filter-bailleur'].forEach(id => {
         const input = document.getElementById(id);
         if (input) { input.value = ''; input.dataset.selectedValues = ''; }
       });

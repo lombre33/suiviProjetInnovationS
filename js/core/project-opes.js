@@ -202,6 +202,18 @@
     return highest;
   }
 
+  // Bailleurs du projet (filtre du Kanban) : celui de chaque OPE qui existe, l'OPE 1 comprise ; une OPE sans bailleur vaut InnovationS (valeur par défaut de la modale).
+  function bailleurs(project) {
+    const found = [];
+    ranks().forEach(rank => {
+      const ope = read(project, rank);
+      if (rank > 1 && !hasData(ope)) return;
+      const value = ope.bailleur.trim() || DEFAULT_BAILLEUR;
+      if (!found.includes(value)) found.push(value);
+    });
+    return found;
+  }
+
   // Toutes les lignes OPE du projet (OPE 1 à 4, sans doublon) : c'est elles que le Dashboard rattache aux dépenses.
   function ligneIds(project) {
     const seen = new Set();
@@ -256,7 +268,7 @@
   });
 
   global.CoreOpes = {
-    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, BAILLEURS, DEFAULT_BAILLEUR, BAILLEUR_HELP, bailleurColumn, bailleurDefinition, missingBailleurColumn, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
+    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, BAILLEURS, DEFAULT_BAILLEUR, BAILLEUR_HELP, bailleurs, bailleurColumn, bailleurDefinition, missingBailleurColumn, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
     ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns, referenceDisplaySpecs, ensureDisplays, totalMassColumn, totalYearColumn, totalOpeColumn, crossColumn, totalDefinitions, crossDefinitions, missingTotalColumns, missingCrossColumns,
     ownedSpecs, ownedApplies, ownedColumns, ownedFormula, ownedLegacyFormula,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals

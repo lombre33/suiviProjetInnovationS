@@ -368,6 +368,17 @@ retenue qui a disparu des données reste proposée, donc décochable. Chaque pag
 la séance la plus récente à la plus ancienne (les séances sans date à la fin, par ordre alphabétique). La recherche porte sur l'acronyme **et** le titre
 (`Projet`). « Réinitialiser » est une icône visible seulement quand un filtre est actif ; une colonne vide à cause d'un filtre dit « Aucun projet pour ces filtres ».
 
+**Kanban Projets, filtre Bailleur (26 novembre 2026).** Un champ discret (140 px) du même bandeau, entre Instance et la recherche, aucune nouvelle ligne. Les
+**deux bailleurs, InnovationS et Idex, sont cochés d'origine** : le champ affiche alors « Tous les bailleurs » comme un filtre vide (pas de surlignage, rien
+n'est masqué, rien n'est retenu). Un projet reste visible dès qu'**une de ses OPE** est financée par un bailleur coché (`CoreOpes.bailleurs` : celui de chaque
+OPE qui existe vraiment, l'OPE 1 comprise ; une OPE sans bailleur vaut InnovationS ; une OPE ajoutée puis vidée ne compte pas). Décocher InnovationS ne laisse
+donc que les projets financés (au moins en partie) par Idex ; décocher Idex ne masque que ceux financés uniquement par Idex. Tout décocher, tout recocher,
+« Tous les bailleurs » ou « Réinitialiser » revient au défaut. Un bailleur hors liste trouvé dans les données (saisi à la main dans Grist) est proposé en plus,
+coché d'origine. Retenu par utilisateur dans `Preferences_Widget.Filtre_bailleur` (Text, `Idex` ou `InnovationS` ; vide = les deux), **colonne créée par le widget**
+au premier chargement des préférences qui la manque (`ensureBailleurPref`, au mieux) : sans droit de structure le filtre marche mais n'est pas retenu, et la
+colonne n'est jamais écrite tant que Grist ne la connaît pas (un champ inconnu ferait rejeter toute l'écriture des préférences). Non validé dans un vrai Grist.
+Le Dashboard n'est pas concerné (autre fil).
+
 **Page Instances (9 novembre 2026).** Une ligne de `Suivi_Instance` = une séance de la page
 « par instance » (`js/pages/page-instances.js`). Colonnes lues : `Instance`, `Numero` (Text),
 `date` (Date), `Heure` (DateTime, Europe/Paris), `Salle` (Reference → `Lieux`). Le widget écrit

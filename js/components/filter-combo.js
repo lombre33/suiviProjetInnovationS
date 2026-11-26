@@ -23,6 +23,8 @@
  *   getSelected,   () => string[]
  *   setSelected,   next => void : la page applique le choix (état, rendu des cartes, préférences)
  *   eager          true : la liste est redessinée à chaque sync(), même fermée (Projets, Administratif, Installation)
+ *   neutral        (facultatif) values => bool : vrai quand la sélection est l'état par défaut (ex. les deux bailleurs cochés) : le champ
+ *                  montre alors son texte d'invite, sans surlignage, comme un filtre vide ; la liste, elle, garde les valeurs cochées
  * }) -> { sync() } : à rappeler quand la sélection ou les valeurs changent hors du champ (données rechargées, Réinitialiser).
  */
 (function (global) {
@@ -75,10 +77,11 @@
 
     function sync() {
       const chosen = config.getSelected();
-      if (!state.typed) input.value = summaryOf(chosen, config.summaryLabel);
-      input.title = chosen.join(', '); // le champ est étroit : la sélection complète se lit au survol
-      input.classList.toggle('is-active', chosen.length > 0);
-      if (label) label.classList.toggle('is-active', chosen.length > 0);
+      const idle = !!config.neutral && config.neutral(chosen); // état par défaut : champ au repos
+      if (!state.typed) input.value = idle ? '' : summaryOf(chosen, config.summaryLabel);
+      input.title = idle ? '' : chosen.join(', '); // le champ est étroit : la sélection complète se lit au survol
+      input.classList.toggle('is-active', chosen.length > 0 && !idle);
+      if (label) label.classList.toggle('is-active', chosen.length > 0 && !idle);
       if (config.eager || !list.hidden) renderList();
     }
 
