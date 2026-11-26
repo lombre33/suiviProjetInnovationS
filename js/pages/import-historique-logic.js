@@ -73,7 +73,10 @@
   // Journal d'import : les 24 colonnes de l'export, plus Cle_ligne et Exporte_le (colonnes de données : le script d'envoi ne les pousse pas,
   // l'import régulier leur ajoute une formule appliquée aux nouveaux enregistrements ; ici elles restent vides, l'outil lit la dernière
   // version de chaque ligne lui-même, par plus grand id).
-  const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
+  // Champ facultatif de l'export (26/11/2026) : une ligne par décision de l'OPE (n°, date, montant, statut), en JSON compact, pour grouper les
+  // réattributions sous leur projet. Un export ou un formulaire qui ne l'a pas fonctionne comme avant (aucun regroupement).
+  const OPTIONAL_FIELDS = [['Detail_decisions', 'Détail des décisions', 'Text']];
+  const SOURCE_COLUMNS = SOURCE_FIELDS.concat(OPTIONAL_FIELDS).map(([id, label, type]) => ({ id, label, type }))
     .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }, { id: 'Lot', type: 'Text' },
       // Nombre de lignes de l'envoi du script (champ « Lignes du lot » du formulaire) : permet de repérer un envoi arrivé à moitié.
       { id: 'Lignes_du_lot', label: 'Lignes du lot', type: 'Int' },
@@ -144,7 +147,7 @@
     const columnOf = new Map();
     headers.forEach((header, i) => { if (header && !columnOf.has(header)) columnOf.set(header, i); });
     const missing = SOURCE_FIELDS.filter(field => !columnOf.has(normalize(field[1]))).map(field => field[1]);
-    const known = new Set(SOURCE_FIELDS.map(field => normalize(field[1])));
+    const known = new Set(SOURCE_FIELDS.concat(OPTIONAL_FIELDS).map(field => normalize(field[1])));
     const unknown = rows[headerAt].filter((cell, i) => !isBlank(cell) && !known.has(headers[i]) && columnOf.get(headers[i]) === i).map(cell => String(cell).trim());
     if (missing.length) return Object.assign(empty, { missing, unknown });
     const exporteLe = now.getTime() / 1000;
@@ -157,7 +160,7 @@
       out.total++;
       const record = {};
       let bad = false;
-      SOURCE_FIELDS.forEach(([id, label, type]) => {
+      SOURCE_FIELDS.concat(OPTIONAL_FIELDS.filter(field => columnOf.has(normalize(field[1])))).forEach(([id, label, type]) => {
         const cell = row[columnOf.get(normalize(label))];
         const converted = convertCell(type, cell, excelDateToUnix);
         if (converted.skip) return;
@@ -328,6 +331,28 @@
     return out;
   }
 
+  // Décisions d'une OPE (colonne « Détail des décisions » de l'export) : [{ number, date (secondes ou null), amount (attribué), status }], de la plus
+  // ancienne à la plus récente. La première est la décision initiale, les suivantes sont des réattributions ou des prolongations. Une valeur
+  // illisible ou absente donne une liste vide (pas de regroupement, jamais d'erreur).
+  function parseDecisions(value) {
+    const raw = text(value);
+    if (!raw) return [];
+    let data;
+    try { data = JSON.parse(raw); } catch (error) { return []; }
+    if (!Array.isArray(data)) return [];
+    const timeOf = item => (item.date == null ? Infinity : item.date);
+    return data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+      .map(item => ({ number: text(item.n), date: unixOfIso(item.d), amount: toNumber(item.a) || 0, status: text(item.s) }))
+      .sort((a, b) => (timeOf(a) === timeOf(b) ? 0 : timeOf(a) < timeOf(b) ? -1 : 1) || a.number.localeCompare(b.number, 'fr', { numeric: true }));
+  }
+  const DECISION_KINDS = { re: 'Réattribution', pro: 'Prolongation', ign: 'Ignorer' };
+  // Nature proposée pour une décision qui suit la première : de l'argent en plus = réattribution ; accepté sans montant = prolongation (à qualifier) ;
+  // pas accepté (refusé, en cours) = rien à signaler.
+  function decisionKind(decision) {
+    if (decision.amount > 0) return 're';
+    return normalize(decision.status).split(' ').includes('accepte') ? 'pro' : 'ign';
+  }
+
   function groupProjects(lines, issues) {
     const blockedOpe = new Map();
     (issues || []).filter(issue => issue.level === 'error' && issue.check === 'ope-projets').forEach(issue => blockedOpe.set(opeKey(issue.ope), issue.message));
@@ -353,7 +378,8 @@
           structure: mostCommon(ope.structures), structureCount: unique(ope.structures).length,
           financeur: mostCommon(ope.lines.map(l => text(l.Financeur)).filter(Boolean)), innovations: ope.lines.some(l => normalize(l.Financeur) === 'innovations'),
           dateDebut: starts.length ? Math.min(...starts) : null, shared: sharedOpes.has(ope.key), sharedBy: sharedOpes.get(ope.key) || 1,
-          amounts: aggregateOpe(sharedOpes.has(ope.key) ? linesOfOpe.get(ope.key) : ope.lines)
+          amounts: aggregateOpe(sharedOpes.has(ope.key) ? linesOfOpe.get(ope.key) : ope.lines),
+          decisions: ope.lines.flatMap(l => parseDecisions(l.Detail_decisions))
         });
       });
       const starts = group.map(l => toNumber(l.Date_debut)).filter(v => v != null), ends = group.map(l => toNumber(l.Date_fin)).filter(v => v != null);
@@ -611,7 +637,7 @@
       else if (!existingId && state !== 'bad') state = 'add';
       else if (existingId && state !== 'bad' && state !== 'fill' && state !== 'conf' && needsLink) state = 'fill';
       const rank = ranks.get(ope.key) || 1;
-      row.lines.push({ key: ope.key, ope: ope.ope, amounts: ope.amounts, shared: sharedOpe, existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
+      row.lines.push({ key: ope.key, ope: ope.ope, amounts: ope.amounts, shared: sharedOpe, decisions: ope.decisions || [], existingId, ligne, isNew: !existingId, cell: structure, conflict, needsLink, state, rank, column: slotColumn(rank), id: conflict && !conflict.resolved ? conflictId : structure.id });
     });
     // Pas encore décidé ou écarté : les valeurs restent visibles, sans couleur ni anomalie propre.
     if (row.plain) {
@@ -1022,7 +1048,7 @@
   }
 
   global.ImportHistoriqueLogic = {
-    SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, SOURCE_COLUMNS, LOTS_TABLE, LOTS_COLUMNS, LOT_TYPE_ONESHOT, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
+    SOURCE_TABLE, DETAIL_TABLE, JOURNAL_TABLE, JOURNAL_COLUMNS, SOURCE_COLUMNS, parseDecisions, decisionKind, DECISION_KINDS, LOTS_TABLE, LOTS_COLUMNS, LOT_TYPE_ONESHOT, YEAR_COLUMNS, STATUS_CLOSED, STATUS_RUNNING, CREATED_NOTE, CHECKS, CHUNK,
     RANK_MODES, DEFAULT_RANK_MODE, slotColumn, placeOpes, orderOpes,
     KIND_LABEL, normalize, opeKey, dice, refListIds, defaultAcronyme, lineKeyOf, isoOfUnix, unixOfIso,
     latestVersions, checkLines, groupProjects, buildContext, matchEntry, matchLabel, effectiveDecision,

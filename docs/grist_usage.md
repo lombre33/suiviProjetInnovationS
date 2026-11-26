@@ -906,6 +906,22 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   celui des lignes reçues) et le lien « Les remettre » les rétablit. **Rien n'est supprimé** (le journal garde tout, « Rétablir » remet un envoi refusé) ;
   le prochain envoi du script, qui renvoie toutes les lignes, remet un projet retiré. Les envois déjà validés ne font jamais partie de la file.
   La colonne `Retire_de_la_file` est créée par le widget et n'est pas un champ du formulaire du script.
+- **Réattributions regroupées sous leur projet** (26/11/2026, demande d'Antoine ; **affichage seulement, rien n'est écrit dans `Projets`**) : le script
+  ajoute à chaque ligne d'export une colonne **« Détail des décisions »** (JSON compact `[{"n":"n° de décision","d":date,"a":montant,"s":statut}]`, une
+  entrée par décision de la ligne projet × financeur × OPE). Le widget la lit (`parseDecisions`, tolérant : JSON illisible, tableau absent ou date
+  manquante n'empêchent rien) et la crée comme colonne de `Import_Financements` ; pour un formulaire de script déjà créé, il faut **ajouter le champ
+  « Détail des décisions »** au formulaire (sinon le script le signale « sans champ dans le formulaire (non envoyées) » et rien n'est regroupé), et
+  faire un `git pull` du dépôt du script. Les décisions sont triées par date : **la première est la décision initiale**, rappelée en petit sur la
+  ligne du projet (« décision initiale n° · date · montant ») ; **chacune des suivantes est une ligne décalée sous le projet** (connecteur, nature,
+  n° de décision, date, OPE, montant). La **nature est proposée** : montant en plus → **Réattribution** (« + N € ») ; accepté sans montant →
+  **Prolongation à qualifier** (« 0 € · à qualifier ») ; décision non acceptée → **Ignorer** (grisée). Antoine la change dans la liste de la ligne ; le
+  choix va dans le brouillon de tri (clé = projet | OPE | n° de décision), jamais dans « J'ai relu le tableau », et revenir à la proposition l'efface.
+  Mode actuel : **« signalée seulement »** (aucune ligne créée dans `Projets`). L'interrupteur **« Masquer / Afficher N réattributions »** est dans la
+  ligne de résumé (le bandeau de filtres reste sur une ligne) et n'apparaît que si l'export contient des décisions ; la recherche trouve aussi un projet
+  par un n° de décision. Pour une OPE partagée (RH), chaque projet affiche ses propres décisions (celles de ses lignes d'export), pas celles des autres projets de l'OPE. Sans la colonne (ancien
+  export), la page est identique à avant. **Pas fait, en attente de la réponse d'Antoine (carte « nouveau n° de décision »)** : créer les lignes de
+  modification dans `Projets` (parent = projet d'origine, même OPE, `Reattribution_montant`). Code : `parseDecisions`, `decisionKind` dans
+  `js/pages/import-historique-logic.js` ; `childRowsHtml`, `kidsLinkHtml` dans `js/pages/page-import-historique.js`.
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques

@@ -391,4 +391,102 @@
       created.forEach(op => assertDeepEqual(op.fields.Ligne_OPE, ['L', { tmp: opes[0].tmp }]));
     });
   });
+  // ===========================================================================================================
+  describe('Import — les réattributions regroupées sous leur projet (colonne « Détail des décisions »)', function () {
+    // Antoine (26/11) : « Projet A, décision initiale » puis, décalée dessous, « Projet A, réattribution, nouveau numéro ». Le script envoie une entrée JSON par
+    // décision (n, d, a, s) ; la première (la plus ancienne) est l'initiale. Affichage seulement : rien n'est écrit dans Projets pour les suivantes.
+    const DECISIONS = [{ n: '25-0118-02', d: '2025-03-12', a: 80000, s: 'Accepté' }, { n: '23-0412-01', d: '2023-06-14', a: 250000, s: 'Accepté' }, { n: '25-0733-03', d: '2025-05-05', a: 0, s: 'Accepté' }];
+    const withDetail = (decisions = DECISIONS) => withIds([line('OPE-R1', 'InnovationS', 2023, 'Robotique agricole', { Detail_decisions: JSON.stringify(decisions) })]);
+
+    it('lire les décisions : de la plus ancienne à la plus récente, tolérant (JSON illisible, tableau absent, date manquante en dernier)', function () {
+      const parsed = L().parseDecisions(JSON.stringify(DECISIONS));
+      assertDeepEqual(parsed.map(d => d.number), ['23-0412-01', '25-0118-02', '25-0733-03']);
+      assertEqual(parsed[0].amount, 250000); assertEqual(parsed[0].status, 'Accepté'); assertEqual(parsed[0].date, UTC(2023, 6, 14));
+      assertDeepEqual(L().parseDecisions('pas du json'), []); assertDeepEqual(L().parseDecisions('{"n":"A"}'), []); assertDeepEqual(L().parseDecisions(''), []); assertDeepEqual(L().parseDecisions(null), []);
+      const undated = L().parseDecisions(JSON.stringify([{ n: 'SANS-DATE', d: null, a: 1, s: '' }, { n: 'AVEC', d: '2024-01-01', a: 2, s: '' }]));
+      assertDeepEqual(undated.map(d => d.number), ['AVEC', 'SANS-DATE']);
+    });
+
+    it('nature proposée : de l\'argent en plus = réattribution ; accepté sans montant = prolongation à qualifier ; pas accepté = ignoré', function () {
+      assertEqual(L().decisionKind({ amount: 80000, status: 'Accepté' }), 're');
+      assertEqual(L().decisionKind({ amount: 0, status: 'Accepté' }), 'pro');
+      assertEqual(L().decisionKind({ amount: 0, status: 'Refusé' }), 'ign');
+      assertEqual(L().decisionKind({ amount: 0, status: '' }), 'ign');
+    });
+
+    it('le projet de l\'export porte les décisions de chaque OPE ; sans détail (ancien export), aucune décision et aucun regroupement', function () {
+      const lines = L().latestVersions(withDetail()).lines, entry = L().groupProjects(lines, L().checkLines(lines)).entries[0];
+      assertEqual(entry.opes[0].decisions.length, 3); assertEqual(entry.opes[0].decisions[0].number, '23-0412-01');
+      const old = L().latestVersions(withIds([line('OPE-R1', 'InnovationS', 2023, 'Robotique agricole')])).lines;
+      assertDeepEqual(L().groupProjects(old, []).entries[0].opes[0].decisions, []);
+    });
+
+    it('le fichier Excel de l\'export : la colonne « Détail des décisions » est lue quand elle est là, et son absence n\'est pas une erreur', function () {
+      const headers = ['Programme', 'Projet', 'Financeur', 'Financeurs du projet', 'N° OPE', 'Libellé opération', 'Ligne budgétaire', 'Date début', 'Date fin', 'Montant attribué', 'Part du projet',
+        'Attribué 2022', 'Attribué 2023', 'Attribué 2024', 'Attribué 2025', 'Attribué 2026', 'Consommé AE', 'Consommé CP', 'Disponible AE', 'Disponible CP', 'Statuts', 'N° décision', 'Structure', 'Établissement'];
+      const rowOf = extra => headers.concat(extra ? ['Détail des décisions'] : []).map(h => (h === 'N° OPE' ? 'A-1' : h === 'Projet' ? 'P' : h === 'Détail des décisions' ? '[{"n":"X","d":"2024-01-01","a":5,"s":"Accepté"}]' : /Date/.test(h) ? '2024-01-01' : 0));
+      const header = extra => headers.concat(extra ? ['Détail des décisions'] : []);
+      const withCol = L().readExport([header(true), rowOf(true)], new Date(Date.UTC(2026, 10, 26, 12, 0, 0)), () => UTC(2024, 1, 1));
+      assertEqual(withCol.missing.length, 0); assertEqual(withCol.records[0].Detail_decisions, '[{"n":"X","d":"2024-01-01","a":5,"s":"Accepté"}]');
+      const without = L().readExport([header(false), rowOf(false)], new Date(Date.UTC(2026, 10, 26, 12, 0, 0)), () => UTC(2024, 1, 1));
+      assertEqual(without.missing.length, 0, 'un export sans le détail reste accepté'); assertEqual(without.records.length, 1); assertEqual(without.records[0].Detail_decisions, undefined);
+    });
+
+    const click = el => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    async function setup(journal) {
+      window.__mockSetTable('Import_Financements', toTable(journal));
+      window.__mockSetTable('Projets', toTable([{ id: 10, Acronyme: 'ALPHA', Projet: 'Projet Alpha', Programme: 1, Ligne_OPE: ['L'] }]));
+      window.__mockSetTable('Lignes_OPE', toTable([{ id: 1, N_OPE: 'OTHER', installe_chez: 0 }]));
+      window.__mockSetTable('Programmes', toTable(PROGRAMMES));
+      window.__mockSetTable('Structures', toTable(STRUCTURES));
+      P().resetState();
+      await P().open();
+    }
+    const kids = () => Array.from(document.querySelectorAll('.ih-child'));
+
+    it('la page : une ligne décalée par nouvelle décision sous son projet (n°, date, montant), la décision initiale rappelée sur la ligne du projet', async function () {
+      await setup(withDetail());
+      assertEqual(kids().length, 2, 'deux décisions après l\'initiale');
+      assertIncludes(kids()[0].textContent, '25-0118-02'); assertIncludes(kids()[0].textContent, '12/03/2025'); assertTrue(/\+ 80\s000 €/.test(kids()[0].textContent), 'le montant en plus : ' + kids()[0].textContent);
+      assertEqual(kids()[0].querySelector('select').value, 're'); assertEqual(kids()[1].querySelector('select').value, 'pro', 'accepté sans montant : prolongation à qualifier');
+      assertIncludes(kids()[1].textContent, 'à qualifier');
+      const parent = document.querySelector('.ih-tr[data-ih-entry]');
+      assertIncludes(parent.textContent, 'décision initiale 23-0412-01'); assertTrue(/250\s000/.test(parent.textContent));
+      assertEqual(parent.nextElementSibling, kids()[0], 'les lignes décalées suivent directement le projet');
+      assertIncludes(document.querySelector('[data-ih-kids]').textContent, 'Masquer 2 réattributions');
+    });
+
+    it('changer la nature d\'une décision : choix de tri retenu dans le brouillon, sans toucher « J\'ai relu le tableau » ; revenir à la proposition l\'efface', async function () {
+      await setup(withDetail());
+      const ack = byId('ih-ack'); ack.checked = true; fire(ack, 'change');
+      const select = kids()[1].querySelector('select'); select.value = 'ign'; fire(select, 'change');
+      assertEqual(P().state.edits.size, 1);
+      assertTrue(byId('ih-ack').checked, 'rien ne s\'écrit pour une réattribution : la relecture reste valable');
+      assertIncludes(kids()[1].textContent, 'ignorée');
+      assertIncludes(document.querySelector('[data-ih-kids]').textContent, '1 réattribution', 'une ignorée ne compte plus');
+      const back = kids()[1].querySelector('select'); back.value = 'pro'; fire(back, 'change');
+      assertEqual(P().state.edits.size, 0, 'la proposition d\'origine n\'est pas gardée comme un choix');
+    });
+
+    it('l\'interrupteur « Réattributions » cache ou montre les lignes décalées ; la recherche trouve un projet par un n° de décision', async function () {
+      await setup(withDetail());
+      click(document.querySelector('[data-ih-kids]'));
+      assertEqual(kids().length, 0); assertFalse(document.querySelector('.ih-tr[data-ih-entry]').textContent.includes('décision initiale'));
+      assertIncludes(document.querySelector('[data-ih-kids]').textContent, 'Afficher');
+      click(document.querySelector('[data-ih-kids]'));
+      assertEqual(kids().length, 2);
+      const search = byId('ih-search'); search.value = '25-0118'; fire(search, 'input');
+      assertEqual(document.querySelectorAll('.ih-tr[data-ih-entry]').length, 1, 'le projet est trouvé par le n° de sa réattribution');
+      const again = byId('ih-search'); again.value = '99-9999'; fire(again, 'input');
+      assertEqual(document.querySelectorAll('.ih-tr[data-ih-entry]').length, 0);
+    });
+
+    it('sans détail des décisions, la page est comme avant : pas d\'interrupteur ni de ligne décalée ; avec ou sans, le plan d\'écriture est le même', async function () {
+      await setup(withIds([line('OPE-R1', 'InnovationS', 2023, 'Robotique agricole')]));
+      assertEqual(kids().length, 0); assertFalse(!!document.querySelector('[data-ih-kids]'));
+      const without = P().state.table.plan.actionCount;
+      await setup(withDetail());
+      assertEqual(P().state.table.plan.actionCount, without, 'les décisions suivantes n\'ajoutent aucune écriture');
+    });
+  });
 })();

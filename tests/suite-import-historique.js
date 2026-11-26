@@ -568,15 +568,15 @@
       const created = calls.find(call => call.type === 'AddTable' && call.table === 'Import_Financements');
       assertTrue(!!created, 'la table du journal est créée par l\'outil');
       const byIdCol = Object.fromEntries(created.colDefs.map(col => [col.id, col]));
-      assertEqual(created.colDefs.length, 29, '24 colonnes de l\'export + Cle_ligne, Exporte_le, Lot, Lignes du lot et Retire_de_la_file');
+      assertEqual(created.colDefs.length, 30, '24 colonnes de l\'export + Détail des décisions, Cle_ligne, Exporte_le, Lot, Lignes du lot et Retire_de_la_file');
       assertEqual(byIdCol.N_OPE.label, 'N° OPE', 'l\'étiquette reprend l\'en-tête Excel : l\'import de fichier associe tout seul');
       assertEqual(byIdCol.Attribue_2024.label, 'Attribué 2024'); assertEqual(byIdCol.Etablissement.label, 'Établissement');
       assertEqual(byIdCol.Date_debut.type, 'Date'); assertEqual(byIdCol.Consomme_AE.type, 'Numeric');
       assertFalse(created.colDefs.some(col => col.isFormula), 'aucune colonne calculée : le formulaire doit pouvoir tout envoyer');
       ['Programme', 'Projet', 'Financeur', 'Financeurs_du_projet', 'N_OPE', 'Libelle_operation', 'Ligne_budgetaire', 'Statuts', 'N_decision', 'Structure', 'Etablissement', 'Date_debut', 'Date_fin', 'Montant_attribue', 'Part_du_projet',
-        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le', 'Lot', 'Lignes_du_lot', 'Retire_de_la_file'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
+        'Attribue_2022', 'Attribue_2023', 'Attribue_2024', 'Attribue_2025', 'Attribue_2026', 'Consomme_AE', 'Consomme_CP', 'Disponible_AE', 'Disponible_CP', 'Cle_ligne', 'Exporte_le', 'Lot', 'Lignes_du_lot', 'Retire_de_la_file', 'Detail_decisions'].forEach(id => assertTrue(!!byIdCol[id], 'colonne ' + id));
       assertTrue(calls.some(call => call.type === 'AddTable' && call.table === 'Import_Journal'), 'le journal des écritures est créé aussi');
-      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (29 colonnes)');
+      assertIncludes(byId('ih-root').querySelector('.ih-prepared').textContent, 'table Import_Financements (30 colonnes)');
       assertFalse(calls.some(call => call.table === 'Lignes_OPE' || call.table === 'Projets'), 'rien n\'est touché dans Projets ni Lignes_OPE (pas de formule de montant, pas de conversion)');
       assertTrue(!!byId('ih-pick') && !!byId('ih-file') && !byId('ih-write'), 'bouton pour choisir le fichier, pas de tableau sur un journal vide');
       assertFalse(!!document.querySelector('.nav-btn[data-view="view-import-historique"]'), 'pas dans la barre de navigation');

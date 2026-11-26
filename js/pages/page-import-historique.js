@@ -36,7 +36,7 @@
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
-      prepared: [], upload: null, removing: null, clearing: false, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
+      prepared: [], upload: null, removing: null, clearing: false, showKids: true, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
     };
   }
   // Repart de zéro (utilisé par les tests ; l'application, elle, ne l'appelle jamais : un rechargement garde le brouillon).
@@ -277,7 +277,7 @@
     const needle = L.normalize(state.search);
     if (!needle) return true;
     const entry = row.entry;
-    return L.normalize([entry.name, row.cells.acr.v, entry.programme, entry.financeurs.join(' '), entry.opes.map(o => o.ope).join(' ')].join(' ')).includes(needle);
+    return L.normalize([entry.name, row.cells.acr.v, entry.programme, entry.financeurs.join(' '), entry.opes.map(o => o.ope).join(' '), entry.opes.flatMap(o => (o.decisions || []).map(d => d.number)).join(' ')].join(' ')).includes(needle);
   }
 
   // ----------------------------------------------------------------------------------------------------------
@@ -294,6 +294,13 @@
   const backHtml = '<button type="button" class="btn btn-secondary" id="ih-back">← Retour</button>';
   const headerHtml = () => `<div class="project-filters ih-bar">${backHtml}${tabsHtml()}</div>`;
   const plainHeaderHtml = () => `<div class="project-filters ih-bar">${backHtml}<strong class="ih-title">Imports financiers</strong></div>`;
+
+  // Interrupteur d'affichage des réattributions sous leurs projets, dans la ligne de résumé (le bandeau de filtres est déjà plein) ; seulement
+  // quand l'export en contient.
+  function kidsLinkHtml() {
+    if (!state.table || !state.table.rows.some(row => childrenOf(row).length)) return '';
+    return ` · <button type="button" class="ih-link" data-ih-kids="1" aria-pressed="${state.showKids}" title="Les nouvelles décisions d'une OPE s'affichent en ligne décalée sous leur projet">${state.showKids ? 'Masquer' : 'Afficher'} ${plural(kidCount(), 'réattribution', 'réattributions')}</button>`;
+  }
 
   function barHtml() {
     const t = state.table;
@@ -434,15 +441,43 @@
         const c = line.cell, conflict = line.conflict && !line.conflict.resolved;
         inner = `${row.lines.length > 1 || line.rank > 1 ? `<small class="ih-rank" title="Rang de la ligne dans le projet">OPE ${line.rank}</small> ` : ''}<span class="ih-mono">${esc(line.ope)}</span>${line.shared ? ' <small class="ih-rank" title="OPE partagée par plusieurs projets (OPE RH) : rattachée à chacun">partagée</small>' : ''} · <span>${esc(c.v || c.raw || '—')}</span>`
           + (line.state === 'bad' ? `<small class="err">${esc(conflict ? 'Déjà sur ' + line.conflict.owner : c.err)}</small>${!conflict && c.hint ? `<small class="hint">proche : ${esc(c.hint)}</small>` : ''}` : '')
-          + (c.state === 'conf' ? `<small class="alt">export : ${esc(c.alt)}</small>` : '');
+          + (c.state === 'conf' ? `<small class="alt">export : ${esc(c.alt)}</small>` : '')
+          + (state.showKids && line.decisions && line.decisions.length > 1 ? `<small class="ih-dec" title="Les décisions suivantes sont dessous">décision initiale ${esc(line.decisions[0].number || 'sans n°')}${line.decisions[0].date != null ? ' · ' + dayFr(line.decisions[0].date) : ''} · ${money(line.decisions[0].amount)} €</small>` : '');
       }
       return `<span class="ih-ln c-${line.state}${editing ? ' editing' : ''}" data-ih-cell="${esc(line.id)}" tabindex="0" title="${esc(line.isNew ? 'Nouvelle ligne OPE' : 'Ligne OPE déjà dans Grist')}">${inner}</span>`;
     }).join('');
     return `<td class="lines"><div class="ih-lines">${chips}</div></td>`;
   }
 
+  // Réattributions regroupées sous leur projet (26/11/2026) : la première décision d'une OPE (la plus ancienne) est l'initiale, les suivantes
+  // sont des lignes décalées dessous. Affichage seulement : rien n'est écrit dans Projets pour elles. La nature (réattribution, prolongation, à
+  // ignorer) est proposée d'après le montant et se change dans la liste ; ce choix part dans le brouillon avec les autres.
+  const dayFr = seconds => (seconds == null ? '' : dateFr(new Date(seconds * 1000).toISOString().slice(0, 10)));
+  const kindKey = (row, line, dec) => `${row.key}|k|${line.key}|${dec.number}`;
+  function childrenOf(row) {
+    if (row.state === 'skip') return [];
+    return row.lines.flatMap(line => (line.decisions || []).slice(1).map(dec => {
+      const chosen = state.edits.get(kindKey(row, line, dec));
+      return { line, dec, kind: chosen && L.DECISION_KINDS[chosen] ? chosen : L.decisionKind(dec) };
+    }));
+  }
+  function childRowsHtml(row) {
+    const kids = childrenOf(row);
+    return kids.map((child, i) => {
+      const { line, dec, kind } = child, id = kindKey(row, line, dec);
+      const select = `<select class="ih-in ih-kind k-${kind}" data-ih-in="${esc(id)}" data-ih-type="kind" data-ih-default="${L.decisionKind(dec)}" aria-label="Nature de la décision ${esc(dec.number || 'sans numéro')}">`
+        + Object.keys(L.DECISION_KINDS).map(k => `<option value="${k}"${k === kind ? ' selected' : ''}>${esc(L.DECISION_KINDS[k])}</option>`).join('') + '</select>';
+      const amount = kind === 'ign' ? '<span class="ih-muted">—</span>' : dec.amount > 0 ? `<b class="ih-plus">+ ${money(dec.amount)} €</b>` : '<span class="ih-warn-inline">0 € · à qualifier</span>';
+      const notAccepted = dec.amount === 0 && L.decisionKind(dec) === 'ign' && dec.status ? ` · ${esc(dec.status)}` : '';
+      return `<tr class="ih-tr ih-child${i === kids.length - 1 ? ' is-last' : ''}" data-ih-child="${esc(row.key)}"><td class="s1"><div class="ih-indent"></div></td>`
+        + `<td colspan="6"><div class="ih-kid">${select}<span class="ih-mono">${esc(dec.number || 'sans n°')}</span> <small>nouvelle décision${dec.date != null ? ' du ' + dayFr(dec.date) : ''}${notAccepted}</small></div></td>`
+        + `<td class="lines"><span class="ih-mono">${esc(line.ope)}</span> ${amount} <small>${kind === 'ign' ? 'ignorée' : 'signalée seulement'}</small></td></tr>`;
+    }).join('');
+  }
+  const kidCount = () => state.table.rows.reduce((n, row) => n + childrenOf(row).filter(child => child.kind !== 'ign').length, 0);
+
   function rowHtml(row) {
-    return `<tr class="ih-tr is-${row.state}" data-ih-entry="${esc(row.key)}">${statusTd(row)}${COLUMNS.map(([kind]) => cellTd(row, kind)).join('')}${linesTd(row)}</tr>`;
+    return `<tr class="ih-tr is-${row.state}" data-ih-entry="${esc(row.key)}">${statusTd(row)}${COLUMNS.map(([kind]) => cellTd(row, kind)).join('')}${linesTd(row)}</tr>${state.showKids ? childRowsHtml(row) : ''}`;
   }
 
   function tableHtml() {
@@ -819,7 +854,7 @@
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail BO absent';
-    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button>${queueHtml()}${draftHtml()}</p>${legendHtml()}</div>`;
+    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button>${kidsLinkHtml()}${queueHtml()}${draftHtml()}</p>${legendHtml()}</div>`;
   }
 
   function render() {
@@ -1051,6 +1086,10 @@
     const isDate = editor.hasAttribute('data-dp');
     const type = editor.getAttribute('data-ih-type'), id = editor.getAttribute('data-ih-in'), value = isDate ? DateInput.iso(editor) : editor.value;
     if (value === null) return false;
+    if (type === 'kind') { // nature d'une nouvelle décision : un choix de tri comme les autres, sans effet sur « J'ai relu le tableau » (rien ne s'écrit pour elle)
+      if (value === editor.getAttribute('data-ih-default')) state.edits.delete(id); else state.edits.set(id, value);
+      return true;
+    }
     if (type === 'status') {
       const key = editor.getAttribute('data-ih-row');
       if (value === '') return false;
@@ -1139,6 +1178,7 @@
     else if (button.id === 'ih-next') goToNextAnomaly();
     else if (button.id === 'ih-write') write();
     else if (button.hasAttribute('data-ih-tab')) { state.tab = button.getAttribute('data-ih-tab') === 'bo' ? 'bo' : 'ubinvest'; state.editing = null; state.undo = null; render(); }
+    else if (button.hasAttribute('data-ih-kids')) { state.showKids = !state.showKids; state.editing = null; render(); }
     else if (button.hasAttribute('data-ih-filter')) { const f = button.getAttribute('data-ih-filter'); state.filter = state.filter === f ? 'all' : f; state.editing = null; render(); }
     else if (button.id === 'ih-fd-pick') ensureDetailInput().click();
     else if (button.id === 'ih-fd-write') writeDetail();
