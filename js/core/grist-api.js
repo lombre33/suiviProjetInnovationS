@@ -24,9 +24,10 @@
     const people = new Map(annuaire.map(person => [person.id, person.nom_et_Prenom ||
       [person.Prenom, person.NOM].filter(Boolean).join(' ')]));
     return rows.map(project => {
-      const budget = project.Total_2026 || project.Montant_annuel_charge_attribue || 0;
-      // Plusieurs OPE par projet (24/11/2026) : le budget 2026 additionne les OPE 1 à 4 (Total_2026 ne couvre que l'OPE 1).
-      const extra = global.CoreOpes ? global.CoreOpes.yearAmount(project, 2026, [2, 3, 4]) : 0;
+      // Plusieurs OPE par projet (24/11/2026) : le budget 2026 additionne les OPE 1 à 4. Lu dans les colonnes de montants plutôt que dans Total_2026 :
+      // cette formule Grist ne couvre que l'OPE 1 tant que le widget ne l'a pas adaptée (js/core/ope-totals.js), puis couvre déjà les OPE 2 à 4.
+      const all = global.CoreOpes ? global.CoreOpes.yearAmount(project, 2026) : 0;
+      const budget = all || project.Total_2026 || project.Montant_annuel_charge_attribue || 0;
       return {
         ...project,
         // Display aliases keep the existing renderer independent from Grist names.
@@ -34,7 +35,7 @@
         Statut: project.Statut_Macro || project.Statut_operationnel_projet || '',
         Progression: Number(project.Progression ?? 0),
         Propriétaire: people.get(project.Porteur_1) || '',
-        Budget: extra ? (Number(budget) || 0) + extra : budget
+        Budget: budget
       };
     });
   }

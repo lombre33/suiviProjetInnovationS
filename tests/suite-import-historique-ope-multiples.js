@@ -264,6 +264,38 @@
       assertIncludes(document.querySelector('.ih-banner').textContent, '16 colonnes créées dans Projets pour l\'OPE 2');
     });
 
+    // 26/11/2026 : les totaux de Projets (formules Grist) additionnent les OPE 2 à 4 (js/core/ope-totals.js), comme à l'enregistrement d'une fiche.
+    it('écrire : les formules de totaux de Projets sont adaptées aux OPE 2 à 4 après la création des colonnes et avant la première écriture', async function () {
+      await setup();
+      await window.TestOpeTotals.installMeta(1);
+      window.__TEST_CALLS__.length = 0;
+      ack(); click('ih-write');
+      await waitFor(() => document.querySelector('.ih-banner'), 'résultat de l\'écriture');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
+      const types = window.__TEST_CALLS__.map(call => call.type + ':' + call.table);
+      const modifies = window.__TEST_CALLS__.filter(call => call.type === 'ModifyColumn' && call.table === 'Projets');
+      assertEqual(modifies.length, 7, 'les sept formules de totaux');
+      assertTrue(window.__TEST_CALLS__.map(call => call.type).lastIndexOf('AddColumn') < types.findIndex(type => type === 'ModifyColumn:Projets'), 'les colonnes de l\'OPE 2 existent avant');
+      assertTrue(types.findIndex(type => type === 'ModifyColumn:Projets') < types.findIndex(type => type === 'AddRecord:Lignes_OPE'), 'les totaux sont adaptés avant la première écriture');
+      assertIncludes(await window.TestOpeTotals.formulaOf('Total_2026'), '(rec.c2026_M10_Fonctionnement_2 or 0)');
+    });
+
+    it('écrire : si Grist refuse de modifier les formules de totaux, l\'import est quand même écrit', async function () {
+      await setup();
+      await window.TestOpeTotals.installMeta(1);
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[0] === 'ModifyColumn')) throw new Error('Grist refuse (test)');
+        return original.call(this, actions);
+      };
+      window.__TEST_CALLS__.length = 0;
+      try { ack(); click('ih-write'); await waitFor(() => document.querySelector('.ih-banner'), 'résultat de l\'écriture'); }
+      finally { window.grist.docApi.applyUserActions = original; }
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
+      assertEqual(window.__TEST_CALLS__.filter(call => call.type === 'ModifyColumn').length, 0);
+      assertTrue(window.__TEST_CALLS__.some(call => call.type === 'AddRecord' && call.table === 'Lignes_OPE'), 'les lignes OPE sont bien écrites');
+    });
+
     it('si la création des colonnes échoue, rien n\'est écrit et la raison est dite', async function () {
       await setup();
       const original = window.grist.docApi.applyUserActions;

@@ -870,13 +870,16 @@
     if (!plan.neededRank || plan.neededRank < 2 || !global.CoreOpes) return [];
     const describe = col => (CoreGrist.getColumnDescription && CoreGrist.getColumnDescription('Projets', col)) || '';
     const missing = global.CoreOpes.missingColumns(CoreGrist.knownColumns('Projets'), plan.neededRank, describe);
-    if (!missing.length) return [];
     const which = plan.neededRank > 2 ? `des OPE 2 à ${plan.neededRank}` : 'de l\'OPE 2';
-    try { await CoreGrist.ensureColumns('Projets', missing); }
-    catch (error) {
-      throw Object.assign(new Error(`les colonnes ${which} n'ont pas pu être créées dans la table Projets (${error.message}). Rien n'a été écrit.`),
-        { cause: error, gristAccess: { op: 'write', table: 'Projets', columns: missing.map(col => col.id), what: `création des colonnes ${which} dans Projets` } });
+    if (missing.length) {
+      try { await CoreGrist.ensureColumns('Projets', missing); }
+      catch (error) {
+        throw Object.assign(new Error(`les colonnes ${which} n'ont pas pu être créées dans la table Projets (${error.message}). Rien n'a été écrit.`),
+          { cause: error, gristAccess: { op: 'write', table: 'Projets', columns: missing.map(col => col.id), what: `création des colonnes ${which} dans Projets` } });
+      }
     }
+    // Totaux de Projets (formules Grist) additionnés sur les OPE 2 à 4 existantes (js/core/ope-totals.js) ; au mieux, ne bloque jamais l'import.
+    if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(plan.neededRank);
     return missing.map(col => col.id);
   }
 

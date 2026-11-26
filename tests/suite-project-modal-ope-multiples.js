@@ -779,12 +779,21 @@
       assertEqual(calls('AddColumn').length, 0);
     });
 
-    it('le montant de convention proposé à l\'ouverture ajoute les années 2026-2028 des OPE 2 à 4 à Montant_attribue_Total', async function () {
+    it('le montant de convention proposé à l\'ouverture additionne les années 2026-2028 de toutes les OPE (2029 hors formule Grist)', async function () {
       await loadFixtureState();
-      await giveProjectOpes(11, 2, { Montant_attribue_Total: 1000, c2026_M10_Fonctionnement_2: 300, c2028_M30_Personnel_2: 200, c2029_M10_Fonctionnement_2: 999 });
+      await giveProjectOpes(11, 2, { c2026_M10_Fonctionnement: 1000, Montant_attribue_Total: 1000, c2026_M10_Fonctionnement_2: 300, c2028_M30_Personnel_2: 200, c2029_M10_Fonctionnement_2: 999 });
       await loadFixtureState();
       window.ProjectModal.open(projectRecord(11));
       assertEqual(modalEl().querySelector('#cp-Convention_montant_partenaire_1').value, '1500', '1 000 + 300 + 200 (2029 hors formule Grist)');
+    });
+
+    // 26/11/2026 : le widget adapte Montant_attribue_Total aux OPE 2 à 4 (js/core/ope-totals.js) ; l'additionner encore compterait ces OPE deux fois.
+    it('montant de convention proposé : le même que Montant_attribue_Total soit encore celui de l\'OPE 1 seule, soit déjà adapté aux OPE 2 à 4 (jamais compté deux fois)', async function () {
+      await loadFixtureState();
+      await giveProjectOpes(11, 2, { c2026_M10_Fonctionnement: 1000, Montant_attribue_Total: 1500, c2026_M10_Fonctionnement_2: 300, c2028_M30_Personnel_2: 200 });
+      await loadFixtureState();
+      window.ProjectModal.open(projectRecord(11));
+      assertEqual(modalEl().querySelector('#cp-Convention_montant_partenaire_1').value, '1500', 'formule déjà adaptée : 1 500, pas 2 000');
     });
   });
 
@@ -953,6 +962,7 @@
       const at = table.id.indexOf(11);
       table.Total_2026 = table.id.map(() => 0);
       table.Total_2026[at] = 400;
+      table.c2026_M10_Fonctionnement[at] = 400;
       table.c2026_M10_Fonctionnement_2 = table.id.map(() => 0);
       table.c2026_M10_Fonctionnement_2[at] = 100;
       table.c2026_M30_Personnel_3 = table.id.map(() => 0);
@@ -960,10 +970,27 @@
       table.Montant_annuel_charge_attribue = table.id.map(() => 0);
       const other = table.id.indexOf(10);
       table.Montant_annuel_charge_attribue[other] = 777;
+      table.c2026_M10_Fonctionnement[other] = 0; // Total_2026 = 0 : aucun montant 2026 dans les colonnes non plus
       window.__mockSetTable('Projets', table);
       const projets = (await window.CoreGrist.loadAllTables()).Projets;
       assertEqual(projets.find(p => p.id === 11).Budget, 520);
       assertEqual(projets.find(p => p.id === 10).Budget, 777, 'repli sur Montant_annuel_charge_attribue inchangé');
+    });
+
+    // 26/11/2026 : Total_2026 est adaptée aux OPE 2 à 4 par le widget (js/core/ope-totals.js) ; la lire puis y ajouter ces OPE les compterait deux fois.
+    it('Budget du Kanban : jamais compté deux fois, que Total_2026 soit encore celle de l\'OPE 1 seule ou déjà adaptée aux OPE 2 à 4', async function () {
+      const table = await window.grist.docApi.fetchTable('Projets');
+      const at = table.id.indexOf(11);
+      table.c2026_M10_Fonctionnement[at] = 400;
+      table.c2026_M10_Fonctionnement_2 = table.id.map(() => 0);
+      table.c2026_M10_Fonctionnement_2[at] = 100;
+      table.Total_2026 = table.id.map(() => 0);
+      table.Total_2026[at] = 500; // formule déjà adaptée : OPE 1 + OPE 2
+      window.__mockSetTable('Projets', table);
+      assertEqual((await window.CoreGrist.loadAllTables()).Projets.find(p => p.id === 11).Budget, 500, 'pas 600');
+      table.Total_2026[at] = 400; // formule d'origine : OPE 1 seule
+      window.__mockSetTable('Projets', table);
+      assertEqual((await window.CoreGrist.loadAllTables()).Projets.find(p => p.id === 11).Budget, 500, 'la même valeur, lue dans les colonnes de montants');
     });
   });
 }());

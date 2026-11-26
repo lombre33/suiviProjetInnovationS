@@ -82,6 +82,13 @@
   function modifyColumn(tableId, colId, colInfo) {
     const table = store[tableId];
     if (!table || !Object.prototype.hasOwnProperty.call(table, colId)) throw new Error(`Mock Grist: column ${colId} does not exist in ${tableId}`);
+    // Comme Grist : la formule modifiée se relit ensuite dans les métadonnées, quand le test les a installées.
+    const metaTables = store._grist_Tables, metaCols = store._grist_Tables_column;
+    if (metaTables && metaCols && metaCols.colId && metaTables.tableId.includes(tableId)) {
+      const tableRef = metaTables.id[metaTables.tableId.indexOf(tableId)];
+      const at = metaCols.id.findIndex((ref, i) => metaCols.parentId[i] === tableRef && metaCols.colId[i] === colId);
+      if (at !== -1) Object.keys(colInfo || {}).forEach(key => { if (metaCols[key]) metaCols[key][at] = colInfo[key]; });
+    }
     global.__TEST_CALLS__.push({ type: 'ModifyColumn', table: tableId, colId, colInfo });
     return null;
   }
@@ -170,6 +177,8 @@
     if (global.CoreAttachments && typeof global.CoreAttachments.resetCaches === 'function') global.CoreAttachments.resetCaches();
     // Diagnostic d'accès (js/core/access-diagnostic.js) : lectures, journal et identité d'un test ne doivent pas déborder sur le suivant.
     if (global.CoreAccess && typeof global.CoreAccess._reset === 'function') global.CoreAccess._reset();
+    // Formules de totaux déjà vérifiées pendant la session (js/core/ope-totals.js) : propres à chaque test.
+    if (global.CoreOpeTotals && typeof global.CoreOpeTotals._reset === 'function') global.CoreOpeTotals._reset();
     // CoreGrist caches its ready() promise/instance module-privately; give tests a
     // fresh handshake each time by re-running ready() (idempotent: sets the same
     // window.grist as gristInstance again).

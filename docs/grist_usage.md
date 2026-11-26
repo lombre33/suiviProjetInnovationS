@@ -144,10 +144,27 @@ une colonne de rang 2 à 4 absente de Grist n'est jamais écrite pour un rang vi
 Toutes les colonnes ci-dessus sont dans `MODAL_FIELDS` (`js/pages/redaction-variables.js`, `OPE_EXTRA_COLUMNS`).
 
 Où les autres OPE comptent : la règle de convention (le Fonctionnement de **toutes** les OPE réunies doit couvrir le montant reversé), le
-budget total obligatoire à la création, le montant de convention proposé (`Montant_attribue_Total` + 2026-2028 des OPE 2 à 4), le
-Dashboard (attribué par année, lignes OPE rattachant les dépenses, via `CoreOpes.ligneIds` / `yearAmount`) et l'alias `Budget` du Kanban
-(`Total_2026` + le 2026 des OPE 2 à 4). **Pas encore** : la page Installation des fonds (lieu et zone) reste sur l'OPE 1, et la formule Grist
-`Montant_attribue_Total` (2026-2028, OPE 1) n'est pas modifiée par le widget.
+budget total obligatoire à la création, le montant de convention proposé (2026-2028 de toutes les OPE, lus dans les colonnes de montants),
+le Dashboard (attribué par année, lignes OPE rattachant les dépenses, via `CoreOpes.ligneIds` / `yearAmount`) et l'alias `Budget` du Kanban
+(le 2026 de toutes les OPE, lu dans les colonnes de montants : jamais `Total_2026` + les OPE 2 à 4, qui compterait deux fois). Les **totaux
+de Projets (formules Grist)** sont adaptés aux OPE 2 à 4 par le widget, voir plus bas. **Pas encore** : la page Installation des fonds (lieu et
+zone) reste sur l'OPE 1 (le To Do, lui, lit les structures de toutes les OPE).
+
+**Totaux de Projets adaptés aux OPE 2 à 4** (26/11/2026, `js/core/ope-totals.js`) : `Total_2026`, `Total_2027`, `Total_2028`,
+`Total_Fonctionnement`, `Total_investissement`, `Total_Personnel` et `Montant_attribue_Total` ne sommaient que l'OPE 1 ; ils alimentent la page
+Installation des fonds, `Export_VP.Montant`, les notifications et les publipostages. Au premier enregistrement (ou import) d'un projet à plusieurs
+OPE de la session, le widget réécrit ces 7 formules pour y ajouter les OPE 2 à 4 **dont les 9 colonnes 2026-2028 existent**. Garde-fous :
+- **la formule d'origine est gardée telle quelle en commentaire**, dans un bloc délimité (`# >>> Widget InnovationS : OPE 1 à n` … `# <<<`, chaque
+  ligne d'origine préfixée `#| `). **Pour revenir en arrière** : dans Grist, remplacer la formule par ces lignes sans leur préfixe `#| `.
+  Le début du bloc donne le dernier rang additionné ;
+- seules les formules **reconnues** sont réécrites : celles qui ne lisent que les colonnes d'OPE 1 attendues avec le vocabulaire d'origine
+  (somme, « vide à 0 »). Une formule personnalisée n'est jamais touchée : un message la nomme ;
+- les 7 modifications partent dans **un seul envoi** à Grist (tout ou rien) ; seule la formule change (ni type, ni nom, ni options d'affichage) ;
+- les termes ajoutés sont `(colonne or 0)` : une OPE vide ne casse pas la somme ; le « vide à 0 » d'origine est conservé ;
+- rejouable : une formule déjà adaptée n'est pas réécrite ; une OPE 3 ajoutée plus tard étend « OPE 1 à 2 » en « OPE 1 à 3 » à partir de la formule
+  d'origine gardée ; une formule marquée puis **modifiée à la main** n'est plus touchée ;
+- jamais bloquant : un refus de Grist (droit de structure) n'empêche pas l'enregistrement, il est dit une seule fois par session ;
+- les 2029 ne sont **pas** additionnés : les formules d'origine s'arrêtent à 2028 (à confirmer par Antoine, rien n'est changé là-dessus).
 
 **Co-financements** (`Part_Idex`, `Part_recette_RNA_PREMAT_MAT`, `Commentaire_budget`) : le type de ces
 colonnes n'est pas imposé, la modale s'y adapte (`Bool` : interrupteur Oui/Non ; `Numeric`/`Int` : montant ;
@@ -170,8 +187,8 @@ maintenues dans `project-modal.js` et ne sont pas validées contre Grist.
 | `Programme_Axe_InnovationS` | Formule | repli du filtre Programme |
 | `Periode` | Formule | champ en lecture seule de l'onglet Instance et dates |
 | `Ligne_OPE_installe_chez` | Formule | champ en lecture seule de chaque carte OPE (onglet Budget et OPE) ; le widget le recalcule lui-même depuis la ligne choisie |
-| `Montant_attribue_Total` | Formule | montant repris par défaut dans les montants de convention |
-| `Total_2026` | Formule | alias `Budget` construit par `mapProjects()` (+ le 2026 des OPE 2 à 4, voir plus bas) |
+| `Montant_attribue_Total` | Formule | totaux adaptés aux OPE 2 à 4 par le widget (voir « Totaux de Projets adaptés ») ; lu par la page Installation des fonds, `Export_VP`, les notifications. Le montant de convention proposé, lui, se calcule depuis les colonnes de montants |
+| `Total_2026` | Formule | repli de l'alias `Budget` construit par `mapProjects()` (qui lit d'abord les colonnes de montants 2026 de toutes les OPE) ; adaptée comme `Montant_attribue_Total` |
 | `Montant_annuel_charge_attribue` | Numeric | repli de cet alias `Budget` |
 | `Description_rapide_projet` | Text | vue projet de secours (`app.js`) |
 | `Convention_de_reversement_le_cas_echeant` | Attachments | présence testée pour le badge « Convention » ; liste de fichiers de la fiche projet. **Écrite** (hors fiche projet) par l'onglet Conventions de la page Administratif : section 10 des écarts |

@@ -1394,9 +1394,11 @@
     refs._refreshBudgetConventionNotice();
     refs.Partenaire_s_convention_reversement.wrap._setIds(valueOf(record, ['Partenaire_s_convention_reversement']));
 
-    // Montant_attribue_Total (formule Grist, 2026-2028 de l'OPE 1) + les mêmes années des OPE 2 à 4.
-    const total = (Number(valueOf(record, ['Montant_attribue_Total'])) || 0) +
-        [2026, 2027, 2028].reduce((sum, year) => sum + global.CoreOpes.yearAmount(record, year, [2, 3, 4]), 0),
+    // 2026-2028 de toutes les OPE, lus dans les colonnes de montants : Montant_attribue_Total (formule Grist) n'est fiable que pour l'OPE 1 tant que
+    // le widget ne l'a pas adaptée aux OPE 2 à 4 (js/core/ope-totals.js), et l'additionner ensuite compterait ces OPE deux fois.
+    // Sans colonnes de montants lues (jeu de données réduit), on retombe sur la formule.
+    const total = [2026, 2027, 2028].reduce((sum, year) => sum + global.CoreOpes.yearAmount(record, year), 0) ||
+        (Number(valueOf(record, ['Montant_attribue_Total'])) || 0),
       savedP1 = valueOf(record, ['Convention_montant_partenaire_1']),
       savedP2 = valueOf(record, ['Convention_montant_partenaire_2']);
     // Un montant enregistré à exactement 0 est le cas par défaut (jamais renseigné) et
@@ -1574,7 +1576,11 @@
     try {
       // Les colonnes des OPE 2 à 4 sont créées par le widget au premier enregistrement qui en a besoin (jamais pour un projet à une OPE).
       const opeCount = refs._opeCountToSave();
-      if (opeCount > 1) await ensureOpeColumns(m, opeCount);
+      if (opeCount > 1) {
+        await ensureOpeColumns(m, opeCount);
+        // Totaux de Projets (formules Grist) : additionnés sur les OPE 2 à 4 existantes, au mieux (un refus ne bloque jamais l'enregistrement).
+        if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(opeCount);
+      }
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
       else await addRecord('Projets', fields);
