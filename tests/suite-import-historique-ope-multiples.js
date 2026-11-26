@@ -311,4 +311,75 @@
       assertEqual(window.__TEST_CALLS__.filter(call => ['AddRecord', 'UpdateRecord'].includes(call.type) && ['Projets', 'Lignes_OPE'].includes(call.table)).length, 0);
     });
   });
+  // ===========================================================================================================
+  describe('Import — un projet et ses lignes de modification (prolongation, réattribution) comptent pour un seul projet', function () {
+    // Dans le Grist d'Antoine, une prolongation ou une réattribution est une ligne de Projets de plus, reliée au projet d'origine par
+    // Projet_Parent_le_cas_echeant_ et posée sur la même OPE. Sans cela, chaque projet à modifications sortait en « conflit » au one-shot.
+    const PARENT = 'Projet_Parent_le_cas_echeant_';
+    const LIGNES = [{ id: 1, N_OPE: 'OPE-R1' }, { id: 2, N_OPE: 'OPE-S1' }];
+    const robo = [line('OPE-R1', 'InnovationS', 2023, 'Robotique agricole')];
+    const family = () => [
+      { id: 10, Projet: 'Robotique agricole', Acronyme: 'ROBO', Programme: 1, Ligne_OPE: ['L', 1] },
+      { id: 11, Projet: 'Robotique agricole - réattribution', Programme: 1, Ligne_OPE: ['L', 1], [PARENT]: 10 },
+      { id: 12, Projet: 'Robotique agricole - prolongation', Programme: 1, Ligne_OPE: ['L', 1], [PARENT]: 10 }
+    ];
+    const matchOf = (journal, projets, lignes = LIGNES) => { const b = build({ journal, projets, lignes }); return { b, match: b.matches.get(b.entries[0].key) }; };
+
+    it('l\'OPE est sur le projet d\'origine et sur ses deux lignes de modification : sûr, rattaché à l\'origine, sans conflit', function () {
+      const { b, match } = matchOf(robo, family());
+      assertEqual(match.status, 'sure'); assertEqual(match.rung, 1); assertEqual(match.projectId, 10);
+      assertDeepEqual(match.candidates.map(c => c.id), [10]);
+      const row = b.table.rows[0], ligne = row.lines[0];
+      assertEqual(ligne.conflict, null, 'plus de « déjà sur un autre projet »'); assertFalse(ligne.needsLink, 'la ligne est déjà dans la famille : rien à rattacher');
+      assertTrue(row.state !== 'tbd', 'rien à trancher');
+    });
+
+    it('l\'OPE n\'est que sur une ligne de modification : le projet d\'origine est proposé, et la ligne n\'est pas rattachée une seconde fois', function () {
+      const projets = [{ id: 10, Projet: 'Robotique agricole', Programme: 1 }, { id: 11, Projet: 'Robotique agricole - réattribution', Programme: 1, Ligne_OPE: ['L', 1], [PARENT]: 10 }];
+      const { b, match } = matchOf(robo, projets);
+      assertEqual(match.status, 'sure'); assertEqual(match.projectId, 10);
+      assertFalse(b.table.rows[0].lines[0].needsLink); assertEqual(b.table.rows[0].lines[0].conflict, null);
+    });
+
+    it('le N° décision cité par le projet et par sa ligne de prolongation : un seul projet, l\'origine', function () {
+      const projets = [
+        { id: 10, Projet: 'Robotique agricole', numero_descisions_OLD: 'DEC-2023-0412' },
+        { id: 11, Projet: 'Robotique agricole - prolongation', prolongation_numeroDecisionInitial: 'DEC-2023-0412', [PARENT]: 10 }
+      ];
+      const journal = [line('OPE-NOUVELLE', 'InnovationS', 2023, 'Un autre libellé', { N_decision: 'DEC-2023-0412' })];
+      const { match } = matchOf(journal, projets, []);
+      assertEqual(match.status, 'sure'); assertEqual(match.rung, 2); assertEqual(match.projectId, 10);
+    });
+
+    it('le même nom sur le projet et sur sa ligne de modification : à confirmer pour l\'origine (plus de « plusieurs projets portent ce nom »)', function () {
+      const projets = [{ id: 10, Projet: 'Robotique agricole' }, { id: 11, Projet: 'Robotique agricole', [PARENT]: 10 }];
+      const { match } = matchOf([line('OPE-NEUVE', 'InnovationS', 2023, 'Robotique agricole')], projets, []);
+      assertEqual(match.status, 'maybe'); assertEqual(match.projectId, 10); assertDeepEqual(match.candidates.map(c => c.id), [10]);
+    });
+
+    it('deux projets d\'origine différents (chacun avec ses modifications) restent un vrai conflit, entre les deux origines', function () {
+      const projets = [
+        { id: 10, Projet: 'A', Ligne_OPE: ['L', 1] }, { id: 11, Projet: 'A - réattribution', Ligne_OPE: ['L', 1], [PARENT]: 10 },
+        { id: 20, Projet: 'B', Ligne_OPE: ['L', 2] }, { id: 21, Projet: 'B - réattribution', Ligne_OPE: ['L', 2], [PARENT]: 20 }
+      ];
+      const journal = [line('OPE-R1', 'InnovationS', 2023, 'Mélange'), line('OPE-S1', 'InnovationS', 2023, 'Mélange')];
+      const { match } = matchOf(journal, projets);
+      assertEqual(match.status, 'conflict');
+      assertDeepEqual(match.candidates.map(c => c.id).sort((a, b) => a - b), [10, 20], 'seules les origines sont proposées, pas les lignes de modification');
+    });
+
+    it('un projet d\'origine absent de la table ou une boucle de parents ne cassent rien : la ligne compte pour elle-même', function () {
+      const orphan = [{ id: 11, Projet: 'Robotique agricole - réattribution', Ligne_OPE: ['L', 1], [PARENT]: 99 }];
+      const { match } = matchOf(robo, orphan);
+      assertEqual(match.status, 'sure'); assertEqual(match.projectId, 11);
+      const loop = [{ id: 10, Projet: 'A', Ligne_OPE: ['L', 1], [PARENT]: 11 }, { id: 11, Projet: 'B', [PARENT]: 10 }];
+      const looped = matchOf(robo, loop).match;
+      assertEqual(looped.status, 'sure', 'la boucle s\'arrête'); assertEqual(looped.projectId, 10, 'chaque ligne de la boucle compte pour elle-même : l\'OPE est sur le projet 10');
+    });
+
+    it('le parent peut être lu comme un identifiant, un objet { id } ou 0 (aucun)', function () {
+      const ctx = L().buildContext({ projets: [{ id: 10, Projet: 'A' }, { id: 11, Projet: 'B', [PARENT]: { id: 10 } }, { id: 12, Projet: 'C', [PARENT]: 0 }, { id: 13, Projet: 'D', [PARENT]: '10' }], lignes: [], programmes: [], structures: [] });
+      assertDeepEqual([10, 11, 12, 13].map(id => ctx.rootById.get(id)), [10, 10, 12, 10]);
+    });
+  });
 })();

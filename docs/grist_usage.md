@@ -873,6 +873,13 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   signalé par un bandeau ; la ligne de résumé affiche « N choix enregistrés automatiquement » et « Repartir de zéro » (avec confirmation). Le
   brouillon ne touche ni `Projets` ni `Lignes_OPE` ; après « Écrire », il suit la mémoire (les choix « nouveau projet » écrits sont oubliés). La case
   « J'ai relu le tableau » n'est jamais gardée : il faut la recocher. Code : section « Brouillon de tri » de `js/pages/page-import-historique.js`.
+- **Projet d'origine et lignes de modification** (26/11/2026) : dans le Grist d'Antoine, une prolongation ou une réattribution est une ligne de
+  `Projets` de plus, reliée au projet d'origine par `Projet_Parent_le_cas_echeant_` (Reference Projets) et posée sur la même OPE. Pour retrouver le
+  projet d'un export, l'outil ne compte qu'**un projet par famille** (`ctx.rootById` : la ligne d'origine ; un parent absent de la table ou une boucle
+  de parents laisse la ligne à elle-même). Les échelons N° OPE, N° décision et nom raisonnent sur l'origine ; la liste « Autre projet… » montre toujours
+  toutes les lignes. Une OPE déjà rangée dans l'origine **ou** dans l'une de ses modifications est « déjà dans le projet » : rien n'est rattaché de plus,
+  et le message « déjà sur un autre projet » n'apparaît plus. Sans cela, au one-shot, chaque projet à modifications sortait en conflit. Rien n'est écrit
+  dans les lignes de modification par l'import ; leur regroupement dans le tableau est en maquette (en attente d'Antoine).
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques

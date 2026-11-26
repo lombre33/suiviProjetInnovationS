@@ -187,6 +187,9 @@
   const near = (a, b, tolerance = MONEY_TOLERANCE) => Math.abs(a - b) <= tolerance;
   const refListIds = value => (Array.isArray(value) ? value.filter(item => typeof item === 'number' || (typeof item === 'string' && item !== 'L' && item !== '')).map(Number) : []);
   const isEmptyRef = value => !value || value === 0 || (Array.isArray(value) && refListIds(value).length === 0);
+  // Colonne de Projets qui relie une ligne de modification (prolongation, réattribution) à son projet d'origine (Reference Projets).
+  const PARENT_COLUMN = 'Projet_Parent_le_cas_echeant_';
+  const parentIdOf = value => { const id = Number(value && typeof value === 'object' && !Array.isArray(value) ? value.id : value); return Number.isFinite(id) && id > 0 ? id : null; };
   const isEmptyDate = value => value == null || value === '' || value === 0;
   const pushTo = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
   const unique = list => Array.from(new Set(list));
@@ -376,16 +379,28 @@
       return {
         id: Number(project.id), name, acronyme, label: acronyme || name || `Projet #${project.id}`,
         nName: normalize(name), nAcr: normalize(acronyme),
+        parentId: parentIdOf(project[PARENT_COLUMN]),
         decisionText: opeKey(`${text(project.numero_descisions_OLD)} ${text(project.prolongation_numeroDecisionInitial)}`)
       };
     });
+    // Une ligne de modification (prolongation, réattribution) est une ligne de Projets reliée à son projet d'origine ; pour retrouver le
+    // projet d'un export, on ne garde que la ligne d'origine : `rootById` donne, pour chaque ligne, celle d'origine (elle-même sans parent
+    // connu ; un cycle ou un parent absent de la table s'arrête sur la dernière ligne trouvée).
+    const rootById = new Map();
+    projects.forEach(project => {
+      let current = project; const seen = new Set([project.id]);
+      while (current.parentId && projectById.has(current.parentId) && !seen.has(current.parentId)) { seen.add(current.parentId); current = projects.find(p => p.id === current.parentId); }
+      const cycle = current.parentId && seen.has(current.parentId); // boucle de parents : chaque ligne compte pour elle-même
+      rootById.set(project.id, cycle ? project.id : current.id);
+    });
+    projects.forEach(project => { project.rootId = rootById.get(project.id); project.isModification = project.rootId !== project.id; });
     const programmeList = (programmes || []).map(p => ({ id: Number(p.id), label: text(p.Programme), n: normalize(p.Programme) })).filter(p => p.label);
     const structureList = (structures || []).map(s => ({
       id: Number(s.id), label: text(s.Acronyme) || text(s.Nom_Complet),
       names: unique([s.Acronyme, s.Nom_Complet, s.Nom_Complet_clean].map(normalize).filter(Boolean))
     })).filter(s => s.label);
     return {
-      withAmounts: !!withAmounts, ligneIdsByKey, ligneById, projectsByLigne, slotsByProject, rankMode: RANK_MODES.includes(rankMode) ? rankMode : DEFAULT_RANK_MODE, projects, projectById, programmeList, structureList,
+      withAmounts: !!withAmounts, ligneIdsByKey, ligneById, projectsByLigne, slotsByProject, rootById, rankMode: RANK_MODES.includes(rankMode) ? rankMode : DEFAULT_RANK_MODE, projects, projectById, programmeList, structureList,
       programmeById: new Map(programmeList.map(p => [p.id, p])), structureById: new Map(structureList.map(s => [s.id, s])),
       statusChoices: statusChoices || [], // liste de choix de Projets.Statut_operationnel_projet (vide = inconnue : aucun contrôle)
       isFormula: isFormula || (() => false), hasColumn: hasColumn || (() => true)
@@ -398,8 +413,10 @@
   function matchEntry(entry, ctx) {
     if (entry.blocked) return { status: 'blocked', rung: 0, projectId: null, candidates: [], reason: entry.blocked };
     // 1. N° OPE déjà rattaché à un projet
+    // Un projet et ses lignes de modification portent souvent la même OPE : ils comptent pour un seul projet, celui d'origine.
+    const rootOf = projectId => (ctx.rootById && ctx.rootById.get(projectId)) || projectId;
     const byOpe = new Map();
-    entry.opes.forEach(ope => (ctx.ligneIdsByKey.get(ope.key) || []).forEach(ligneId => (ctx.projectsByLigne.get(ligneId) || []).forEach(projectId => pushTo(byOpe, projectId, ope.ope))));
+    entry.opes.forEach(ope => (ctx.ligneIdsByKey.get(ope.key) || []).forEach(ligneId => (ctx.projectsByLigne.get(ligneId) || []).forEach(projectId => pushTo(byOpe, rootOf(projectId), ope.ope))));
     if (byOpe.size === 1) {
       const [projectId, opes] = Array.from(byOpe)[0], project = ctx.projectById.get(projectId);
       return { status: 'sure', rung: 1, projectId, candidates: [candidateOf(ctx.projects.find(p => p.id === projectId), 1, 'N° OPE')], reason: `N° OPE ${unique(opes).join(', ')} déjà dans ce projet`, project };
@@ -411,13 +428,14 @@
     // 2. N° décision déjà cité par un projet
     const decisions = entry.decisions.map(opeKey).filter(key => key.length >= 5);
     if (decisions.length) {
-      const hits = ctx.projects.filter(project => project.decisionText && decisions.some(key => project.decisionText.includes(key)));
+      const hitIds = unique(ctx.projects.filter(project => project.decisionText && decisions.some(key => project.decisionText.includes(key))).map(project => rootOf(project.id)));
+      const hits = hitIds.map(id => ctx.projects.find(p => p.id === id)).filter(Boolean);
       if (hits.length === 1) return { status: 'sure', rung: 2, projectId: hits[0].id, candidates: [candidateOf(hits[0], 1, 'N° décision')], reason: `N° décision ${entry.decisions.join(', ')} déjà cité par ce projet` };
       if (hits.length > 1) return { status: 'conflict', rung: 2, projectId: null, candidates: hits.map(p => candidateOf(p, 1, 'N° décision')), reason: 'Ce N° décision est cité par plusieurs projets de Grist' };
     }
     // 3. nom
     const name = normalize(entry.name);
-    const scored = ctx.projects.map(project => {
+    const scored = ctx.projects.filter(project => !project.isModification).map(project => {
       let score = 0, why = '';
       if (project.nName) { const s = name === project.nName ? 1 : dice(name, project.nName); if (s > score) { score = s; why = s === 1 ? 'même nom' : 'nom proche'; } }
       if (project.nAcr) {
@@ -573,7 +591,10 @@
       value => (statusChoices.length && !statusChoices.includes(value) ? { err: 'Absent de la liste de choix' } : null));
     // Rang de chaque N° OPE (OPE 1 à 4) : celui où la ligne est déjà rangée dans le projet de Grist, sinon le premier rang libre.
     const slots = shownProject ? (ctx.slotsByProject.get(Number(shownProject.id)) || []) : [];
-    const current = unique(slots.flatMap(slot => slot.ids));
+    // Le projet d'origine et ses lignes de modification forment une famille : une OPE déjà rangée dans l'une d'elles est « déjà dans le projet ».
+    const rootOf = projectId => (ctx.rootById && ctx.rootById.get(Number(projectId))) || Number(projectId);
+    const family = shownProject ? ctx.projects.filter(p => p.rootId === rootOf(shownProject.id)).map(p => p.id) : [];
+    const current = unique(slots.concat(family.flatMap(id => ctx.slotsByProject.get(id) || [])).flatMap(slot => slot.ids));
     const ranks = placeOpes(entry.opes, ope => {
       const id = (ctx.ligneIdsByKey.get(ope.key) || [])[0] || 0, slot = id ? slots.find(item => item.ids.includes(id)) : null;
       return slot ? slot.rank : 0;
@@ -584,7 +605,7 @@
         id: key + '|s|' + ope.key, kind: 's', g: ligne ? structureLabelOf(ctx, ligne.installe_chez) : null, e: ope.structure ? canonStructure(ope.structure) : null,
         neu: !existingId, edits, check: structureCheck
       });
-      const owners = existingId ? (ctx.projectsByLigne.get(existingId) || []).filter(pid => !shownProject || pid !== shownProject.id) : [];
+      const owners = existingId ? (ctx.projectsByLigne.get(existingId) || []).filter(pid => !shownProject || rootOf(pid) !== rootOf(shownProject.id)) : [];
       const conflictId = key + '|c|' + ope.key;
       const ownerProject = owners.length ? ctx.projects.find(p => p.id === owners[0]) : null;
       const conflict = owners.length ? { id: conflictId, owner: ownerProject ? ownerProject.label : '#' + owners[0], resolved: edits.get(conflictId) === 'keep' } : null;
