@@ -174,6 +174,8 @@
       // utiles à la page Installation des fonds (pastille d'alerte + pastille normale).
       Action_Ligne_OPE_a_faire: ['', 'à determiner', '', '', '', '', ''],
       Commentaire_ligne_OPE: ['', '', '', '', '', '', ''],
+      // Colonne Choice créée par le widget (26/11/2026) ; présente ici comme dans un Grist où un enregistrement l'a déjà créée. Vide = InnovationS par défaut.
+      Bailleur: ['', '', '', '', '', '', ''],
       comentaire_general_Suivi_projet: ['', '', '', '', '', '', ''],
       // Colonnes ajoutées le 29/09/2026 (page Administratif, onglet Conventions).
       next_step: ['', '', '', '', '', '', ''],

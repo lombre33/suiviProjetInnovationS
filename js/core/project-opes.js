@@ -25,7 +25,13 @@
   // Valeurs de la colonne Choice Action_Ligne_OPE_a_faire (les mêmes que OPE_OPTIONS dans la modale projet).
   const ACTION_CHOICES = Object.freeze(['Creation de ligne', 'Prolongation de ligne', 're-Abondement de ligne', 'à determiner']);
   const DEFAULT_ACTION = 'à determiner';
-  const BASE = Object.freeze({ ligne: 'Ligne_OPE', action: 'Action_Ligne_OPE_a_faire', comment: 'Commentaire_ligne_OPE', installe: 'Ligne_OPE_installe_chez' });
+  // Bailleur de l'OPE (demande d'Antoine du 26/11/2026, onglet Budget et OPE) : InnovationS ou Idex, InnovationS par défaut. Aucune colonne existante n'y
+  // convenait (`Financeur` n'existe que dans le journal d'import UB Invest, `Part_Idex` est une case au niveau du projet) : colonne Choice `Bailleur`
+  // (OPE 1), `Bailleur_2/_3/_4`, créées par le widget à l'enregistrement.
+  const BAILLEURS = Object.freeze(['InnovationS', 'Idex']);
+  const DEFAULT_BAILLEUR = 'InnovationS';
+  const BAILLEUR_HELP = 'Bailleur de cette OPE : InnovationS (par défaut) ou Idex.';
+  const BASE = Object.freeze({ ligne: 'Ligne_OPE', action: 'Action_Ligne_OPE_a_faire', comment: 'Commentaire_ligne_OPE', installe: 'Ligne_OPE_installe_chez', bailleur: 'Bailleur' });
 
   const num = value => { const n = Number(value); return Number.isFinite(n) ? n : 0; };
   const text = value => (value == null ? '' : String(value));
@@ -36,6 +42,7 @@
   const ligneColumn = rank => BASE.ligne + suffix(rank);
   const actionColumn = rank => BASE.action + suffix(rank);
   const commentColumn = rank => BASE.comment + suffix(rank);
+  const bailleurColumn = rank => BASE.bailleur + suffix(rank);
   // nature : l'objet de NATURES, sa clé (F, I, P), sa masse (M10_Fonctionnement) ou son index.
   const amountColumn = (rank, year, nature) => `c${year}_${natureOf(nature).mass}${suffix(rank)}`;
   // Structures où la ligne OPE de ce rang est installée : colonne CALCULÉE de Projets (formule Grist), lue par le widget, jamais écrite.
@@ -47,24 +54,31 @@
     const match = /^(.*)_([2-4])$/.exec(text(colId));
     if (!match) return text(colId);
     const base = match[1];
-    return (base === BASE.ligne || base === BASE.action || base === BASE.comment || base === BASE.installe || /^c\d{4}_M\d0_/.test(base)) ? base : text(colId);
+    return (base === BASE.ligne || base === BASE.action || base === BASE.comment || base === BASE.installe || base === BASE.bailleur || /^c\d{4}_M\d0_/.test(base)) ? base : text(colId);
   }
 
-  // Colonnes SAISIES (dans l'ordre : ligne, action, commentaire, puis les montants année par année) d'une OPE : ce que la modale écrit.
+  // Colonnes SAISIES (dans l'ordre : ligne, action, bailleur, commentaire, puis les montants année par année) d'une OPE : ce que la modale écrit.
   // La colonne calculée installeColumn(rank) n'y figure pas (jamais écrite) ; createdColumnsOf() la rajoute pour la création.
   function columnsOf(rank) {
-    const list = [ligneColumn(rank), actionColumn(rank), commentColumn(rank)];
+    const list = [ligneColumn(rank), actionColumn(rank), bailleurColumn(rank), commentColumn(rank)];
     YEARS.forEach(year => NATURES.forEach(nature => list.push(amountColumn(rank, year, nature))));
     return list;
   }
   // Toutes les colonnes que le widget crée pour une OPE de rang 2 à 4 (saisies + calculée « installée chez »).
   const createdColumnsOf = rank => columnsOf(rank).concat(installeColumn(rank));
 
-  // Définitions à passer à CoreGrist.ensureColumns('Projets', …) pour créer les colonnes d'une OPE 2 à 4 (16 : 15 saisies + la calculée). `describe(colId)` rend la
+  // Colonne Choice du bailleur (liste InnovationS / Idex dans les options de la colonne).
+  const bailleurType = () => ({ type: 'Choice', widgetOptions: JSON.stringify({ choices: BAILLEURS.slice() }) });
+  // La colonne `Bailleur` de l'OPE 1 (les OPE 2 à 4 passent par columnDefinitions) : créée par le widget quand elle manque.
+  const bailleurDefinition = () => Object.assign({ id: BASE.bailleur, isFormula: false }, bailleurType(), { description: BAILLEUR_HELP });
+  const missingBailleurColumn = existing => ((existing || new Set()).has(BASE.bailleur) ? [] : [bailleurDefinition()]);
+
+  // Définitions à passer à CoreGrist.ensureColumns('Projets', …) pour créer les colonnes d'une OPE 2 à 4 (17 : 16 saisies + la calculée). `describe(colId)` rend la
   // description de la colonne d'origine (bulles d'aide), quand on la connaît.
   function columnDefinitions(rank, describe) {
-    const withHelp = (id, def) => {
-      const description = describe ? text(describe(baseColumn(id))) : '';
+    // `fallback` : bulle d'aide d'une colonne que l'OPE 1 n'a pas encore dans Grist (le Bailleur), à défaut de description lue.
+    const withHelp = (id, def, fallback) => {
+      const description = (describe ? text(describe(baseColumn(id))) : '') || fallback || '';
       return Object.assign({ id, isFormula: false }, def, description ? { description } : {});
     };
     const defs = [
@@ -73,6 +87,7 @@
       // Juste après la ligne : la formule en dépend, et les actions partent dans cet ordre dans un seul applyUserActions groupé.
       withHelp(installeColumn(rank), { type: 'RefList:Structures', isFormula: true, formula: `$${ligneColumn(rank)}.installe_chez`, display: { like: BASE.installe, column: 'Acronyme' } }),
       withHelp(actionColumn(rank), { type: 'Choice', widgetOptions: JSON.stringify({ choices: ACTION_CHOICES.slice() }) }),
+      withHelp(bailleurColumn(rank), bailleurType(), BAILLEUR_HELP),
       withHelp(commentColumn(rank), { type: 'Text' })
     ];
     YEARS.forEach(year => NATURES.forEach(nature => defs.push(withHelp(amountColumn(rank, year, nature), { type: 'Numeric' }))));
@@ -166,6 +181,7 @@
       rank,
       ligneIds: refIds(row[ligneColumn(rank)]),
       action: text(row[actionColumn(rank)]),
+      bailleur: text(row[bailleurColumn(rank)]),
       comment: text(row[commentColumn(rank)]),
       amounts
     };
@@ -240,7 +256,7 @@
   });
 
   global.CoreOpes = {
-    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
+    MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, BAILLEURS, DEFAULT_BAILLEUR, BAILLEUR_HELP, bailleurColumn, bailleurDefinition, missingBailleurColumn, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
     ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns, referenceDisplaySpecs, ensureDisplays, totalMassColumn, totalYearColumn, totalOpeColumn, crossColumn, totalDefinitions, crossDefinitions, missingTotalColumns, missingCrossColumns,
     ownedSpecs, ownedApplies, ownedColumns, ownedFormula, ownedLegacyFormula,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals

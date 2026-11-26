@@ -6,7 +6,7 @@
  * Deux façons de poser l'icône, pour couvrir les deux styles de rendu du widget :
  *   - markup(tableId, colId)  : fragment HTML à concaténer dans un template (pages
  *                               qui regénèrent leur DOM via innerHTML, ex. page-administratif.js).
- *   - attach(labelEl, tableId, colId) : pose l'icône juste après un élément <label>
+ *   - attach(labelEl, tableId, colId[, fallback]) : pose l'icône juste après un élément <label>
  *                               construit via le DOM (ex. project-modal.js).
  *
  * Un seul jeu d'écouteurs, posé une fois sur document (délégation), gère toutes
@@ -125,8 +125,9 @@
       const escaped = global.CoreUtils.escapeHtml(desc);
       return ` <button type="button" class="help-icon" data-help-text="${escaped}" aria-label="Aide : ${escaped}">${ICON_HELP}</button>`;
     },
-    attach(labelEl, tableId, colId) {
-      const desc = description(tableId, colId);
+    // `fallback` : texte d'une colonne que le widget crée lui-même et que Grist ne décrit pas encore (avant son premier enregistrement).
+    attach(labelEl, tableId, colId, fallback) {
+      const desc = description(tableId, colId) || fallback;
       if (!desc || !labelEl || !labelEl.parentNode) return;
       const icon = document.createElement('button');
       icon.type = 'button';

@@ -261,7 +261,7 @@
       assertTrue(window.__TEST_CALLS__.findIndex(call => call.colId === 'Ligne_OPE_2') < firstWrite, 'les colonnes existent avant la première écriture');
       const projets = await CoreGrist.getTable('Projets'), created = projets.find(p => p.Projet === 'Projet Multi');
       assertEqual(refCount(created.Ligne_OPE), 1); assertEqual(refCount(created.Ligne_OPE_2), 1);
-      assertIncludes(document.querySelector('.ih-banner').textContent, '16 colonnes créées dans Projets pour l\'OPE 2');
+      assertIncludes(document.querySelector('.ih-banner').textContent, '17 colonnes créées dans Projets pour l\'OPE 2');
     });
 
     // 26/11/2026 : les totaux de Projets (formules Grist) additionnent les OPE 2 à 4 (js/core/ope-totals.js), comme à l'enregistrement d'une fiche.

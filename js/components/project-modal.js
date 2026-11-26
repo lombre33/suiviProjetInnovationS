@@ -12,7 +12,7 @@
   // toujours la table Projets ici, seule table que cette modale écrit ; aucune
   // icône si la colonne n'a pas de description (cf. js/components/help-tooltip.js).
   // Les colonnes des OPE 2 à 4 (Ligne_OPE_2…) n'ont pas de description propre à lire : celle de la colonne de l'OPE 1 leur sert.
-  const withHelp = (labelEl, colId) => global.HelpTooltip?.attach(labelEl, 'Projets', global.CoreOpes.baseColumn(colId));
+  const withHelp = (labelEl, colId, fallback) => global.HelpTooltip?.attach(labelEl, 'Projets', global.CoreOpes.baseColumn(colId), fallback);
   const label = (r, fields) => fields.map(k => r?.[k]).find(v => v != null && v !== '') || '';
   const personLabel = r => label(r, ['nom_et_Prenom', 'Prenom', 'NOM']);
   // Numéro de la ligne OPE ; « N° à venir · structure » tant qu'elle n'en a pas (cf. CoreUtils.opeLabel).
@@ -730,6 +730,33 @@
       select.addEventListener('change', () => { renderChips(); refreshOpeHeader(el); });
       renderChips();
 
+      // Bailleur de l'OPE (demande d'Antoine du 26/11/2026) : puces InnovationS / Idex, toujours une valeur choisie (InnovationS par défaut). Une valeur de
+      // Grist hors de la liste est conservée comme puce supplémentaire, pour que l'enregistrement ne l'efface pas.
+      const bailleurWrap = document.createElement('div');
+      bailleurWrap.className = 'cp-field cp-full';
+      bailleurWrap.innerHTML = `<label for="cp-Bailleur${sfx}">Bailleur</label><div class="cp-chip-row"></div>`;
+      withHelp(bailleurWrap.querySelector('label'), 'Bailleur' + sfx, global.CoreOpes.BAILLEUR_HELP);
+      grid.appendChild(bailleurWrap);
+      const bailleurSelect = document.createElement('select');
+      bailleurSelect.id = 'cp-Bailleur' + sfx;
+      bailleurSelect.className = 'cp-visually-hidden';
+      bailleurWrap.appendChild(bailleurSelect);
+      card.bailleur = bailleurSelect;
+      const bailleurRow = bailleurWrap.querySelector('.cp-chip-row');
+      const renderBailleur = () => {
+        bailleurRow.innerHTML = Array.from(bailleurSelect.options).map(o =>
+          `<button type="button" class="cp-chip${o.value === bailleurSelect.value ? ' active' : ''}" data-value="${esc(o.value)}" aria-pressed="${o.value === bailleurSelect.value}">${esc(o.value)}</button>`).join('');
+        bailleurRow.querySelectorAll('button').forEach(b => b.onclick = () => { bailleurSelect.value = b.dataset.value; renderBailleur(); });
+      };
+      card.setBailleur = value => {
+        const wanted = text(value).trim() || global.CoreOpes.DEFAULT_BAILLEUR;
+        const options = global.CoreOpes.BAILLEURS.includes(wanted) ? global.CoreOpes.BAILLEURS : global.CoreOpes.BAILLEURS.concat(wanted);
+        bailleurSelect.innerHTML = options.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+        bailleurSelect.value = wanted;
+        renderBailleur();
+      };
+      card.setBailleur('');
+
       // Commentaire ligne OPE (une ligne, extensible)
       const commentWrap = document.createElement('div');
       commentWrap.className = 'cp-field cp-full';
@@ -814,13 +841,14 @@
       global.CoreOpes.NATURES.forEach(n => {
         amounts[n.key] = global.CoreOpes.YEARS.map(year => normaliseBudgetValue(card.el.querySelector(`[data-fin][data-nature="${n.key}"][data-year="${year}"]`)?.value));
       });
-      return { rank: card.rank, ligneIds: id ? [id] : [], ligneText: card.ref.input.value, action: card.select.value, comment: card.comment.value, amounts, open: card.open };
+      return { rank: card.rank, ligneIds: id ? [id] : [], ligneText: card.ref.input.value, action: card.select.value, bailleur: card.bailleur.value, comment: card.comment.value, amounts, open: card.open };
     }
     function applyCardState(card, state) {
       card.ref.input.dataset.id = state.ligneIds[0] ? String(state.ligneIds[0]) : '';
       card.ref.input.value = state.ligneText || '';
       card.ref.input._cpRefSync();
       card.setAction(state.action);
+      card.setBailleur(state.bailleur);
       card.comment.value = state.comment;
       global.CoreOpes.NATURES.forEach(n => global.CoreOpes.YEARS.forEach((year, yi) => {
         const input = card.el.querySelector(`[data-fin][data-nature="${n.key}"][data-year="${year}"]`);
@@ -1376,6 +1404,7 @@
     setRef(refs.Ligne_OPE, valueOf(record, ['Ligne_OPE']), 'Lignes_OPE', ['N_OPE']);
     refs._refreshInstalleChez();
     refs._setOpeAction(text(valueOf(record, ['Action_Ligne_OPE_a_faire'])));
+    refs._opes[0].setBailleur(valueOf(record, ['Bailleur'])); // colonne absente ou vide : InnovationS par défaut
     // OPE 2 à 4 : une carte par OPE que le projet porte déjà, toutes déployées comme l'OPE 1 (demande d'Antoine du 24/11/2026).
     refs._clearExtraCards();
     refs._opes[0].setOpen(true);
@@ -1385,6 +1414,7 @@
       setRef(card.ref, ope.ligneIds[0] || 0, 'Lignes_OPE', ['N_OPE']);
       card.refresh();
       card.setAction(ope.action);
+      card.setBailleur(ope.bailleur);
       card.comment.value = ope.comment;
     }
 
@@ -1455,10 +1485,13 @@
     refs._opes.slice(0, saved).forEach(card => card.el.querySelectorAll('[data-fin]').forEach(i => { fields[i.dataset.fin] = normaliseBudgetValue(i.value); }));
     m.querySelectorAll('tbody tr[data-detail]').forEach(tr => fields[tr.dataset.detail] = tr.querySelector('th input').value);
     // OPE 2 à 4 : les montants viennent des [data-fin] ci-dessus ; la ligne, l'action et le commentaire se lisent sur chaque carte.
+    // Bailleur de l'OPE 1 : colonne créée par le widget à l'enregistrement ; jamais écrite si elle n'existe pas (Grist refuserait tout l'enregistrement).
+    if (projectColumns(m._projectRecord).has(global.CoreOpes.bailleurColumn(1))) fields[global.CoreOpes.bailleurColumn(1)] = refs._opes[0].bailleur.value;
     refs._opes.slice(1, saved).forEach(card => {
       const id = Number(card.ref.input.dataset.id);
       fields[global.CoreOpes.ligneColumn(card.rank)] = id ? ['L', id] : ['L'];
       fields[global.CoreOpes.actionColumn(card.rank)] = card.select.value;
+      fields[global.CoreOpes.bailleurColumn(card.rank)] = card.bailleur.value;
       fields[global.CoreOpes.commentColumn(card.rank)] = card.comment.value.trim();
     });
     // OPE retirée (ou remontée d'un rang) : si ses colonnes existent déjà dans Grist, on les vide pour qu'aucune donnée ne reste.
@@ -1479,6 +1512,21 @@
     const known = new Set(global.CoreGrist?.knownColumns?.('Projets') || []);
     [record, rows('Projets')[0]].forEach(row => { if (row) Object.keys(row).forEach(key => known.add(key)); });
     return known;
+  }
+
+  // Crée la colonne Bailleur de l'OPE 1 quand elle manque (Choice, bulle d'aide). Au mieux : sans droit de structure l'enregistrement continue, le bailleur
+  // n'est simplement pas enregistré (collectFields ne l'écrit que si la colonne existe) ; l'utilisateur en est prévenu une fois par session.
+  let bailleurWarned = false;
+  async function ensureBailleurColumn(m) {
+    const missing = global.CoreOpes.missingBailleurColumn(projectColumns(m._projectRecord));
+    if (!missing.length || !global.CoreGrist || typeof global.CoreGrist.ensureColumns !== 'function') return;
+    try {
+      await global.CoreGrist.ensureColumns('Projets', missing);
+    } catch (error) {
+      if (bailleurWarned) return;
+      bailleurWarned = true;
+      if (global.CoreUtils && global.CoreUtils.toastFailure) global.CoreUtils.toastFailure(error, 'Colonne Bailleur non créée : le bailleur n\'est pas enregistré', { what: 'création de la colonne Bailleur dans Projets', table: 'Projets' });
+    }
   }
 
   // Crée dans Projets les colonnes des OPE 2 à `upTo` qui n'y sont pas encore (15 par OPE, bulles d'aide reprises de l'OPE 1).
@@ -1584,6 +1632,7 @@
       // Totaux de Projets (formules Grist) additionnés sur 2029 et sur les OPE 2 à 4 existantes, pour un projet classique comme pour un projet à
       // plusieurs OPE ; au mieux (un refus ne bloque jamais l'enregistrement), une seule vérification par session.
       if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(opeCount);
+      await ensureBailleurColumn(m);
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
       else await addRecord('Projets', fields);

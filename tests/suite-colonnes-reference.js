@@ -218,7 +218,7 @@
       };
       try { assertTrue(await createOpe(2)); }
       finally { window.grist.docApi.applyUserActions = original; }
-      assertEqual(calls('AddColumn').length, 16);
+      assertEqual(calls('AddColumn').length, 17);
     });
   });
 

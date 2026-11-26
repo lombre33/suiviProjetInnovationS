@@ -124,8 +124,8 @@ total croisé du projet dès deux OPE). L'objet OPE reste une ligne de `Lignes_O
 fait par des colonnes de `Projets`.
 
 - **OPE 1** : les colonnes historiques ci-dessus, inchangées.
-- **OPE 2, 3 et 4** : les mêmes colonnes suffixées `_2`, `_3`, `_4`, soit **15 colonnes saisies par OPE (45 au total) plus une colonne
-  calculée « installée chez » (16 par OPE, 48 au total)**, créées **par le widget** (`CoreGrist.ensureColumns`, `js/core/project-opes.js`) à
+- **OPE 2, 3 et 4** : les mêmes colonnes suffixées `_2`, `_3`, `_4`, soit **16 colonnes saisies par OPE (48 au total, dont le bailleur) plus une colonne
+  calculée « installée chez » (17 par OPE, 51 au total)**, créées **par le widget** (`CoreGrist.ensureColumns`, `js/core/project-opes.js`) à
   l'enregistrement du premier projet qui en a besoin, avec la description de la colonne de l'OPE 1 (bulles « ? »). Aucune étape manuelle, et
   aucune colonne créée pour un projet à une seule OPE. Les colonnes créées le 24/11 (sans la formule) reçoivent `Ligne_OPE_installe_chez_n` au
   prochain enregistrement d'un projet à plusieurs OPE.
@@ -134,6 +134,7 @@ fait par des colonnes de `Projets`.
 | --- | --- |
 | `Ligne_OPE_n` | **ReferenceList** → `Lignes_OPE` (écrite `['L', id]` ou `['L']`) |
 | `Action_Ligne_OPE_a_faire_n` | Choice (mêmes valeurs que l'OPE 1 ; une OPE ajoutée démarre sur `à determiner`) |
+| `Bailleur_n` | **Choice** `InnovationS` / `Idex` (26/11/2026, voir « Bailleur de l'OPE » ci-dessous) |
 | `Commentaire_ligne_OPE_n` | Text |
 | `Ligne_OPE_installe_chez_n` | **Formule** `$Ligne_OPE_n.installe_chez`, ReferenceList → `Structures` (26/11/2026 : les OPE d'un projet sont le plus souvent dans des structures différentes ; même nature que `Ligne_OPE_installe_chez` de l'OPE 1). **Jamais écrite par le widget** (absente de `columnsOf`, `MODAL_FIELDS`) ; lue par la page To Do (« installé chez » = toutes les structures des OPE du projet, sans doublon). |
 | `c2026_M10_Fonctionnement_n`, `c2026_M20_Investissement_n`, `c2026_M30_Personnel_n`, puis 2027, 2028 et 2029 (mêmes suffixes) | Numeric (jamais une formule) |
@@ -159,6 +160,16 @@ le Dashboard (attribué par année, lignes OPE rattachant les dépenses, via `Co
 (le 2026 de toutes les OPE, lu dans les colonnes de montants : jamais `Total_2026` + les OPE 2 à 4, qui compterait deux fois). Les **totaux
 de Projets (formules Grist)** sont adaptés aux OPE 2 à 4 par le widget, voir plus bas. **Pas encore** : la page Installation des fonds (lieu et
 zone) reste sur l'OPE 1 (le To Do, lui, lit les structures de toutes les OPE).
+
+**Bailleur de l'OPE** (demande d'Antoine du 26/11/2026, onglet « Budget et OPE ») : un champ **Bailleur** par carte OPE, en puces `InnovationS` (par défaut) /
+`Idex`. **Aucune colonne existante ne convenait** : `Financeur` n'existe que dans le journal d'import UB Invest (`Import_Financements`, texte brut de l'export,
+une ligne par OPE et financeur), et `Part_Idex` est une case au niveau du projet. Colonnes **Choice** `Bailleur` (OPE 1), `Bailleur_2/_3/_4`, liste
+`["InnovationS","Idex"]` dans les options de la colonne, bulle d'aide posée en description, **créées par le widget** (`CoreOpes.bailleurDefinition`) :
+`Bailleur_2/_3/_4` avec les autres colonnes de l'OPE (`ensureOpeColumns`, qui ajoute aussi `Bailleur_n` aux OPE créées avant), `Bailleur` à l'enregistrement
+de tout projet qui ne l'a pas encore (`ensureBailleurColumn`, une fois, au mieux). **Sans droit de structure** : le projet s'enregistre quand même, le bailleur n'est
+simplement pas écrit (jamais une colonne absente : Grist refuserait tout l'enregistrement) et l'utilisateur est prévenu une fois par session. Une colonne vide
+s'affiche `InnovationS` ; une valeur hors liste (ex. `ANR`) est conservée comme puce supplémentaire et réécrite telle quelle. Le bailleur seul ne fait pas une
+OPE (`CoreOpes.hasData`). Variables Publipostage+ : `Bailleur` est dans `MODAL_FIELDS`.
 
 **Totaux de Projets adaptés aux OPE 2 à 4 et à l'année 2029** (26/11/2026, `js/core/ope-totals.js`) : `Total_2026`, `Total_2027`, `Total_2028`,
 `Total_2029`, `Total_Fonctionnement`, `Total_investissement`, `Total_Personnel` et `Montant_attribue_Total` (8 colonnes calculées) ne sommaient que
