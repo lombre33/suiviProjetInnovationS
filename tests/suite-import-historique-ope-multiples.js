@@ -261,7 +261,7 @@
       assertTrue(window.__TEST_CALLS__.findIndex(call => call.colId === 'Ligne_OPE_2') < firstWrite, 'les colonnes existent avant la première écriture');
       const projets = await CoreGrist.getTable('Projets'), created = projets.find(p => p.Projet === 'Projet Multi');
       assertEqual(refCount(created.Ligne_OPE), 1); assertEqual(refCount(created.Ligne_OPE_2), 1);
-      assertIncludes(document.querySelector('.ih-banner').textContent, '15 colonnes créées dans Projets pour l\'OPE 2');
+      assertIncludes(document.querySelector('.ih-banner').textContent, '16 colonnes créées dans Projets pour l\'OPE 2');
     });
 
     it('si la création des colonnes échoue, rien n\'est écrit et la raison est dite', async function () {

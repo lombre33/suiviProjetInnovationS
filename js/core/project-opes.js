@@ -3,8 +3,11 @@
  * Un projet a de une à quatre OPE. L'objet « ligne OPE » reste une ligne de Lignes_OPE ; c'est la table Projets qui porte l'affectation
  * (aucune nouvelle table, choix d'Antoine) :
  *  - OPE 1 : les colonnes historiques, inchangées (Ligne_OPE, Action_Ligne_OPE_a_faire, Commentaire_ligne_OPE, cAAAA_M10/M20/M30) ;
- *  - OPE 2, 3 et 4 : les mêmes colonnes suffixées _2, _3, _4 (Ligne_OPE_2, c2026_M10_Fonctionnement_2…), soit 15 colonnes par OPE,
- *    créées par le widget à l'enregistrement du premier projet qui en a besoin (CoreOpes.missingColumns + CoreGrist.ensureColumns).
+ *  - OPE 2, 3 et 4 : les mêmes colonnes suffixées _2, _3, _4 (Ligne_OPE_2, c2026_M10_Fonctionnement_2…), soit 15 colonnes saisies par OPE
+ *    plus une colonne calculée « installée chez » (Ligne_OPE_installe_chez_2 = formule $Ligne_OPE_2.installe_chez, ReferenceList vers
+ *    Structures, comme Ligne_OPE_installe_chez de l'OPE 1 ; demande d'Antoine du 26/11/2026 : les OPE d'un projet sont le plus souvent dans
+ *    des structures différentes). Les 16 sont créées par le widget à l'enregistrement du premier projet qui en a besoin
+ *    (CoreOpes.missingColumns + CoreGrist.ensureColumns). Le widget n'écrit JAMAIS la colonne calculée : columnsOf() ne la contient pas.
  *
  * Ce module ne fait que nommer, lire et additionner (aucun accès au document) : la modale projet, le Dashboard et le calcul des montants
  * l'utilisent pour ne jamais recopier le schéma des suffixes. Un montant de rang 2 à 4 absent (colonne pas encore créée) vaut 0.
@@ -22,7 +25,7 @@
   // Valeurs de la colonne Choice Action_Ligne_OPE_a_faire (les mêmes que OPE_OPTIONS dans la modale projet).
   const ACTION_CHOICES = Object.freeze(['Creation de ligne', 'Prolongation de ligne', 're-Abondement de ligne', 'à determiner']);
   const DEFAULT_ACTION = 'à determiner';
-  const BASE = Object.freeze({ ligne: 'Ligne_OPE', action: 'Action_Ligne_OPE_a_faire', comment: 'Commentaire_ligne_OPE' });
+  const BASE = Object.freeze({ ligne: 'Ligne_OPE', action: 'Action_Ligne_OPE_a_faire', comment: 'Commentaire_ligne_OPE', installe: 'Ligne_OPE_installe_chez' });
 
   const num = value => { const n = Number(value); return Number.isFinite(n) ? n : 0; };
   const text = value => (value == null ? '' : String(value));
@@ -35,6 +38,8 @@
   const commentColumn = rank => BASE.comment + suffix(rank);
   // nature : l'objet de NATURES, sa clé (F, I, P), sa masse (M10_Fonctionnement) ou son index.
   const amountColumn = (rank, year, nature) => `c${year}_${natureOf(nature).mass}${suffix(rank)}`;
+  // Structures où la ligne OPE de ce rang est installée : colonne CALCULÉE de Projets (formule Grist), lue par le widget, jamais écrite.
+  const installeColumn = rank => BASE.installe + suffix(rank);
 
   // Colonne d'une OPE 2 à 4 → colonne d'origine (Ligne_OPE_3 → Ligne_OPE) : les bulles d'aide, les types et les listes de choix de
   // l'OPE 1 servent à toutes. Une autre colonne est rendue telle quelle.
@@ -42,17 +47,20 @@
     const match = /^(.*)_([2-4])$/.exec(text(colId));
     if (!match) return text(colId);
     const base = match[1];
-    return (base === BASE.ligne || base === BASE.action || base === BASE.comment || base === 'Ligne_OPE_installe_chez' || /^c\d{4}_M\d0_/.test(base)) ? base : text(colId);
+    return (base === BASE.ligne || base === BASE.action || base === BASE.comment || base === BASE.installe || /^c\d{4}_M\d0_/.test(base)) ? base : text(colId);
   }
 
-  // Colonnes (dans l'ordre : ligne, action, commentaire, puis les montants année par année) d'une OPE.
+  // Colonnes SAISIES (dans l'ordre : ligne, action, commentaire, puis les montants année par année) d'une OPE : ce que la modale écrit.
+  // La colonne calculée installeColumn(rank) n'y figure pas (jamais écrite) ; createdColumnsOf() la rajoute pour la création.
   function columnsOf(rank) {
     const list = [ligneColumn(rank), actionColumn(rank), commentColumn(rank)];
     YEARS.forEach(year => NATURES.forEach(nature => list.push(amountColumn(rank, year, nature))));
     return list;
   }
+  // Toutes les colonnes que le widget crée pour une OPE de rang 2 à 4 (saisies + calculée « installée chez »).
+  const createdColumnsOf = rank => columnsOf(rank).concat(installeColumn(rank));
 
-  // Définitions à passer à CoreGrist.ensureColumns('Projets', …) pour créer les colonnes d'une OPE 2 à 4. `describe(colId)` rend la
+  // Définitions à passer à CoreGrist.ensureColumns('Projets', …) pour créer les colonnes d'une OPE 2 à 4 (16 : 15 saisies + la calculée). `describe(colId)` rend la
   // description de la colonne d'origine (bulles d'aide), quand on la connaît.
   function columnDefinitions(rank, describe) {
     const withHelp = (id, def) => {
@@ -61,6 +69,8 @@
     };
     const defs = [
       withHelp(ligneColumn(rank), { type: 'RefList:Lignes_OPE' }),
+      // Juste après la ligne : la formule en dépend, et les actions partent dans cet ordre dans un seul applyUserActions groupé.
+      withHelp(installeColumn(rank), { type: 'RefList:Structures', isFormula: true, formula: `$${ligneColumn(rank)}.installe_chez` }),
       withHelp(actionColumn(rank), { type: 'Choice', widgetOptions: JSON.stringify({ choices: ACTION_CHOICES.slice() }) }),
       withHelp(commentColumn(rank), { type: 'Text' })
     ];
@@ -150,7 +160,7 @@
 
   global.CoreOpes = {
     MAX, YEARS, NATURES, ACTION_CHOICES, DEFAULT_ACTION, LINE_TYPE_COLUMN, LINE_TYPES, lineTypeColumn,
-    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, baseColumn, columnsOf, columnDefinitions, missingColumns,
+    ranks, ligneColumn, actionColumn, commentColumn, amountColumn, installeColumn, baseColumn, columnsOf, createdColumnsOf, columnDefinitions, missingColumns,
     refIds, read, total, hasData, count, ligneIds, yearAmount, combine, totals
   };
 }(window));

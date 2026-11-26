@@ -96,19 +96,26 @@
   function structureLabel(structure) { return text(structure && structure.Acronyme) || text(structure && structure.Nom_Complet); }
   // « Installé chez » d'un projet. Côté Grist, Ligne_OPE_installe_chez est une formule ReferenceList
   // vers Structures : la valeur reçue est ['L', id…], jamais un texte (le texte brut afficherait
-  // « L,3 »). Un texte déjà prêt est gardé tel quel.
-  function installedAtLabel(project) {
-    const value = project.Ligne_OPE_installe_chez;
-    if (value == null || value === '') return '';
+  // « L,3 »). Un texte déjà prêt est gardé tel quel. Un projet à plusieurs OPE (demande d'Antoine du
+  // 26/11/2026) lit aussi Ligne_OPE_installe_chez_2/_3/_4 (formules créées par le widget) : toutes les
+  // structures où il est installé, sans doublon.
+  function installedAtParts(value) {
+    if (value == null || value === '') return [];
     const ids = Array.isArray(value) ? referencedIds(value) : (typeof value === 'number' ? [value] : null);
-    if (!ids) return text(value).trim();
+    if (!ids) return [text(value).trim()].filter(Boolean);
     // Structure que Grist ne montre pas à ce compte : « Structure (id 5) non lisible » plutôt que de la taire (diagnostic d'accès).
     return ids.map(id => {
       const structure = CoreUtils.findById(getStructures(), refId(id));
       if (structure) return structureLabel(structure);
       const hidden = window.CoreAccess ? CoreAccess.unresolvedRef('Structures', refId(id), 'Structure') : null;
       return hidden ? hidden.label : '';
-    }).filter(Boolean).join(', ');
+    }).filter(Boolean);
+  }
+  function installedAtLabel(project) {
+    const columns = window.CoreOpes ? CoreOpes.ranks().map(CoreOpes.installeColumn) : ['Ligne_OPE_installe_chez'];
+    const labels = [];
+    columns.forEach(column => installedAtParts(project[column]).forEach(label => { if (!labels.includes(label)) labels.push(label); }));
+    return labels.join(', ');
   }
   // Rôle déduit de la structure du poste (voir l'en-tête du fichier) : aucune
   // saisie manuelle, aucune ACL — seulement un mode d'affichage par défaut.

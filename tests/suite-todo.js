@@ -213,6 +213,37 @@
       assertFalse(/installé chez 999/.test(actionOf('INNOVX')), 'pas d\'identifiant brut');
     });
 
+    // Demande d'Antoine du 26/11/2026 : les OPE d'un projet sont le plus souvent dans des structures différentes ; le widget crée
+    // Ligne_OPE_installe_chez_2/_3/_4 (formules) et le To Do les lit avec celle de l'OPE 1.
+    it('"installé chez" additionne les structures de toutes les OPE (colonnes _2/_3/_4), sans doublon, dans l\'ordre des OPE', async function () {
+      await loadFixtureState();
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest'; // INNOVX
+      project(10).Action_Ligne_OPE_a_faire = 'Vérifier le virement';
+      project(10).Ligne_OPE_installe_chez = ['L', 1]; // LAB1
+      project(10).Ligne_OPE_installe_chez_2 = ['L', 3]; // DIESE
+      project(10).Ligne_OPE_installe_chez_3 = ['L', 3, 2]; // DIESE (déjà vue) et DIR1
+      project(10).Ligne_OPE_installe_chez_4 = ['L'];
+      window.renderTodo();
+      setTab('install');
+      setView('all');
+      const action = cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX').querySelector('.todo-action-text').textContent;
+      assertIncludes(action, 'Vérifier le virement — installé chez LAB1, DIESE, DIR1');
+    });
+
+    it('"installé chez" : une OPE 2 seule renseignée (OPE 1 sans structure) s\'affiche, et une colonne _2 absente ne gêne pas', async function () {
+      await loadFixtureState();
+      project(10).Jalon_installation_fonds = '3) OPE disponible UB Invest';
+      project(10).Action_Ligne_OPE_a_faire = 'Relancer';
+      project(10).Ligne_OPE_installe_chez = ['L'];
+      project(10).Ligne_OPE_installe_chez_2 = ['L', 2];
+      project(11).Ligne_OPE_installe_chez = ['L', 1]; // aucune colonne _2 chez ce projet
+      window.renderTodo();
+      setTab('install');
+      setView('all');
+      assertIncludes(cardByAcronym(panel('OPE disponible UB Invest'), 'INNOVX').querySelector('.todo-action-text').textContent, 'Relancer — installé chez DIR1');
+      assertIncludes(cardByAcronym(panel('OPE disponible UB Invest'), 'NOTIFY').querySelector('.todo-action-text').textContent, 'installé chez LAB1');
+    });
+
     it('une valeur de statut imprévue (colonne absente ou vide) n\'affiche rien et ne plante pas', async function () {
       await loadFixtureState();
       project(10).Statut_installation_fonds = ''; // simule une colonne absente/vide

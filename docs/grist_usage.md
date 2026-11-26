@@ -124,15 +124,18 @@ total croisé du projet dès deux OPE). L'objet OPE reste une ligne de `Lignes_O
 fait par des colonnes de `Projets`.
 
 - **OPE 1** : les colonnes historiques ci-dessus, inchangées.
-- **OPE 2, 3 et 4** : les mêmes colonnes suffixées `_2`, `_3`, `_4`, soit **15 colonnes par OPE (45 au total)**, créées **par le widget**
-  (`CoreGrist.ensureColumns`, `js/core/project-opes.js`) à l'enregistrement du premier projet qui en a besoin, avec la description de la
-  colonne de l'OPE 1 (bulles « ? »). Aucune étape manuelle, et aucune colonne créée pour un projet à une seule OPE.
+- **OPE 2, 3 et 4** : les mêmes colonnes suffixées `_2`, `_3`, `_4`, soit **15 colonnes saisies par OPE (45 au total) plus une colonne
+  calculée « installée chez » (16 par OPE, 48 au total)**, créées **par le widget** (`CoreGrist.ensureColumns`, `js/core/project-opes.js`) à
+  l'enregistrement du premier projet qui en a besoin, avec la description de la colonne de l'OPE 1 (bulles « ? »). Aucune étape manuelle, et
+  aucune colonne créée pour un projet à une seule OPE. Les colonnes créées le 24/11 (sans la formule) reçoivent `Ligne_OPE_installe_chez_n` au
+  prochain enregistrement d'un projet à plusieurs OPE.
 
 | Colonne (rang n = 2, 3, 4) | Type |
 | --- | --- |
 | `Ligne_OPE_n` | **ReferenceList** → `Lignes_OPE` (écrite `['L', id]` ou `['L']`) |
 | `Action_Ligne_OPE_a_faire_n` | Choice (mêmes valeurs que l'OPE 1 ; une OPE ajoutée démarre sur `à determiner`) |
 | `Commentaire_ligne_OPE_n` | Text |
+| `Ligne_OPE_installe_chez_n` | **Formule** `$Ligne_OPE_n.installe_chez`, ReferenceList → `Structures` (26/11/2026 : les OPE d'un projet sont le plus souvent dans des structures différentes ; même nature que `Ligne_OPE_installe_chez` de l'OPE 1). **Jamais écrite par le widget** (absente de `columnsOf`, `MODAL_FIELDS`) ; lue par la page To Do (« installé chez » = toutes les structures des OPE du projet, sans doublon). |
 | `c2026_M10_Fonctionnement_n`, `c2026_M20_Investissement_n`, `c2026_M30_Personnel_n`, puis 2027, 2028 et 2029 (mêmes suffixes) | Numeric (jamais une formule) |
 
 Règles : une OPE est « utilisée » dès qu'elle a une ligne, un commentaire, un montant ou une action autre que `à determiner`

@@ -3,7 +3,7 @@
  *
  * Onglet « Dates & OPE » → « Instance et dates » ; onglet « Budget » → « Budget et OPE » : une carte repliable par OPE (jusqu'à 4)
  * avec ligne OPE, installée chez, action, commentaire et répartition 2026-2029, un total croisé du projet dès 2 OPE.
- * Aucune nouvelle table : l'OPE 1 garde les colonnes de Projets, les OPE 2 à 4 ont les mêmes colonnes suffixées _2/_3/_4 (15 chacune),
+ * Aucune nouvelle table : l'OPE 1 garde les colonnes de Projets, les OPE 2 à 4 ont les mêmes colonnes suffixées _2/_3/_4 (15 saisies + la formule « installée chez », 16 chacune),
  * créées par le widget (CoreGrist.ensureColumns) au premier enregistrement qui en a besoin.
  *
  * Couvre : CoreOpes (noms, lecture, totaux, colonnes manquantes), la modale (onglets, ajout/retrait/renumérotation, saisie, enregistrement,
@@ -69,7 +69,7 @@
     const table = await window.grist.docApi.fetchTable('Projets');
     const at = table.id.indexOf(id);
     for (let rank = 2; rank <= upTo; rank += 1) {
-      O().columnsOf(rank).forEach(col => { table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
+      O().createdColumnsOf(rank).forEach(col => { table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
     }
     Object.entries(valuesByColumn || {}).forEach(([col, value]) => { table[col][at] = value; });
     window.__mockSetTable('Projets', table);
@@ -112,7 +112,7 @@
 
     it('définitions des colonnes à créer : liste de références, choix de l\'action, texte, montants Numeric, description reprise de l\'OPE 1', function () {
       const defs = O().columnDefinitions(2, col => (col === 'Ligne_OPE' ? 'Ligne de l\'opération' : ''));
-      assertEqual(defs.length, 15);
+      assertEqual(defs.length, 16, '15 colonnes saisies + la colonne calculée « installée chez »');
       const byId = Object.fromEntries(defs.map(def => [def.id, def]));
       assertEqual(byId.Ligne_OPE_2.type, 'RefList:Lignes_OPE');
       assertEqual(byId.Ligne_OPE_2.description, 'Ligne de l\'opération');
@@ -121,16 +121,26 @@
       assertEqual(byId.Commentaire_ligne_OPE_2.type, 'Text');
       assertEqual(byId.c2026_M10_Fonctionnement_2.type, 'Numeric');
       assertEqual(defs.filter(def => def.type === 'Numeric').length, 12);
-      assertTrue(defs.every(def => def.isFormula === false), 'jamais une colonne calculée');
+      assertDeepEqual(defs.filter(def => def.isFormula).map(def => def.id), ['Ligne_OPE_installe_chez_2'], 'la seule colonne calculée est « installée chez »');
+      assertEqual(byId.Ligne_OPE_installe_chez_2.type, 'RefList:Structures', 'comme Ligne_OPE_installe_chez de l\'OPE 1');
+      assertEqual(byId.Ligne_OPE_installe_chez_2.formula, '$Ligne_OPE_2.installe_chez');
+      assertEqual(O().columnDefinitions(4).find(def => def.id === 'Ligne_OPE_installe_chez_4').formula, '$Ligne_OPE_4.installe_chez');
+      assertTrue(defs.every(def => def.id === 'Ligne_OPE_installe_chez_2' || def.isFormula === false), 'les 15 autres sont des colonnes saisies');
+      assertTrue(defs.findIndex(def => def.id === 'Ligne_OPE_2') < defs.findIndex(def => def.id === 'Ligne_OPE_installe_chez_2'), 'la formule vient après la colonne dont elle dépend');
+      assertDeepEqual(O().columnsOf(2).filter(col => col.includes('installe')), [], 'columnsOf = ce que la modale écrit : jamais la colonne calculée');
+      assertEqual(O().createdColumnsOf(3).length, 16);
+      assertEqual(O().installeColumn(1), 'Ligne_OPE_installe_chez', 'l\'OPE 1 garde sa formule d\'origine');
+      assertEqual(O().installeColumn(3), 'Ligne_OPE_installe_chez_3');
       assertEqual(byId.Commentaire_ligne_OPE_2.description, undefined, 'pas de description inventée quand la colonne d\'origine n\'en a pas');
     });
 
     it('missingColumns ne rend que les colonnes absentes, et rien pour l\'OPE 1', function () {
       assertEqual(O().missingColumns(new Set(), 1).length, 0, 'l\'OPE 1 existe toujours');
-      assertEqual(O().missingColumns(new Set(), 2).length, 15);
-      assertEqual(O().missingColumns(new Set(), 4).length, 45);
-      const existing = new Set(O().columnsOf(2));
-      assertEqual(O().missingColumns(existing, 3).length, 15, 'seules celles de l\'OPE 3');
+      assertEqual(O().missingColumns(new Set(), 2).length, 16);
+      assertEqual(O().missingColumns(new Set(), 4).length, 48);
+      const existing = new Set(O().createdColumnsOf(2));
+      assertEqual(O().missingColumns(existing, 3).length, 16, 'seules celles de l\'OPE 3');
+      assertDeepEqual(O().missingColumns(new Set(O().columnsOf(2)), 2).map(def => def.id), ['Ligne_OPE_installe_chez_2'], 'colonnes créées avant le 26/11 : il ne manque que la formule');
       existing.delete('c2027_M20_Investissement_2');
       assertDeepEqual(O().missingColumns(existing, 2).map(def => def.id), ['c2027_M20_Investissement_2']);
     });
@@ -477,14 +487,20 @@
 
       assertEqual(modalEl().querySelector('#cp-project-error').textContent, '');
       const added = calls('AddColumn');
-      assertEqual(added.length, 15);
-      assertDeepEqual(added.map(call => call.colId).sort(), O().columnsOf(2).slice().sort());
+      assertEqual(added.length, 16);
+      assertDeepEqual(added.map(call => call.colId).sort(), O().createdColumnsOf(2).slice().sort());
       const typeOf = colId => added.find(call => call.colId === colId).colInfo.type;
       assertEqual(typeOf('Ligne_OPE_2'), 'RefList:Lignes_OPE');
       assertEqual(typeOf('Action_Ligne_OPE_a_faire_2'), 'Choice');
       assertEqual(typeOf('Commentaire_ligne_OPE_2'), 'Text');
       assertEqual(typeOf('c2026_M10_Fonctionnement_2'), 'Numeric');
-      assertTrue(added.every(call => call.table === 'Projets' && call.colInfo.isFormula === false));
+      assertTrue(added.every(call => call.table === 'Projets' && (call.colId === 'Ligne_OPE_installe_chez_2' || call.colInfo.isFormula === false)));
+      // Colonne « installée chez » de l'OPE 2 : même nature que Ligne_OPE_installe_chez de l'OPE 1 (formule, liste de structures).
+      const installe = added.find(call => call.colId === 'Ligne_OPE_installe_chez_2');
+      assertEqual(installe.colInfo.type, 'RefList:Structures');
+      assertEqual(installe.colInfo.isFormula, true);
+      assertEqual(installe.colInfo.formula, '$Ligne_OPE_2.installe_chez');
+      assertTrue(added.findIndex(call => call.colId === 'Ligne_OPE_2') < added.findIndex(call => call.colId === 'Ligne_OPE_installe_chez_2'), 'la ligne est créée avant la formule qui la lit');
       const order = window.__TEST_CALLS__.map(call => call.type);
       assertTrue(order.lastIndexOf('AddColumn') < order.indexOf('AddRecord'), 'colonnes créées avant l\'enregistrement du projet');
 
@@ -515,7 +531,7 @@
       addOpe();
       assertEqual(cards().length, 2);
       await modalEl().querySelector('[data-cp-save]').onclick();
-      assertEqual(calls('AddColumn').length, 0, 'une OPE vide ne justifie pas 15 colonnes');
+      assertEqual(calls('AddColumn').length, 0, 'une OPE vide ne justifie pas 16 colonnes');
       assertEqual(Object.keys(calls('AddRecord')[0].fields).filter(field => O().columnsOf(2).includes(field)).length, 0);
     });
 
@@ -527,20 +543,21 @@
       setFin('c2026_M10_Fonctionnement_3', 9);
       addOpe(); // OPE 4 laissée vide
       await modalEl().querySelector('[data-cp-save]').onclick();
-      assertEqual(calls('AddColumn').length, 30, 'colonnes des OPE 2 et 3 seulement');
+      assertEqual(calls('AddColumn').length, 32, 'colonnes des OPE 2 et 3 seulement (16 chacune)');
       const fields = calls('AddRecord')[0].fields;
       assertEqual(fields.c2026_M10_Fonctionnement_3, 9);
       assertDeepEqual(fields.Ligne_OPE_2, ['L']);
       assertTrue(!('Ligne_OPE_4' in fields) && !('c2026_M10_Fonctionnement_4' in fields), 'rien pour l\'OPE 4 vide');
     });
 
-    it('4 OPE : 45 colonnes créées en une seule fois', async function () {
+    it('4 OPE : 48 colonnes créées en une seule fois (16 par OPE, dont la formule « installée chez »)', async function () {
       await loadFixtureState();
       await fillMinimalValidProject();
       addOpe(); addOpe(); addOpe();
       setFin('c2029_M30_Personnel_4', 9);
       await modalEl().querySelector('[data-cp-save]').onclick();
-      assertEqual(calls('AddColumn').length, 45);
+      assertEqual(calls('AddColumn').length, 48);
+      assertDeepEqual(calls('AddColumn').map(call => call.colId).filter(id => id.indexOf('installe') !== -1).sort(), ['Ligne_OPE_installe_chez_2', 'Ligne_OPE_installe_chez_3', 'Ligne_OPE_installe_chez_4']);
       assertEqual(calls('AddRecord')[0].fields.c2029_M30_Personnel_4, 9);
     });
 
@@ -558,7 +575,7 @@
       assertEqual(update.fields.Commentaire_ligne_OPE_2, 'déjà là');
     });
 
-    it('colonnes d\'un autre rang déjà créées (OPE 2) mais OPE 3 ajoutée : seules les 15 colonnes de l\'OPE 3 sont créées', async function () {
+    it('colonnes d\'un autre rang déjà créées (OPE 2) mais OPE 3 ajoutée : seules les 16 colonnes de l\'OPE 3 sont créées', async function () {
       await loadFixtureState();
       await giveProjectOpes(11, 2, { Commentaire_ligne_OPE_2: 'x' });
       await loadFixtureState();
@@ -566,7 +583,37 @@
       addOpe();
       setFin('c2026_M10_Fonctionnement_3', 7);
       await modalEl().querySelector('[data-cp-save]').onclick();
-      assertDeepEqual(calls('AddColumn').map(call => call.colId).sort(), O().columnsOf(3).slice().sort());
+      assertDeepEqual(calls('AddColumn').map(call => call.colId).sort(), O().createdColumnsOf(3).slice().sort());
+    });
+
+    // Demande d'Antoine du 26/11/2026 : colonne « installée chez » pour les OPE 2 à 4 (les OPE d'un projet sont le plus souvent dans des
+    // structures différentes). Les colonnes créées le 24/11 (15 par OPE) n'ont pas cette formule : elle s'ajoute au prochain enregistrement.
+    it('colonnes de l\'OPE 2 créées avant le 26/11 (sans la formule) : seule « Ligne_OPE_installe_chez_2 » est ajoutée, rien d\'existant n\'est touché', async function () {
+      await loadFixtureState();
+      const table = await window.grist.docApi.fetchTable('Projets');
+      O().columnsOf(2).forEach(col => { table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
+      table.Commentaire_ligne_OPE_2[table.id.indexOf(11)] = 'ancienne OPE 2';
+      window.__mockSetTable('Projets', table);
+      await loadFixtureState();
+      window.ProjectModal.open(projectRecord(11));
+      assertEqual(cards().length, 2, 'le projet porte bien une OPE 2');
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      assertDeepEqual(calls('AddColumn').map(call => call.colId), ['Ligne_OPE_installe_chez_2']);
+      assertEqual(calls('AddColumn')[0].colInfo.formula, '$Ligne_OPE_2.installe_chez');
+      assertEqual(calls('AddColumn')[0].colInfo.isFormula, true);
+      assertEqual(Object.keys(calls('UpdateRecord')[0].fields).filter(field => field.indexOf('installe') !== -1).length, 0, 'la colonne calculée n\'est jamais écrite');
+      assertEqual(calls('UpdateRecord')[0].fields.Commentaire_ligne_OPE_2, 'ancienne OPE 2', 'les données de l\'OPE 2 sont conservées');
+    });
+
+    it('jamais écrite : ni « Ligne_OPE_installe_chez » (OPE 1) ni les _2/_3/_4 ne partent dans l\'enregistrement, même colonnes existantes', async function () {
+      await loadFixtureState();
+      await giveProjectOpes(11, 3, { Ligne_OPE_2: ['L', 2], Ligne_OPE_3: ['L', 3] });
+      await loadFixtureState();
+      window.ProjectModal.open(projectRecord(11));
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      const fields = calls('UpdateRecord')[0].fields;
+      assertEqual(Object.keys(fields).filter(field => field.indexOf('installe') !== -1).length, 0);
+      assertTrue('Ligne_OPE_2' in fields && 'Ligne_OPE_3' in fields, 'les lignes, elles, sont écrites');
     });
 
     it('création des colonnes impossible : message clair, le projet n\'est pas enregistré à moitié, le bouton se réarme', async function () {
