@@ -36,7 +36,7 @@
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
-      prepared: [], upload: null, removing: null, clearing: false, showKids: true, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
+      prepared: [], formSync: null, upload: null, removing: null, clearing: false, showKids: true, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
     };
   }
   // Repart de zéro (utilisé par les tests ; l'application, elle, ne l'appelle jamais : un rechargement garde le brouillon).
@@ -224,6 +224,22 @@
     catch (err) { state.form = null; state.formError = CoreUtils.failureReason(err, { what: 'lecture du formulaire du script', table: '_grist_Views_section' }); }
   }
 
+  // Un formulaire déjà créé reçoit les champs des colonnes ajoutées depuis (ex. « Détail des décisions ») : le widget gère colonne ET champ, la personne
+  // n'a rien à ajouter dans Grist. Au mieux : un refus est dit en console et dans la boîte du formulaire, jamais bloquant.
+  async function syncFormFields() {
+    state.formSync = null;
+    if (!state.form || !state.form.exists) return;
+    try {
+      const wanted = L.SOURCE_COLUMNS.map(col => col.id);
+      const result = await F.syncFields(metaIo(), L.SOURCE_TABLE, wanted);
+      state.formSync = result;
+      if (result.added.length) state.prepared = state.prepared.concat([`champ${result.added.length > 1 ? 's' : ''} ajouté${result.added.length > 1 ? 's' : ''} au formulaire du script : ${result.added.join(', ')}`]);
+    } catch (err) {
+      console.warn('Import historique : mise à niveau des champs du formulaire impossible :', err);
+      state.formSync = { added: [], skipped: [], error: CoreUtils.failureReason(err, { what: 'ajout des champs manquants au formulaire du script', table: '_grist_Views_section_field' }) };
+    }
+  }
+
   // Envois du script arrivés depuis la dernière ouverture : une ligne Import_Lots « A valider » chacun (rien d'autre n'est écrit). Au mieux :
   // un échec laisse la page utilisable, les envois comptent alors comme « à valider » (ImportLotsLogic.activeRows).
   async function discoverLots() {
@@ -250,6 +266,7 @@
       await adoptLegacyRows();
       await discoverLots();
       await readForm();
+      await syncFormFields();
       await restoreDraft();
       analyse();
       state.phase = 'ready';
@@ -591,6 +608,10 @@
         <li>Colle-le seul sur une ligne dans <span class="ih-mono">C:\Users\&lt;toi&gt;\.secrets\innovations\grist.txt</span> (jamais dans un message ni dans le code).</li>
         <li>Teste : <span class="ih-mono">py src\envoyer_grist.py --essai</span>, puis <span class="ih-mono">--envoyer</span>.</li></ol>
         <p><button type="button" class="btn btn-secondary" id="ih-form-unpublish"${state.formBusy ? ' disabled' : ''}>Dépublier le formulaire</button> <span class="ih-muted">Dépublié, le lien cesse de fonctionner ; rien ne se perd.</span></p>`;
+    }
+    const sync = f && f.exists && state.formSync;
+    if (sync && (sync.skipped.length || sync.error)) {
+      body += `<p class="ih-warn"><strong>⚠</strong> ${sync.error ? esc(sync.error) : `${esc(sync.reason || 'mise en page illisible')} : le champ ${sync.skipped.map(esc).join(', ')} n'a pas pu être ajouté au formulaire`}. Le script le signalera « non envoyée » ; rien d'autre n'est touché. Dans Grist, ajoute-le à la main au formulaire (page « ${esc(f.pageName)} »).</p>`;
     }
     return boxHtml('formulaire', 'Formulaire du script', summary, body, false);
   }

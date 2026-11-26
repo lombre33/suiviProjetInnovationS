@@ -909,9 +909,10 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
 - **Réattributions regroupées sous leur projet** (26/11/2026, demande d'Antoine ; **affichage seulement, rien n'est écrit dans `Projets`**) : le script
   ajoute à chaque ligne d'export une colonne **« Détail des décisions »** (JSON compact `[{"n":"n° de décision","d":date,"a":montant,"s":statut}]`, une
   entrée par décision de la ligne projet × financeur × OPE). Le widget la lit (`parseDecisions`, tolérant : JSON illisible, tableau absent ou date
-  manquante n'empêchent rien) et la crée comme colonne de `Import_Financements` ; pour un formulaire de script déjà créé, il faut **ajouter le champ
-  « Détail des décisions »** au formulaire (sinon le script le signale « sans champ dans le formulaire (non envoyées) » et rien n'est regroupé), et
-  faire un `git pull` du dépôt du script. Les décisions sont triées par date : **la première est la décision initiale**, rappelée en petit sur la
+  manquante n'empêchent rien), **crée la colonne** dans `Import_Financements` à l'ouverture de la page et **ajoute lui-même le champ** au formulaire
+  du script (un formulaire créé avant la colonne est mis à niveau à l'ouverture : `ImportForm.syncFields` ajoute un champ pour chaque colonne voulue
+  qui n'en a pas, placé avant le bouton d'envoi, sans rien retirer ni déplacer, rejouable sans effet, publié ou non ; mise en page illisible : rien
+  n'est écrit, la boîte « Formulaire du script » dit quel champ ajouter à la main). Seule étape de la personne : un `git pull` du dépôt du script. Les décisions sont triées par date : **la première est la décision initiale**, rappelée en petit sur la
   ligne du projet (« décision initiale n° · date · montant ») ; **chacune des suivantes est une ligne décalée sous le projet** (connecteur, nature,
   n° de décision, date, OPE, montant). La **nature est proposée** : montant en plus → **Réattribution** (« + N € ») ; accepté sans montant →
   **Prolongation à qualifier** (« 0 € · à qualifier ») ; décision non acceptée → **Ignorer** (grisée). Antoine la change dans la liste de la ligne ; le

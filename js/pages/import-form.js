@@ -63,6 +63,43 @@
     return { created: true, exists: true, sectionId: made.sectionRef, viewRef: made.viewRef, pageName: renamed ? PAGE_NAME : 'New page', published: false, renamed, removed: fields.length, count: 1 };
   }
 
+  // Met le formulaire existant à niveau (26/11/2026, « colonne et champs » à la charge du widget) : une colonne ajoutée à la table après la création du
+  // formulaire (ex. « Détail des décisions ») n'y a pas de champ, et le script la signalerait « non envoyée ». Ajoute un champ pour chaque colonne
+  // voulue qui n'en a pas, avec sa place dans la mise en page avant le bouton d'envoi ; ne retire ni ne déplace jamais rien ; rejouable sans effet.
+  // `wanted` = identifiants des colonnes que le formulaire doit porter (les champs techniques en sont écartés d'office).
+  // Mise en page illisible (JSON cassé, forme inconnue) : rien n'est écrit et le résultat le dit (`skipped`), pour ne pas abîmer le formulaire.
+  async function syncFields(io, tableId, wanted) {
+    const form = await read(io, tableId);
+    if (!form.exists) return { added: [], skipped: [], form };
+    const tref = await tableRefOf(io, tableId);
+    const columns = rowsOf(await io.fetch('_grist_Tables_column')).filter(col => col.parentId === tref && (wanted || []).includes(col.colId) && !HIDDEN_COLUMNS.includes(col.colId));
+    const fields = rowsOf(await io.fetch('_grist_Views_section_field')).filter(field => field.parentId === form.sectionId);
+    const missing = columns.filter(col => !fields.some(field => field.colRef === col.id));
+    if (!missing.length) return { added: [], skipped: [], form };
+    const section = rowsOf(await io.fetch('_grist_Views_section')).find(item => item.id === form.sectionId) || {};
+    const raw = typeof section.layoutSpec === 'string' ? section.layoutSpec.trim() : '';
+    let layout = null;
+    if (raw) {
+      try { layout = JSON.parse(raw); } catch (err) { layout = false; }
+      if (!layout || typeof layout !== 'object' || !Array.isArray(layout.children)) return { added: [], skipped: missing.map(col => col.colId), form, reason: 'mise en page du formulaire illisible' };
+    }
+    let pos = fields.reduce((max, field) => Math.max(max, Number(field.parentPos) || 0), 0);
+    const added = [];
+    for (const col of missing) {
+      pos += 1;
+      const result = await io.apply([['AddRecord', '_grist_Views_section_field', null, { parentId: form.sectionId, colRef: col.id, parentPos: pos }]]);
+      const fieldRef = result && result[0];
+      if (layout && Number.isInteger(fieldRef)) {
+        const at = layout.children.findIndex(node => node && node.type === 'Submit');
+        const node = { type: 'Field', leaf: fieldRef };
+        if (at >= 0) layout.children.splice(at, 0, node); else layout.children.push(node);
+      }
+      added.push(col.colId);
+    }
+    if (layout) await io.apply([['UpdateRecord', '_grist_Views_section', form.sectionId, { layoutSpec: JSON.stringify(layout) }]]);
+    return { added, skipped: [], form };
+  }
+
   // Publie le formulaire : les mêmes écritures que le bouton « Publier » de Grist (une ligne de partage rattachée à la page, puis la section publiée).
   // Le serveur tire la clé au hasard : le formulaire répond tout de suite, mais seule la personne peut copier le lien.
   async function publish(io, form) {
@@ -90,5 +127,5 @@
     return Object.assign({}, form, { published: false });
   }
 
-  global.ImportForm = { PAGE_NAME, HIDDEN_COLUMNS, read, create, publish, unpublish };
+  global.ImportForm = { PAGE_NAME, HIDDEN_COLUMNS, read, create, syncFields, publish, unpublish };
 })(window);

@@ -164,6 +164,73 @@
   });
 
   // ===========================================================================================================
+  describe('Formulaire du script — champs ajoutés aux colonnes nouvelles (26/11/2026 : colonne ET champ à la charge du widget)', function () {
+    const WANTED = ['N_OPE', 'Lot', 'Lignes_du_lot', 'Detail_decisions', 'Cle_ligne', 'Exporte_le', 'Retire_de_la_file'];
+    const colId = (fake, id) => fake.db._grist_Tables_column.find(col => col.id === id).colId;
+    const fieldNames = fake => fake.db._grist_Views_section_field.map(field => colId(fake, field.colRef)).sort();
+    // Un formulaire créé AVANT l'ajout de la colonne « Détail des décisions » : la colonne existe depuis, le formulaire n'a pas son champ.
+    async function oldForm(layout) {
+      const fake = fakeGrist();
+      await F().create(fake, 'Import_Financements');
+      fake.db._grist_Tables_column.push({ id: 20, parentId: 1, colId: 'Detail_decisions' }, { id: 21, parentId: 1, colId: 'Retire_de_la_file' });
+      const fields = fake.db._grist_Views_section_field;
+      fields.forEach((field, i) => { field.parentPos = i + 1; });
+      if (layout !== undefined) sectionOf(fake).layoutSpec = layout;
+      else sectionOf(fake).layoutSpec = JSON.stringify({ type: 'Layout', children: fields.map(field => ({ type: 'Field', leaf: field.id })).concat([{ type: 'Submit' }]) });
+      fake.log.length = 0;
+      return fake;
+    }
+
+    it('un formulaire déjà créé reçoit le champ de la colonne qui lui manque, placé avant le bouton d\'envoi ; les champs techniques ne reviennent jamais', async function () {
+      const fake = await oldForm();
+      const result = await F().syncFields(fake, 'Import_Financements', WANTED);
+      assertDeepEqual(result.added, ['Detail_decisions']);
+      assertDeepEqual(fieldNames(fake), ['Detail_decisions', 'Lignes_du_lot', 'Lot', 'N_OPE']);
+      const added = fake.db._grist_Views_section_field.find(field => colId(fake, field.colRef) === 'Detail_decisions');
+      assertEqual(added.parentId, sectionOf(fake).id); assertEqual(added.parentPos, 4);
+      const layout = JSON.parse(sectionOf(fake).layoutSpec);
+      assertDeepEqual(layout.children.slice(-2), [{ type: 'Field', leaf: added.id }, { type: 'Submit' }]);
+      assertEqual(layout.children.filter(node => node.type === 'Field').length, 4, 'les autres champs gardent leur place');
+    });
+
+    it('rejouable sans effet : rien n\'est écrit quand le formulaire a déjà tous ses champs', async function () {
+      const fake = await oldForm();
+      await F().syncFields(fake, 'Import_Financements', WANTED);
+      fake.log.length = 0;
+      const result = await F().syncFields(fake, 'Import_Financements', WANTED);
+      assertDeepEqual(result.added, []); assertEqual(fake.log.length, 0);
+    });
+
+    it('sans formulaire : rien n\'est créé ni écrit', async function () {
+      const fake = fakeGrist();
+      const result = await F().syncFields(fake, 'Import_Financements', WANTED);
+      assertDeepEqual(result.added, []); assertEqual(fake.log.length, 0);
+    });
+
+    it('mise en page vide : le champ est ajouté tout seul (Grist en tire la mise en page par défaut) ; mise en page illisible : rien n\'est écrit et le résultat le dit', async function () {
+      const empty = await oldForm('');
+      assertDeepEqual((await F().syncFields(empty, 'Import_Financements', WANTED)).added, ['Detail_decisions']);
+      assertEqual(sectionOf(empty).layoutSpec, '', 'une mise en page vide reste vide');
+      for (const broken of ['{pas du json', '{"type":"Layout"}', '[1,2]']) {
+        const fake = await oldForm(broken);
+        const result = await F().syncFields(fake, 'Import_Financements', WANTED);
+        assertDeepEqual(result.added, []); assertDeepEqual(result.skipped, ['Detail_decisions']); assertIncludes(result.reason, 'illisible');
+        assertEqual(fake.log.length, 0, 'un formulaire dont on ne comprend pas la mise en page n\'est pas touché : ' + broken);
+      }
+    });
+
+    it('un formulaire publié reçoit aussi le champ, sans changer son état de publication', async function () {
+      const fake = await oldForm();
+      const form = await F().read(fake, 'Import_Financements');
+      fake.db._grist_Pages.push({ id: 90, viewRef: form.viewRef, shareRef: 0 });
+      sectionOf(fake).shareOptions = JSON.stringify({ publish: true, form: true });
+      await F().syncFields(fake, 'Import_Financements', WANTED);
+      assertDeepEqual(JSON.parse(sectionOf(fake).shareOptions), { publish: true, form: true });
+      assertTrue(fieldNames(fake).includes('Detail_decisions'));
+    });
+  });
+
+  // ===========================================================================================================
   describe('Formulaire du script — la page Import financier', function () {
     const columnar = rows => {
       const keys = Array.from(new Set(rows.flatMap(r => Object.keys(r)).filter(k => k !== 'id')));
@@ -248,6 +315,35 @@
         await P().open();
         assertIncludes(box().textContent, 'n\'a pas pu être lu');
         assertFalse(!!byId('ih-form-create'), 'pas de création à l\'aveugle');
+      } finally { restore(); }
+    });
+
+    it('à l\'ouverture, un formulaire créé avant la colonne « Détail des décisions » reçoit son champ et la page le dit ; un formulaire déjà complet n\'est pas touché', async function () {
+      const fake = fakeGrist();
+      await F().create(fake, 'Import_Financements');
+      fake.db._grist_Tables_column.push({ id: 20, parentId: 1, colId: 'Detail_decisions' });
+      sectionOf(fake).layoutSpec = JSON.stringify({ type: 'Layout', children: fake.db._grist_Views_section_field.map(field => ({ type: 'Field', leaf: field.id })).concat([{ type: 'Submit' }]) });
+      fake.log.length = 0;
+      const restore = await open(fake);
+      try {
+        assertTrue(fake.db._grist_Views_section_field.some(field => field.colRef === 20), 'le champ est ajouté au formulaire');
+        assertIncludes(document.querySelector('.ih-prepared').textContent, 'champ ajouté au formulaire du script : Detail_decisions');
+        const writes = fake.log.length;
+        await P().open();
+        assertEqual(fake.log.length, writes, 'rouvrir la page n\'écrit plus rien dans le formulaire');
+      } finally { restore(); }
+    });
+
+    it('mise en page du formulaire illisible : la boîte du formulaire le dit et dit quoi faire à la main, rien n\'est modifié', async function () {
+      const fake = fakeGrist();
+      await F().create(fake, 'Import_Financements');
+      fake.db._grist_Tables_column.push({ id: 20, parentId: 1, colId: 'Detail_decisions' });
+      sectionOf(fake).layoutSpec = '{cassé';
+      fake.log.length = 0;
+      const restore = await open(fake);
+      try {
+        assertEqual(fake.log.length, 0);
+        assertIncludes(box().textContent, 'Detail_decisions'); assertIncludes(box().textContent, 'à la main');
       } finally { restore(); }
     });
   });
