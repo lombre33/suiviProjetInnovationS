@@ -140,7 +140,7 @@ attendre le reste.
 
 - Ouverture : **Alt+Maj+D** (cliquer d'abord dans le widget) ou **double-clic sur la pastille « S »** du bandeau ; le même rapport est écrit
   dans la console du navigateur à la fin du démarrage. Bouton **Copier** : le rapport se colle dans la conversation.
-- Contenu : jalons (HTML reçu, scripts exécutés, `grist.ready`, Projets/Annuaire/préférences lus, Kanban affiché, tout lu,
+- Contenu : jalons (HTML reçu, scripts exécutés, `grist.ready`, tables du Kanban et préférences lues, Kanban affiché, tout lu,
   première page affichée), durée de **chaque lecture Grist** (départ, durée, nombre de cellules), cumul comparé à la durée réelle
   (cumul ≈ durée réelle : le serveur traite les lectures l'une après l'autre ; cumul ≫ durée réelle : en parallèle), téléchargement des
   fichiers du widget (Resource Timing, servis par le cache ou non). **Aucune donnée de projet** : noms de tables, durées, tailles.
@@ -149,8 +149,13 @@ attendre le reste.
 
 ### Démarrage en deux temps (`js/app.js`, `CoreGrist.loadAllTablesStaged`)
 
-1. **Temps 1** : `Projets`, `Annuaire` et les préférences de l'utilisateur (lues en tête) → le Kanban s'affiche. Les 6 autres tables et le
-   schéma sont déjà demandés dans la même vague.
+1. **Temps 1** : `EARLY_TABLES` (`js/app.js`) = `Projets`, `Annuaire`, `Programmes`, `Suivi_Instance` et les préférences de l'utilisateur
+   (lues en tête) → le Kanban s'affiche. Les 5 autres tables et le schéma sont déjà demandés dans la même vague.
+   **Règle** : toute table que `page-projets.js` résout en libellé doit être dans `EARLY_TABLES`, car le Kanban affiché n'est pas refait une
+   fois tout lu (`skipRendered`). Oubli du 26/11/2026 : `Programmes` et `Suivi_Instance` n'y étaient pas, les badges disaient « Programme (id 1)
+   non lisible » (avant le 24/11 : le numéro brut) jusqu'au prochain filtre ou enregistrement. Garde-fous : `tests/suite-performance.js`
+   (Kanban du temps 1 identique à celui d'une fois tout lu ; tables lues par le Kanban ⊆ `EARLY_TABLES`). Ces lectures partent dans la même
+   vague : l'ajout ne retarde pas le Kanban de façon mesurable (les lectures finissent ensemble).
 2. **Temps 2** : tout le reste arrive ; les autres pages se construisent comme avant (celles restées « à refaire » le sont à l'ouverture).
 - Tant que le temps 2 n'est pas fini (`dataComplete` faux) : `renderView` ne construit que le Kanban (une autre page se ferait avec des tables
   absentes) ; les clics sur la navigation, les cartes, « Nouveau projet » et `[data-open-project]` sont **mis de côté puis rejoués**

@@ -155,6 +155,42 @@
       assertEqual((await metaRow('Ligne_OPE_installe_chez_2')).visibleCol, 21, 'son réglage d\'origine');
     });
 
+    // Vérification du 26/11/2026 (bug « Programme (id 1) non lisible » sur le Kanban) : la réparation des colonnes affichées ne doit rien changer
+    // aux colonnes référence d'Antoine (Programme, Porteur_1, Instance_ratachee…), même sans colonne affichée réglée (cas le plus exposé).
+    it('ne touche aucune colonne qui n\'est pas au widget : Programme, Porteur_1, Instance_ratachee (références sans réglage) restent telles quelles', async function () {
+      const theirs = [
+        { id: 'Programme', type: 'Ref:Programmes' },
+        { id: 'Porteur_1', type: 'Ref:Annuaire' },
+        { id: 'Instance_ratachee', type: 'RefList:Suivi_Instance' },
+        { id: 'Programme_Axe_InnovationS', type: 'Any', isFormula: true, formula: 'rec.Programme.Axe_InnovationS' }
+      ];
+      const table = await window.grist.docApi.fetchTable('Projets');
+      O().createdColumnsOf(2).forEach(col => { table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
+      theirs.forEach(col => { table[col.id] = table.id.map(() => 1); });
+      window.__mockSetTable('Projets', table);
+      installMeta({ extraProjectColumns: created.concat(theirs) });
+      await window.CoreGrist.loadColumnDescriptions();
+      const before = {};
+      for (const col of theirs) before[col.id] = await metaRow(col.id);
+      // Tout ce que le widget fait pour les colonnes d'OPE : créer l'OPE 3 et 4 (avec colonne affichée), puis réparer les OPE 2 à 4 (à l'enregistrement et à l'import).
+      await createOpe(4);
+      await O().ensureDisplays(4);
+      await O().ensureDisplays(4);
+      // Colonnes visées par une écriture dans les métadonnées (UpdateRecord sur _grist_Tables_column) ou par un SetDisplayFormula.
+      const meta = await window.grist.docApi.fetchTable('_grist_Tables_column');
+      const colIdOf = ref => meta.colId[meta.id.indexOf(Number(ref))];
+      const touched = new Set([
+        ...calls('UpdateRecord').filter(call => call.table === '_grist_Tables_column').map(call => colIdOf(call.id)),
+        ...calls('SetDisplayFormula').filter(call => call.table === 'Projets').map(call => colIdOf(call.colRef))
+      ]);
+      const mine = new Set([2, 3, 4].flatMap(rank => O().createdColumnsOf(rank)));
+      const foreign = [...touched].filter(colId => !mine.has(colId));
+      assertDeepEqual(foreign, [], `colonnes modifiées sans être celles du widget : ${foreign.join(', ')}`);
+      assertTrue(touched.size > 0, 'le widget règle bien ses propres colonnes (OPE 2 à 4)');
+      for (const col of theirs) assertDeepEqual(await metaRow(col.id), before[col.id], `${col.id} : réglage inchangé`);
+      assertEqual(calls('ModifyColumn').filter(call => theirs.some(col => col.id === call.colId)).length, 0, 'aucune colonne d\'Antoine n\'est retypée');
+    });
+
     it('une colonne qui n\'existe pas encore (OPE 3 jamais créée) est ignorée', async function () {
       await withExistingOpe2();
       const fixed = await window.CoreGrist.ensureReferenceDisplay('Projets', O().referenceDisplaySpecs(4));

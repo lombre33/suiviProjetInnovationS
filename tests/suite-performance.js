@@ -594,7 +594,7 @@
         window.PerfTrace._reset();
         await window.SuiviApp.initializeApp();
         const names = window.PerfTrace.marks().map(m => m.name);
-        const wanted = ['initialisation démarrée', 'grist.ready terminé', 'Projets, Annuaire et préférences lus', 'Kanban affiché', 'toutes les tables et le schéma lus', 'colonnes Administratif vérifiées', 'préférences des pages chargées', 'première page affichée'];
+        const wanted = ['initialisation démarrée', 'grist.ready terminé', 'Tables du Kanban et préférences lues', 'Kanban affiché', 'toutes les tables et le schéma lus', 'colonnes Administratif vérifiées', 'préférences des pages chargées', 'première page affichée'];
         let last = -1;
         wanted.forEach(label => {
           const at = names.findIndex(name => name.startsWith(label));
@@ -610,7 +610,8 @@
 
   // ── Démarrage en deux temps : le Kanban s'affiche avant la lecture des autres tables ─────────────────────────
   describe('Démarrage en deux temps (js/app.js) — Kanban d\'abord, le reste ensuite', function () {
-    const CRITICAL = ['Projets', 'Annuaire', 'Preferences_Widget'];
+    // Le premier temps = les tables que l'application lit avant d'afficher le Kanban (EARLY_TABLES) + les préférences : seules les autres sont retardées.
+    const CRITICAL = [...window.SuiviApp.EARLY_TABLES, 'Preferences_Widget'];
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const waitUntil = async (test, label) => { const end = Date.now() + 4000; while (!test()) { if (Date.now() > end) throw new Error('délai dépassé : ' + label); await wait(5); } };
     // Les tables autres que celles du Kanban arrivent en retard (150 ms) : le serveur les traite après les premières.
@@ -644,7 +645,7 @@
       } finally { pill.remove(); idle.restore(); restore(); }
     }
 
-    it('le Kanban est rendu dès que Projets, Annuaire et préférences sont lus ; les autres tables arrivent après', async function () {
+    it('le Kanban est rendu dès que ses tables (Projets, Annuaire, Programmes, Suivi_Instance) et les préférences sont lus ; les autres tables arrivent après', async function () {
       await prepared(async pill => {
         const undelay = delayRest(150);
         try {
@@ -675,6 +676,50 @@
           assertTrue(card.isConnected && card === document.querySelector('#projects-kanban .project-card'), 'carte non reconstruite');
           assertEqual(window.CoreState.getTable('Projets'), projects, 'mêmes projets (pas relus ni recopiés)');
         } finally { undelay(); }
+      });
+    });
+
+    // Bug du 26/11/2026 : « Programme (id 1) non lisible » sur toutes les cartes. Le Kanban affiché au premier temps n'est pas reconstruit une fois
+    // tout lu, mais Programmes (badge, filtre) et Suivi_Instance (filtre Instance, CTO épinglés) n'étaient lues qu'au second temps : leurs libellés
+    // restaient « non lisibles » (avant le 24/11 : le numéro brut) jusqu'au prochain filtre ou enregistrement.
+    it('le Kanban affiché au premier temps est identique à celui d\'une fois tout lu : badges Programme, filtres Programme et Instance — jamais « non lisible » ni un numéro', async function () {
+      await prepared(async () => {
+        const undelay = delayRest(80);
+        try {
+          const snapshot = () => ({
+            cards: document.getElementById('projects-kanban').innerHTML,
+            badges: Array.from(document.querySelectorAll('#projects-kanban .programme-badge')).map(badge => badge.textContent),
+            programmes: document.getElementById('filter-programme-list').innerHTML,
+            instances: document.getElementById('filter-instance-list').innerHTML
+          });
+          const started = window.SuiviApp.initializeApp();
+          await waitUntil(() => cardCount('#projects-kanban .project-card') > 0, 'cartes du Kanban');
+          assertFalse(window.SuiviApp.isDataComplete(), 'le reste des tables est encore en cours de lecture : c\'est bien l\'affichage du premier temps');
+          const early = snapshot();
+          await started;
+          window.renderProjectsKanban(); // l'affichage complet, refait à partir de toutes les tables
+          const full = snapshot();
+          assertTrue(early.badges.length > 0, 'des badges Programme sont affichés');
+          assertEqual(early.badges.filter(text => /non lisible/.test(text)).length, 0, `aucun programme « non lisible » (vu : ${early.badges.join(' | ')})`);
+          assertTrue(early.badges.includes('Programme A') && early.badges.includes('Programme B'), `les noms des programmes, pas leurs numéros (vu : ${early.badges.join(' | ')})`);
+          assertEqual(early.cards, full.cards, 'mêmes cartes qu\'une fois tout lu');
+          assertEqual(early.programmes, full.programmes, 'même liste du filtre Programme');
+          assertEqual(early.instances, full.instances, 'même liste du filtre Instance (CTO épinglés compris)');
+        } finally { undelay(); }
+      });
+    });
+
+    it('toute table que le Kanban lit et que le widget charge au démarrage fait partie du premier temps (EARLY_TABLES) : sinon ses libellés restent vides jusqu\'au prochain rendu', async function () {
+      await prepared(async () => {
+        const tables = await window.CoreGrist.loadAllTables(); // état rempli comme une fois tout lu : le Kanban résout alors tous ses libellés
+        Object.entries(tables).forEach(([name, rows]) => window.CoreState.setTable(name, rows));
+        const read = new Set(), original = window.CoreState.getTable;
+        window.CoreState.getTable = function (name) { read.add(name); return original.call(window.CoreState, name); };
+        try { window.renderProjectsKanban(); } finally { window.CoreState.getTable = original; }
+        const startup = window.CoreGrist.tableNames();
+        const missing = [...read].filter(name => startup.includes(name) && !window.SuiviApp.EARLY_TABLES.includes(name));
+        assertDeepEqual(missing, [], `tables lues par le Kanban mais absentes du premier temps : ${missing.join(', ')}`);
+        assertTrue(['Projets', 'Annuaire', 'Programmes', 'Suivi_Instance'].every(name => read.has(name)), `le Kanban lit bien : ${[...read].join(', ')}`);
       });
     });
 

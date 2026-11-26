@@ -74,11 +74,16 @@ function hideLoadingIndicator() { const el = document.getElementById('app-loadin
 function showLoadingIndicator(text) { const el = document.getElementById('app-loading'); if (el) { if (text) el.textContent = text; el.hidden = false; } }
 
 // --- Démarrage en deux temps -------------------------------------------------------------------------------------
-// Le Kanban n'a besoin que de Projets et Annuaire : il s'affiche dès qu'elles sont lues, sans attendre les autres tables ni le schéma.
+// Le Kanban s'affiche dès que SES tables sont lues, sans attendre les autres tables ni le schéma. SES tables = toutes celles qu'il résout en libellés :
+// Projets, Annuaire (porteur, accompagnateur), Programmes (badge et filtre Programme), Suivi_Instance (filtre Instance et CTO épinglés). Ce Kanban
+// n'est PAS reconstruit une fois tout lu (renderAllViews({ skipRendered }) : la page affichée « vient d'être rendue avec ces mêmes données ») :
+// une table qui lui manquerait ici resterait absente de ses cartes jusqu'au prochain filtre ou enregistrement — les badges auraient affiché
+// « Programme (id 1) non lisible » au lieu du nom (26/11/2026). Toute table que page-projets.js lit doit donc figurer dans cette liste
+// (tests/suite-performance.js le vérifie en espionnant les lectures du Kanban).
 // Le temps que le reste arrive, tout ce qui ouvrirait une autre page ou une fiche (barre de navigation, cartes, « Nouveau projet »)
 // est mis de côté — ces écrans ont besoin de tables encore absentes — puis rejoué dès que tout est lu. Filtres et repli des
 // colonnes restent utilisables.
-const EARLY_TABLES = ['Projets', 'Annuaire'];
+const EARLY_TABLES = ['Projets', 'Annuaire', 'Programmes', 'Suivi_Instance'];
 const LOCKED_CLICK_SELECTOR = '.nav-btn, #btn-new-project, .project-card, [data-open-project]';
 let pendingClick = null;
 function loadingGuard(event) {
@@ -181,15 +186,15 @@ async function initializeApp() {
     if (!await waitForDependencies()) throw new Error('Core dependencies not loaded');
     const grist = await CoreGrist.ready(); if (!grist) throw new Error('Grist API not available');
     mark('grist.ready terminé');
-    // Une seule vague de requêtes, lancées ensemble : préférences, tables (Projets et Annuaire d'abord) puis schéma (descriptions des
+    // Une seule vague de requêtes, lancées ensemble : préférences, tables (celles du Kanban d'abord) puis schéma (descriptions des
     // colonnes + colonnes existantes). La table de préférences est lue une seule fois pour toutes les pages.
     CoreGrist.openSharedWindow();
     const prefsPrefetch = CoreGrist.getTable('Preferences_Widget', { shared: true }).catch(() => null); // absente au 1er lancement : les chargeurs la créent
     const stage = CoreGrist.loadAllTablesStaged(EARLY_TABLES);
     const schemaRead = CoreGrist.loadColumnDescriptions();
-    // Temps 1 : de quoi afficher le Kanban (Projets, Annuaire, préférences de l'utilisateur).
+    // Temps 1 : de quoi afficher le Kanban (EARLY_TABLES, préférences de l'utilisateur).
     const [early] = await Promise.all([stage.critical, prefsPrefetch]);
-    mark('Projets, Annuaire et préférences lus');
+    mark('Tables du Kanban et préférences lues');
     applyTables(early);
     if (window.loadKanbanUserPreferences) await window.loadKanbanUserPreferences();
     restoreView(await loadNavigationPreference()); // Grist (ou la copie « en attente ») a le dernier mot
@@ -268,5 +273,5 @@ function setupEventListeners() {
 }
 // Points d'entrée exposés pour les tests (tests/suite-app.js) ; tests/index.html pose
 // __SUIVI_SKIP_AUTOINIT__ pour que le chargement de ce fichier ne lance pas l'application.
-window.SuiviApp = { isDataComplete: () => dataComplete, initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved, resetLastView };
+window.SuiviApp = { isDataComplete: () => dataComplete, EARLY_TABLES, initializeApp, renderAllViews, renderView, ensureViewRendered, showView, staleViews, cancelIdleRenders, VIEW_RENDERERS, refreshAfterProjectSaved, resetLastView };
 if (!window.__SUIVI_SKIP_AUTOINIT__) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp); else initializeApp(); }
