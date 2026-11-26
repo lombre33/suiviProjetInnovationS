@@ -14,7 +14,7 @@
 
   const PAGE_NAME = 'Import financier : formulaire du script';
   // Champs d'aucun intérêt pour le script (le widget les calcule) : ils sont retirés du formulaire, qui ne garde que les colonnes de l'export, Lot et Lignes du lot.
-  const HIDDEN_COLUMNS = ['Cle_ligne', 'Exporte_le'];
+  const HIDDEN_COLUMNS = ['Cle_ligne', 'Exporte_le', 'Retire_de_la_file'];
 
   const rowsOf = table => {
     if (!table || !table.id) return [];

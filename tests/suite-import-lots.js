@@ -330,6 +330,45 @@
   });
 
   // ===========================================================================================================
+  describe('File d\'attente de l\'import — vider d\'un coup ou retirer un projet (rien n\'est supprimé)', function () {
+    const two = lot => {
+      const rows = [row(lot, 'A-1'), row(lot, 'A-2'), row(lot, 'B-1', { Projet: 'Autre projet' })];
+      rows.forEach(r => { r.Lignes_du_lot = rows.length; });
+      return rows;
+    };
+
+    it('les lignes d\'un projet dans les envois à valider sont celles qu\'on peut retirer ; un envoi déjà validé ne fait pas partie de la file', function () {
+      nextId = 1;
+      const rows = two(T1).concat(two(T2));
+      const lots = [lotRow(1, T1, 'Valide'), lotRow(2, T2, 'A valider')];
+      assertEqual(K().pendingRowsOf(rows, lots, 'Projet fictif').length, 2, 'seulement celles de l\'envoi à valider');
+      assertEqual(K().pendingRowsOf(rows, lots, 'PROJET  Fictif').length, 2, 'le nom se compare sans casse ni espaces en trop');
+      assertDeepEqual(K().queueSummary(rows, lots), { lots: 1, rows: 3, projects: 2 });
+    });
+
+    it('retirer un projet : une écriture par ligne reçue (horodatage), l\'envoi ne devient pas « incomplet », les autres projets restent', function () {
+      nextId = 1;
+      const rows = two(T2), lots = [lotRow(1, T2, 'A valider')];
+      const actions = K().planRemoveProject(rows, lots, 'Projet fictif', Date.UTC(2026, 10, 26, 10, 0, 0));
+      assertEqual(actions.length, 2);
+      actions.forEach(action => { assertEqual(action[0], 'UpdateRecord'); assertEqual(action[1], 'Import_Financements'); assertEqual(action[3].Retire_de_la_file, '2026-11-26T10:00:00.000Z'); });
+      const after = rows.map(r => Object.assign({}, r, actions.some(a => a[2] === r.id) ? { Retire_de_la_file: actions[0][3].Retire_de_la_file } : {}));
+      const active = K().activeRows(after, lots);
+      assertDeepEqual(active.map(r => r.Projet), ['Autre projet'], 'l\'envoi reste complet (3 lignes reçues sur 3) : seul le projet retiré disparaît');
+      assertDeepEqual(K().removedProjects(after, lots), ['Projet fictif']);
+      const back = K().planRestoreRemoved(after, lots);
+      assertEqual(back.length, 2); back.forEach(action => assertEqual(action[3].Retire_de_la_file, ''));
+    });
+
+    it('vider la file : seuls les envois à valider passent en Refuse, avec leur motif ; un envoi validé ou déjà refusé n\'est pas touché', function () {
+      const lots = [lotRow(1, T1, 'Valide'), lotRow(2, T2, 'A valider'), lotRow(3, T3, 'A valider'), lotRow(4, '2026-11-20T10:00:00Z', 'Refuse')];
+      const actions = K().planClearQueue(lots);
+      assertDeepEqual(actions.map(a => a[2]), [2, 3]);
+      actions.forEach(a => { assertEqual(a[1], 'Import_Lots'); assertEqual(a[3].Statut, 'Refuse'); assertIncludes(a[3].Note, 'File'); });
+    });
+  });
+
+  // ===========================================================================================================
   describe('Envois du script — la page Import financier', function () {
     const P = () => window.ImportHistoriquePage;
     const byId = id => document.getElementById(id);
@@ -403,6 +442,72 @@
       await waitFor(() => document.querySelector('[data-ih-refuse]'), 'envoi rétabli');
       assertEqual((await grist('Import_Lots'))[0].Statut, 'A valider');
       assertEqual(P().state.entries.length, 1);
+    });
+
+    // Deux projets reçus dans le même envoi (4 lignes) : « Projet fictif » (OPE-A, OPE-B) et « Autre projet » (OPE-C, OPE-D).
+    const twoProjects = lot => {
+      const rows = ['OPE-A', 'OPE-B'].map(ope => row(lot, ope, { Structure: 'LAB1' })).concat(['OPE-C', 'OPE-D'].map(ope => row(lot, ope, { Projet: 'Autre projet', Structure: 'LAB1' })));
+      rows.forEach(r => { r.Lignes_du_lot = rows.length; });
+      return rows;
+    };
+    const flagged = async () => (await grist('Import_Financements')).filter(r => r.Retire_de_la_file).map(r => r.Projet);
+
+    it('vider la file d\'attente : une confirmation d\'abord, puis les envois à valider sont refusés (rien n\'est supprimé) et le tableau se vide ; « Garder » n\'écrit rien', async function () {
+      await setup(twoProjects(T2));
+      click(byId('ih-queue-clear'));
+      assertTrue(!!byId('ih-queue-clear-confirm'), 'la confirmation s\'affiche');
+      assertIncludes(byId('ih-root').textContent, '1 envoi, 2 projets');
+      assertEqual((await grist('Import_Lots'))[0].Statut, 'A valider', 'rien n\'a changé avant la confirmation');
+      click(byId('ih-queue-clear-cancel'));
+      assertTrue(!byId('ih-queue-clear-confirm'));
+      assertEqual((await grist('Import_Lots'))[0].Statut, 'A valider');
+      click(byId('ih-queue-clear')); click(byId('ih-queue-clear-confirm'));
+      await waitFor(() => document.querySelector('[data-ih-restore]'), 'file vidée');
+      const lot = (await grist('Import_Lots'))[0];
+      assertEqual(lot.Statut, 'Refuse'); assertIncludes(lot.Note, 'File d\'attente vidée');
+      assertEqual(P().state.entries.length, 0);
+      assertEqual((await grist('Import_Financements')).length, 4, 'les lignes reçues restent au journal');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'File d\'attente vidée');
+      click(document.querySelector('[data-ih-restore]'));
+      await waitFor(() => document.querySelector('[data-ih-refuse]'), 'envoi rétabli');
+      assertEqual(P().state.entries.length, 2, 'rétablir remet tout');
+    });
+
+    it('retirer un projet de la file : choisi dans la cellule de statut, confirmé, les autres projets restent ; « Les remettre » le rétablit', async function () {
+      await setup(twoProjects(T2));
+      assertEqual(P().state.entries.length, 2);
+      click(document.querySelector('[data-ih-cell="autre projet|status"]'));
+      const select = document.querySelector('[data-ih-in="autre projet|status"]');
+      assertTrue(Array.from(select.options).some(o => o.value === 'remove'), 'l\'option de retrait est proposée');
+      select.value = 'remove'; fire(select, 'change');
+      assertTrue(!!document.querySelector('[data-ih-remove-yes="autre projet"]'), 'la confirmation remplace la cellule');
+      assertEqual((await flagged()).length, 0, 'rien n\'est retiré avant la confirmation');
+      click(document.querySelector('[data-ih-remove-no]'));
+      assertTrue(!document.querySelector('[data-ih-remove-yes]'));
+      assertEqual((await flagged()).length, 0);
+      click(document.querySelector('[data-ih-cell="autre projet|status"]'));
+      const again = document.querySelector('[data-ih-in="autre projet|status"]'); again.value = 'remove'; fire(again, 'change');
+      click(document.querySelector('[data-ih-remove-yes="autre projet"]'));
+      await waitFor(() => document.querySelector('.ih-banner'), 'projet retiré');
+      assertIncludes(document.querySelector('.ih-banner').textContent, 'retiré de la file d\'attente');
+      assertDeepEqual(await flagged(), ['Autre projet', 'Autre projet'], 'ses deux lignes reçues portent le retrait, pas celles de l\'autre projet');
+      assertDeepEqual(P().state.entries.map(e => e.name), ['Projet fictif'], 'l\'envoi reste complet : l\'autre projet est toujours là');
+      assertEqual((await grist('Import_Financements')).length, 4, 'aucune ligne supprimée');
+      click(byId('ih-queue-unremove'));
+      await waitFor(() => P().state.entries.length === 2, 'projet remis');
+      assertEqual((await flagged()).length, 0);
+    });
+
+    it('le retrait d\'un projet fait oublier ses choix de tri, pas ceux des autres', async function () {
+      await setup(twoProjects(T2));
+      P().state.decisions.set('autre projet', { mode: 'new', projectId: null });
+      P().state.decisions.set('projet fictif', { mode: 'new', projectId: null });
+      click(document.querySelector('[data-ih-cell="autre projet|status"]'));
+      const select = document.querySelector('[data-ih-in="autre projet|status"]'); select.value = 'remove'; fire(select, 'change');
+      click(document.querySelector('[data-ih-remove-yes="autre projet"]'));
+      await waitFor(() => document.querySelector('.ih-banner'), 'projet retiré');
+      assertFalse(P().state.decisions.has('autre projet'));
+      assertTrue(P().state.decisions.has('projet fictif'));
     });
 
     it('écrire : les colonnes de montants de Lignes_OPE sont créées avant, les montants écrits sur les deux lignes OPE, l\'envoi passe en Valide', async function () {

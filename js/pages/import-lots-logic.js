@@ -20,6 +20,7 @@
   const TYPE_MACRO = 'Macro';
   const SOURCE_SCRIPT = 'Script';
   const COUNT_FIELD = 'Lignes_du_lot';
+  const REMOVED_FIELD = 'Retire_de_la_file';   // horodatage du retrait d'une ligne reçue de la file d'attente (vide = dans la file)
   const isTrial = lot => /^essai/i.test(text(lot));
 
   // « 2026-11-24T14:05:30Z » (format du script et du widget) -> secondes Unix ; « 2026-11-24 14:05:30 » (ancien format du script) lu tel quel.
@@ -74,6 +75,7 @@
     const status = new Map((lotRows || []).map(row => [text(row.Lot), row.Statut]));
     const groups = lotGroups(sourceRows);
     return (sourceRows || []).filter(row => {
+      if (text(row[REMOVED_FIELD])) return false;   // retirée de la file d'attente (un projet à la fois)
       const lot = text(row.Lot);
       if (!lot) return true;
       const group = groups.get(lot), state = status.get(lot);
@@ -163,6 +165,40 @@
       .map(row => ['UpdateRecord', L().LOTS_TABLE, Number(row.id), { Statut: 'A valider', Note: '' }]);
   }
 
+  // File d'attente (26/11/2026) : ce qui est reçu mais pas encore écrit = les lignes des envois « A valider ». Rien n'est supprimé : une ligne retirée
+  // garde l'horodatage du retrait (colonne Retire_de_la_file) et un envoi vidé passe en Refuse ; les deux se rétablissent.
+  const pendingLots = lotRows => new Set((lotRows || []).filter(row => row.Statut === 'A valider').map(row => text(row.Lot)));
+  const isPending = (row, pending) => pending.has(text(row.Lot));
+  // Lignes d'un projet encore dans la file (envois à valider, pas déjà retirées).
+  function pendingRowsOf(sourceRows, lotRows, projectKey) {
+    const pending = pendingLots(lotRows), key = L().normalize(projectKey);
+    return (sourceRows || []).filter(row => isPending(row, pending) && !text(row[REMOVED_FIELD]) && L().normalize(row.Projet) === key);
+  }
+  function planRemoveProject(sourceRows, lotRows, projectKey, now) {
+    const stamp = new Date(now || Date.now()).toISOString();
+    return pendingRowsOf(sourceRows, lotRows, projectKey).map(row => ['UpdateRecord', L().SOURCE_TABLE, Number(row.id), { [REMOVED_FIELD]: stamp }]);
+  }
+  // Projets retirés qui sont encore dans un envoi à valider (ceux qu'on peut remettre).
+  function removedProjects(sourceRows, lotRows) {
+    const pending = pendingLots(lotRows), names = new Map();
+    (sourceRows || []).forEach(row => { if (isPending(row, pending) && text(row[REMOVED_FIELD])) names.set(L().normalize(row.Projet), text(row.Projet)); });
+    return Array.from(names.values());
+  }
+  function planRestoreRemoved(sourceRows, lotRows) {
+    const pending = pendingLots(lotRows);
+    return (sourceRows || []).filter(row => isPending(row, pending) && text(row[REMOVED_FIELD])).map(row => ['UpdateRecord', L().SOURCE_TABLE, Number(row.id), { [REMOVED_FIELD]: '' }]);
+  }
+  // Vider la file : tous les envois à valider passent en Refuse (motif gardé, « Rétablir » les remet).
+  function planClearQueue(lotRows) {
+    return (lotRows || []).filter(row => row.Statut === 'A valider')
+      .map(row => ['UpdateRecord', L().LOTS_TABLE, Number(row.id), { Statut: 'Refuse', Note: 'File d\'attente vidée' }]);
+  }
+  // Ce que contient la file pour la confirmation : envois, projets et lignes encore à relire.
+  function queueSummary(sourceRows, lotRows) {
+    const pending = pendingLots(lotRows), rows = (sourceRows || []).filter(row => isPending(row, pending) && !text(row[REMOVED_FIELD]));
+    return { lots: (lotRows || []).filter(row => row.Statut === 'A valider').length, rows: rows.length, projects: new Set(rows.map(row => L().normalize(row.Projet)).filter(Boolean)).size };
+  }
+
   // Les écritures de montants du plan (une par ligne OPE) pour la relecture : ce qui change, valeur d'avant -> valeur d'après. Les colonnes de
   // suivi (date de mise à jour, lot) ne comptent pas comme un changement.
   function amountChanges(plan) {
@@ -180,6 +216,6 @@
 
   global.ImportLotsLogic = {
     TYPE_MACRO, SOURCE_SCRIPT, COUNT_FIELD, COMPARED, isTrial, lotTime, lotGroups, planDiscovery, activeRows, excludedReason, referenceLot, compareLots, rowsOfLot,
-    lotCards, planRefusal, planRestore, amountChanges
+    lotCards, planRefusal, planRestore, amountChanges, pendingRowsOf, planRemoveProject, removedProjects, planRestoreRemoved, planClearQueue, queueSummary, REMOVED_FIELD
   };
 })(window);

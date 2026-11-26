@@ -898,6 +898,14 @@ renvoie TOUTES les lignes à chaque fois par un formulaire public, avec le même
   projets ; consommé et disponible non additionnés) et n'est créée qu'une fois. Pastille « partagée » dans la colonne des lignes OPE. Limite : un
   projet renommé sur UB Invest entre deux envois compte comme une autre ligne (le nom fait partie de la clé) ; deux noms de projets très proches
   (« ingenierie_a », « ingenierie_b ») font proposer « nom proche » à confirmer. Décision d'Antoine attendue (carte du 26/11).
+- **File d'attente de l'import** (26/11/2026, demande d'Antoine : « supprimer la file d'attente, tout d'un coup ou un projet à la fois ») : la file =
+  ce qui est reçu mais pas encore écrit (lignes des envois `A valider`). **Vider la file d'attente** (lien de la ligne de résumé, avec confirmation) refuse
+  tous les envois à valider (`Import_Lots.Statut = Refuse`, motif « File d'attente vidée ») et oublie les choix de tri des projets concernés.
+  **Retirer de la file** un projet (option de la cellule de statut, avec confirmation) pose l'horodatage du retrait dans `Import_Financements.Retire_de_la_file`
+  sur ses lignes reçues des envois à valider ; ces lignes ne comptent plus, l'envoi ne devient pas « incomplet » (le décompte annoncé par le script reste
+  celui des lignes reçues) et le lien « Les remettre » les rétablit. **Rien n'est supprimé** (le journal garde tout, « Rétablir » remet un envoi refusé) ;
+  le prochain envoi du script, qui renvoie toutes les lignes, remet un projet retiré. Les envois déjà validés ne font jamais partie de la file.
+  La colonne `Retire_de_la_file` est créée par le widget et n'est pas un champ du formulaire du script.
 - **Validation** : « Écrire » passe en `Valide` les envois du tableau (photo du contrôle, `Absentes` = lignes disparues), les validés d'avant en
   `Remplace`, et en `Remplace` un envoi plus ancien encore à valider qui n'a plus aucune ligne comptée.
 - **Formulaire** (boîte « Formulaire du script ») : créé par un clic sur une page neuve de Grist (`CreateViewSection`), sans les champs techniques

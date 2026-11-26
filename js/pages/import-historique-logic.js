@@ -76,7 +76,9 @@
   const SOURCE_COLUMNS = SOURCE_FIELDS.map(([id, label, type]) => ({ id, label, type }))
     .concat([{ id: 'Cle_ligne', type: 'Text' }, { id: 'Exporte_le', type: 'DateTime:Europe/Paris' }, { id: 'Lot', type: 'Text' },
       // Nombre de lignes de l'envoi du script (champ « Lignes du lot » du formulaire) : permet de repérer un envoi arrivé à moitié.
-      { id: 'Lignes_du_lot', label: 'Lignes du lot', type: 'Int' }]);
+      { id: 'Lignes_du_lot', label: 'Lignes du lot', type: 'Int' },
+      // Retrait d'une ligne reçue de la file d'attente (horodatage ; vide = dans la file) : le script ne la pousse pas, le widget la pose.
+      { id: 'Retire_de_la_file', label: 'Retiré de la file', type: 'Text' }]);
 
   // ---------------------------------------------------------------------------------------------------------------
   // Montants UB Invest écrits sur Lignes_OPE (24/11/2026) : une ligne OPE = un N° OPE ; le widget crée les colonnes SIMPLES manquantes (aucune formule)

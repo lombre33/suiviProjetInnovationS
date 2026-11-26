@@ -36,7 +36,7 @@
       decisions: new Map(), edits: new Map(), table: null, editing: null, applyAll: true, ack: false, nextBad: 0,
       filter: 'all', search: '', detail: [], totals: null, journal: [], lots: [], tables: {}, readAt: 0, writing: false,
       result: null, undo: null, openBoxes: new Set(), _refocus: null, setAside: 0, discovered: [], form: null, formError: '', formAccept: false, formBusy: false, fd: null, fdAck: false,
-      prepared: [], upload: null, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
+      prepared: [], upload: null, removing: null, clearing: false, tab: 'ubinvest', draft: { rowId: null, saved: '', timer: null, error: '', confirm: false }
     };
   }
   // Repart de zéro (utilisé par les tests ; l'application, elle, ne l'appelle jamais : un rechargement garde le brouillon).
@@ -396,13 +396,22 @@
     }
     candidates.forEach(c => options.push(option('p:' + c.id, `→ ${esc(c.label)}${c.score < 1 ? ` (${Math.round(c.score * 100)} %)` : ''}`)));
     options.push(option('new', 'Créer un nouveau projet'), option('other', 'Autre projet…'), option('skip', 'Écarter ce projet'));
+    if (pendingOf(row).length) options.push(option('remove', 'Retirer de la file d\'attente…'));
     let html = `<select class="ih-in" data-ih-in="${esc(row.key)}|status" data-ih-type="status" data-ih-row="${esc(row.key)}" aria-label="Projet de Grist pour ${esc(row.entry.name)}">${options.join('')}</select>`;
     if (d.mode === 'other') {
       html += `<select class="ih-in" data-ih-in="${esc(row.key)}|other" data-ih-type="other" data-ih-row="${esc(row.key)}" aria-label="Autre projet"><option value="">Choisir…</option>${state.ctx.projects.slice().sort((a, b) => a.label.localeCompare(b.label, 'fr')).map(p => `<option value="${p.id}">${esc(p.label)}${p.name && p.name !== p.label ? ' — ' + esc(p.name) : ''}</option>`).join('')}</select>`;
     }
     return html;
   }
+  // Lignes d'un projet encore dans la file d'attente (envois à valider) : celles qu'on peut retirer.
+  const pendingOf = row => K.pendingRowsOf(state.rows, state.lots, row.key);
+
   function statusTd(row) {
+    if (state.removing === row.key) {
+      const n = pendingOf(row).length;
+      return `<td class="s1 st ih-remove-confirm"><span class="ih-warn-inline">Retirer ce projet de la file d'attente ?</span><small>Ses ${plural(n, 'ligne reçue', 'lignes reçues')} ne comptent plus (elles restent au journal). Le prochain envoi du script le remettra.</small>`
+        + `<button type="button" class="ih-link" data-ih-remove-yes="${esc(row.key)}">Oui, retirer</button> <button type="button" class="ih-link" data-ih-remove-no="1">Garder</button></td>`;
+    }
     const id = row.key + '|status', editing = state.editing === id, blocked = row.match.status === 'blocked';
     let how;
     if (row.state === 'skip') how = row.reason;
@@ -794,10 +803,23 @@
     await load();
   }
 
+  // Vider la file d'attente (tout ce qui est reçu mais pas encore écrit) ou la remettre : confirmation avant tout retrait, rien n'est supprimé.
+  function queueHtml() {
+    const q = K.queueSummary(state.rows, state.lots), removed = K.removedProjects(state.rows, state.lots);
+    let html = '';
+    if (state.clearing) {
+      html += ` · <span class="ih-warn-inline">Vider la file d'attente (${plural(q.lots, 'envoi', 'envois')}, ${plural(q.projects, 'projet', 'projets')}) ?</span> <button type="button" class="ih-link" id="ih-queue-clear-confirm">Oui, vider</button> <button type="button" class="ih-link" id="ih-queue-clear-cancel">Garder</button>`;
+    } else if (q.lots) {
+      html += ` · <button type="button" class="ih-link" id="ih-queue-clear" title="Refuse les envois à valider : ils ne comptent plus (rien n'est supprimé, « Rétablir » les remet)">Vider la file d'attente</button>`;
+    }
+    if (removed.length) html += ` · <span class="ih-muted">${plural(removed.length, 'projet retiré', 'projets retirés')}</span> <button type="button" class="ih-link" id="ih-queue-unremove">Les remettre</button>`;
+    return html;
+  }
+
   function summaryHtml() {
     const issues = state.issues.length;
     const d = state.totals && state.totals.available ? (state.totals.gaps ? `${plural(state.totals.gaps, 'écart', 'écarts')}` : 'totaux concordants') : 'détail BO absent';
-    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button>${draftHtml()}</p>${legendHtml()}</div>`;
+    return `<div class="ih-info"><p class="ih-summary"><strong>${state.lines.length}</strong> lignes de financement (dernière version, sur ${state.total} reçues${state.setAside ? `, ${state.setAside} d'envois mis de côté` : ''}${state.ignored ? `, ${state.ignored} sans N° OPE ignorées` : ''}) · <strong>${state.entries.length}</strong> ${state.entries.length > 1 ? 'projets' : 'projet'} · <strong>${state.entries.reduce((n, e) => n + e.opes.length, 0)}</strong> N° OPE · ${issues ? `<span class="ih-warn-inline">${plural(issues, 'écart', 'écarts')} dans l'export</span>` : 'export cohérent'} · ${d} · <button type="button" class="ih-link" id="ih-pick">Charger un autre fichier</button>${queueHtml()}${draftHtml()}</p>${legendHtml()}</div>`;
   }
 
   function render() {
@@ -949,6 +971,45 @@
   const refuseLot = lot => changeLotStatus(K.planRefusal(state.lots, lot), `Envoi du ${whenFr(K.lotTime(lot))} refusé : il ne compte plus. « Rétablir » le remet à valider.`);
   const restoreLot = lot => changeLotStatus(K.planRestore(state.lots, lot), `Envoi du ${whenFr(K.lotTime(lot))} rétabli : il est de nouveau à valider.`);
 
+  // Les choix de tri d'un projet (rapprochement, valeurs corrigées) n'ont plus d'objet quand le projet quitte la file.
+  function forgetChoices(keys) {
+    keys.forEach(key => {
+      state.decisions.delete(key);
+      Array.from(state.edits.keys()).filter(id => id.startsWith(key + '|')).forEach(id => state.edits.delete(id));
+    });
+  }
+  async function applyQueueActions(actions, message, errorWhat, table) {
+    try {
+      await CoreGrist.gristInstance.docApi.applyUserActions(actions);
+      state.result = { kind: 'info', message };
+    } catch (err) { state.result = { kind: 'error', message: 'Changement impossible : ' + CoreUtils.failureReason(err, { what: errorWhat, table }) }; }
+    CoreGrist.invalidateTable(L.SOURCE_TABLE); CoreGrist.invalidateTable(L.LOTS_TABLE);
+    state.ack = false;
+    await load();
+  }
+  // Un projet à la fois : ses lignes reçues (envois à valider) gardent l'horodatage du retrait et ne comptent plus.
+  async function removeProject(key) {
+    state.removing = null;
+    const entry = state.entries.find(e => e.key === key), actions = K.planRemoveProject(state.rows, state.lots, key);
+    if (!actions.length) { render(); return; }
+    forgetChoices([key]);
+    await applyQueueActions(actions, `« ${entry ? entry.name : key} » retiré de la file d'attente (${plural(actions.length, 'ligne', 'lignes')}). Il reste au journal ; « Les remettre » le rétablit, et le prochain envoi du script le remettra aussi.`,
+      'retrait d\'un projet de la file d\'attente', L.SOURCE_TABLE);
+  }
+  // Tout d'un coup : les envois à valider passent en Refuse, les choix de tri des projets concernés sont oubliés.
+  async function clearQueue() {
+    state.clearing = false;
+    const actions = K.planClearQueue(state.lots);
+    if (!actions.length) { render(); return; }
+    forgetChoices(state.entries.filter(entry => K.pendingRowsOf(state.rows, state.lots, entry.key).length).map(entry => entry.key));
+    await applyQueueActions(actions, `File d'attente vidée : ${plural(actions.length, 'envoi refusé', 'envois refusés')}. Rien n'est supprimé : « Rétablir » (dans Envois reçus) les remet à valider.`, 'refus des envois en attente', L.LOTS_TABLE);
+  }
+  async function restoreRemoved() {
+    const actions = K.planRestoreRemoved(state.rows, state.lots);
+    if (!actions.length) return;
+    await applyQueueActions(actions, `${plural(K.removedProjects(state.rows, state.lots).length, 'projet remis', 'projets remis')} dans la file d'attente.`, 'remise de projets dans la file d\'attente', L.SOURCE_TABLE);
+  }
+
   async function startUndo(lot) {
     await readGrist();
     const isLoad = state.journal.some(row => row.Lot === lot && row.Operation === 'chargement');
@@ -996,6 +1057,7 @@
       if (value === 'new') setDecision(key, { mode: 'new', projectId: null });
       else if (value === 'skip') setDecision(key, { mode: 'skip' });
       else if (value === 'other') { setDecision(key, { mode: 'other', projectId: null }); return false; } // le choix du projet suit
+      else if (value === 'remove') { state.removing = key; state.editing = null; return false; } // la confirmation suit
       else if (value.startsWith('p:')) setDecision(key, { mode: 'project', projectId: Number(value.slice(2)), confirmed: true });
     } else if (type === 'other') {
       if (!value) return false;
@@ -1063,6 +1125,12 @@
     if (button.id === 'ih-back') { global.SuiviApp?.showView('view-projects'); $('btn-projects')?.classList.add('active'); }
     else if (button.id === 'ih-reload') load();
     else if (button.id === 'ih-pick') ensureFileInput().click();
+    else if (button.id === 'ih-queue-clear') { state.clearing = true; render(); }
+    else if (button.id === 'ih-queue-clear-cancel') { state.clearing = false; render(); }
+    else if (button.id === 'ih-queue-clear-confirm') clearQueue();
+    else if (button.id === 'ih-queue-unremove') restoreRemoved();
+    else if (button.hasAttribute('data-ih-remove-yes')) removeProject(button.getAttribute('data-ih-remove-yes'));
+    else if (button.hasAttribute('data-ih-remove-no')) { state.removing = null; render(); }
     else if (button.id === 'ih-draft-clear') { state.draft.confirm = true; render(); }
     else if (button.id === 'ih-draft-clear-cancel') { state.draft.confirm = false; render(); }
     else if (button.id === 'ih-draft-clear-confirm') clearDraft();
