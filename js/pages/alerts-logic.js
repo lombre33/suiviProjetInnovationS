@@ -87,8 +87,9 @@
   }
 
   // Tout ce que les trois familles d'alertes lisent d'un projet, calculé une fois.
-  function metrics(project, today) {
-    const total = totalBudget(project);
+  // extra : attribué des réattributions rattachées au projet (leurs montants sont des compléments) ; budget : somme imposée (OPE comptées seulement).
+  function metrics(project, today, extra, budget) {
+    const total = (budget === undefined || budget === null ? totalBudget(project) : budget) + (extra || 0);
     const ae = engaged(project);
     const deadline = L.isoDate(project.row.Date_limite_financement);
     const start = startOf(project, firstBudgetYear(project));
@@ -140,15 +141,42 @@
     const horizon = HORIZONS.includes(opts.horizon) ? opts.horizon : HORIZON_DEFAULT;
     const limit = horizonDays(horizon);
 
+    // Bailleurs comptés (même choix que la liste du Dashboard) : un projet dont aucune OPE n'est comptée n'alerte pas, un projet mixte n'alerte que
+    // sur l'attribué de ses OPE comptées. Sans choix, tout est compté.
+    const view = opts.bailleur;
+    const includeIdx = !!(view && view.idex), includeInn = !view || view.innovations !== false || !includeIdx;
+    const counted = view ? (item => (L.bailleurClass(item.bailleur) === 'inn' ? includeInn : includeIdx)) : (() => true);
+    // Réattributions : une ligne de Projets reliée à sa mère n'alerte pas seule ; son attribué s'ajoute à celui de la mère (même OPE, même financement).
+    const byId = new Map(dataset.projects.map(project => [project.id, project]));
+    const rootOf = project => {
+      let current = project;
+      for (let hops = 0; hops < 6; hops += 1) {
+        const parent = current.parentId && current.parentId !== current.id ? byId.get(current.parentId) : null;
+        if (!parent) return current === project ? null : current;
+        current = parent;
+      }
+      return null;
+    };
+    const extraOf = new Map(), kids = new Set();
+    dataset.projects.forEach(project => {
+      const root = rootOf(project);
+      if (!root) return;
+      kids.add(project.id);
+      extraOf.set(root.id, (extraOf.get(root.id) || 0) + totalBudget(project));
+    });
+
     const ope = [], ech = [], rel = [], conf = [];
     let noDate = 0;
     dataset.projects.forEach(project => {
+      if (kids.has(project.id)) return;
+      const keptOpes = project.opes.filter(counted);
+      if (!keptOpes.length) return;
       const status = project.statut;
       const tracked = statusIs(status, ECH_STATUSES);
       const closing = statusIs(status, [REL_STATUS]);
       const confirm = isConfirm(status);
       if (!tracked && !closing && !confirm && !statusIs(status, OPE_STATUSES)) return;
-      const m = metrics(project, today);
+      const m = metrics(project, today, extraOf.get(project.id), keptOpes.length === project.opes.length ? null : keptOpes.reduce((sum, item) => sum + item.budget, 0));
 
       if (statusIs(status, OPE_STATUSES) && (m.total > 0 || tracked)) {
         const issues = opeIssues(project, opts.knownCodes);

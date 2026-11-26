@@ -841,7 +841,7 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   après) et la ligne de préférences de l'utilisateur.
 - **Préférences** (`Preferences_Widget`, colonnes `Dash_*` auto-créées) : `Dash_annees` (années cochées, vide = toutes ; `0` = « Sans
   année »), `Dash_programmes`, `Dash_statuts` (listes via `CoreUtils.encodeList/decodeList`), `Dash_recherche`, `Dash_mesure` (`CP`/`AE`),
-  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI), `Dash_bailleurs`, `Dash_regroupement`, `Dash_reattributions`. Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
+  `Dash_graphiques` (`1` = graphiques ouverts ; repliés par défaut depuis le 18/11/2026), `Dash_moteur` (`maison` = graphiques faits main, sinon Grist-BI), `Dash_bailleurs`, `Dash_regroupement`, `Dash_reattributions`, `Dash_horizon`. Les volets ouverts ne sont jamais retenus (repliés à chaque ouverture).
 - **Lecture paresseuse** : `Depenses_OPE` n'est lue qu'à l'ouverture de la page (pas au démarrage du widget) et relue à chaque retour sur
   l'onglet si la dernière lecture a plus d'une minute (l'import se fait ailleurs). Une table illisible est signalée en bas de page sans
   bloquer le reste.
@@ -893,6 +893,18 @@ préférences), `css/dashboard.css`, tests `tests/suite-dashboard.js`.
   reste sur le projet d'origine** : une ligne OPE partagée est portée par le premier projet **sans parent** (avant : le premier dans l'ordre de `Projets`), et le
   consommé cumulé « Sans année » d'une ligne OPE n'est plus recompté par un second projet qui la partage (correction : il l'était en double). Une réattribution dont
   le projet d'origine n'est pas dans la liste (autre programme, filtre) reste seule, marquée « réattribution ».
+- **Alertes de dépense (26/11/2026, maquette v3 validée, non validé dans un vrai Grist)** : bouton « Alertes » (avec le nombre à compléter + échéances) dans le
+  bandeau, tiroir à droite à trois onglets, lecture seule (aucun envoi, aucune écriture ; on ouvre la fiche du projet). Calcul : `js/pages/alerts-logic.js`
+  (`AlertsLogic.compute`), tests `tests/suite-alerts.js` et `tests/suite-dashboard-alerts-page.js`. **À compléter** : projet en cours, en retard ou en attente des
+  fonds dont l'OPE n'est pas exploitable (aucune ligne OPE, ligne sans numéro, montants sur l'OPE 2 à 4 sans ligne reliée) ; « Compléter la fiche » ouvre la
+  fiche sur l'onglet Budget et OPE. Le motif « N° OPE inconnu de l'export » n'existe pas encore (il faut les N° vus dans un envoi validé : `knownCodes`, non
+  branché). **Échéances** : projet en cours / en retard avec une `Date_limite_financement` ; rythme = part engagée (AE) de l'attribué (toutes années, toutes OPE)
+  comparée à la part du temps écoulé depuis `Date_debut_Projet` (à défaut `prolongation_DateCTOInitial`, `Instance_ratache_date`, 1er janvier de la 1re année du
+  budget) ; retard ≥ 30 points = risque élevé, ≥ 15 = moyen (seuils proposés, à valider) ; les échues restent ; horizon 3, 6 (défaut) ou 12 mois, **retenu par
+  personne** (`Dash_horizon`). **Clôtures** : « cloturé avec Reliquat à traiter » (reliquat = attribué − consommé CP) puis « supposé clos » à confirmer. Mêmes
+  bailleurs comptés que la liste (un projet tout Idex n'alerte pas par défaut) ; une réattribution n'alerte pas seule, son attribué s'ajoute à celui de son projet
+  d'origine. Chaque projet en alerte porte aussi un repère dans la liste (« 30 j », « échue », « OPE ? ») qui ouvre le tiroir sur le bon onglet. Pas de bouton
+  « Relancer » ni « Marquer traité » : rien n'est envoyé ni écrit depuis le tiroir.
 - Pas dans cette version : export.
 
 ## Import financier (page cachée Alt+Maj+I, 18/11/2026 ; OPE multiples 24/11/2026)

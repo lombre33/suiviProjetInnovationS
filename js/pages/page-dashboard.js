@@ -21,7 +21,7 @@
   const EMAIL_TRIGGER_COLUMN = { id: 'Email_utilisateur', type: 'Text', isFormula: false, formula: 'user.Email', recalcWhen: 0 };
   const PREFS_COLUMNS = [
     { id: 'Dash_annees', type: 'Text' }, { id: 'Dash_programmes', type: 'Text' }, { id: 'Dash_statuts', type: 'Text' },
-    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }, { id: 'Dash_bailleurs', type: 'Text' }, { id: 'Dash_regroupement', type: 'Text' }, { id: 'Dash_reattributions', type: 'Text' }
+    { id: 'Dash_recherche', type: 'Text' }, { id: 'Dash_mesure', type: 'Text' }, { id: 'Dash_graphiques', type: 'Text' }, { id: 'Dash_moteur', type: 'Text' }, { id: 'Dash_bailleurs', type: 'Text' }, { id: 'Dash_regroupement', type: 'Text' }, { id: 'Dash_reattributions', type: 'Text' }, { id: 'Dash_horizon', type: 'Text' }
   ];
   const EXPENSES_TABLE = 'Depenses_OPE';
   // Export FD02 « Consommation détaillée des AE », une ligne par objet de gestion. Code_operation = Lignes_OPE.N_OPE.
@@ -48,15 +48,17 @@
 
   const state = Object.assign(L.defaultState(), {
     openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), openKids: new Set(), orphansOpen: false, // jamais retenus : repliés à chaque ouverture
-    expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: ''
+    expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '',
+    alertsOpen: false, alertsTab: '', alertsMore: false, alertsHorizon: 6 // le tiroir se referme à chaque ouverture ; l'horizon est retenu par personne
   });
   let model = null;
+  let alerts = null;
   let datasetCache = null;
   let statusRefresh = null;
 
   function resetState() {
-    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), openKids: new Set(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '' });
-    model = null; datasetCache = null;
+    Object.assign(state, L.defaultState(), { openProgrammes: new Set(), openExpenses: new Set(), openOpes: new Set(), opeFilters: new Map(), openKids: new Set(), orphansOpen: false, expenses: [], expensesState: 'idle', expensesAt: 0, expensesError: '', alertsOpen: false, alertsTab: '', alertsMore: false, alertsHorizon: 6 });
+    model = null; alerts = null; datasetCache = null;
     dropBi(); biFailure = null;
     clearTimeout(statusRefresh); statusRefresh = null;
   }
@@ -290,7 +292,7 @@
     const n = entry.expenses.length;
     return `<div class="db-row db-prow${open ? ' is-open' : ''}" data-project-id="${esc(project.id)}">` +
       `<span class="db-name db-pj"><button type="button" class="db-exp-toggle" data-db-exp="${esc(project.id)}" aria-expanded="${open}" title="Dépenses détaillées" aria-label="${esc(`Dépenses de ${project.acronyme}`)}">${ICON_CHEVRON}<span class="db-n${n ? '' : ' is-zero'}">${n}</span></button>` +
-      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${roleBadgesHtml(entry)}${idexBadgeHtml(entry)}${gapBadgeHtml(project)}</span>` +
+      `<span class="db-who"><span class="db-acrline"><button type="button" class="db-acr" data-db-open-project="${esc(project.id)}" title="Ouvrir la fiche projet">${esc(project.acronyme)}</button>${roleBadgesHtml(entry)}${idexBadgeHtml(entry)}${alertChipHtml(project)}${gapBadgeHtml(project)}</span>` +
       `${project.titre ? `<span class="db-cap" title="${esc(project.titre)}">${esc(project.titre)}</span>` : ''}</span></span>` +
       `<span class="db-st"><span class="db-stwrap" style="${pillStyle(status)}"><i class="db-dot" style="background:${dot}"></i>${select}<svg class="db-stchev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span><span class="db-saved" data-db-saved="${esc(project.id)}" hidden>${ICON_CHECK}Enregistré</span></span>` +
       `<span class="db-pr">${progressHtml(entry.cons, entry.att, entry.pct, entry.over)}</span>` +
@@ -489,11 +491,117 @@
     model = L.compute(getDataset(), state, statusChoices());
     renderBand(model);
     renderCharts(model);
+    alerts = global.AlertsLogic ? global.AlertsLogic.compute(getDataset(), { today: new Date(), horizon: state.alertsHorizon, bailleur: { innovations: state.innovations !== false, idex: !!state.idex } }) : null;
     const list = $('db-list');
     if (list) list.innerHTML = listHtml(model);
+    renderAlerts();
     if (isVisible() && state.expensesState === 'idle') loadExpenses(false);
   }
 
+
+  // --- Alertes de dépense (tiroir à droite, maquette v3 validée le 26/11/2026) --------------------------------------
+  // Trois onglets : À compléter (OPE non renseignée), Échéances (date limite proche et rythme d'engagement trop faible), Clôtures (reliquats et
+  // supposés clos). Calcul : AlertsLogic.compute (mêmes bailleurs comptés que la liste). Aucun envoi, aucune écriture : on ouvre la fiche du projet.
+  const RISK_LABELS = { late: 'Échue', high: 'Risque élevé', mid: 'Risque moyen', ok: 'Dans le rythme' };
+  const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+  const pctOf = ratio => `${Math.round(ratio * 100)} %`;
+  const barW = ratio => `${Math.max(0, Math.min(100, ratio * 100))}%`;
+  function alertChipHtml(project) {
+    const chip = alerts && global.AlertsLogic ? global.AlertsLogic.chipFor(alerts, project.id) : null;
+    if (!chip) return '';
+    const title = chip.tab === 'ope' ? 'OPE à renseigner : ouvrir les alertes' : (chip.kind === 'late' ? 'Date limite de financement dépassée : ouvrir les alertes' : `Date limite de financement dans ${chip.label} : ouvrir les alertes`);
+    return `<button type="button" class="db-chip is-${esc(chip.kind)}" data-db-alert-tab="${esc(chip.tab)}" title="${esc(title)}">${esc(chip.label)}</button>`;
+  }
+  function porteurOf(project) {
+    const ids = L.refIds(project.row.Porteur_1);
+    const person = ids.length ? table('Annuaire').find(row => row.id === ids[0]) : null;
+    return person ? text(person.nom_et_Prenom) : '';
+  }
+  const cardHead = (item, badge) => `<div class="db-acr-row"><span class="db-acp">${esc(item.project.programme)}</span><span class="db-acn"><button type="button" class="db-acr" data-db-open-project="${esc(item.project.id)}" title="Ouvrir la fiche projet">${esc(item.project.acronyme)}</button>${porteurOf(item.project) ? `<span class="db-acs"> · ${esc(porteurOf(item.project))}</span>` : ''}</span>${badge}</div>`;
+  function opeSubText(item) {
+    const issue = item.issues[0];
+    if (issue.kind === 'none') return `Action prévue : ${item.action || 'à définir'} · sans ligne, aucune dépense ne peut être rattachée`;
+    if (issue.kind === 'nonum') return 'Une ligne OPE est rattachée mais sans numéro : le consommé ne peut pas la retrouver';
+    if (issue.kind === 'rank') return `${L.eur(issue.amount)} saisis sur l'OPE ${issue.rank} (Budget et OPE) sans ligne OPE reliée`;
+    return `${issue.code} ne figure dans aucun envoi validé : faute de frappe ?`;
+  }
+  function alertsOpeTab(a) {
+    const cards = a.ope.items.map(item => `<div class="db-acard">${cardHead(item, `<span class="db-rk is-ope">${esc(item.reasonLabel)}</span>`)}` +
+      `<div class="db-acr-row"><div class="db-astack"><span class="db-al1">${esc(L.eur(item.amount))} ${item.issues[0].kind === 'rank' ? 'non suivis' : 'attribués'} · ${esc(item.project.statut || 'sans statut')}</span><span class="db-asub">${esc(opeSubText(item))}</span></div>` +
+      `<button type="button" class="db-abtn is-main" data-db-alert-fix="${esc(item.project.id)}">Compléter la fiche</button></div></div>`).join('');
+    return `<div class="db-asum is-ope"><div><div class="db-asl">Attribué sans suivi du consommé</div><div class="db-asv">${esc(L.eur(a.ope.amount))}</div></div><div class="db-asr"><span>Projets à compléter</span><b>${a.ope.items.length}</b></div></div>` +
+      `<p class="db-aleg">Sans ligne OPE reliée à l'export, ni le consommé ni les alertes d'échéance ne se calculent. Projets en cours, en retard ou en attente des fonds ; l'alerte disparaît dès que la fiche est complétée.</p>` +
+      (cards || '<div class="db-aempty">Toutes les OPE sont renseignées.</div>');
+  }
+  function alertsEchTab(a) {
+    const items = a.ech.items, shown = state.alertsMore ? items : items.slice(0, 6);
+    const horizons = a.horizons.map(h => `<button type="button" class="db-hzb${h === a.horizon ? ' is-on' : ''}" data-db-alert-horizon="${h}" aria-pressed="${h === a.horizon}">${h} mois</button>`).join('');
+    const cards = shown.map(item => {
+      const m = item.metrics, late = item.risk === 'late';
+      const line1 = late ? `Échéance dépassée depuis ${plural(-m.days, 'jour')}` : `Échéance le ${frDate(m.deadline)} · dans ${plural(m.days, 'jour')}`;
+      const sub = m.last30 !== null && m.last30 > 0 ? `Engagé ces 30 jours : ${L.eur(m.last30)}` : (m.sinceLast !== null ? `Aucun engagement depuis ${plural(m.sinceLast, 'jour')}` : 'Détail des dépenses non importé : engagé d\'après l\'export UB Invest');
+      return `<div class="db-acard">${cardHead(item, `<span class="db-rk is-${item.risk}">${RISK_LABELS[item.risk]}</span>`)}` +
+        `<div class="db-apb"><div class="db-ab"><i class="is-${item.risk}" style="width:${barW(m.aePct)}"></i><i class="db-tick" style="left:${barW(m.elapsed === null ? 0 : m.elapsed)}"></i></div><span class="db-an">${pctOf(m.aePct)}</span><span class="db-apj">${late ? 'échéance passée' : `temps écoulé : ${pctOf(m.elapsed || 0)}`}</span><span class="db-ak">${esc(L.compact(m.reste))}</span></div>` +
+        `<div class="db-acr-row"><div class="db-astack"><span class="db-al1">${esc(line1)}</span><span class="db-asub">${esc(sub)}</span></div></div></div>`;
+    }).join('');
+    const more = items.length > 6 ? `<button type="button" class="db-linkbtn" data-db-alert-more>${state.alertsMore ? 'Voir moins' : `Voir les ${items.length - 6} autres`}</button>` : '';
+    return `<div class="db-asum"><div><div class="db-asl">Reste à engager</div><div class="db-asv">${esc(L.eur(a.ech.reste))}</div></div><div class="db-asr"><span>Projets en alerte</span><b>${items.length}</b></div>` +
+      `<div class="db-asr"><b>${a.ech.nextDays === null ? '—' : plural(a.ech.nextDays, 'jour')}</b><span>avant la 1re échéance</span></div></div>` +
+      `<div class="db-hz" role="group" aria-label="Échéance dans"><span class="db-hzl">Échéance dans</span>${horizons}<span class="db-hzn">les échues restent affichées</span></div>` +
+      `<p class="db-aleg">Rythme = part engagée (AE) de l'attribué comparée à la part du temps écoulé depuis le début du financement (repère noir). Risque élevé à ${Math.round(global.AlertsLogic.LAG_HIGH * 100)} points de retard ou plus, moyen à ${Math.round(global.AlertsLogic.LAG_MID * 100)} points ou plus (seuils à valider).</p>` +
+      (cards || '<div class="db-aempty">Aucun financement à surveiller sur cet horizon.</div>') + more +
+      (a.ech.noDate ? `<p class="db-aleg">${plural(a.ech.noDate, 'projet')} en cours sans date limite de financement : non suivi${a.ech.noDate > 1 ? 's' : ''}.</p>` : '');
+  }
+  function alertsCloTab(a) {
+    const card = (item, rk, conf) => {
+      const m = item.metrics, ratio = m.total > 0 ? m.cp / m.total : 0;
+      const sub = conf && m.days !== null && m.days < 0 ? `Échéance dépassée depuis ${plural(-m.days, 'jour')} · sans information` : (m.deadline ? `Échéance ${frDate(m.deadline)}${conf ? '' : ' · clos'}` : (conf ? 'Sans information' : 'Clos'));
+      return `<div class="db-acard">${cardHead(item, rk)}<div class="db-apb"><div class="db-ab"><i class="${conf ? 'is-mid' : 'is-blue'}" style="width:${barW(ratio)}"></i></div><span class="db-an">${pctOf(ratio)}</span><span class="db-apj">consommé (CP)</span><span class="db-ak">${esc(L.compact(item.reliquat))}</span></div>` +
+        `<div class="db-acr-row"><span class="db-astack"><span class="db-asub">${esc(sub)}</span></span></div></div>`;
+    };
+    const rel = a.clo.rel.map(item => card(item, '<span class="db-rk is-rel">Reliquat à traiter</span>', false)).join('');
+    const conf = a.clo.conf.map(item => card(item, '<span class="db-rk is-mid">Sans information</span>', true)).join('');
+    return `<div class="db-asum is-rel"><div><div class="db-asl">Reliquats à traiter</div><div class="db-asv">${esc(L.eur(a.clo.reliquat))}</div></div><div class="db-asr"><span>Projets clos</span><b>${a.clo.rel.length}</b></div></div>` +
+      `<p class="db-aleg">Projets au statut « cloturé avec Reliquat à traiter » : attribué − consommé (CP).</p>` + (rel || '<div class="db-aempty">Plus aucun reliquat à traiter.</div>') +
+      (conf ? `<h3 class="db-agt">À CONFIRMER · SUPPOSÉS CLOS</h3>${conf}` : '');
+  }
+  function renderAlerts() {
+    const view = $('view-dashboard');
+    if (!view || !alerts) return;
+    const total = alerts.counts.total;
+    const btn = $('db-alerts-btn');
+    if (btn) {
+      btn.hidden = false;
+      btn.setAttribute('aria-expanded', String(state.alertsOpen));
+      btn.classList.toggle('is-on', state.alertsOpen);
+      const badge = btn.querySelector('.db-alerts-n');
+      if (badge) { badge.textContent = String(total); badge.hidden = !total; }
+    }
+    let drawer = $('db-alerts'), scrim = $('db-alerts-scrim');
+    if (!drawer) {
+      view.insertAdjacentHTML('beforeend', '<div id="db-alerts-scrim" class="db-scrim" data-db-alert-close hidden></div><aside id="db-alerts" class="db-drawer" role="dialog" aria-modal="true" aria-label="Alertes de dépense" hidden></aside>');
+      drawer = $('db-alerts'); scrim = $('db-alerts-scrim');
+    }
+    drawer.hidden = scrim.hidden = !state.alertsOpen;
+    if (!state.alertsOpen) return;
+    const tab = ['ope', 'ech', 'clo'].includes(state.alertsTab) ? state.alertsTab : (alerts.counts.ech || !alerts.counts.ope ? 'ech' : 'ope');
+    const tabs = [['ope', 'À compléter', alerts.counts.ope], ['ech', 'Échéances', alerts.counts.ech], ['clo', 'Clôtures', alerts.counts.clo]]
+      .map(([key, label, n]) => `<button type="button" class="db-ptab${tab === key ? ' is-on' : ''}" role="tab" aria-selected="${tab === key}" data-db-alert-tab="${key}">${label}<span class="db-ptn">${n}</span></button>`).join('');
+    const body = tab === 'ope' ? alertsOpeTab(alerts) : (tab === 'ech' ? alertsEchTab(alerts) : alertsCloTab(alerts));
+    const scroll = drawer.querySelector('.db-drb') ? drawer.querySelector('.db-drb').scrollTop : 0;
+    drawer.innerHTML = `<div class="db-drh"><div><h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22V4"></path><path d="M4 4h13l-2 4 2 4H4"></path></svg>Alertes de dépense</h2>` +
+      `<p>OPE à renseigner, engagements trop lents avant la date limite, puis clôtures</p></div><button type="button" class="db-dx" data-db-alert-close aria-label="Fermer le panneau">&times;</button></div>` +
+      `<div class="db-ptabs" role="tablist">${tabs}</div><div class="db-drb">${body}</div>`;
+    const bodyEl = drawer.querySelector('.db-drb');
+    if (bodyEl) bodyEl.scrollTop = scroll;
+  }
+  function setAlertsOpen(open) {
+    state.alertsOpen = !!open;
+    if (open) state.alertsMore = false;
+    renderAlerts();
+    if (open) { const close = document.querySelector('#db-alerts .db-dx'); if (close) close.focus(); }
+    else { const btn = $('db-alerts-btn'); if (btn) btn.focus(); }
+  }
   // --- Interactions ------------------------------------------------------------------------------------
   function applyDrill(chartKey, index, crumb) {
     const chart = chartKey === 'A' ? model.chartA : model.chartB;
@@ -538,9 +646,24 @@
   }
 
   function onClick(event) {
-    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine],[data-db-bailleur],[data-db-ope],[data-db-opesort],[data-db-opeclear],[data-db-groupby],[data-db-reattrib],[data-db-kids]') : null;
+    const target = event.target.closest ? event.target.closest('[data-db-year],[data-db-measure],[data-db-bar],[data-db-crumb],[data-db-vol],[data-db-exp],[data-db-open-project],[data-db-orphans],[data-db-reset],[data-db-bi-retry],[data-db-engine],[data-db-bailleur],[data-db-ope],[data-db-opesort],[data-db-opeclear],[data-db-groupby],[data-db-reattrib],[data-db-kids],#db-alerts-btn,[data-db-alert-close],[data-db-alert-tab],[data-db-alert-horizon],[data-db-alert-more],[data-db-alert-fix]') : null;
     if (!target) return;
-    if (target.dataset.dbYear !== undefined) {
+    if (target.id === 'db-alerts-btn') {
+      setAlertsOpen(!state.alertsOpen);
+    } else if (target.dataset.dbAlertClose !== undefined) {
+      setAlertsOpen(false);
+    } else if (target.dataset.dbAlertTab !== undefined) {
+      state.alertsTab = target.dataset.dbAlertTab; state.alertsMore = false;
+      if (!state.alertsOpen) setAlertsOpen(true); else renderAlerts();
+    } else if (target.dataset.dbAlertHorizon !== undefined) {
+      state.alertsHorizon = Number(target.dataset.dbAlertHorizon); state.alertsMore = false; render(); persist();
+    } else if (target.dataset.dbAlertMore !== undefined) {
+      state.alertsMore = !state.alertsMore; renderAlerts();
+    } else if (target.dataset.dbAlertFix !== undefined) {
+      const row = projectRow(target.dataset.dbAlertFix);
+      setAlertsOpen(false);
+      if (row && global.ProjectModal && ProjectModal.open) ProjectModal.open(row, { tab: 'budget' });
+    } else if (target.dataset.dbYear !== undefined) {
       state.years = L.toggleYear(state, Number(target.dataset.dbYear), model.years);
       render(); persist();
     } else if (target.dataset.dbMeasure !== undefined) {
@@ -555,6 +678,7 @@
       const id = Number(target.dataset.dbExp); toggleSet(state.openExpenses, id); render();
     } else if (target.dataset.dbOpenProject !== undefined) {
       const row = projectRow(target.dataset.dbOpenProject);
+      if (state.alertsOpen) setAlertsOpen(false);
       if (row && global.ProjectModal && ProjectModal.open) ProjectModal.open(row);
       else if (global.openProject) global.openProject(target.dataset.dbOpenProject);
     } else if (target.dataset.dbOrphans !== undefined) {
@@ -625,6 +749,7 @@
     state.innovations = bailleurs !== 'idex'; state.idex = bailleurs === 'idex' || bailleurs === 'les-deux';
     state.groupBy = text(row.Dash_regroupement) === 'programme' ? 'programme' : 'axe'; // axe › action › projet par défaut
     state.reattrib = text(row.Dash_reattributions) === 'flat' ? 'flat' : 'group';  // réattributions sous leur projet par défaut
+    state.alertsHorizon = [3, 12].includes(Number(text(row.Dash_horizon))) ? Number(text(row.Dash_horizon)) : 6; // échéances : 6 mois par défaut
   }
   async function loadDashboardUserPreferences() {
     if (!global.CoreGrist || !CoreGrist.gristInstance) return;
@@ -652,7 +777,8 @@
       Dash_annees: Array.isArray(state.years) ? encodeList(state.years.map(String)) : '', Dash_programmes: encodeList(state.programmes), Dash_statuts: encodeList(state.statuts),
       Dash_recherche: state.search, Dash_mesure: state.measure, Dash_graphiques: state.charts ? '1' : '', Dash_moteur: state.engine === 'maison' ? 'maison' : '',
       Dash_bailleurs: state.idex ? (state.innovations !== false ? 'les-deux' : 'idex') : '',
-      Dash_regroupement: state.groupBy === 'programme' ? 'programme' : '', Dash_reattributions: state.reattrib === 'flat' ? 'flat' : ''
+      Dash_regroupement: state.groupBy === 'programme' ? 'programme' : '', Dash_reattributions: state.reattrib === 'flat' ? 'flat' : '',
+      Dash_horizon: state.alertsHorizon === 6 ? '' : String(state.alertsHorizon)
     };
     try { await CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, prefsRowId, fields]]); }
     catch (err) { console.warn('Enregistrement des préférences Dashboard a échoué :', err.message); }
@@ -706,6 +832,7 @@
     const view = $('view-dashboard');
     if (!view) return;
     view.addEventListener('click', onClick);
+    view.addEventListener('keydown', event => { if (event.key === 'Escape' && state.alertsOpen) { event.stopPropagation(); setAlertsOpen(false); } });
     view.addEventListener('change', event => { const select = event.target.closest && event.target.closest('[data-db-status]'); if (select) changeStatus(select); });
     // Dates et recherche des dépenses d'une OPE (DateInput : « input » à la frappe, ISO ou null tant que la saisie est incomplète).
     const onOpeField = event => {

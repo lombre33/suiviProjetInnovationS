@@ -217,6 +217,44 @@
   });
 
   // ===========================================================================================================
+  describe('Alertes — bailleurs comptés et réattributions (26/11/2026)', function () {
+    const slow = extra => base(1, 'SLOW', 'en cours', Object.assign({ Ligne_OPE: ['L', 1], c2025_M10_Fonctionnement: 60000, c2026_M10_Fonctionnement: 40000, Date_debut_Projet: UTC(2025, 1, 1), Date_limite_financement: UTC(2027, 1, 1) }, extra));
+    const only = projets => run({ horizon: 12 }, { projets });
+
+    it('sans choix de bailleur tout est compté ; un projet tout Idex n\'alerte pas par défaut, avec la puce Idex il alerte', function () {
+      const idex = [slow({ Bailleur: 'Idex' })];
+      assertEqual(acrs(only(idex).ech.items).length, 1, 'sans choix : compté');
+      const hidden = A().compute(dataset({ projets: idex }), { today: TODAY, horizon: 12, bailleur: { innovations: true, idex: false } });
+      assertEqual(hidden.ech.items.length, 0);
+      const shown = A().compute(dataset({ projets: idex }), { today: TODAY, horizon: 12, bailleur: { innovations: true, idex: true } });
+      assertEqual(shown.ech.items.length, 1);
+    });
+
+    it('un projet mixte n\'alerte que sur l\'attribué de ses OPE comptées', function () {
+      const mixte = [slow({ Ligne_OPE_2: ['L', 5], Bailleur: 'InnovationS', Bailleur_2: 'Idex', c2026_M10_Fonctionnement_2: 100000 })];
+      const innOnly = A().compute(dataset({ projets: mixte }), { today: TODAY, horizon: 12, bailleur: { innovations: true, idex: false } });
+      assertEqual(innOnly.ech.items[0].metrics.total, 100000, 'OPE 1 seule : 60 000 + 40 000');
+      const both = A().compute(dataset({ projets: mixte }), { today: TODAY, horizon: 12, bailleur: { innovations: true, idex: true } });
+      assertEqual(both.ech.items[0].metrics.total, 200000);
+    });
+
+    it('une réattribution n\'alerte pas seule : son attribué s\'ajoute à celui de son projet d\'origine', function () {
+      const projets = [slow({}), base(2, 'FILLE', 'en cours', { Ligne_OPE: ['L', 1], Projet_Parent_le_cas_echeant_: 1, c2026_M10_Fonctionnement: 100000, Date_limite_financement: UTC(2027, 1, 1) })];
+      const result = only(projets);
+      assertDeepEqual(acrs(result.ech.items), ['SLOW']);
+      assertEqual(result.ech.items[0].metrics.total, 200000, '100 000 + 100 000 de réattribution');
+      assertEqual(result.ech.items[0].metrics.aePct, 0.25, '50 000 engagés sur 200 000');
+    });
+
+    it('une réattribution de statut « cloturé avec reliquat » ne crée pas un reliquat à part', function () {
+      const projets = [base(1, 'MERE', 'cloturé avec Reliquat à traiter', { Ligne_OPE: ['L', 7], c2025_M10_Fonctionnement: 90000 }), base(2, 'FILLE', 'cloturé avec Reliquat à traiter', { Ligne_OPE: ['L', 7], Projet_Parent_le_cas_echeant_: 1, c2025_M10_Fonctionnement: 10000 })];
+      const rel = only(projets).clo.rel;
+      assertDeepEqual(acrs(rel), ['MERE']);
+      assertEqual(rel[0].reliquat, 42400, '90 000 + 10 000 − 57 600');
+    });
+  });
+
+  // ===========================================================================================================
   describe('Dashboard — détail par OPE et consommé CP d\'une ligne OPE', function () {
     const MULTI_LIGNES = [
       { id: 5, N_OPE: 'OPE-M1', totalCPConsomme: 400 },
