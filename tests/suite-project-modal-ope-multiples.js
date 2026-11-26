@@ -779,12 +779,12 @@
       assertEqual(calls('AddColumn').length, 0);
     });
 
-    it('le montant de convention proposé à l\'ouverture additionne les années 2026-2028 de toutes les OPE (2029 hors formule Grist)', async function () {
+    it('le montant de convention proposé à l\'ouverture additionne les années 2026 à 2029 de toutes les OPE (comme Montant_attribue_Total adapté par le widget)', async function () {
       await loadFixtureState();
       await giveProjectOpes(11, 2, { c2026_M10_Fonctionnement: 1000, Montant_attribue_Total: 1000, c2026_M10_Fonctionnement_2: 300, c2028_M30_Personnel_2: 200, c2029_M10_Fonctionnement_2: 999 });
       await loadFixtureState();
       window.ProjectModal.open(projectRecord(11));
-      assertEqual(modalEl().querySelector('#cp-Convention_montant_partenaire_1').value, '1500', '1 000 + 300 + 200 (2029 hors formule Grist)');
+      assertEqual(modalEl().querySelector('#cp-Convention_montant_partenaire_1').value, '2499', '1 000 + 300 + 200 + 999 (2029 compris depuis le 26/11)');
     });
 
     // 26/11/2026 : le widget adapte Montant_attribue_Total aux OPE 2 à 4 (js/core/ope-totals.js) ; l'additionner encore compterait ces OPE deux fois.

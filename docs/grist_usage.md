@@ -154,27 +154,45 @@ une colonne de rang 2 à 4 absente de Grist n'est jamais écrite pour un rang vi
 Toutes les colonnes ci-dessus sont dans `MODAL_FIELDS` (`js/pages/redaction-variables.js`, `OPE_EXTRA_COLUMNS`).
 
 Où les autres OPE comptent : la règle de convention (le Fonctionnement de **toutes** les OPE réunies doit couvrir le montant reversé), le
-budget total obligatoire à la création, le montant de convention proposé (2026-2028 de toutes les OPE, lus dans les colonnes de montants),
+budget total obligatoire à la création, le montant de convention proposé (2026-2029 de toutes les OPE, lus dans les colonnes de montants),
 le Dashboard (attribué par année, lignes OPE rattachant les dépenses, via `CoreOpes.ligneIds` / `yearAmount`) et l'alias `Budget` du Kanban
 (le 2026 de toutes les OPE, lu dans les colonnes de montants : jamais `Total_2026` + les OPE 2 à 4, qui compterait deux fois). Les **totaux
 de Projets (formules Grist)** sont adaptés aux OPE 2 à 4 par le widget, voir plus bas. **Pas encore** : la page Installation des fonds (lieu et
 zone) reste sur l'OPE 1 (le To Do, lui, lit les structures de toutes les OPE).
 
-**Totaux de Projets adaptés aux OPE 2 à 4** (26/11/2026, `js/core/ope-totals.js`) : `Total_2026`, `Total_2027`, `Total_2028`,
-`Total_Fonctionnement`, `Total_investissement`, `Total_Personnel` et `Montant_attribue_Total` ne sommaient que l'OPE 1 ; ils alimentent la page
-Installation des fonds, `Export_VP.Montant`, les notifications et les publipostages. Au premier enregistrement (ou import) d'un projet à plusieurs
-OPE de la session, le widget réécrit ces 7 formules pour y ajouter les OPE 2 à 4 **dont les 9 colonnes 2026-2028 existent**. Garde-fous :
-- **la formule d'origine est gardée telle quelle en commentaire**, dans un bloc délimité (`# >>> Widget InnovationS : OPE 1 à n` … `# <<<`, chaque
-  ligne d'origine préfixée `#| `). **Pour revenir en arrière** : dans Grist, remplacer la formule par ces lignes sans leur préfixe `#| `.
-  Le début du bloc donne le dernier rang additionné ;
+**Totaux de Projets adaptés aux OPE 2 à 4 et à l'année 2029** (26/11/2026, `js/core/ope-totals.js`) : `Total_2026`, `Total_2027`, `Total_2028`,
+`Total_2029`, `Total_Fonctionnement`, `Total_investissement`, `Total_Personnel` et `Montant_attribue_Total` (8 colonnes calculées) ne sommaient que
+l'OPE 1 et s'arrêtaient à 2028 (`Total_2029` rendait `None`) ; ils alimentent la page Installation des fonds, `Export_VP.Montant`, les notifications
+et les publipostages. À **chaque enregistrement de projet** (classique ou à plusieurs OPE) et à chaque import, le widget réécrit ces 8 formules pour y
+ajouter **2029** (si les colonnes `c2029_*` existent) et les **OPE 2 à 4** dont les colonnes existent. Garde-fous :
+- **la formule d'origine est gardée telle quelle en commentaire**, dans un bloc délimité (`# >>> Widget InnovationS : OPE 1 à n[, 2029 inclus]` …
+  `# <<<`, chaque ligne d'origine préfixée `#| `). **Pour revenir en arrière** : dans Grist, remplacer la formule par ces lignes sans leur préfixe
+  `#| `. Le début du bloc donne le dernier rang additionné ;
 - seules les formules **reconnues** sont réécrites : celles qui ne lisent que les colonnes d'OPE 1 attendues avec le vocabulaire d'origine
-  (somme, « vide à 0 »). Une formule personnalisée n'est jamais touchée : un message la nomme ;
-- les 7 modifications partent dans **un seul envoi** à Grist (tout ou rien) ; seule la formule change (ni type, ni nom, ni options d'affichage) ;
-- les termes ajoutés sont `(colonne or 0)` : une OPE vide ne casse pas la somme ; le « vide à 0 » d'origine est conservé ;
+  (somme, « vide à 0 » ; `return None` pour `Total_2029`). Une formule personnalisée n'est jamais touchée : un message la nomme ;
+- les modifications partent dans **un seul envoi** à Grist (tout ou rien) ; seule la formule change (ni type, ni nom, ni options d'affichage) ;
+- les termes ajoutés sont `(colonne or 0)` : une OPE vide ne casse pas la somme ; le « vide à 0 » d'origine est conservé (sauf `Montant_attribue_Total`) ;
 - rejouable : une formule déjà adaptée n'est pas réécrite ; une OPE 3 ajoutée plus tard étend « OPE 1 à 2 » en « OPE 1 à 3 » à partir de la formule
   d'origine gardée ; une formule marquée puis **modifiée à la main** n'est plus touchée ;
-- jamais bloquant : un refus de Grist (droit de structure) n'empêche pas l'enregistrement, il est dit une seule fois par session ;
-- les 2029 ne sont **pas** additionnés : les formules d'origine s'arrêtent à 2028 (à confirmer par Antoine, rien n'est changé là-dessus).
+- jamais bloquant : un refus de Grist (droit de structure) n'empêche pas l'enregistrement, il est dit une seule fois par session.
+
+**Totaux par OPE (colonnes dédiées au courrier de notification, 26/11/2026)** : pour remplir un tableau « une OPE par bloc » dans un modèle Publipostage+,
+le widget crée, **pour chaque OPE existante** (1 à 4), 8 colonnes **calculées** (Numeric, formule, bulle d'aide) qui additionnent les montants de cette OPE
+seulement (l'OPE 1 lit les colonnes d'origine, les OPE 2 à 4 leurs colonnes `_2/_3/_4`) :
+
+| Case du tableau | Colonne (OPE n) |
+|---|---|
+| « Total Projet » de la ligne Fonctionnement / Investissement / Personnel | `Total_Fonctionnement_OPE_n`, `Total_Investissement_OPE_n`, `Total_Personnel_OPE_n` |
+| ligne « Total » sous chaque année 2026 / 2027 / 2028 / 2029 | `Total_2026_OPE_n`, `Total_2027_OPE_n`, `Total_2028_OPE_n`, `Total_2029_OPE_n` |
+| case en bas à droite (total de l'OPE) | `Total_OPE_n` |
+
+Elles sont créées avec les formules adaptées (même moment, même message) et **jamais écrites** par le widget ; déjà présentes, elles ne sont jamais
+recréées. Si Grist refuse la création (droit de structure), les formules ne sont pas réécrites non plus (tout ou rien). Sans les colonnes `c2029_*`
+d'OPE 1, 7 colonnes seulement sont créées pour l'OPE 1 (rien sur 2029).
+
+**`c2026_M10_Fonctionnement` n'est pas le total du projet** quand il y a plusieurs OPE : c'est le montant de l'OPE 1 ; les OPE 2 à 4 ont leurs colonnes
+`_2/_3/_4`. Pour un projet classique (une seule OPE), c'est à la fois l'OPE 1 et le total du projet. Les totaux du projet sont dans `Total_*` et
+`Montant_attribue_Total` (formules adaptées ci-dessus) ; un modèle qui lit directement `c2026_*` comme total projet ne verrait que l'OPE 1.
 
 **Co-financements** (`Part_Idex`, `Part_recette_RNA_PREMAT_MAT`, `Commentaire_budget`) : le type de ces
 colonnes n'est pas imposé, la modale s'y adapte (`Bool` : interrupteur Oui/Non ; `Numeric`/`Int` : montant ;

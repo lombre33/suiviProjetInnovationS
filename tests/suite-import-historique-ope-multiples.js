@@ -274,7 +274,7 @@
       assertIncludes(document.querySelector('.ih-banner').textContent, 'Écrit');
       const types = window.__TEST_CALLS__.map(call => call.type + ':' + call.table);
       const modifies = window.__TEST_CALLS__.filter(call => call.type === 'ModifyColumn' && call.table === 'Projets');
-      assertEqual(modifies.length, 7, 'les sept formules de totaux');
+      assertEqual(modifies.length, 8, 'les huit formules de totaux');
       assertTrue(window.__TEST_CALLS__.map(call => call.type).lastIndexOf('AddColumn') < types.findIndex(type => type === 'ModifyColumn:Projets'), 'les colonnes de l\'OPE 2 existent avant');
       assertTrue(types.findIndex(type => type === 'ModifyColumn:Projets') < types.findIndex(type => type === 'AddRecord:Lignes_OPE'), 'les totaux sont adaptés avant la première écriture');
       assertIncludes(await window.TestOpeTotals.formulaOf('Total_2026'), '(rec.c2026_M10_Fonctionnement_2 or 0)');

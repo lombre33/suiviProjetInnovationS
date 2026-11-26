@@ -1394,10 +1394,10 @@
     refs._refreshBudgetConventionNotice();
     refs.Partenaire_s_convention_reversement.wrap._setIds(valueOf(record, ['Partenaire_s_convention_reversement']));
 
-    // 2026-2028 de toutes les OPE, lus dans les colonnes de montants : Montant_attribue_Total (formule Grist) n'est fiable que pour l'OPE 1 tant que
-    // le widget ne l'a pas adaptée aux OPE 2 à 4 (js/core/ope-totals.js), et l'additionner ensuite compterait ces OPE deux fois.
+    // Toutes les années (2026 à 2029) de toutes les OPE, lues dans les colonnes de montants : Montant_attribue_Total (formule Grist) n'est fiable que pour
+    // l'OPE 1 et 2026-2028 tant que le widget ne l'a pas adaptée (js/core/ope-totals.js), et l'additionner ensuite compterait ces montants deux fois.
     // Sans colonnes de montants lues (jeu de données réduit), on retombe sur la formule.
-    const total = [2026, 2027, 2028].reduce((sum, year) => sum + global.CoreOpes.yearAmount(record, year), 0) ||
+    const total = global.CoreOpes.YEARS.reduce((sum, year) => sum + global.CoreOpes.yearAmount(record, year), 0) ||
         (Number(valueOf(record, ['Montant_attribue_Total'])) || 0),
       savedP1 = valueOf(record, ['Convention_montant_partenaire_1']),
       savedP2 = valueOf(record, ['Convention_montant_partenaire_2']);
@@ -1580,9 +1580,10 @@
         await ensureOpeColumns(m, opeCount);
         // Colonne affichée des colonnes référence des OPE 2 à 4 (sinon Grist y montre des numéros de ligne), y compris celles créées avant.
         await global.CoreOpes.ensureDisplays(opeCount);
-        // Totaux de Projets (formules Grist) : additionnés sur les OPE 2 à 4 existantes, au mieux (un refus ne bloque jamais l'enregistrement).
-        if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(opeCount);
       }
+      // Totaux de Projets (formules Grist) additionnés sur 2029 et sur les OPE 2 à 4 existantes, pour un projet classique comme pour un projet à
+      // plusieurs OPE ; au mieux (un refus ne bloque jamais l'enregistrement), une seule vérification par session.
+      if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(opeCount);
       const fields = collectFields(m, refs);
       if (mode === 'edit') await updateRecord('Projets', record.id, fields);
       else await addRecord('Projets', fields);

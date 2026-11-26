@@ -26,6 +26,7 @@
     Total_2026: `if ${sum3(2026)} == 0:\n   return ""\nelse:\n   return ${sum3(2026)}`,
     Total_2027: `if ${sum3(2027)} == 0:\n   return ""\nelse:\n   return ${sum3(2027)}`,
     Total_2028: `value = ${sum3(2028)}\nif value == 0:\n   return ""\nelse:\n   return value`,
+    Total_2029: 'return None',
     Total_Fonctionnement: `value = ${byMass('M10_Fonctionnement')}\nif value == 0:\n   return ""\nelse:\n   return value`,
     Total_investissement: `value = ${byMass('M20_Investissement')}\nif value == 0:\n   return ""\nelse:\n   return value`,
     Total_Personnel: `value = ${byMass('M30_Personnel')}\nif value == 0:\n   return ""\nelse:\n   return value`,
@@ -35,8 +36,10 @@
 
   // Projets du mock : colonnes des OPE 2 à `upTo` ajoutées (comme après un premier enregistrement) et métadonnées Grist installées
   // (_grist_Tables, _grist_Tables_column) avec les formules données (`null` : la colonne n'existe pas).
-  async function installMeta(upTo, formulas) {
+  // Les colonnes d'OPE 1 de 2029 (c2029_*) existent par défaut ; `{ without2029: true }` : un document où elles n'existent pas.
+  async function installMeta(upTo, formulas, options) {
     const table = await window.grist.docApi.fetchTable('Projets');
+    if (!(options && options.without2029)) ['M10_Fonctionnement', 'M20_Investissement', 'M30_Personnel'].forEach(mass => { if (!table[`c2029_${mass}`]) table[`c2029_${mass}`] = table.id.map(() => 0); });
     for (let rank = 2; rank <= upTo; rank += 1) {
       O().createdColumnsOf(rank).forEach(col => { if (!table[col]) table[col] = table.id.map(() => (col.startsWith('Ligne_OPE') ? ['L'] : (/^c\d{4}_/.test(col) ? 0 : ''))); });
     }
@@ -82,17 +85,19 @@
 
   // ===========================================================================================================
   describe('Totaux de Projets — reconnaissance et construction des formules', function () {
-    it('les sept colonnes calculées concernées : Total_2026/27/28, Total_Fonctionnement/investissement/Personnel et Montant_attribue_Total', function () {
+    it('les huit colonnes calculées concernées : Total_2026/27/28/29, Total_Fonctionnement/investissement/Personnel et Montant_attribue_Total', function () {
       assertDeepEqual(T().targets().map(target => target.colId), COLUMNS);
     });
 
-    it('chacune des sept formules d\'origine est reconnue (mêmes colonnes d\'OPE 1, rien d\'autre que des sommes)', function () {
+    it('chacune des huit formules d\'origine est reconnue (mêmes colonnes d\'OPE 1, rien d\'autre que des sommes ; `return None` pour Total_2029)', function () {
       T().targets().forEach(target => assertTrue(T().isOriginal(target, ORIGINALS[target.colId]), `${target.colId} reconnue`));
     });
 
-    it('les colonnes lues par chaque formule : 3 pour un total annuel, 3 par année pour une masse, 9 pour le montant attribué', function () {
+    it('les colonnes lues par chaque formule : 3 par année, 4 années par masse (2026 à 2029), 12 pour le montant attribué ; 2029 en plus de l\'origine (2026-2028)', function () {
       const sizes = Object.fromEntries(T().targets().map(target => [target.colId, T().columnsOf(target, 1).length]));
-      assertDeepEqual(sizes, { Total_2026: 3, Total_2027: 3, Total_2028: 3, Total_Fonctionnement: 3, Total_investissement: 3, Total_Personnel: 3, Montant_attribue_Total: 9 });
+      assertDeepEqual(sizes, { Total_2026: 3, Total_2027: 3, Total_2028: 3, Total_2029: 3, Total_Fonctionnement: 4, Total_investissement: 4, Total_Personnel: 4, Montant_attribue_Total: 12 });
+      const legacy = Object.fromEntries(T().targets().map(target => [target.colId, T().columnsOf(target, 1, false).length]));
+      assertDeepEqual(legacy, { Total_2026: 3, Total_2027: 3, Total_2028: 3, Total_2029: 0, Total_Fonctionnement: 3, Total_investissement: 3, Total_Personnel: 3, Montant_attribue_Total: 9 });
       assertEqual(T().columnsOf(T().targets()[0], 2).join(), 'c2026_M10_Fonctionnement_2,c2026_M20_Investissement_2,c2026_M30_Personnel_2');
       assertEqual(T().referencedColumns(ORIGINALS.Total_2026).size, 3);
     });
@@ -191,15 +196,16 @@
 
   // ===========================================================================================================
   describe('Totaux de Projets — adaptation dans Grist', function () {
-    it('OPE 2 existante : les sept formules sont réécrites en UN seul envoi à Grist (tout ou rien)', async function () {
+    it('OPE 2 existante : les huit formules sont réécrites en UN seul envoi à Grist (tout ou rien)', async function () {
       await installMeta(2);
       const spy = spyBatches();
       let result;
       try { result = await T().adapt(2); } finally { spy.restore(); }
       assertTrue(result.ok);
       assertDeepEqual(result.adapted, COLUMNS);
-      assertEqual(spy.batches.length, 1, 'un seul applyUserActions');
-      assertDeepEqual(spy.batches[0], COLUMNS.map(() => 'ModifyColumn'));
+      const modifyBatches = spy.batches.filter(batch => batch.includes('ModifyColumn'));
+      assertEqual(modifyBatches.length, 1, 'un seul applyUserActions pour les réécritures');
+      assertDeepEqual(modifyBatches[0], COLUMNS.map(() => 'ModifyColumn'));
       assertDeepEqual(modifies().map(call => call.colId), COLUMNS);
       assertTrue(modifies().every(call => Object.keys(call.colInfo).join() === 'formula'), 'seule la formule change : ni type, ni nom, ni options d\'affichage');
       const total = await formulaOf('Montant_attribue_Total');
@@ -207,11 +213,12 @@
       assertIncludes(total, '#| ' + ORIGINALS.Montant_attribue_Total);
     });
 
-    it('colonnes jamais renommées, supprimées ni créées : uniquement des ModifyColumn de formule', async function () {
+    it('colonnes existantes jamais renommées ni supprimées : des ModifyColumn de formule, et seulement des colonnes de totaux par OPE ajoutées', async function () {
       await installMeta(3);
       await T().adapt(3);
-      assertEqual(window.__TEST_CALLS__.filter(call => ['AddColumn', 'RemoveColumn', 'RenameColumn', 'AddTable'].includes(call.type)).length, 0);
-      assertEqual(modifies().length, 7);
+      assertEqual(window.__TEST_CALLS__.filter(call => ['RemoveColumn', 'RenameColumn', 'AddTable'].includes(call.type)).length, 0);
+      assertTrue(calls('AddColumn').every(call => /^Total_(\w+_)?OPE_[1-3]$/.test(call.colId)), 'seulement Total_..._OPE_n');
+      assertEqual(modifies().length, 8);
     });
 
     it('rejouable : une fois vérifiées, plus aucune lecture ni écriture dans la session ; après un redémarrage, rien n\'est réécrit', async function () {
@@ -225,7 +232,7 @@
       const restart = await T().adapt(2);
       assertTrue(restart.ok && restart.checked);
       assertDeepEqual(restart.adapted, []);
-      assertEqual(modifies().length, 7, 'toujours les sept d\'origine, aucune de plus');
+      assertEqual(modifies().length, 8, 'toujours les huit d\'origine, aucune de plus');
     });
 
     it('une OPE 3 ajoutée plus tard : les formules passent à « OPE 1 à 3 » sans perdre la formule d\'origine', async function () {
@@ -235,7 +242,7 @@
       window.__TEST_CALLS__.length = 0;
       const result = await T().adapt(3);
       assertDeepEqual(result.adapted, COLUMNS);
-      assertEqual(modifies().length, 7);
+      assertEqual(modifies().length, 8);
       const total = await formulaOf('Total_2027');
       assertIncludes(total, 'OPE 1 à 3');
       assertIncludes(total, '(rec.c2027_M30_Personnel_3 or 0)');
@@ -247,7 +254,7 @@
       await installMeta(2, { Total_2027: custom });
       const result = await T().adapt(2);
       assertTrue(result.ok);
-      assertEqual(result.adapted.length, 6);
+      assertEqual(result.adapted.length, 7);
       assertTrue(!result.adapted.includes('Total_2027'));
       assertEqual(result.untouched.length, 1);
       assertEqual(result.untouched[0].colId, 'Total_2027');
@@ -262,17 +269,34 @@
       table.isFormula[table.colId.indexOf('Total_2026')] = false;
       window.__mockSetTable('_grist_Tables_column', table);
       const result = await T().adapt(2);
-      assertEqual(result.adapted.length, 5);
+      assertEqual(result.adapted.length, 6);
       assertDeepEqual(result.untouched.map(item => item.colId).sort(), ['Total_2026', 'Total_Personnel']);
       assertIncludes(result.untouched.find(item => item.colId === 'Total_Personnel').reason, 'absente');
     });
 
-    it('aucune colonne d\'OPE 2 à 4 dans Projets : rien n\'est modifié', async function () {
+    it('aucune colonne d\'OPE 2 à 4 : seul 2029 s\'ajoute (Total_2029 et les cumuls), Total_2026/27/28 ne bougent pas', async function () {
       await installMeta(1);
+      const result = await T().adapt(2);
+      assertTrue(result.ok);
+      assertDeepEqual(result.adapted, ['Total_2029', 'Total_Fonctionnement', 'Total_investissement', 'Total_Personnel', 'Montant_attribue_Total']);
+      assertEqual(await formulaOf('Total_2026'), ORIGINALS.Total_2026);
+      assertIncludes(await formulaOf('Total_Fonctionnement'), 'OPE 1 à 1, 2029 inclus');
+    });
+
+    it('document sans les colonnes 2029 d\'OPE 1 (c2029_*) : rien n\'est modifié, une formule ne cite jamais une colonne absente', async function () {
+      await installMeta(1, {}, { without2029: true });
       const result = await T().adapt(2);
       assertTrue(result.ok);
       assertEqual(result.adapted.length, 0);
       assertEqual(modifies().length, 0);
+    });
+
+    it('document sans c2029_* mais avec une OPE 2 : les OPE s\'ajoutent, sans 2029', async function () {
+      await installMeta(2, {}, { without2029: true });
+      const result = await T().adapt(2);
+      assertDeepEqual(result.adapted, ['Total_2026', 'Total_2027', 'Total_2028', 'Total_Fonctionnement', 'Total_investissement', 'Total_Personnel', 'Montant_attribue_Total']);
+      assertTrue(!(await formulaOf('Total_Fonctionnement')).includes('c2029'));
+      assertEqual(await formulaOf('Total_2029'), 'return None', 'Total_2029 n\'a rien à calculer sans les colonnes de 2029 : jamais une somme vide');
     });
 
     it('seules les OPE existantes sont ajoutées : demandée jusqu\'à 4, trouvée jusqu\'à 2', async function () {
@@ -282,11 +306,35 @@
       assertTrue(!(await formulaOf('Total_2026')).includes('_3'));
     });
 
-    it('jamais d\'effet pour un projet à une seule OPE (rang demandé : 1)', async function () {
+    it('projet classique (rang demandé : 1) : 2029 est ajouté aux totaux, même quand des colonnes d\'OPE 2 existent déjà ailleurs', async function () {
       await installMeta(2);
       const result = await T().adapt(1);
-      assertEqual(result.checked, false);
-      assertEqual(modifies().length, 0);
+      assertEqual(result.checked, true);
+      assertEqual(result.upTo, 2, 'les formules couvrent les OPE dont les colonnes existent, pas seulement celles de ce projet');
+      assertEqual(modifies().length, 8);
+    });
+
+    it('Total_2029 : calculée (elle valait None), avec la formule d\'origine gardée en commentaire', async function () {
+      await installMeta(1);
+      await T().adapt(1);
+      const formula = await formulaOf('Total_2029');
+      assertIncludes(formula, '# >>> Widget InnovationS : OPE 1 à 1, 2029 inclus');
+      assertIncludes(formula, '#| return None');
+      assertIncludes(formula, 'total = ((rec.c2029_M10_Fonctionnement or 0) + (rec.c2029_M20_Investissement or 0) + (rec.c2029_M30_Personnel or 0))  # OPE 1');
+      assertIncludes(formula, 'if total == 0:\n   return ""\nreturn total');
+    });
+
+    it('une formule déjà adaptée aux OPE avant l\'ajout de 2029 reçoit 2029, la formule d\'origine est conservée', async function () {
+      const target = T().targets().find(t => t.colId === 'Montant_attribue_Total');
+      const before = T().build(target, ORIGINALS.Montant_attribue_Total.split('\n'), 2, false);
+      assertTrue(!before.includes('c2029') && before.indexOf('# >>> Widget InnovationS : OPE 1 à 2') === 0, 'texte tel que produit avant 2029');
+      await installMeta(2, { Montant_attribue_Total: before });
+      const result = await T().adapt(2);
+      assertTrue(result.adapted.includes('Montant_attribue_Total'));
+      const upgraded = await formulaOf('Montant_attribue_Total');
+      assertIncludes(upgraded, 'OPE 1 à 2, 2029 inclus');
+      assertIncludes(upgraded, '(rec.c2029_M30_Personnel_2 or 0)');
+      assertIncludes(upgraded, '#| ' + ORIGINALS.Montant_attribue_Total);
     });
 
     it('Grist refuse la modification (droits de structure) : rien n\'est modifié, aucune exception, et pas de seconde tentative dans la session', async function () {
@@ -322,12 +370,114 @@
   });
 
   // ===========================================================================================================
+  // Modèle de courrier de notification (Antoine, 26/11/2026) : un tableau par OPE — lignes Fonctionnement / Investissement / Personnel, colonnes 2026 à 2029,
+  // « Total Projet » en bout de ligne, ligne « Total » en bas. Chaque case a sa colonne dédiée dans Projets.
+  describe('Totaux par OPE — colonnes dédiées au courrier de notification', function () {
+    const added = () => calls('AddColumn').map(call => call.colId);
+    const OPE_COLUMNS = rank => ['Fonctionnement', 'Investissement', 'Personnel'].map(mass => `Total_${mass}_OPE_${rank}`)
+      .concat([2026, 2027, 2028, 2029].map(year => `Total_${year}_OPE_${rank}`), [`Total_OPE_${rank}`]);
+
+    it('huit colonnes par OPE : trois « Total Projet » par masse, quatre totaux par année, le total de l\'OPE', function () {
+      assertDeepEqual(O().totalDefinitions(2).map(def => def.id), OPE_COLUMNS(2));
+      assertDeepEqual(O().totalDefinitions(1).map(def => def.id), OPE_COLUMNS(1));
+      assertEqual(O().totalMassColumn(3, 'F'), 'Total_Fonctionnement_OPE_3');
+      assertEqual(O().totalYearColumn(4, 2028), 'Total_2028_OPE_4');
+      assertEqual(O().totalOpeColumn(2), 'Total_OPE_2');
+    });
+
+    it('chacune est une formule numérique qui additionne les montants de CETTE OPE seulement (l\'OPE 1 : les colonnes d\'origine), avec une bulle d\'aide', function () {
+      const byId = Object.fromEntries(O().totalDefinitions(2).map(def => [def.id, def]));
+      assertTrue(Object.values(byId).every(def => def.type === 'Numeric' && def.isFormula === true && def.description), 'Numeric, formule, description');
+      assertIncludes(byId.Total_Fonctionnement_OPE_2.formula, 'return (rec.c2026_M10_Fonctionnement_2 or 0) + (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2028_M10_Fonctionnement_2 or 0) + (rec.c2029_M10_Fonctionnement_2 or 0)');
+      assertIncludes(byId.Total_2027_OPE_2.formula, 'return (rec.c2027_M10_Fonctionnement_2 or 0) + (rec.c2027_M20_Investissement_2 or 0) + (rec.c2027_M30_Personnel_2 or 0)');
+      assertEqual((byId.Total_OPE_2.formula.match(/or 0\)/g) || []).length, 12, 'toutes les masses, 2026 à 2029');
+      const one = Object.fromEntries(O().totalDefinitions(1).map(def => [def.id, def]));
+      assertIncludes(one.Total_Personnel_OPE_1.formula, '(rec.c2026_M30_Personnel or 0) + (rec.c2027_M30_Personnel or 0)');
+      assertTrue(!one.Total_Personnel_OPE_1.formula.includes('_2 or'), 'l\'OPE 1 ne lit jamais les colonnes des autres OPE');
+    });
+
+    it('sans les colonnes 2029 d\'OPE 1 : sept colonnes, jamais une formule qui lit 2029', function () {
+      const defs = O().totalDefinitions(1, { with2029: false });
+      assertEqual(defs.length, 7);
+      assertTrue(defs.every(def => !def.formula.includes('c2029') && !def.id.includes('2029')));
+    });
+
+    it('projet classique : les huit colonnes de l\'OPE 1 sont créées avant la réécriture des formules', async function () {
+      await installMeta(1);
+      const result = await T().adapt(1);
+      assertDeepEqual(added(), OPE_COLUMNS(1));
+      assertDeepEqual(result.created, OPE_COLUMNS(1));
+      assertTrue(window.__TEST_CALLS__.map(call => call.type).lastIndexOf('AddColumn') < window.__TEST_CALLS__.findIndex(call => call.type === 'ModifyColumn'), 'créées avant');
+      assertTrue(calls('AddColumn').every(call => call.colInfo.isFormula === true && call.colInfo.type === 'Numeric' && !('description' in call.colInfo)));
+    });
+
+    it('plusieurs OPE : les colonnes de chaque OPE existante (1 et 2), et seulement celles-là', async function () {
+      await installMeta(2);
+      await T().adapt(2);
+      assertDeepEqual(added().slice().sort(), OPE_COLUMNS(1).concat(OPE_COLUMNS(2)).sort());
+    });
+
+    it('une OPE 3 ajoutée plus tard : seules les huit colonnes de l\'OPE 3 sont créées', async function () {
+      await installMeta(2);
+      await T().adapt(2);
+      const formulas = Object.fromEntries(await Promise.all(COLUMNS.map(async col => [col, await formulaOf(col)])));
+      window.__TEST_CALLS__.length = 0;
+      await installMeta(3, formulas);
+      // installMeta réinstalle les métadonnées : les totaux par OPE déjà créés y figurent comme colonnes de Projets du mock
+      const table = await window.grist.docApi.fetchTable('Projets');
+      assertTrue(OPE_COLUMNS(1).concat(OPE_COLUMNS(2)).every(col => col in table), 'créées par le premier passage');
+      await T().adapt(3);
+      assertDeepEqual(added().slice().sort(), OPE_COLUMNS(3).slice().sort());
+    });
+
+    it('rejouable : des colonnes déjà là ne sont jamais recréées (après un redémarrage non plus)', async function () {
+      await installMeta(2);
+      await T().adapt(2);
+      T()._reset();
+      window.__TEST_CALLS__.length = 0;
+      const again = await T().adapt(2);
+      assertEqual(again.created.length, 0);
+      assertEqual(calls('AddColumn').length, 0);
+    });
+
+    it('jamais écrites par le widget : ni la modale ni un enregistrement n\'envoient ces colonnes à Grist', async function () {
+      await loadFixtureState();
+      await installMeta(1);
+      await loadFixtureState();
+      window.ProjectModal.open(projectRecord(11));
+      await modalEl().querySelector('[data-cp-save]').onclick();
+      const fields = calls('UpdateRecord').filter(call => call.table === 'Projets')[0].fields;
+      assertEqual(Object.keys(fields).filter(field => /^Total_/.test(field)).length, 0);
+    });
+
+    it('Grist refuse de créer les colonnes (droits de structure) : aucune formule n\'est réécrite, aucune exception', async function () {
+      await installMeta(1);
+      const original = window.grist.docApi.applyUserActions;
+      window.grist.docApi.applyUserActions = async function (actions) {
+        if (actions.some(action => action[0] === 'AddColumn')) throw new Error('Grist refuse (test)');
+        return original.call(this, actions);
+      };
+      try {
+        const result = await T().adapt(1);
+        assertEqual(result.ok, false);
+        assertEqual(modifies().length, 0, 'tout ou rien : ni colonnes, ni formules');
+      } finally { window.grist.docApi.applyUserActions = original; }
+    });
+
+    it('le message dit combien de colonnes de totaux par OPE ont été créées', async function () {
+      await installMeta(1);
+      await T().adaptAndNotify(1);
+      assertIncludes(flat(toastEl().textContent), '8 colonnes de totaux par OPE créées dans Projets');
+    });
+  });
+
+  // ===========================================================================================================
   describe('Totaux de Projets — ce que l\'utilisateur est prévenu de faire ou de ne pas avoir pu faire', function () {
     it('adaptation faite : un message dit quelles colonnes et que la formule d\'origine reste en commentaire', async function () {
       await installMeta(3);
       await T().adaptAndNotify(3);
       const text = flat(toastEl().textContent);
-      assertIncludes(text, 'Totaux de Projets adaptés aux OPE 2 à 3');
+      assertIncludes(text, 'Totaux de Projets adaptés aux OPE 2 à 3 et à l\'année 2029');
       assertIncludes(text, 'Total_2026'); assertIncludes(text, 'Montant_attribue_Total');
       assertIncludes(text, 'formule d\'origine reste en commentaire');
       assertTrue(!toastEl().classList.contains('error'), 'une bonne nouvelle n\'est pas affichée comme une erreur');
@@ -336,7 +486,7 @@
     it('une seule OPE ajoutée : « à l\'OPE 2 »', async function () {
       await installMeta(2);
       await T().adaptAndNotify(2);
-      assertIncludes(flat(toastEl().textContent), 'Totaux de Projets adaptés à l\'OPE 2');
+      assertIncludes(flat(toastEl().textContent), 'Totaux de Projets adaptés à l\'OPE 2 et à l\'année 2029');
     });
 
     it('formule personnalisée : le message la nomme et dit pourquoi elle n\'est pas modifiée (affiché comme un point d\'attention)', async function () {
@@ -366,7 +516,7 @@
       try {
         await T().adaptAndNotify(2);
         assertTrue(toastEl().classList.contains('error'));
-        assertIncludes(flat(toastEl().textContent), 'Totaux de Projets non adaptés à l\'OPE 2');
+        assertIncludes(flat(toastEl().textContent), 'Totaux de Projets non adaptés');
         toastEl().classList.add('hidden'); toastEl().textContent = '';
         await T().adaptAndNotify(2);
         assertEqual(toastEl().textContent, '', 'pas de second message pour le même refus');
@@ -388,7 +538,7 @@
       window.__TEST_CALLS__.length = 0;
       window.ProjectModal.open(projectRecord(11));
       await saveButton().onclick();
-      assertEqual(modifies().length, 7);
+      assertEqual(modifies().length, 8);
       assertTrue(indexOf('ModifyColumn') !== -1 && indexOf('ModifyColumn') < indexOf('UpdateRecord', call => call.table === 'Projets'), 'les totaux sont adaptés avant l\'écriture du projet');
       assertTrue(modalEl().classList.contains('cp-hidden'), 'le projet est bien enregistré');
     });
@@ -405,22 +555,31 @@
       await saveButton().onclick();
       const lastAdd = window.__TEST_CALLS__.map(call => call.type).lastIndexOf('AddColumn');
       assertTrue(lastAdd !== -1, 'colonnes de l\'OPE 2 créées');
-      assertEqual(modifies().length, 7, 'puis les sept formules');
+      assertEqual(modifies().length, 8, 'puis les huit formules');
       assertTrue(indexOf('ModifyColumn') > lastAdd, 'après la création des colonnes');
       assertTrue(indexOf('ModifyColumn') < indexOf('UpdateRecord', call => call.table === 'Projets'), 'avant l\'écriture');
       assertIncludes(await formulaOf('Total_2026'), '(rec.c2026_M10_Fonctionnement_2 or 0)');
       assertIncludes(await formulaOf('Total_2026'), '#| if rec.c2026_M10_Fonctionnement');
     });
 
-    it('projet à une seule OPE : les formules de totaux ne sont ni lues ni modifiées', async function () {
+    it('projet classique (une seule OPE) : 2029 est ajouté aux totaux, Total_2026/27/28 ne bougent pas, et une seule vérification par session', async function () {
       await loadFixtureState();
       await installMeta(1);
       await loadFixtureState();
       window.__TEST_CALLS__.length = 0;
       window.ProjectModal.open(projectRecord(11));
       await saveButton().onclick();
-      assertEqual(modifies().length, 0);
+      assertDeepEqual(modifies().map(call => call.colId), ['Total_2029', 'Total_Fonctionnement', 'Total_investissement', 'Total_Personnel', 'Montant_attribue_Total']);
       assertEqual(await formulaOf('Total_2026'), ORIGINALS.Total_2026);
+      const original = window.grist.docApi.fetchTable;
+      let metaReads = 0;
+      window.grist.docApi.fetchTable = async function (name) { if (name === '_grist_Tables_column') metaReads += 1; return original.call(this, name); };
+      try {
+        window.ProjectModal.open(projectRecord(10));
+        await saveButton().onclick();
+      } finally { window.grist.docApi.fetchTable = original; }
+      assertEqual(modifies().length, 5, 'rien de plus au second enregistrement');
+      assertEqual(metaReads, 0, 'et aucune relecture des métadonnées : déjà vérifié dans cette session');
     });
 
     it('Grist refuse de modifier les formules : le projet est quand même enregistré et le refus est dit', async function () {

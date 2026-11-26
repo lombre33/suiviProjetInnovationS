@@ -867,7 +867,9 @@
   // OPE 2 à 4 (24/11/2026) : leurs colonnes de Projets sont créées par le widget, comme à l'enregistrement d'un projet à plusieurs OPE.
   // Rend la liste des colonnes créées (vide quand le plan n'écrit que l'OPE 1 ou que les colonnes existent déjà).
   async function ensureSlotColumns(plan) {
-    if (!plan.neededRank || plan.neededRank < 2 || !global.CoreOpes) return [];
+    if (!global.CoreOpes) return [];
+    // Totaux de Projets (formules Grist) sur 2029 et les OPE 2 à 4 existantes (js/core/ope-totals.js), même quand l'import n'écrit que l'OPE 1 ; au mieux.
+    if (!plan.neededRank || plan.neededRank < 2) { if (global.CoreOpeTotals) await global.CoreOpeTotals.adaptAndNotify(1); return []; }
     const describe = col => (CoreGrist.getColumnDescription && CoreGrist.getColumnDescription('Projets', col)) || '';
     const missing = global.CoreOpes.missingColumns(CoreGrist.knownColumns('Projets'), plan.neededRank, describe);
     const which = plan.neededRank > 2 ? `des OPE 2 à ${plan.neededRank}` : 'de l\'OPE 2';
