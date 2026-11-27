@@ -216,6 +216,12 @@ portent encore une formule du widget (état actuel ou antérieur, y compris la p
 touchée** (elle est signalée). Si Grist refuse la création (droit de structure), les formules d'origine ne sont pas réécrites non plus (tout ou rien). Sans
 les colonnes `c2029_*` d'OPE 1 : pas de colonne 2029 (7 par OPE, 9 croisées). Tout passe par `CoreOpes.ownedSpecs()` (une spec par colonne).
 
+**Quand le message s'affiche (27/11/2026, retour d'Antoine : « pas à chaque fois »).** À l'enregistrement d'un projet, le message du widget n'apparaît que si une colonne
+vient d'être **créée, adaptée ou mise à jour** (`CoreOpeTotals.adaptAndNotify`). Une formule modifiée à la main (« Non modifiés : … ») n'est ajoutée au message que
+quand d'autres colonnes viennent d'être créées ou adaptées ; seule, elle ne déclenche plus rien (une ligne dans la console du navigateur), alors qu'elle restait
+affichée en rouge à la première sauvegarde de chaque session. Une seule vérification par session (les enregistrements suivants ne relisent rien) ; le refus de Grist
+(« Totaux de Projets non adaptés », « Colonne Bailleur non créée ») reste affiché, une fois par session.
+
 **`c2026_M10_Fonctionnement` n'est pas le total du projet** quand il y a plusieurs OPE : c'est le montant de l'OPE 1 ; les OPE 2 à 4 ont leurs colonnes
 `_2/_3/_4`. Pour un projet classique (une seule OPE), c'est à la fois l'OPE 1 et le total du projet. Les totaux du projet sont dans `Total_*` et
 `Montant_attribue_Total` (formules adaptées ci-dessus) ; un modèle qui lit directement `c2026_*` comme total projet ne verrait que l'OPE 1.
