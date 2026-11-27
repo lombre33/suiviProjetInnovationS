@@ -397,7 +397,7 @@ références sont écrites en identifiants (`['L', …]` pour les RefList) ; les
 
 | Table | Colonnes |
 | --- | --- |
-| `Instances` (ajouts) | `Heure_debut` (Text, HH:MM), `Duree_min` (Int), `Etapes_actives` (ChoiceList, vide = toutes), `Relecteurs_CR` / `Invites_permanents` (RefList → `Annuaire`), `Modele_invitation` / `Modele_CR` (Text) — chacune avec une description (bulles d'aide du paramétrage) |
+| `Instances` (ajouts) | `Heure_debut` (Text, HH:MM), `Duree_min` (Int), `Etapes_actives` (ChoiceList, vide = toutes), `Relecteurs_CR` / `Invites_permanents` (RefList → `Annuaire`), `Modele_invitation` / `Modele_invitation_specifique` / `Modele_CR` (Text) — chacune avec une description (bulles d'aide du paramétrage) |
 | `Instance_Points` | `Seance` (→ `Suivi_Instance`), `Ordre`, `Titre`, `Nature` (Validation / Discussion / Information), `Duree_min`, `Projets` (RefList → `Projets`), `Invites` (RefList → `Instance_Invites`), `Presentateurs` (RefList → `Annuaire` : qui présente le point, indépendant des invités ; ajoutée à la table existante par `ensureColumns`), `Parent` (Ref → `Instance_Points`, vide pour un point ; ajoutée par `ensureColumns` : fait de la ligne un sous-point), `Lien_type`, `Lien` |
 | `Instance_Invites` | `Seance`, `Personne` (→ `Annuaire`), `Origine` (Liste permanente / Ajouté sur un point), `Ecrit_le`, `Passage_envoye_le`, `Passage_envoye_heure`, `Reponse` (À confirmer / Viendra / Excusé(e)), `Dispo_de`, `Dispo_a`, `Commentaire`, `Appel` (Présent(e) / Absent(e)) |
 | `Instance_Relectures` | `Seance`, `Personne`, `Statut` (Modifs demandées / Validée ; pas de ligne = à relire), `Relu_le` |
@@ -592,18 +592,33 @@ passage envoyés/à envoyer d'après `Instance_Invites.Passage_envoye_*`, « à 
 ouvre l'étape Invités où se trouvent les boutons d'envoi), puis 4 · Compte rendu, 5 · Envoi du CR, 6 · Notifications.
 L'étape Invités signale (alerte non bloquante) les invités qui n'ont pas encore répondu.
 
-**Mail d'invitation : GFS intégré (12/11/2026).** L'étape « Mail d'invitation » porte maintenant GFS sous la carte de
-la date d'envoi, comme l'étape Compte rendu : même pont Grist que publipostage+ dans la page Rédaction
-(`js/core/grist-bridge.js`), même iframe (une seule, jamais rechargée en passant du compte rendu à l'invitation et
-retour ; masquée, pas détruite, sur les autres étapes), enregistrement sélectionné = la ligne de la séance dans
-`Suivi_Instance` (publipostage+ y retrouve ses colonnes ; ses invités passent par « Tables liées » vers
-`Instance_Invites`). La barre indique le modèle à ouvrir dans l'explorateur de GFS (`Instances.Modele_invitation`,
-modèle de type e-mail) : le widget ne peut pas piloter l'explorateur de GFS, c'est la personne qui ouvre le modèle.
-Pas de bascule PDF (un mail n'a pas de PDF), mais « Hauteur » et « Plein cadre » comme pour le compte rendu ; en plein
-cadre (panneau masqué) la barre garde la date d'envoi (`Suivi_Instance.Mail_invitation_le`, qui valide l'étape),
-le bouton « Envoyé aujourd'hui » et le compteur d'invitations écrites. Quand GFS écrit dans `Suivi_Instance`, la page ne
-relit que si une des colonnes `CR_PDF`, `Mail_invitation_le` ou `Mail_CR_le` est touchée (publipostage+ peut renseigner
-la date d'envoi après l'envoi). Non validé dans un vrai Grist (le proxy de ce projet n'atteint pas GFS).
+**Étape 3 · Mail d'invitation : la vue de la « Relecture & envoi » (27/11/2026).** L'étape portait GFS (12/11) ; or GFS
+garde le dernier fichier ouvert (souvent le compte rendu) et le widget ne peut pas lui dire quel modèle ouvrir : « ce
+n'est pas le bon modèle qui se lance ». L'étape reprend donc la vue à deux volets des notifications, sans GFS :
+- **à gauche**, un bloc « Invités habituels » (UN mail pour toute la liste permanente et la composition : `Origine` ≠
+  `point`, « 1 mail · n destinataires », une pastille « écrit » pour toute la liste, qui pose ou efface `Ecrit_le` de
+  chaque habitué) puis, sous « Invités spécifiques » (ajoutés sur un point : un mail chacun), **une ligne par invité**
+  avec son premier point, sa pastille « écrit » (`Ecrit_le`) et sa pastille « horaire de passage envoyé »
+  (`Passage_envoye_*`, états envoyé / à renvoyer / pas de point) ;
+- **à droite**, le mail **lu par Publipostage+ lui-même** (lecture épurée, même iframe pilotée que le courrier des
+  notifications : `js/components/pp-reader.js`, un « dock » posé sur le volet), le modèle étant ouvert **par son nom** :
+  `Instances.Modele_invitation` pour le bloc des habituels (la ligne présentée est la séance, `Suivi_Instance`),
+  `Instances.Modele_invitation_specifique` (colonne Text créée par le widget, réglée dans le paramétrage de l'instance)
+  pour un invité (la ligne présentée est `Instance_Invites`, dont partent les variables). Publipostage+ ne connaît
+  qu'une table par chargement : deux iframes au plus (séance, invité) ; passer d'un invité à l'autre n'envoie que la
+  ligne (`select by`), revenir aux habituels ne recharge rien. Si la lecture échoue (modèle absent de la liste,
+  introuvable, page d'une autre origine), le volet se rabat sur le texte du mail lu par le widget, avec la raison.
+- Au-dessus du texte : À / Cc / Cci / Objet (`VisaMail.prepareRow`, la résolution des variables des notifications mais à
+  partir d'une ligne quelconque ; la liste habituelle part en copie cachée quand le modèle ne donne aucun destinataire),
+  puis « Ouvrir dans ma messagerie » (réglage Zimbra comme pour les notifications), « Copier », « Marquer écrite » et,
+  pour un invité, « Marquer l'horaire envoyé ». « Relire » relit modèle et lignes (iframe neuve).
+- **« Modifier le modèle » se fait sur place** : Publipostage+ sort de la lecture épurée et passe en Édition, sur le même
+  modèle et la même ligne (`PpReader.edit()`), le même bouton « Revenir à la lecture » la rétablit (`PpReader.read()`) ;
+  changer d'élément pendant l'édition ramène la lecture.
+- La carte du haut garde la date d'envoi (`Suivi_Instance.Mail_invitation_le`, qui valide l'étape), « Envoyé
+  aujourd'hui » et les compteurs « mails écrits » / « horaires envoyés ». Plus de plein cadre ni de hauteur de GFS sur
+  cette étape (ils restent sur Compte rendu et Envoi du CR). Tests : `tests/suite-instances-invitation.js`. Non validé
+  dans un vrai Grist (le proxy de ce projet n'atteint pas Publipostage+).
 
 **Étape 5 · Envoi du CR (24/11/2026).** Comme l'invitation, cette étape héberge GFS (même iframe, mêmes
 réglages) : la barre affiche le modèle du mail (`Instances.Modele_CR`, réglé dans les paramètres de

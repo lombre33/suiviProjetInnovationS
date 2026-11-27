@@ -33,6 +33,7 @@
     col('Relecteurs_CR', 'RefList:Annuaire', { description: "Personnes qui relisent chaque compte rendu de cette instance avant sa validation." }),
     col('Invites_permanents', 'RefList:Annuaire', { description: "Listing de base de l'instance, repris dans chaque nouvelle séance. Les personnes ajoutées sur un point restent propres à leur séance." }),
     col('Modele_invitation', 'Text', { description: "Nom du modèle de mail d'invitation (modèle de type e-mail de Publipostage+, rangé dans GFS)." }),
+    col('Modele_invitation_specifique', 'Text', { description: "Nom du modèle de mail d'invitation des invités spécifiques (ajoutés sur un point : un mail par personne, avec son horaire de passage). Modèle de type e-mail de Publipostage+ dont les variables partent de la ligne de l'invité (table Instance_Invites). Le modèle des invités habituels est « Modele_invitation »." }),
     col('Modele_CR', 'Text', { description: "Nom du modèle de mail d'envoi du compte rendu (modèle de type e-mail de Publipostage+, rangé dans GFS)." }),
     col('Modele_notification', 'Text', { description: "Nom du modèle de mail des notifications de cette instance (modèle de type e-mail de Publipostage+). La vue « Relecture & envoi » de l'étape Notifications le remplit pour chaque projet." }),
     col('Modele_courrier_notification', 'Text', { description: "Nom du modèle du courrier de notification (modèle de type document de Publipostage+). La vue « Relecture & envoi » l'affiche en lecture tant que la notification signée n'est pas déposée dans le projet." })
@@ -243,7 +244,7 @@
         steps: steps.length ? L.ALL_STEP_KEYS.filter(k => k === 'odj' || steps.indexOf(k) >= 0) : (rule ? rule.steps.slice() : L.ALL_STEP_KEYS.slice()),
         relecteurs: refList(row.Relecteurs_CR), permanents: refList(row.Invites_permanents),
         composition: (composition.byInstance[row.id] || []).slice(),
-        modInvitation: text(row.Modele_invitation), modCr: text(row.Modele_CR), modNotif: text(row.Modele_notification), modCourrier: text(row.Modele_courrier_notification),
+        modInvitation: text(row.Modele_invitation), modInvitationSpec: text(row.Modele_invitation_specifique), modCr: text(row.Modele_CR), modNotif: text(row.Modele_notification), modCourrier: text(row.Modele_courrier_notification),
         heuresChoix: rule && rule.heures ? rule.heures.slice() : [] // heures de début proposées d'un clic (CTO : 9h00 ou 10h45)
       };
       return { id: row.id, nom, cfg, seances: [], known: !!rule, principal: !!(rule && rule.principal) };

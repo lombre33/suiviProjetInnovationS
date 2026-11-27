@@ -134,6 +134,29 @@
       } finally { t.done(); }
     });
 
+    it('« Modifier le modèle » sur place : edit() passe Publipostage+ en Édition sans que le pilotage le ramène en lecture ; read() rétablit la lecture épurée (27/11)', async function () {
+      await loadFixtureState();
+      const t = makeReader('&models=7:Courrier&attachAfter=30&finalAfter=120');
+      try {
+        assertFalse(t.reader.edit(), 'pas d\'iframe : rien à piloter');
+        t.reader.show(WANT);
+        await waitFor(() => t.reader.phase === 'ready' && nestedOf(t.reader).mode === 'read', 'lecture épurée', 6000);
+        await wait(200);
+        assertFalse(t.reader.editing);
+        assertTrue(t.reader.edit(), 'le geste est parti');
+        assertTrue(t.reader.editing);
+        await waitFor(() => nestedOf(t.reader).mode === 'edit', 'Publipostage+ passe en Édition');
+        assertFalse(bodyOf(t.reader).classList.contains('pp-clean-reading'), 'la lecture épurée est quittée');
+        await wait(300);
+        assertEqual(nestedOf(t.reader).mode, 'edit', 'le pilotage ne le ramène pas en lecture tant que la personne édite');
+        assertEqual(t.reader.phase, 'ready');
+        assertTrue(t.reader.read(), 'retour à la lecture');
+        assertFalse(t.reader.editing);
+        await waitFor(() => nestedOf(t.reader).mode === 'read' && bodyOf(t.reader).classList.contains('pp-clean-reading'), 'lecture épurée rétablie', 6000);
+        assertEqual(t.container.querySelectorAll('iframe').length, 1, 'toujours la même iframe, jamais rechargée');
+      } finally { t.done(); }
+    });
+
     it('destroy retire l\'iframe et le pont ; un lecteur détruit ne fait plus rien', async function () {
       await loadFixtureState();
       const t = makeReader('&models=7:Courrier');

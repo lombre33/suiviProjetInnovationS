@@ -534,6 +534,22 @@ select.in-inp{padding-right:28px}
 .in-editbtn .in-elabel{display:none}
 @container rpane (min-width: 640px){.in-editbtn{padding:0 14px;gap:7px}.in-editbtn .in-elabel{display:inline}}
 .in-rdocbody{position:relative;flex:1 1 auto;min-height:420px;background:var(--sunken)}
+/* Étape Mail d'invitation (27/11/2026) : la vue « Relecture & envoi » à deux volets (liste + mail lu par Publipostage+) ; pas de volet courrier. */
+.in-rev.in-inv .in-rpane.in-rlist{flex:0 1 280px;min-width:240px}
+.in-rev.in-inv .in-rpane.in-rmail{flex:1 1 460px;min-width:320px}
+.in-rev.in-inv .in-rrow .in-ib{box-shadow:inset 0 0 0 1.5px var(--border2);flex:none}
+.in-rev.in-inv .in-rrow .in-ib:hover{background:var(--sunken)}
+.in-rev.in-inv .in-rrow .in-ib.in-on{background:#12a150;color:#fff;box-shadow:none}
+.in-rev.in-inv .in-rrow .in-ib.in-on:hover{background:#0e8a43}
+.in-rev.in-inv .in-rrow .in-ib.in-warn{background:var(--warn-s);color:var(--warn);box-shadow:inset 0 0 0 1.5px var(--warn-sb)}
+.in-rname{display:flex;align-items:center;gap:6px;min-width:0}
+.in-rname strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.in-rsec{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--sunken);border-bottom:1px solid var(--border);font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.in-rchip{display:inline-flex;align-items:center;gap:4px}
+.in-rdocbody.in-tall{min-height:640px}
+.in-editbtn.in-on{background:var(--accent-s);color:var(--accent-h);border-color:var(--accent)}
+.in-root .in-pillbtn.in-ghost.in-okon{background:var(--ok-s);border-color:var(--ok-sb);color:var(--ok)}
+.in-root .in-pillbtn.in-ghost.in-warnon{background:var(--warn-s);border-color:var(--warn-sb);color:var(--warn)}
 .in-rdocview{position:absolute;inset:0;overflow:auto;padding:0}
 .in-rdocview>.in-rissues{position:sticky;top:0;z-index:1}
 .in-rdocview>div:not(.in-vempty){padding:12px}

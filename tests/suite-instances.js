@@ -402,7 +402,7 @@
       ['PDF_notification', 'PDF_signe'].forEach(id => assertEqual(exportCols.find(c => c.id === id).type, 'Attachments'));
       assertEqual(exportCols.find(c => c.id === 'Signee_le').type, 'DateTime:Europe/Paris');
       const addedInstances = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Instances').map(c => c.colId);
-      assertDeepEqual(addedInstances, ['Heure_debut', 'Duree_min', 'Etapes_actives', 'Relecteurs_CR', 'Invites_permanents', 'Modele_invitation', 'Modele_CR', 'Modele_notification', 'Modele_courrier_notification']);
+      assertDeepEqual(addedInstances, ['Heure_debut', 'Duree_min', 'Etapes_actives', 'Relecteurs_CR', 'Invites_permanents', 'Modele_invitation', 'Modele_invitation_specifique', 'Modele_CR', 'Modele_notification', 'Modele_courrier_notification']);
       const addedSeance = window.__TEST_CALLS__.filter(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance').map(c => c.colId);
       assertDeepEqual(addedSeance, ['Mail_invitation_le', 'CR_V0_le', 'CR_V0_par', 'CR_PDF', 'Mail_CR_le']);
       assertEqual(window.__TEST_CALLS__.find(c => c.type === 'AddColumn' && c.table === 'Suivi_Instance' && c.colId === 'CR_PDF').colInfo.type, 'Attachments', 'la version PDF du compte rendu est une colonne de pièces jointes');
@@ -2189,9 +2189,12 @@
   // -------------------------------------------------------------------------------------------------
   describe('Instances — mails, compte rendu, notifications', function () {
     it('mail d\'invitation : la date d\'envoi vaut validation et marque les invités non écrits', async function () {
-      await setup();
-      step('invitation');
-      assertIncludes(text('.in-card .in-tag'), 'Invitation CTO', 'modèle choisi dans le paramétrage');
+      window.InstancesPage._setReader(false); // le mail lu par Publipostage+ est testé à part (suite-instances-invitation.js)
+      try {
+        await setup();
+        step('invitation');
+        assertEqual(text('.in-rmail .in-rmodel'), 'Invitation CTO', 'modèle choisi dans le paramétrage');
+      } finally { window.InstancesPage._setReader(true); }
       click('inv-today');
       assertEqual(lastFields('UpdateRecord', 'Suivi_Instance', 2).Mail_invitation_le, gd(TODAY));
       assertEqual(lastFields('UpdateRecord', 'Instance_Invites', 2).Ecrit_le, gd(TODAY));
@@ -2389,92 +2392,6 @@
       assertIncludes(url, 'tableId=Suivi_Instance');
       assertIncludes(url, 'colId=CR_PDF');
       assertIncludes(url, 'rowId=2');
-    });
-
-    it('mail d\'invitation : GFS est intégré sous la carte de la date, relié à la ligne de la séance, avec le modèle de l\'instance dans la barre', async function () {
-      await setup();
-      window.InstancesPage._setGfsTarget(gfsTarget);
-      assertEqual(qa('iframe.in-gframe').length, 0, 'GFS ne se charge qu\'à l\'ouverture d\'une étape qui le porte');
-      step('invitation');
-      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
-      assertFalse(q('[data-region="viewer"]').hidden, 'région GFS affichée');
-      assertEqual(frame.getAttribute('src'), 'about:blank#gfs-test');
-      const bridge = window.InstancesPage._gfs.bridge;
-      assertEqual(bridge.getState().tableId, 'Suivi_Instance');
-      assertEqual(bridge.getState().rowId, 2, 'la ligne de la séance n°14 est l\'enregistrement sélectionné de GFS');
-      assertIncludes(text('.in-vbar'), 'Mail d\'invitation dans GFS');
-      assertEqual(text('.in-vbar [data-inv-model]'), 'Modèle : Invitation CTO', 'le modèle choisi dans le paramétrage de l\'instance');
-      assertIncludes(text('.in-vbar [data-gfs-status]'), 'Connexion à GFS');
-      assertEqual(qa('.in-vbar [data-act="cr-mode"]').length, 0, 'pas de bascule PDF : un mail n\'a pas de PDF exporté');
-      assertTrue(!!q('.in-vbar [data-act="cr-hauteur"]') && !!q('.in-vbar [data-act="cr-plein"]'), 'hauteur de GFS et plein cadre, comme pour le compte rendu');
-      assertTrue(!!q('.in-panel input[data-chg="inv-date"]'), 'la carte de la date d\'envoi reste au-dessus de GFS');
-      fromGfs(frame, { mtype: 5 });
-      await waitFor(() => text('.in-vbar [data-gfs-status]').includes('GFS connecté'), 'GFS connecté');
-      // un clic voisin (date d'envoi) ne recrée pas l'iframe
-      click('inv-today');
-      await waitCall('UpdateRecord', 'Suivi_Instance');
-      assertTrue(q('iframe.in-gframe') === frame && frame.isConnected, 'l\'iframe n\'est pas recréée par l\'écriture de la date');
-      assertEqual(qa('iframe.in-gframe').length, 1);
-    });
-
-    it('mail d\'invitation : la même iframe de GFS sert le compte rendu et l\'invitation (jamais rechargée), masquée sur les autres étapes', async function () {
-      await setup();
-      window.InstancesPage._setGfsTarget(gfsTarget);
-      step('cr');
-      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
-      assertIncludes(text('.in-vbar'), 'Rédiger dans GFS');
-      step('invitation');
-      assertFalse(q('[data-region="viewer"]').hidden);
-      assertTrue(q('iframe.in-gframe') === frame, 'même iframe depuis le compte rendu');
-      assertIncludes(text('.in-vbar'), 'Mail d\'invitation dans GFS', 'la barre est celle de l\'invitation');
-      assertEqual(qa('.in-vbar [data-act="cr-mode"]').length, 0);
-      step('invites');
-      assertTrue(q('[data-region="viewer"]').hidden, 'pas de GFS sur l\'étape Invités');
-      step('odj');
-      assertTrue(q('[data-region="viewer"]').hidden, 'ni sur l\'ordre du jour');
-      step('invitation');
-      assertTrue(q('iframe.in-gframe') === frame, 'même iframe au retour');
-      assertTrue(window.InstancesPage._gfs.frame === frame);
-      step('cr');
-      assertIncludes(text('.in-vbar'), 'Rédiger dans GFS', 'la barre du compte rendu revient');
-      assertTrue(q('iframe.in-gframe') === frame);
-    });
-
-    it('mail d\'invitation : GFS reçoit la séance affichée quand on change de séance, sans être rechargé', async function () {
-      await setup();
-      window.InstancesPage._setGfsTarget(gfsTarget);
-      step('invitation');
-      const frame = await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
-      assertEqual(window.InstancesPage._gfs.bridge.getState().rowId, 2);
-      click('menu', { v: 'seance' });
-      click('seance-pick', { id: 1 });
-      step('invitation');
-      assertEqual(window.InstancesPage._gfs.bridge.getState().rowId, 1, 'le « select by » suit la séance');
-      assertTrue(q('iframe.in-gframe') === frame);
-    });
-
-    it('mail d\'invitation : sans modèle choisi pour l\'instance, la barre le dit ; plein cadre : date d\'envoi et compteur restent dans la barre', async function () {
-      await withLayout(async () => {
-        await setup({ rows: d => { d.Instances[0].Modele_invitation = ''; } });
-        window.InstancesPage._setGfsTarget(gfsTarget);
-        step('invitation');
-        await waitFor(() => q('iframe.in-gframe'), 'iframe GFS');
-        assertEqual(text('.in-vbar [data-inv-model]'), 'Aucun modèle choisi');
-        assertIncludes(q('.in-vbar [data-inv-model]').title, 'paramétrage de l\'instance');
-        assertEqual(qa('.in-vbar input[data-chg="inv-date"]').length, 0, 'hors plein cadre la date reste dans le panneau');
-        click('cr-plein');
-        assertTrue(root().classList.contains('in-plein'), 'le plein cadre s\'applique aussi à l\'invitation');
-        assertIncludes(text('.in-vbar .in-vsub'), 'CTO Innovation · n°14 · 23/11/2026');
-        assertIncludes(text('.in-vbar'), '1/3 invitations écrites');
-        const dateInput = q('.in-vbar input[data-chg="inv-date"]');
-        assertTrue(!!dateInput, 'la date d\'envoi du mail est dans la barre, le panneau étant masqué');
-        click('inv-today');
-        await waitCall('UpdateRecord', 'Suivi_Instance');
-        assertTrue(!!lastFields('UpdateRecord', 'Suivi_Instance', 2).Mail_invitation_le, 'la date d\'envoi est écrite dans Mail_invitation_le');
-        const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
-        q('[data-act="cr-plein"]').dispatchEvent(esc);
-        assertFalse(root().classList.contains('in-plein'), 'Échap quitte le plein cadre');
-      });
     });
 
     it('GFS qui écrit la date d\'envoi d\'un mail dans Suivi_Instance (publipostage+) : la page la relit ; toute autre colonne ne relit rien', async function () {
@@ -3029,7 +2946,7 @@
 
     it('les colonnes de Instances créées par la page portent une description (source des bulles d\'aide)', function () {
       const cols = window.InstancesData.INSTANCES_COLUMNS;
-      assertEqual(cols.length, 9);
+      assertEqual(cols.length, 10);
       assertTrue(cols.every(c => !!c.description), 'chaque colonne ajoutée à Instances a sa description');
     });
   });

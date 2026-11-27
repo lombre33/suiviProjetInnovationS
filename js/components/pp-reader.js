@@ -22,6 +22,8 @@
   const SELECT_ID = 'template-select';
   const CLEAN_ROW = '#v2-read-flyout .v2-hover-row[data-read-choice="clean"]';
   const CLEAN_CLASS = 'pp-clean-reading'; // la classe que Publipostage+ pose sur <body> en lecture épurée (js/clean-reading.js : BODY_CLASS)
+  const EXIT_ID = 'btn-exit-clean-reading';   // le bouton de sortie de la lecture épurée (coin haut droit de Publipostage+)
+  const EDIT_BUTTON_ID = 'btn-mode-edit';
   const OPTIONS_KEY = 'publipostage';     // même clé que la page Rédaction : les réglages de Publipostage+ restent communs
   const DEFAULTS = { tickMs: 150, watchMs: 1000, giveUpMs: 30000, stableTicks: 2, absentTicks: 12 };
 
@@ -71,7 +73,7 @@
       stop();
       if (me.bridge) me.bridge.detach();
       if (me.frame) me.frame.remove();
-      me.frame = null; me.bridge = null; me.listened = null; me.stable = 0; me.absent = 0;
+      me.frame = null; me.bridge = null; me.listened = null; me.stable = 0; me.absent = 0; me.editing = false;
     }
 
     function createFrame() {
@@ -156,7 +158,30 @@
         createFrame();
         if (me.frame) run();
       },
+      // « Modifier le modèle » sur place : plus rien n'est imposé, Publipostage+ sort de la lecture épurée et passe en Édition (même page, même ligne). Vrai si le
+      // geste est parti (l'iframe est là et de même origine).
+      edit() {
+        if (me.destroyed || !me.frame) return false;
+        const doc = docOf(me.frame);
+        const edit = doc && doc.body ? doc.getElementById(EDIT_BUTTON_ID) : null;
+        if (!edit) return false; // Publipostage+ n'a pas encore branché ses boutons : rien ne part, le pilotage garde la main
+        me.acted = true; me.editing = true;
+        const exit = doc.body.classList.contains(CLEAN_CLASS) ? doc.getElementById(EXIT_ID) : null;
+        if (exit) exit.click();
+        if (!edit.classList.contains('active')) edit.click();
+        set(me.phase, me.note);
+        return true;
+      },
+      // Retour à la lecture épurée (le pilotage reprend la main : modèle et lecture épurée sont rétablis).
+      read() {
+        if (me.destroyed || !me.frame) return false;
+        me.editing = false; me.acted = false; me.stable = 0; me.startedAt = Date.now();
+        set('loading', 'retour en lecture épurée');
+        run();
+        return true;
+      },
       destroy() { me.destroyed = true; drop(); set('idle', ''); },
+      get editing() { return !!me.editing; },
       get phase() { return me.phase; },
       get note() { return me.note; },
       get frame() { return me.frame; },

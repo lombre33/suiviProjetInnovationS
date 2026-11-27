@@ -300,7 +300,7 @@
     if (global.document) global.document.addEventListener('visibilitychange', () => { if (!global.document.hidden) clearCache(); });
   }
   // Un résultat de préparation mis en mémoire (kind : 'mail' ou 'doc') ; `peek` le lit sur-le-champ (rien à attendre : pas de volet « Lecture… » entre deux projets).
-  const resultKey = (kind, args) => [kind, args.project && args.project.id, args.modelName, args.client || ''].join('|');
+  const resultKey = (kind, args) => [kind, args.project && args.project.id, args.row && args.row.table + ':' + args.row.id, args.modelName, args.client || '', args.defaults && args.defaults.bcc || ''].join('|');
   function memoized(kind, args, compute) {
     if (!args.cache) return compute();
     const cache = sharedCache(), key = resultKey(kind, args);
@@ -788,14 +788,30 @@
     if (!model) throw codedError('model-missing', `Modèle « ${modelName} » introuvable parmi les modèles e-mail`);
     const projectRow = (await env.rows('Projets')).find(row => row.id === Number(project.id));
     if (!projectRow) throw codedError('project-missing', 'Projet introuvable dans Grist');
-    const contexts = await contextsFor(env, projectRow);
+    return draftFrom(env, model, await contextsFor(env, projectRow), client, null);
+  }
+  // Le brouillon d'une LIGNE d'une table quelconque (séance, invité…) : ce que fait `prepare` pour un projet, avec cette ligne pour seule source des variables (les
+  // références et les « Tables liées » s'en détachent comme pour un projet). `row` : { table, id } ; `defaults.bcc` : les destinataires à mettre en copie cachée quand
+  // le modèle n'en donne aucun (invités habituels : une liste, pas une ligne). Rend { url, fields, bodyText, length, issues, modelName }.
+  // Erreurs (`error.code`) : 'models-table-missing', 'model-missing', 'row-missing'.
+  const prepareRow = args => memoized('mailrow', args, () => prepareRowFresh(args));
+  async function prepareRowFresh({ row, modelName, client, now, cache, defaults }) {
+    const env = await createEnv({ now, cache });
+    const model = (await loadModels(env)).find(item => item.type === MAIL_TYPE && item.name === modelName);
+    if (!model) throw codedError('model-missing', `Modèle « ${modelName} » introuvable parmi les modèles e-mail`);
+    const found = (await env.rows(row.table)).find(item => item.id === Number(row.id));
+    if (!found) throw codedError('row-missing', `Ligne introuvable dans ${row.table}`);
+    return draftFrom(env, model, [{ table: row.table, row: found }], client, defaults || null);
+  }
+  async function draftFrom(env, model, contexts, client, defaults) {
     const report = newReport();
-    const [subject, to, cc, bcc] = await Promise.all([
+    const [subject, to, cc, bcc0] = await Promise.all([
       resolveField(env, contexts, report, model.subject, {}),
       resolveField(env, contexts, report, model.to, { silentErrors: true }),
       resolveField(env, contexts, report, model.cc, { silentErrors: true }),
       resolveField(env, contexts, report, model.bcc, { silentErrors: true })
     ]);
+    const bcc = !to.trim() && !cc.trim() && !bcc0.trim() && defaults && defaults.bcc ? defaults.bcc : bcc0;
     const bodyText = await resolveBody(env, contexts, report, model.content);
     const url = buildMailtoUrl({ to, cc, bcc, subject, bodyText, client: CLIENTS.includes(client) ? client : 'standard' });
     const issues = [];
@@ -974,7 +990,7 @@
 
   global.VisaMail = {
     CLIENTS, MODELS_TABLE, SAFE_URL_LENGTH,
-    prepare, prepareDocument, listEmailModels, listDocumentModels, modelOverview, findModel, issueText, openLink, peek, clearCache,
+    prepare, prepareRow, prepareDocument, listEmailModels, listDocumentModels, modelOverview, findModel, issueText, openLink, peek, clearCache,
     // Exposés pour les tests.
     buildMailtoUrl, plainTextFromHtml, checkUrlLength, addressesOf, looksLikeAddress, formatValue, formatDate, sanitizeHtml
   };

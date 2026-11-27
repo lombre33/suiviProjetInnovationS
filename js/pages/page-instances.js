@@ -65,6 +65,10 @@
   const NOTIF_SIGNEES = { tableId: 'Projets', colId: 'Notifications_Signees' };
   // Session de la vue « Relecture & envoi » : projet affiché, projets cochés, mail lu depuis le modèle Publipostage+ (une lecture par projet et par
   // modèle), nœud du courrier (PDF signé ou aperçu) conservé d'un rendu à l'autre, noms des modèles proposés dans le paramétrage.
+  const newInvKind = () => ({ reader: null, readerNonce: -1, dock: null, ready: false, last: '' });
+  // Session de l'étape « Mail d'invitation » : l'élément affiché ('usual' = les invités habituels, sinon l'identifiant d'un invité spécifique), le mail lu pour la
+  // ligne affichée, le nœud d'état du volet (conservé d'un rendu à l'autre) et un lecteur Publipostage+ par table (séance, invité).
+  const newInv = () => ({ sel: 'usual', nonce: 0, editing: false, mail: { key: '', status: '', draft: null, error: null }, node: null, watch: null, poll: null, key: '', active: '', fb: null, kinds: { usual: newInvKind(), guest: newInvKind() } });
   const newRev = () => ({ active: 0, checked: {}, busy: false, models: undefined, mail: { key: '', status: '', draft: null, error: null, nonce: 0 }, doc: { key: '', node: null, handle: null, nonce: 0, watch: null, reader: null, readerNonce: -1, ctx: null, want: false, dock: false, busy: false, poll: null, last: '' } });
 
   let todayOverride = null;
@@ -73,7 +77,7 @@
   const S = {
     loaded: false, loading: null, error: '', errorHtml: '', raw: {}, store: null, model: null, defer: false, drag: null,
     prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }, prefsRowId: null, personId: 0,
-    ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() }
+    ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev(), inv: newInv() }
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -676,18 +680,12 @@
     return h + '</div>';
   }
 
-  function dateCard(V, kind) {
-    const s = V.s, inv = kind === 'invitation';
-    const date = inv ? s.mailInvitationLe : s.mailCrLe, model = inv ? V.cfg.modInvitation : V.cfg.modCr;
-    let h = '<div class="card">' + ic(inv ? 'mail' : 'send') + '<span class="tag proj plain" title="Modèle Publipostage+ (GFS)">' + esc(model || '— Choisir —') + '</span><span class="sp"></span>'
-      + DateInput.markup({ cls: 'dp', iso: date, aria: inv ? "Date d'envoi du mail d'invitation" : "Date d'envoi du mail du compte rendu", attrs: 'data-chg="' + (inv ? 'inv-date' : 'crm-date') + '"' })
-      + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da(inv ? 'inv-today' : 'crm-today') + '>' + ic('calCheck') + '</button></div>';
-    if (inv) {
-      const nWritten = s.guests.filter(g => g.ecritLe).length;
-      const horTot = s.guests.filter(g => !!V.firstStart(g)).length, horOk = s.guests.filter(g => { const f0 = V.firstStart(g); return !!f0 && !!g.passageLe && g.passageHeure === f0; }).length;
-      h += '<div class="rowf"><span class="bar" title="Invités écrits"><i style="width:' + (s.guests.length ? Math.round(100 * nWritten / s.guests.length) : 0) + '%"></i></span><span class="meta">' + nWritten + '/' + s.guests.length + ' invités écrits</span><span class="meta">· ' + horOk + '/' + horTot + ' horaires de passage envoyés</span></div>';
-    }
-    return h;
+  // Étape « Envoi du CR » : le modèle (rappel de ce que GFS doit ouvrir), la date d'envoi et « Envoyé aujourd'hui ». (L'étape Invitation a sa propre vue : invitationHtml.)
+  function dateCard(V) {
+    const s = V.s, model = V.cfg.modCr;
+    return '<div class="card">' + ic('send') + '<span class="tag proj plain" title="Modèle Publipostage+ (GFS)">' + esc(model || '— Choisir —') + '</span><span class="sp"></span>'
+      + DateInput.markup({ cls: 'dp', iso: s.mailCrLe, aria: "Date d'envoi du mail du compte rendu", attrs: 'data-chg="crm-date"' })
+      + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('crm-today') + '>' + ic('calCheck') + '</button></div>';
   }
 
   // Relecture repliée : « V0 rédigée · 1/2 validé » et le téléchargement restent dans l'en-tête de l'étape.
@@ -1077,6 +1075,235 @@
     rebuild(); render();
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Étape 3 · Mail d'invitation : la même vue que la « Relecture & envoi » des notifications (demande d'Antoine du 27/11/2026)
+  // ---------------------------------------------------------------------------------------------
+  // Avant, l'étape portait GFS : le widget ne peut pas lui dire quel fichier ouvrir, il rouvrait le dernier (souvent le compte rendu) au lieu du modèle d'invitation.
+  // Maintenant, à gauche, un bloc « Invités habituels » (UN mail pour toute la liste permanente) puis une ligne par invité spécifique (ajouté sur un point : son mail
+  // et son horaire de passage) ; à droite, le mail lu par Publipostage+ lui-même (lecture épurée, même iframe pilotée que le courrier des notifications, modèle ouvert
+  // PAR SON NOM : Instances.Modele_invitation pour la séance, Instances.Modele_invitation_specifique pour un invité). Les en-têtes (À, Objet) et le lien « Ouvrir dans
+  // ma messagerie » viennent de VisaMail.prepareRow (la même résolution des variables que pour les notifications, mais à partir de la ligne affichée). Deux iframes
+  // au plus : Publipostage+ ne connaît qu'une table par chargement (la séance pour le bloc, Instance_Invites pour un invité) ; passer d'un invité à l'autre n'envoie
+  // que la ligne. Rien n'est écrit dans le document d'ici, sauf les pastilles « écrit » et « horaire envoyé » (colonnes déjà tenues par l'étape Invités).
+  function invGroups(V) {
+    const usual = V.guestOrder.filter(g => g.origine !== 'point'), spec = V.guestOrder.filter(g => g.origine === 'point');
+    return { usual, spec };
+  }
+  function invCounts(V) {
+    const s = V.s, { usual, spec } = invGroups(V), hasUsual = usual.length > 0;
+    const usualDone = hasUsual && usual.every(g => g.ecritLe), usualSome = usual.some(g => g.ecritLe);
+    const horTot = s.guests.filter(g => !!V.firstStart(g)).length;
+    const horOk = s.guests.filter(g => { const f0 = V.firstStart(g); return !!f0 && !!g.passageLe && g.passageHeure === f0; }).length;
+    return { usual, spec, hasUsual, usualDone, usualSome, nMails: (hasUsual ? 1 : 0) + spec.length, nWritten: (usualDone ? 1 : 0) + spec.filter(g => g.ecritLe).length, horTot, horOk };
+  }
+  // L'élément affiché : le bloc des habituels, ou un invité spécifique encore présent (sinon retour au bloc).
+  function invSel(V) {
+    const I = S.ui.inv, c = invGroups(V);
+    if (I.sel !== 'usual' && !c.spec.some(g => g.id === I.sel)) I.sel = 'usual';
+    if (I.sel === 'usual' && !c.usual.length && c.spec.length) I.sel = c.spec[0].id;
+    return I.sel;
+  }
+  function invTarget(V) {
+    const sel = invSel(V);
+    return sel === 'usual'
+      ? { kind: 'usual', sel, table: 'Suivi_Instance', rowId: V.s.id, model: V.cfg.modInvitation, what: 'invités habituels' }
+      : { kind: 'guest', sel, table: 'Instance_Invites', rowId: sel, model: V.cfg.modInvitationSpec, what: 'invités spécifiques' };
+  }
+  // Les adresses de la liste habituelle : mises en copie cachée quand le modèle ne donne aucun destinataire (un mail pour toute la liste).
+  const invUsualAddresses = V => Array.from(new Set(invGroups(V).usual.map(g => personOf(V.m, g.personneId).email).filter(Boolean)));
+  const horaireTip = (g, hs, fs0) => (hs === 'none' ? 'Aucun point : pas d\'horaire de passage' : (hs === 'stale' ? 'Horaire modifié depuis l\'envoi : ' + g.passageHeure + ' devient ' + fs0 + ' (cliquer pour marquer le nouvel horaire envoyé)' : (hs === 'sent' ? 'Horaire ' + g.passageHeure + ' envoyé le ' + L.fmtDate(g.passageLe) + ' (cliquer pour effacer)' : 'Horaire de passage ' + fs0 + ' pas encore envoyé (cliquer pour marquer envoyé)')));
+
+  // Lit le mail de la ligne affichée dans son modèle ; une lecture par (ligne, modèle, messagerie), relancée par le bouton « Relire ».
+  function ensureInvMail(V, t) {
+    const R = S.ui.inv.mail, I = S.ui.inv;
+    if (!t.model || !global.VisaMail || !global.VisaMail.prepareRow) { R.key = ''; R.status = ''; R.draft = null; R.error = null; return; }
+    const bcc = t.kind === 'usual' ? invUsualAddresses(V).join(', ') : '';
+    const key = [t.table, t.rowId, t.model, S.prefs.messagerie, bcc, I.nonce].join('|');
+    if (R.key === key) return;
+    R.key = key; R.status = 'loading'; R.draft = null; R.error = null;
+    const args = { row: { table: t.table, id: t.rowId }, modelName: t.model, client: S.prefs.messagerie, now: () => new Date(), cache: true, defaults: { bcc } };
+    const ready = global.VisaMail.peek && global.VisaMail.peek('mailrow', args);
+    if (ready) { R.status = 'ok'; R.draft = ready; return; }
+    global.VisaMail.prepareRow(args).then(draft => {
+      if (R.key !== key || S.ui.inv.mail !== R) return;
+      R.status = 'ok'; R.draft = draft; render();
+    }).catch(err => {
+      if (R.key !== key || S.ui.inv.mail !== R) return;
+      R.status = 'error'; R.error = err; render();
+    });
+  }
+
+  function invBar(V, c) {
+    const s = V.s;
+    return '<div class="card">' + ic('mail')
+      + '<span class="tag-soft rchip" title="Mails écrits : un pour les invités habituels, un par invité spécifique">' + ic('mail', 's') + c.nWritten + '/' + c.nMails + '</span>'
+      + '<span class="tag-soft rchip" title="Horaires de passage envoyés aux invités (' + c.horOk + ' sur ' + c.horTot + ')">' + ic('clock', 's') + c.horOk + '/' + c.horTot + '</span><span class="sp"></span>'
+      + DateInput.markup({ cls: 'dp', iso: s.mailInvitationLe, aria: "Date d'envoi du mail d'invitation", attrs: 'data-chg="inv-date"' })
+      + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('inv-today') + '>' + ic('calCheck') + '</button></div>';
+  }
+  function invListPane(V, sel, c) {
+    let h = '<div class="rpane rlist"><div class="rhead"><strong>Invitations de la séance</strong></div><ul class="rrows">';
+    if (c.hasUsual) {
+      const on = sel === 'usual', nWr = c.usual.filter(g => g.ecritLe).length, st = c.usualDone ? 'done' : (c.usualSome ? 'part' : 'todo');
+      const tip = st === 'done' ? 'Invitation écrite pour tous (cliquer pour effacer)' : (st === 'part' ? nWr + ' sur ' + c.usual.length + ' marqués écrits (cliquer pour marquer tout le monde)' : 'Pas encore écrite (cliquer pour marquer écrite pour tous)');
+      h += '<li class="rrow' + (on ? ' on' : '') + '" data-inv="usual"><span class="rlead">' + ic('people', 's') + '</span><button type="button" class="rpick" aria-pressed="' + (on ? 'true' : 'false') + '" ' + da('inv-pick', { v: 'usual' }) + '><strong>Invités habituels</strong>'
+        + '<span class="psub">1 mail · ' + plural(c.usual.length, 'destinataire', 'destinataires') + '</span></button>'
+        + '<button type="button" class="ib ' + (st === 'done' ? 'on' : (st === 'part' ? 'warn' : '')) + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '" ' + da('inv-usual-written') + '>' + ic('mail') + '</button></li>';
+    }
+    if (c.spec.length) {
+      h += '<li class="rsec" title="Personnes ajoutées sur un point de l\'ordre du jour : un mail chacune, avec son horaire de passage">' + ic('star', 's') + 'Invités spécifiques<span class="tag-soft">' + c.spec.length + '</span></li>';
+      c.spec.forEach(g => {
+        const person = personOf(V.m, g.personneId), on = sel === g.id, fs0 = V.firstStart(g), hs = L.horaireState(g, fs0);
+        const first = V.schedAll.find(row => row.p.invites.indexOf(g.id) >= 0);
+        const ecritTip = g.ecritLe ? 'Écrit le ' + L.fmtDate(g.ecritLe) + ' (cliquer pour effacer)' : 'Pas encore écrit (cliquer pour marquer écrit aujourd\'hui)', horTip = horaireTip(g, hs, fs0);
+        h += '<li class="rrow' + (on ? ' on' : '') + '" data-inv="' + g.id + '"><button type="button" class="rpick" aria-pressed="' + (on ? 'true' : 'false') + '" ' + da('inv-pick', { v: g.id }) + '><span class="rname"><strong>' + esc(person.name) + '</strong>'
+          + (person.gradeKind ? '<span class="gbadge ' + gradeClass(person) + '">' + (person.gradeKind === 'vp' ? 'VP' : 'Dir.') + '</span>' : '') + '</span>'
+          + '<span class="psub">' + (first ? esc(L.hhmm(first.start) + ' · ' + L.cut(first.p.titre, 30)) : 'Aucun point') + '</span></button>'
+          + '<button type="button" class="ib ' + (g.ecritLe ? 'on' : '') + '" title="' + esc(ecritTip) + '" aria-label="' + esc(ecritTip) + '" ' + da('g-ecrit', { id: g.id }) + '>' + ic('mail') + '</button>'
+          + '<button type="button" class="ib ' + (hs === 'stale' ? 'warn' : (hs === 'sent' ? 'on' : '')) + '" title="' + esc(horTip) + '" aria-label="' + esc(horTip) + '" ' + (hs === 'none' ? 'disabled ' : '') + da('g-hor', { id: g.id }) + '>' + ic('clock') + '</button></li>';
+      });
+    }
+    return h + '</ul></div>';
+  }
+  function invMailPane(V, t, c) {
+    const I = S.ui.inv, R = I.mail, g = t.kind === 'guest' ? guestOf(V, t.sel) : null, model = t.model;
+    ensureInvMail(V, t);
+    let h = '<div class="rpane rmail"><div class="rhead">' + ic('mail', 's') + '<strong>E-mail</strong><span class="rbadge viol" title="Le mail tel que Publipostage+ le compose, en lecture">' + ic('eye', 'xs') + 'Mode lecture</span>'
+      + (model ? '<span class="psub rmodel" title="Modèle e-mail de Publipostage+ (' + esc(t.what) + ')">' + esc(model) + '</span>' : '') + '<span class="sp"></span>'
+      + (model ? '<label class="rzim" title="Zimbra lit le lien du brouillon autrement : le widget l\'adapte"><input type="checkbox" ' + (S.prefs.messagerie === 'zimbra' ? 'checked ' : '') + 'data-chg="rev-zimbra">Zimbra</label>' : '')
+      + '<button type="button" class="ibtn" title="Relire les données et le modèle" aria-label="Relire les données" ' + da('inv-refresh') + '>' + ic('refresh', 's') + '</button>'
+      + '<button type="button" class="pillbtn ghost editbtn' + (I.editing ? ' on' : '') + '" ' + (model ? '' : 'disabled ') + 'title="' + (model ? (I.editing ? 'Revenir à la lecture du mail' : 'Modifier le modèle « ' + esc(model) + ' » dans Publipostage+ (ici même)') : 'Aucun modèle choisi : voir le paramétrage de l\'instance') + '" aria-label="' + (I.editing ? 'Revenir à la lecture' : 'Modifier le modèle') + '" aria-pressed="' + (I.editing ? 'true' : 'false') + '" ' + da('inv-edit') + '>'
+      + ic(I.editing ? 'eye' : 'pencil', 's') + '<span class="elabel">' + (I.editing ? 'Revenir à la lecture' : 'Modifier le modèle') + '</span></button></div>';
+    if (!model) {
+      return h + vemptyHtml(t.kind === 'usual' ? 'Aucun modèle d\'invitation choisi' : 'Aucun modèle choisi pour les invités spécifiques',
+        'Choisissez-le dans le paramétrage de l\'instance : un modèle de type e-mail de Publipostage+' + (t.kind === 'guest' ? ', dont les variables partent de la ligne de l\'invité (table Instance_Invites).' : '.'),
+        '<button type="button" class="pillbtn" ' + da('settings-open') + '>' + ic('sliders', 's') + 'Paramétrage</button>') + '</div>';
+    }
+    const row = (k, v) => '<span class="k">' + k + '</span><span class="v">' + v + '</span>';
+    if (R.status === 'ok' && R.draft) {
+      const f = R.draft.fields;
+      h += '<div class="rfields">' + row('À', f.to ? esc(f.to) : '<span class="muted">—</span>') + (f.cc ? row('Cc', esc(f.cc)) : '')
+        + (f.bcc ? row('Cci', '<span title="' + esc(f.bcc) + '">' + plural(global.VisaMail.addressesOf(f.bcc).length, 'destinataire', 'destinataires') + ' en copie cachée</span>') : '') + row('Objet', '<strong>' + esc(f.subject) + '</strong>') + '</div>';
+      if (R.draft.issues.length) h += '<ul class="rissues" role="status">' + R.draft.issues.map(x => '<li>' + esc(global.VisaMail.issueText(x)) + '</li>').join('') + '</ul>';
+    } else if (R.status === 'error') h += '<div class="rfields">' + row('Mail', '<span class="muted">indisponible : ' + esc(reviewErrorText(R.error)) + '</span>') + '</div>';
+    else h += '<div class="rfields">' + row('Mail', '<span class="muted">lecture du modèle…</span>') + '</div>';
+    const ok = R.status === 'ok' && !!R.draft, who = t.kind === 'usual' ? 'les invités habituels' : (g ? personOf(V.m, g.personneId).name : '');
+    const written = t.kind === 'usual' ? c.usualDone : !!(g && g.ecritLe);
+    h += '<div class="rdocbody' + (I.editing ? ' tall' : '') + '" data-slot="inv-mail"></div><div class="rfoot">'
+      + '<button type="button" class="pillbtn" ' + (ok ? '' : 'disabled ') + 'title="Ouvre le brouillon dans votre messagerie' + (t.kind === 'usual' ? ' (la liste habituelle en copie cachée)' : '') + '" ' + da('inv-open') + '>' + ic('mail', 's') + 'Ouvrir dans ma messagerie</button>'
+      + '<button type="button" class="pillbtn ghost" ' + (ok ? '' : 'disabled ') + 'title="Copie l\'objet et le corps du mail" ' + da('inv-copy') + '>' + ic('copy', 's') + 'Copier</button><span class="sp"></span>'
+      + '<button type="button" class="pillbtn ghost' + (written ? ' okon' : '') + '" aria-pressed="' + (written ? 'true' : 'false') + '" title="' + (written ? 'Invitation écrite (cliquer pour effacer)' : 'Marquer l\'invitation écrite pour ' + esc(who)) + '" ' + (t.kind === 'usual' ? da('inv-usual-written') : da('g-ecrit', { id: t.sel })) + '>' + ic('check', 's') + (written ? 'Invitation écrite' : 'Marquer écrite') + '</button>';
+    if (g) {
+      const fs0 = V.firstStart(g), hs = L.horaireState(g, fs0);
+      h += '<button type="button" class="pillbtn ghost' + (hs === 'sent' ? ' okon' : (hs === 'stale' ? ' warnon' : '')) + '" ' + (hs === 'none' ? 'disabled ' : '') + 'title="' + esc(horaireTip(g, hs, fs0)) + '" ' + da('g-hor', { id: g.id }) + '>' + ic('clock', 's')
+        + (hs === 'sent' ? 'Horaire envoyé' : (hs === 'stale' ? 'Horaire à renvoyer' : 'Marquer l\'horaire envoyé')) + '</button>';
+    }
+    return h + '</div></div>';
+  }
+  function invitationHtml(V) {
+    const c = invCounts(V), sel = invSel(V), t = invTarget(V);
+    if (!c.nMails) return invBar(V, c) + vemptyHtml('Aucun invité', 'Ajoutez des invités dans l\'étape Invités : la liste permanente de l\'instance et les personnes ajoutées sur un point apparaissent ici.');
+    return invBar(V, c) + '<div class="rev inv">' + invListPane(V, sel, c) + invMailPane(V, t, c) + '</div>';
+  }
+
+  // Les iframes de Publipostage+ vivent dans des « docks » hors du rendu (un nœud qu'on déplace recharge son iframe, or le rendu de la page recrée tout), posés par-dessus le
+  // volet du mail : un dock par table (séance, invité). Même principe que le courrier des notifications (placeDock) ; si la lecture échoue (page d'une autre origine, modèle
+  // absent de la liste, délai), le volet se rabat sur le texte du mail lu par le widget, avec la raison.
+  function invDock(kind) {
+    const K = S.ui.inv.kinds[kind], root = rootEl();
+    if (K.dock && K.dock.isConnected) return K.dock;
+    const wrap = root && root.querySelector('.in-wrap'); if (!wrap) return null;
+    const el = document.createElement('div'); el.className = 'in-ppdock'; el.dataset.dock = 'inv-' + kind; el.setAttribute('aria-label', 'Mail lu par Publipostage+');
+    wrap.appendChild(el); K.dock = el;
+    return el;
+  }
+  function placeInvDock() {
+    const I = S.ui.inv, root = rootEl(), wrap = root && root.querySelector('.in-wrap');
+    const slot = I.node && I.node.parentNode && I.node.parentNode.isConnected ? I.node.parentNode : null, rect = slot ? slot.getBoundingClientRect() : null;
+    Object.keys(I.kinds).forEach(kind => {
+      const K = I.kinds[kind], dock = K.dock; if (!dock) return;
+      const show = !!(wrap && rect && rect.width >= 2 && rect.height >= 2 && I.active === kind && K.ready);
+      if (!show) { if (dock.classList.contains('on')) dock.classList.remove('on'); return; }
+      const base = wrap.getBoundingClientRect();
+      const box = [Math.round(rect.left - base.left - wrap.clientLeft), Math.round(rect.top - base.top - wrap.clientTop), Math.round(rect.width), Math.round(rect.height)], sig = box.join('/');
+      if (K.last !== sig) { K.last = sig; dock.style.left = box[0] + 'px'; dock.style.top = box[1] + 'px'; dock.style.width = box[2] + 'px'; dock.style.height = box[3] + 'px'; }
+      if (!dock.classList.contains('on')) dock.classList.add('on');
+    });
+  }
+  function paintInvFallback() {
+    const I = S.ui.inv, R = I.mail, node = I.node; if (!node || !I.fb) return;
+    const notice = I.fb.why ? 'La lecture de Publipostage+ est indisponible (' + I.fb.why + ') : aperçu simplifié du mail.' : '';
+    if (R.status === 'ok' && R.draft) node.innerHTML = withPrefix((notice ? '<ul class="rissues" role="status"><li>' + esc(notice) + '</li></ul>' : '') + '<pre class="rbody">' + esc(R.draft.bodyText) + '</pre>');
+    else if (R.status === 'error') sayIn(node, 'Mail indisponible', reviewErrorText(R.error));
+    else sayIn(node, 'Lecture du modèle…');
+  }
+  function onInvReaderChange(kind, phase, note) {
+    const I = S.ui.inv, K = I.kinds[kind];
+    if (I.active !== kind || !I.node) return; // ce n'est plus le mail affiché (autre élément, autre étape)
+    if (phase === 'ready') { K.ready = true; I.fb = null; I.node.replaceChildren(); placeInvDock(); }
+    else if (phase === 'loading') { K.ready = false; placeInvDock(); sayIn(I.node, 'Ouverture de Publipostage+ en lecture…', note); }
+    else if (phase === 'failed') { K.ready = false; I.active = ''; placeInvDock(); I.fb = { why: note }; paintInvFallback(); }
+  }
+  function ensureInvReader(kind) {
+    const I = S.ui.inv, K = I.kinds[kind];
+    if (K.reader) return K.reader;
+    K.readerNonce = I.nonce;
+    K.reader = global.PpReader.create(Object.assign({}, reader.opts, {
+      container: invDock(kind), target: reader.target || (() => global.PageRedaction.resolveTarget()), onChange: (phase, note) => onInvReaderChange(kind, phase, note)
+    }));
+    if (!I.poll) I.poll = setInterval(placeInvDock, 500); // un décalage de mise en page sans redimensionnement du volet est rattrapé
+    return K.reader;
+  }
+  function openInvReader(t, key) {
+    const I = S.ui.inv; let K = I.kinds[t.kind];
+    if (K.reader && K.readerNonce !== I.nonce) { K.reader.destroy(); K.reader = null; K.ready = false; } // « Relire » : on repart d'une iframe neuve
+    if (K.reader && K.reader.phase === 'failed') { I.active = ''; placeInvDock(); I.fb = { why: K.reader.note }; paintInvFallback(); return; }
+    I.active = t.kind; I.fb = null; K.ready = !!(K.reader && K.reader.phase === 'ready');
+    if (!K.ready) sayIn(I.node, 'Ouverture de Publipostage+ en lecture…');
+    placeInvDock();
+    const stale = () => I.key !== key;
+    global.VisaMail.findModel(t.model, { cache: true }).then(found => {
+      if (stale()) return;
+      if (!found) { I.active = ''; placeInvDock(); I.fb = { why: 'modèle introuvable' }; paintInvFallback(); return; }
+      ensureInvReader(t.kind).show({ table: t.table, rowId: t.rowId, modelId: found.id });
+      placeInvDock();
+    }).catch(err => {
+      if (stale()) return;
+      I.active = ''; placeInvDock(); I.fb = { why: err && err.message ? global.CoreUtils.failureReason(err, { what: 'lecture du mail par Publipostage+' }) : 'lecture impossible' }; paintInvFallback();
+    });
+  }
+  // Appelée à chaque rendu : pose le nœud du mail dans le nouveau volet et n'envoie une ligne à Publipostage+ que lorsque la ligne ou le modèle change.
+  function syncInvitation() {
+    const root = rootEl(), V = S.view, I = S.ui.inv;
+    const slot = root && root.querySelector('[data-slot="inv-mail"]');
+    if (!slot || !V || !V.s || V.stepKey !== 'invitation') { I.active = ''; I.key = ''; placeInvDock(); if (I.watch) { I.watch.disconnect(); I.watch = null; } return; }
+    const t = invTarget(V);
+    if (!I.node) { I.node = document.createElement('div'); I.node.className = 'in-rdocview'; }
+    if (I.node.parentNode !== slot) slot.appendChild(I.node);
+    if (!I.watch && typeof ResizeObserver === 'function') { I.watch = new ResizeObserver(() => placeInvDock()); I.watch.observe(I.node); const main = root.querySelector('[data-region="main"]'); if (main) I.watch.observe(main); }
+    const key = [t.kind, t.table, t.rowId, t.model, I.nonce].join('|');
+    if (I.key === key) { placeInvDock(); if (I.fb) paintInvFallback(); return; }
+    I.key = key; I.fb = null; I.node.replaceChildren(); I.active = ''; placeInvDock();
+    if (!t.model) return; // le volet dit déjà qu'aucun modèle n'est choisi
+    if (readerReady()) { openInvReader(t, key); return; }
+    I.fb = { why: '' }; paintInvFallback();
+  }
+  function leaveInvEdit() {
+    const I = S.ui.inv, K = I.kinds[I.active];
+    if (I.editing && K && K.reader) K.reader.read();
+    I.editing = false;
+  }
+  function releaseInv(full) {
+    const I = S.ui.inv; if (!I) return;
+    if (I.watch) { I.watch.disconnect(); I.watch = null; }
+    if (I.node && I.node.parentNode) I.node.remove();
+    I.node = null; I.key = ''; I.active = ''; I.fb = null;
+    if (full) {
+      clearInterval(I.poll); I.poll = null;
+      Object.keys(I.kinds).forEach(kind => { const K = I.kinds[kind]; if (K.reader) K.reader.destroy(); K.reader = null; K.ready = false; if (K.dock) K.dock.remove(); K.dock = null; });
+    } else placeInvDock();
+  }
+
   function panelHtml(V) {
     const stepKey = V.stepKey;
     const statusText = V.curDone ? (L.validatedInfo(stepKey, V.ctx, V.nameOf) || 'Validé') : (stepKey === V.firstOpen ? 'En cours' : 'À venir');
@@ -1088,9 +1315,9 @@
       + (V.curDone ? '<button type="button" class="rbtn" title="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" aria-label="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" ' + da('reopen') + '>' + ic('reopen') + '</button>' : '') + '</div>';
     if (stepKey === 'odj') h += odjHtml(V);
     else if (stepKey === 'invites') h += invitesHtml(V);
-    else if (stepKey === 'invitation') h += dateCard(V, 'invitation');
+    else if (stepKey === 'invitation') h += invitationHtml(V);
     else if (stepKey === 'cr') h += crHtml(V);
-    else if (stepKey === 'crmail') h += dateCard(V, 'crmail');
+    else if (stepKey === 'crmail') h += dateCard(V);
     else h += V.rev ? reviewHtml(V) : notifsHtml(V);
     return h + '</section>';
   }
@@ -1158,8 +1385,9 @@
       const counts = Object.keys(mods.counts).map(t => t + ' ' + mods.counts[t]).join(', ');
       return '<div class="psub rnote warn" role="status">Aucun modèle de type ' + empty.join(' ni ') + ' trouvé dans Publipostage+ (' + (mods.total ? mods.total + ' modèle' + (mods.total > 1 ? 's' : '') + ' lu' + (mods.total > 1 ? 's' : '') + ' : ' + esc(counts) : 'table vide') + '). Tapez le nom du modèle.</div>';
     };
-    h += '<div class="fgrp">' + lbl('Modèles de mail', 'Modele_invitation', 'Modele_CR') + '<div class="rowf">' + ic('mail')
-      + modelField('Modele_invitation', cfg.modInvitation, 'Modèle d\'invitation', 'mail')
+    h += '<div class="fgrp">' + lbl('Modèles de mail', 'Modele_invitation', 'Modele_invitation_specifique', 'Modele_CR') + '<div class="rowf">' + ic('mail')
+      + modelField('Modele_invitation', cfg.modInvitation, 'Modèle d\'invitation des invités habituels', 'mail')
+      + ic('star') + modelField('Modele_invitation_specifique', cfg.modInvitationSpec, 'Modèle d\'invitation des invités spécifiques', 'mail')
       + ic('send') + modelField('Modele_CR', cfg.modCr, 'Modèle d\'envoi du compte rendu', 'mail') + '</div>' + modelsNotice(['mail']) + '</div>';
     // Notifications : le mail (modèle e-mail de Publipostage+) et le courrier (modèle document) lus par la vue « Relecture & envoi ».
     if (cfg.steps.indexOf('notifs') >= 0) {
@@ -1214,13 +1442,15 @@
     autosizeTitles();
     renderViewer();
     syncReviewDoc();
+    syncInvitation();
     syncCadre();
   }
 
-  // « Plein cadre » : seulement sur les étapes Compte rendu et Mail d'invitation (celles qui portent GFS) et tant que la page Instances est affichée. La classe de la page masque le
+  // « Plein cadre » : seulement sur les étapes Compte rendu et Envoi du CR (celles qui portent GFS) et tant que la page Instances est affichée. La classe de la page masque le
   // bandeau et les panneaux ; celle de <body> masque l'en-tête de l'appli (marque + onglets) et ses marges (voir css/instances.css).
-  // Étapes qui portent GFS : le compte rendu et le mail d'invitation (même iframe, même « plein cadre »).
-  const GFS_STEPS = ['cr', 'invitation', 'crmail'];
+  // Étapes qui portent GFS : le compte rendu et l'envoi du CR (même iframe, même « plein cadre »). Le mail d'invitation n'en fait plus partie (27/11/2026) : GFS gardait le dernier
+  // fichier ouvert et le widget ne peut pas lui dire quel modèle ouvrir ; l'invitation se lit désormais dans Publipostage+ lui-même (voir invitationHtml).
+  const GFS_STEPS = ['cr', 'crmail'];
   const viewerStepOf = V => (V && V.s && GFS_STEPS.indexOf(V.view) >= 0 ? V.view : '');
   function pleinActive() {
     const V = S.view, view = document.getElementById('view-instances');
@@ -1466,7 +1696,7 @@
     const root = rootEl(); if (!root) return;
     const host = root.querySelector('[data-region="viewer"]'); if (!host) return;
     const V = S.view;
-    const vstep = viewerStepOf(V), inv = vstep === 'invitation', crm = vstep === 'crmail', mailStep = inv || crm;
+    const vstep = viewerStepOf(V), crm = vstep === 'crmail', mailStep = crm;
     const show = !!(S.loaded && vstep);
     host.hidden = !show; // masquée (pas détruite) hors de l'étape : GFS garde son état
     if (!show) {
@@ -1474,21 +1704,12 @@
       return;
     }
     if (!host.firstChild) host.innerHTML = withPrefix('<div class="viewer"><div class="vbar"></div><div class="vbody"><div data-pane="gfs"></div><div data-pane="pdf" hidden></div></div></div>');
-    // Mail d'invitation : toujours GFS (pas de PDF à afficher) ; Compte rendu : GFS ou PDF exporté selon le choix de la barre.
+    // Envoi du CR : toujours GFS (pas de PDF à afficher) ; Compte rendu : GFS ou PDF exporté selon le choix de la barre.
     const edit = mailStep || viewer.mode === 'edit', hasPdf = V.s.crPdf.length > 0, cadre = S.prefs.cadre, plein = pleinActive();
     host.firstChild.dataset.h = cadre.hauteur;
     const hLabel = { 'ajustee': '1×', 'haute': '1,5×', 'tres-haute': '2,5×' }[cadre.hauteur];
     const c = crSummary(V), sub = plein ? '<span class="vname vsub"><strong>' + esc(V.inst.nom) + '</strong> · n°' + esc(V.s.num || '?') + ' · ' + esc(L.fmtDate(V.s.date) || 'sans date') + '</span>' : '';
     const status = '<span class="tag-soft ' + (viewer.gfs.phase === 'ready' ? 'ok' : '') + '" data-gfs-status>' + esc(gfsStatusLabel()) + '</span>';
-    // Barre du mail d'invitation : le modèle à ouvrir dans l'explorateur de GFS ; en plein cadre (le panneau est masqué), la date d'envoi et
-    // le compteur d'invitations écrites restent à portée.
-    const nWritten = V.s.guests.filter(g => g.ecritLe).length, modelName = V.cfg.modInvitation;
-    const invBar = sub + '<span class="vname">' + ic('mail', 's') + 'Mail d\'invitation dans GFS</span>'
-      + '<span class="tag-soft" data-inv-model title="' + esc(modelName ? 'Modèle à ouvrir dans l\'explorateur de GFS (Publipostage+, type e-mail)' : 'Choisissez le modèle dans le paramétrage de l\'instance') + '">' + esc(modelName ? 'Modèle : ' + modelName : 'Aucun modèle choisi') + '</span>' + status
-      + (plein ? '<span class="tag-soft ' + (V.s.guests.length && nWritten === V.s.guests.length ? 'ok' : '') + '">' + nWritten + '/' + V.s.guests.length + ' invitations écrites</span>' : '')
-      + '<span class="sp"></span>'
-      + (plein ? DateInput.markup({ cls: 'dp', iso: V.s.mailInvitationLe, aria: "Date d'envoi du mail d'invitation", attrs: 'data-chg="inv-date"' })
-        + '<button type="button" class="rbtn" title="Envoyé aujourd\'hui" aria-label="Envoyé aujourd\'hui" ' + da('inv-today') + '>' + ic('calCheck') + '</button>' : '');
     // Barre du mail d'envoi du compte rendu (étape 5) : même GFS que l'invitation (la ligne de la séance, le modèle d'envoi du CR de l'instance), et le PDF du CR à
     // portée pour le glisser dans le mail (le mailto: ne joint rien) ; sans PDF, le bouton mène à l'étape CR où on le dépose.
     const crmModel = V.cfg.modCr;
@@ -1508,7 +1729,7 @@
       + (plein ? '<span class="tag-soft ' + (c.v0 ? 'ok' : '') + '">' + (c.v0 ? 'V0 rédigée' : 'V0 à rédiger') + (c.total ? ' · ' + c.valid + '/' + c.total + ' validé' : '') + '</span>' : '')
       + '<span class="sp"></span>';
     host.querySelector('.in-vbar').innerHTML = withPrefix(
-      (inv ? invBar : (crm ? crmBar : crBar))
+      (crm ? crmBar : crBar)
       + (!mailStep && !edit ? '<button type="button" class="pillbtn ghost" ' + (viewer.uploading.has(V.s.id) ? 'disabled ' : '') + 'title="' + (hasPdf ? 'Déposer une nouvelle version : la dernière déposée s\'affiche, les précédentes restent dans la cellule' : 'Déposer le PDF du compte rendu') + '" ' + da('cr-upload') + '>' + ic('upload', 's') + (hasPdf ? 'Nouvelle version' : 'Déposer le PDF') + '</button>' : '')
       + (!mailStep && !edit && hasPdf ? '<button type="button" class="ibtn" title="Ouvrir le PDF dans un nouvel onglet" aria-label="Ouvrir le PDF dans un nouvel onglet" ' + da('cr-download') + '>' + ic('ext') + '</button>' : '')
       + (!mailStep && plein && hasPdf ? '<button type="button" class="ibtn" title="Télécharger le PDF du compte rendu" aria-label="Télécharger le CR" ' + da('cr-download') + '>' + ic('download', 's') + '</button>' : '')
@@ -1799,6 +2020,40 @@
         global.PageRedaction.open(cur.id, { modelId: found.id, from: 'view-instances', crumb: 'Instances · Relecture & envoi ·' });
       }).catch(err => toast('Modèles de Publipostage+ illisibles : ' + global.CoreUtils.failureReason(err, { op: 'read', table: 'Publipostage_Templates' }), true));
     },
+    // étape Mail d'invitation (même vue que « Relecture & envoi » : liste à gauche, mail lu par Publipostage+ à droite)
+    'inv-pick': el => {
+      const v = el.dataset.v, I = S.ui.inv; if (!v) return;
+      leaveInvEdit(); I.sel = v === 'usual' ? 'usual' : Number(v);
+      S.ui.rev.focusSel = '[data-act="inv-pick"][data-v="' + v + '"]'; render();
+    },
+    // Une pastille pour toute la liste habituelle : « Ecrit_le » de chaque habitué (rien d'autre n'est écrit dans Grist d'ici).
+    'inv-usual-written': (el, V) => {
+      const usual = invGroups(V).usual; if (!usual.length) return;
+      const done = usual.every(g => g.ecritLe), day = gristDay(V.today);
+      write((done ? usual : usual.filter(g => !g.ecritLe)).map(g => upd('Instance_Invites', g.id, { Ecrit_le: done ? null : day })));
+    },
+    'inv-refresh': () => {
+      const I = S.ui.inv; I.nonce++; leaveInvEdit();
+      if (global.VisaMail && global.VisaMail.clearCache) global.VisaMail.clearCache(); // les modèles et les lignes sont relus
+      S.ui.rev.focusSel = '[data-act="inv-refresh"]'; rebuild(); render();
+    },
+    // « Modifier le modèle » sur place : Publipostage+ sort de la lecture épurée et passe en Édition, sur le même modèle et la même ligne ; le même bouton revient à la lecture.
+    'inv-edit': () => {
+      const I = S.ui.inv, K = I.kinds[I.active];
+      if (!K || !K.reader || !K.reader.frame || K.reader.phase === 'failed') { toast('Publipostage+ n\'est pas affiché ici : le modèle ne peut pas se modifier depuis cette vue pour le moment.', true); return; }
+      if (I.editing) leaveInvEdit();
+      else if (K.reader.edit()) I.editing = true;
+      S.ui.rev.focusSel = '[data-act="inv-edit"]'; render();
+    },
+    'inv-open': () => {
+      const R = S.ui.inv.mail; if (R.status !== 'ok' || !R.draft) return;
+      global.VisaMail.openLink(R.draft.url);
+      toast('Brouillon ouvert dans votre messagerie.');
+    },
+    'inv-copy': () => {
+      const d = S.ui.inv.mail.draft; if (S.ui.inv.mail.status !== 'ok' || !d) return;
+      copyText((d.fields.subject ? d.fields.subject + '\n\n' : '') + d.bodyText).then(ok => toast(ok ? 'Objet et corps du mail copiés.' : 'Copie impossible : sélectionnez le texte à la main.', !ok));
+    },
     'rev-open': (el, V) => {
       const d = S.ui.rev.mail.draft, cur = V.rev && V.rev.cur;
       if (!cur || cur.state === 'draft' || S.ui.rev.mail.status !== 'ok' || !d) return;
@@ -2016,7 +2271,7 @@
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.errorHtml = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
       S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
-      releaseDoc(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev() };
+      releaseDoc(true); releaseInv(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev(), inv: newInv() };
       setRaw({}); dropGfs(); releasePdf(); viewer.uploading.clear(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');
       const root = rootEl(); if (root) { root.classList.remove('in-plein'); root.innerHTML = ''; }
