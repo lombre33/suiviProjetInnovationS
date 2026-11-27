@@ -462,6 +462,10 @@ cède la place pour toutes les lignes, colonnes alignées). Les noms de personne
 quand la liste est étroite (< 1560 px) ; le nom complet reste dans l'infobulle. Le bouton « Dossier du
 point » est une icône seule (le nom du dossier lié est dans l'infobulle).
 
+**Partie gauche d'une ligne compacte (27/11/2026).** Poignée (16 px) et flèches (16 px) sont plus étroites et la
+colonne des heures n'est plus figée à 108 px : le début s'affiche en gras, la fin dessous en plus discret
+(le tiret reste dans le texte, masqué par le style). Avant, plus de 160 px séparaient le bord de la ligne du titre.
+
 **Étape Invités : états vifs (10/11/2026).** Réponse et appel du jour : pastille pleine, verte
 (viendra / présent), rouge (excusé / absent) ou orange (à confirmer), icône blanche. Invitation écrite
 et horaire de passage envoyés : pastille verte pleine ; horaire modifié depuis l'envoi : orange ; pas

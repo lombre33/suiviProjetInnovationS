@@ -1069,6 +1069,24 @@
       });
     });
 
+    it('ordre du jour : la partie gauche d\'une ligne (poignée, flèches, heures) reste compacte, les heures sont empilées (27/11)', async function () {
+      await withLayout(async () => {
+        await setup({ rows: SUBS_ROWS });
+        step('odj');
+        q('.in-pts').style.width = '1154px';
+        await settleResize();
+        const row = point(1), box = sel => row.querySelector(sel).getBoundingClientRect();
+        const left = Math.round(box('.in-ptitle').left - row.getBoundingClientRect().left);
+        // avant : poignée 22 + flèches 20 + colonne d'heures figée à 108 px, soit plus de 160 px avant le titre
+        assertTrue(left <= 112, 'le titre commence à ' + left + ' px du bord de la ligne (112 px au plus)');
+        assertEqual(text('.in-pt[data-pt="1"] .in-ptime'), '09:30–09:40', 'le texte des heures reste « début–fin »');
+        const t = box('.in-ptime'), start = box('.in-ptime b'), end = box('.in-ptime i');
+        assertTrue(end.top >= start.bottom - 1, 'la fin est sous le début');
+        assertTrue(t.width < 56, 'la colonne des heures est étroite (' + Math.round(t.width) + ' px)');
+        assertTrue(Math.round(row.getBoundingClientRect().height) < 56, 'la ligne ne grandit pas pour autant');
+      });
+    });
+
     // ---- Clavier dans le titre d'un point (Antoine 12/11) : Entrée ajoute un point ; Maj/Ctrl+Entrée = retour à la ligne ----
     const typeInto = (el, value) => { el.focus(); el.select(); document.execCommand('insertText', false, value); };
     const keyEnter = (el, mods) => { const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, mods || {})); el.dispatchEvent(ev); return ev; };
