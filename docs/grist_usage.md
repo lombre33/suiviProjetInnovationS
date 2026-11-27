@@ -728,6 +728,14 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
 - **Agrandir le mail ou le courrier (23/11/2026)** : bouton `rev-big` dans l'en-tête de chaque volet ; la classe `in-big-mail` / `in-big-doc` du
   conteneur masque l'autre volet (la liste reste) : **aucun rendu, aucune relecture** (le courrier garde son nœud), la feuille se re-zoome seule.
   Retenu par utilisateur : `Preferences_Widget.Inst_notif_large` (`''`, `mail` ou `doc`).
+- **Filtre par programme (27/11/2026)** : un bouton « Programmes » (entonnoir) dans l'en-tête de l'étape, à côté de « Suivi | Relecture & envoi » (aucune ligne
+  de plus), montré seulement quand la séance compte plusieurs programmes ou qu'un filtre est actif. Menu à cases (il reste ouvert pour en cocher plusieurs ;
+  « Tous les programmes » efface) avec l'effectif de chaque programme ; une fois filtré, le bouton dit le programme (ou « 2 programmes ») et « n/total ».
+  Le programme d'un projet est `Projets.Programme` (ou `Programme_Axe_InnovationS`, comme le Kanban) lu dans `Programmes.Programme` ; sans programme :
+  « Sans programme ». Le filtre ne touche que la liste de cette vue : le badge du sélecteur, la vue « Suivi » et les données ne changent pas ; « Tout
+  générer » et la case « tout cocher » ne concernent que les notifications affichées ; si le projet affiché est masqué, le premier de la liste filtrée
+  prend sa place. Un filtre qui ne correspond à rien dans la séance (programme retenu absent) affiche « Aucune notification pour ce programme » et « Tout
+  afficher ». Retenu par utilisateur : `Preferences_Widget.Inst_notif_programmes` (Text, tableau JSON de libellés, colonne créée par le widget).
 - **Vitesse (23/11/2026)** : changer de projet relisait tout Grist (métadonnées, modèles, tables liées, projets), deux fois (mail et courrier). Avec
   l'option `cache: true` (celle de cette vue), `VisaMail` garde 2 minutes les lectures de tables (réussies ou en échec) et les résultats prêts
   (`peek(kind, args)` les rend sur-le-champ : pas de « Lecture du modèle… » entre deux projets) ; `clearCache()` les jette : bouton « Relire »,
@@ -735,7 +743,7 @@ ni dans `Projets` (« Transmise au porteur » se pose à la main dans Grist) ; s
   parallèle (avant : à la suite), et après l'affichage du projet courant les autres notifications de la séance se préparent en arrière-plan, une à
   la fois (`warmReview`). Sans `cache`, tout se relit comme avant (Administratif, demande de visa).
 - Colonnes ajoutées par `ensureColumns` : `Instances.Modele_notification`, `Instances.Modele_courrier_notification`,
-  `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`, `Preferences_Widget.Inst_notif_large`. Non validé dans un vrai Grist (le proxy de ce projet
+  `Preferences_Widget.Inst_notif_vue`, `Preferences_Widget.Inst_messagerie`, `Preferences_Widget.Inst_notif_large`, `Preferences_Widget.Inst_notif_programmes`. Non validé dans un vrai Grist (le proxy de ce projet
   n'atteint ni Publipostage+ ni les pièces jointes). Code : `notifReviewState`, `pickReviewItem` (`instances-logic.js`), `reviewHtml`,
   `ensureMail`, `syncReviewDoc`, `openReader`, `placeDock`, `generateLetters` (`page-instances.js`), `PpReader` (`pp-reader.js`), `findModel`, `prepareDocument`, `listDocumentModels` (`visa-mail.js`),
   `PdfViewer.mount` (`pdf-viewer.js`), bloc « Étape Notifications — vue Relecture & envoi » de `css/instances.css`, tests

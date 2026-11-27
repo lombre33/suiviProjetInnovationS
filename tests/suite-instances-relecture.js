@@ -872,6 +872,147 @@
     });
   });
 
+  // Filtre par programme de la liste « Notifications de la séance » (Antoine, 27/11/2026). Programmes du jeu de test : INNOVX (10) et CONVENTIX (12) = Programme A, NOTIFY (11) = Programme B.
+  describe('Instances — Relecture & envoi : filtre par programme (27/11/2026)', function () {
+    const acros = () => qa('.in-rrow .in-rpick strong').map(e => e.textContent);
+    const menu = () => q('.in-ph .in-rel .in-menu');
+    const parts = el => Array.from(el.children).map(c => c.textContent.trim()).filter(Boolean).join(' '); // texte des morceaux (spans) séparés par une espace
+    const progText = () => parts(q('.in-progbtn'));
+    const prefsNow = () => lastFields('UpdateRecord', 'Preferences_Widget').Inst_notif_programmes;
+    const twoDrafts = { tables: tables => { tables.Notifications.find(n => n.Projet === 11).notifications_Statut = '1) Information projet saisies'; } };
+
+    it('le bouton est dans l\'en-tête de l\'étape (pas de ligne de plus) ; le menu liste les programmes de la séance avec leur effectif', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview();
+        const btn = q('.in-ph .in-rel .in-progbtn');
+        assertTrue(!!btn && !!btn.closest('.in-ph'), 'bouton du filtre dans l\'en-tête de l\'étape, à côté de « Suivi | Relecture & envoi »');
+        assertEqual(parts(btn), 'Programmes', 'sans filtre : libellé neutre, pas de pastille');
+        assertFalse(btn.classList.contains('in-on'));
+        assertFalse(!!menu(), 'menu fermé au départ');
+        click('menu', { v: 'revprog' });
+        const items = Array.from(menu().querySelectorAll('.in-mi')).map(parts);
+        assertDeepEqual(items, ['Tous les programmes 3', 'Programme A 2', 'Programme B 1']);
+        assertTrue(menu().querySelector('[data-act="rev-prog-all"]').classList.contains('in-on'), '« Tous » est coché sans filtre');
+        assertEqual(acros().length, 3, 'rien n\'est masqué');
+      } finally { visa.restore(); }
+    });
+
+    it('cocher un programme : la liste et le projet affiché suivent, le menu reste ouvert pour en cocher d\'autres, le choix est retenu pour la personne', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview();
+        await waitFor(() => text('.in-rbody').includes('projet 10'), 'mail du premier projet');
+        click('menu', { v: 'revprog' });
+        click('rev-prog', { v: 'Programme B' });
+        assertDeepEqual(acros(), ['NOTIFY'], 'seul le programme B');
+        assertEqual(qa('.in-rrow.in-on .in-rpick strong')[0].textContent, 'NOTIFY', 'le projet affiché était masqué : le premier de la liste filtrée le remplace');
+        await waitFor(() => text('.in-rbody').includes('projet 11'), 'mail du projet restant');
+        assertEqual(progText(), 'Programme B 1/3', 'le bouton dit le filtre et ce qu\'il garde');
+        assertTrue(q('.in-progbtn').classList.contains('in-on'));
+        assertTrue(!!menu(), 'le menu reste ouvert');
+        assertEqual(prefsNow(), '["Programme B"]', 'retenu par utilisateur');
+        assertEqual(document.activeElement.dataset.v, 'Programme B', 'le focus clavier revient sur la valeur cochée');
+        click('rev-prog', { v: 'Programme A' });
+        assertEqual(acros().length, 3, 'les deux programmes : tout est affiché');
+        assertEqual(progText(), '2 programmes 3/3');
+        assertEqual(prefsNow(), '["Programme B","Programme A"]');
+        click('rev-prog', { v: 'Programme B' });
+        assertDeepEqual(acros(), ['INNOVX', 'CONVENTIX'], 'programme A seul, dans l\'ordre de la séance');
+        assertEqual(progText(), 'Programme A 2/3');
+        click('rev-prog-all');
+        assertEqual(acros().length, 3, '« Tous les programmes » efface le filtre');
+        assertEqual(prefsNow(), '[]');
+        assertFalse(!!menu(), 'et ferme le menu');
+        assertEqual(progText(), 'Programmes');
+      } finally { visa.restore(); }
+    });
+
+    it('au rechargement, le filtre retenu est réappliqué ; une valeur illisible est ignorée', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview();
+        await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_notif_programmes: '["Programme B"]' }]]);
+        await window.loadInstancesUserPreferences();
+        window.InstancesPage.render();
+        assertDeepEqual(acros(), ['NOTIFY'], 'filtre retrouvé');
+        await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_notif_programmes: 'pas du JSON' }]]);
+        await window.loadInstancesUserPreferences();
+        window.InstancesPage.render();
+        assertEqual(acros().length, 3, 'valeur illisible : aucun filtre');
+      } finally { visa.restore(); }
+    });
+
+    it('le filtre masque tout (programme retenu absent de cette séance) : message clair, « Tout afficher » et le menu restent à portée, rien ne casse', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview();
+        await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_notif_programmes: '["Programme C"]' }]]);
+        await window.loadInstancesUserPreferences();
+        window.InstancesPage.render();
+        assertEqual(qa('.in-rrow').length, 0);
+        assertIncludes(text('.in-panel'), 'Aucune notification pour ce programme');
+        assertIncludes(text('.in-panel'), '3 notifications');
+        assertEqual(progText(), 'Programme C 0/3', 'le filtre actif reste visible et modifiable');
+        click('menu', { v: 'revprog' });
+        assertTrue(!!menu().querySelector('[data-act="rev-prog"][data-v="Programme C"]'), 'un programme retenu absent de la séance reste proposé (décochable)');
+        click('rev-prog', { v: 'Programme C' });
+        assertEqual(acros().length, 3, 'décoché : tout revient');
+        assertEqual(prefsNow(), '[]');
+        await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_notif_programmes: '["Programme C"]' }]]);
+        await window.loadInstancesUserPreferences();
+        click('menu-close'); // (le menu est encore ouvert)
+        assertEqual(qa('.in-rrow').length, 0);
+        click('rev-prog-all'); // le bouton « Tout afficher » du message
+        assertEqual(acros().length, 3);
+        assertEqual(prefsNow(), '[]');
+      } finally { visa.restore(); }
+    });
+
+    it('une séance d\'un seul programme n\'affiche pas le filtre (rien à filtrer) ; il reste visible tant qu\'un filtre est actif', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview({ tables: tables => { tables.Projets.find(p => p.id === 11).Programme = 1; } });
+        assertFalse(!!q('.in-progbtn'), 'un seul programme : pas de bouton');
+        await window.grist.docApi.applyUserActions([['UpdateRecord', 'Preferences_Widget', 1, { Inst_notif_programmes: '["Programme B"]' }]]);
+        await window.loadInstancesUserPreferences();
+        window.InstancesPage.render();
+        assertTrue(!!q('.in-progbtn'), 'filtre actif : le bouton reste, pour pouvoir l\'enlever');
+        assertEqual(qa('.in-rrow').length, 0);
+      } finally { visa.restore(); }
+    });
+
+    it('un projet sans programme est rangé sous « Sans programme » ; la colonne Programme_Axe_InnovationS sert à défaut de Programme (comme le Kanban)', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview({ tables: tables => {
+          tables.Projets.find(p => p.id === 12).Programme = 0;
+          tables.Projets.find(p => p.id === 10).Programme = 0;
+          tables.Projets.find(p => p.id === 10).Programme_Axe_InnovationS = 2;
+        } });
+        click('menu', { v: 'revprog' });
+        const items = Array.from(menu().querySelectorAll('.in-mi')).map(parts);
+        assertDeepEqual(items, ['Tous les programmes 3', 'Programme B 2', 'Sans programme 1'], 'INNOVX prend la colonne de repli (B), CONVENTIX n\'a aucun programme');
+        click('rev-prog', { v: 'Sans programme' });
+        assertDeepEqual(acros(), ['CONVENTIX']);
+      } finally { visa.restore(); }
+    });
+
+    it('« Tout générer » et la case « tout cocher » ne concernent que les notifications affichées', async function () {
+      const visa = stubVisa();
+      try {
+        await openReview(twoDrafts);
+        click('menu', { v: 'revprog' });
+        click('rev-prog', { v: 'Programme B' });
+        tick('[data-chg="rev-all"]', true);
+        assertIncludes(text('.in-rfoot'), 'Tout générer (1)', 'seule la notification affichée est cochée');
+        click('rev-prog-all');
+        assertEqual(qa('.in-rrow input[data-chg="rev-check"]').filter(i => i.checked).length, 1, 'INNOVX, masquée à ce moment-là, n\'a pas été cochée');
+        assertIncludes(text('.in-rfoot'), 'Tout générer (1)');
+      } finally { visa.restore(); }
+    });
+  });
+
   describe('Instances — largeur sur grand écran (Antoine, 23/11/2026)', function () {
     // Les feuilles de style ne sont pas chargées par la page de test : on pose celles de l'appli (sans l'@import des polices, bloqué ici) le temps du test.
     async function withAppCss(fn) {

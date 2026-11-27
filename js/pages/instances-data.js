@@ -46,7 +46,7 @@
     col('Mail_CR_le', 'Date', { description: "Date d'envoi du mail du compte rendu. Une date renseignée vaut validation de l'étape « Envoi du compte rendu »." })
   ];
   const PREFS_COLUMNS = [
-    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue_ensemble', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text'), col('Inst_notif_vue', 'Text'), col('Inst_messagerie', 'Text'), col('Inst_notif_large', 'Text')
+    col('Inst_instance', 'Text'), col('Inst_seances', 'Text'), col('Inst_etape', 'Text'), col('Inst_vue_ensemble', 'Text'), col('Inst_odj_vue', 'Text'), col('Inst_cadre', 'Text'), col('Inst_tri_invites', 'Text'), col('Inst_notif_vue', 'Text'), col('Inst_messagerie', 'Text'), col('Inst_notif_large', 'Text'), col('Inst_notif_programmes', 'Text')
   ];
 
   // --- Tables propres à la page (ordre = ordre de création : les références doivent exister) ---
@@ -207,7 +207,7 @@
   const keyOfStep = {};
   L.STEPS.forEach(s => { keyOfStep[s.stored] = s.key; });
 
-  // env = { annuaire, postes, projets, notifications } : tables déjà chargées par le widget (CoreState).
+  // env = { annuaire, postes, projets, notifications, programmes } : tables déjà chargées par le widget (CoreState).
   function buildModel(raw, env) {
     // grade : colonne « grade » de Postes2 (VP, Directeur.trice etablissement, Agent…) ; seuls VP et directeur d'établissement ressortent
     const postesById = new Map((env.postes || []).map(p => [p.id, { nom: text(p.Nom_du_poste).replace(/\s+/g, ' ').trim(), grade: text(p.grade != null ? p.grade : p.Grade).trim() }]));
@@ -217,7 +217,13 @@
     const notifByProject = {};
     (env.notifications || []).forEach(n => { notifByProject[refId(n.Projet)] = text(n.notifications_Statut); });
     // signees : numéros des pièces jointes de la colonne « Notifications_Signees » (la notification signée, relue par la vue « Relecture & envoi »).
-    const projects = (env.projets || []).filter(p => text(p.Acronyme).trim()).map(p => ({ id: p.id, acro: text(p.Acronyme).trim(), titre: text(p.Projet).trim(), notif: notifByProject[p.id] || text(p.Statut_Macro), signees: refList(p.Notifications_Signees), porteurId: refId(p.Porteur_1) }))
+    // programme : libellé du programme du projet (colonne Programme, ou Programme_Axe_InnovationS comme le Kanban), pour le filtre de la vue « Relecture & envoi » ; '' sans programme.
+    const programmeById = new Map((env.programmes || []).map(r => [r.id, text(r.Programme).trim()]));
+    const programmeOf = p => {
+      const raw = p.Programme != null && p.Programme !== '' && p.Programme !== 0 ? p.Programme : p.Programme_Axe_InnovationS, id = refId(raw);
+      return (id && programmeById.get(id)) || (typeof raw === 'string' ? raw.trim() : '');
+    };
+    const projects = (env.projets || []).filter(p => text(p.Acronyme).trim()).map(p => ({ id: p.id, acro: text(p.Acronyme).trim(), titre: text(p.Projet).trim(), notif: notifByProject[p.id] || text(p.Statut_Macro), signees: refList(p.Notifications_Signees), porteurId: refId(p.Porteur_1), programme: programmeOf(p) }))
       .sort((a, b) => a.acro.localeCompare(b.acro, 'fr'));
     const projectsById = {}; projects.forEach(p => { projectsById[p.id] = p; });
     const lieux = (raw.Lieux || []).map(r => ({ id: r.id, nom: lieuLabel(r), sub: lieuSub(r) })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));

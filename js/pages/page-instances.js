@@ -76,7 +76,7 @@
 
   const S = {
     loaded: false, loading: null, error: '', errorHtml: '', raw: {}, store: null, model: null, defer: false, drag: null,
-    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }, prefsRowId: null, personId: 0,
+    prefs: { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '', notifProgs: [] }, prefsRowId: null, personId: 0,
     ui: { menu: null, settings: false, subs: {}, repShown: false, rev: newRev(), inv: newInv() }
   };
 
@@ -89,6 +89,7 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pin: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     macro: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
     sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    funnel: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.8a3.5 3.5 0 010 6.4M18 14.3c2.2.6 3.5 2.4 3.5 5.7"/>',
     peopleAdd: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M19 8v6M16 11h6"/>',
@@ -122,7 +123,7 @@
   // ---------------------------------------------------------------------------------------------
   const tableOf = name => (global.CoreState && global.CoreState.getTable(name)) || [];
   function rebuild() {
-    S.model = D.buildModel(S.raw, { annuaire: tableOf('Annuaire'), postes: tableOf('Postes2'), projets: tableOf('Projets'), notifications: tableOf('Notifications') });
+    S.model = D.buildModel(S.raw, { annuaire: tableOf('Annuaire'), postes: tableOf('Postes2'), projets: tableOf('Projets'), notifications: tableOf('Notifications'), programmes: tableOf('Programmes') });
   }
   function setRaw(raw) {
     Object.keys(S.raw).forEach(k => { delete S.raw[k]; });
@@ -207,6 +208,7 @@
       S.prefs.notifVue = NOTIF_VUES.indexOf(text(row.Inst_notif_vue)) >= 0 ? text(row.Inst_notif_vue) : 'suivi';
       S.prefs.messagerie = text(row.Inst_messagerie) === 'zimbra' ? 'zimbra' : '';
       S.prefs.notifLarge = NOTIF_LARGE.indexOf(text(row.Inst_notif_large)) >= 0 ? text(row.Inst_notif_large) : '';
+      try { const list = JSON.parse(text(row.Inst_notif_programmes) || '[]'); S.prefs.notifProgs = Array.isArray(list) ? list.filter(x => typeof x === 'string' && x) : []; } catch (err) { S.prefs.notifProgs = []; }
     } catch (err) {
       console.warn('Chargement des préférences Instances a échoué :', err.message);
     }
@@ -217,7 +219,7 @@
       await global.CoreGrist.gristInstance.docApi.applyUserActions([['UpdateRecord', PREFS_TABLE, S.prefsRowId, {
         Inst_instance: S.prefs.instanceId ? String(S.prefs.instanceId) : '', Inst_seances: JSON.stringify(S.prefs.seances),
         Inst_etape: S.prefs.etape, Inst_vue_ensemble: S.prefs.vue, Inst_odj_vue: S.prefs.odjVue, Inst_cadre: JSON.stringify(S.prefs.cadre), Inst_tri_invites: S.prefs.invTri,
-        Inst_notif_vue: S.prefs.notifVue, Inst_messagerie: S.prefs.messagerie, Inst_notif_large: S.prefs.notifLarge
+        Inst_notif_vue: S.prefs.notifVue, Inst_messagerie: S.prefs.messagerie, Inst_notif_large: S.prefs.notifLarge, Inst_notif_programmes: JSON.stringify(S.prefs.notifProgs)
       }]]);
     } catch (err) { console.warn('Enregistrement des préférences Instances a échoué :', err.message); }
   }
@@ -295,10 +297,14 @@
     const m = V.m;
     const items = V.ctx.projectIds.map(id => {
       const pr = projectOf(m, id), first = V.schedAll.find(r => r.p.projets.indexOf(id) >= 0);
-      return { id, acro: pr.acro, titre: pr.titre, state: L.notifReviewState(pr), signees: pr.signees || [], fileId: (pr.signees || [])[(pr.signees || []).length - 1] || 0, porteur: pr.porteurId ? personOf(m, pr.porteurId).name : '', when: first ? L.hhmm(first.start) : '' };
+      return { id, acro: pr.acro, titre: pr.titre, programme: pr.programme || '', state: L.notifReviewState(pr), signees: pr.signees || [], fileId: (pr.signees || [])[(pr.signees || []).length - 1] || 0, porteur: pr.porteurId ? personOf(m, pr.porteurId).name : '', when: first ? L.hhmm(first.start) : '' };
     });
-    return { items, cur: L.pickReviewItem(items, S.ui.rev.active), drafts: items.filter(i => i.state === 'draft') };
+    // Filtre par programme (demande d'Antoine du 27/11/2026) : les programmes présents dans la séance, et la sélection retenue par utilisateur (libellés). Sans programme : « Sans programme ».
+    const programmes = Array.from(new Set(items.map(i => i.programme || NO_PROGRAMME))).sort((a, b) => (a === NO_PROGRAMME) - (b === NO_PROGRAMME) || a.localeCompare(b, 'fr'));
+    const chosen = S.prefs.notifProgs, shown = chosen.length ? items.filter(i => chosen.indexOf(i.programme || NO_PROGRAMME) >= 0) : items;
+    return { all: items, items: shown, programmes, chosen, cur: L.pickReviewItem(shown, S.ui.rev.active), drafts: shown.filter(i => i.state === 'draft') };
   }
+  const NO_PROGRAMME = 'Sans programme';
   const progressOf = (m, se, active) => active.filter(x => L.isValid(x.key, { seance: se, validations: se.validations })).length + '/' + active.length;
   const hasLink = (type, link) => !!(type && link);
 
@@ -797,6 +803,18 @@
     return '<div class="seg" role="group" aria-label="Affichage des notifications">' + btn('suivi', 'Suivi') + btn('relecture', 'Relecture &amp; envoi' + (n ? '<span class="nbadge">' + n + '</span>' : '')) + '</div>';
   }
 
+  // Filtre par programme de la vue « Relecture & envoi » : dans l'en-tête de l'étape, à côté de « Suivi | Relecture & envoi » (aucune ligne de plus), seulement quand la séance
+  // compte plusieurs programmes ou qu'un filtre est actif. Multi-sélection, retenue par utilisateur (Preferences_Widget.Inst_notif_programmes) ; vide = tous.
+  function notifProgHtml(V) {
+    const rv = V.rev; if (!rv || (rv.programmes.length < 2 && !rv.chosen.length)) return '';
+    const key = 'revprog', open = isOpen(key), n = rv.chosen.length;
+    const label = !n ? 'Programmes' : (n === 1 ? rv.chosen[0] : n + ' programmes'), count = name => rv.all.filter(i => (i.programme || NO_PROGRAMME) === name).length;
+    const shown = rv.programmes.concat(rv.chosen.filter(x => rv.programmes.indexOf(x) < 0)); // un programme retenu qui n'est plus dans cette séance reste décochable
+    return '<div class="rel"><button type="button" class="pillbtn ghost progbtn ' + (n ? 'on' : '') + '" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '" title="' + esc(n ? 'Programmes affichés : ' + rv.chosen.join(', ') : 'Filtrer les notifications par programme') + '" ' + da('menu', { v: key }) + '>'
+      + ic('funnel', 's') + '<span class="plabel">' + esc(label) + '</span>' + (n ? '<span class="nbadge">' + rv.items.length + '/' + rv.all.length + '</span>' : '') + '</button>'
+      + (open ? '<div class="menu" role="listbox" aria-multiselectable="true"><button type="button" class="mi ' + (n ? '' : 'on') + '" role="option" aria-selected="' + (n ? 'false' : 'true') + '" ' + da('rev-prog-all') + '><span>Tous les programmes</span><span class="mi-sub">' + rv.all.length + '</span></button>'
+        + shown.map(name => { const on = rv.chosen.indexOf(name) >= 0; return '<button type="button" class="mi ' + (on ? 'on' : '') + '" role="option" aria-selected="' + (on ? 'true' : 'false') + '" ' + da('rev-prog', { v: name }) + '><span>' + esc(name) + '</span><span class="mi-sub">' + count(name) + '</span></button>'; }).join('') + '</div>' : '') + '</div>';
+  }
   function reviewListPane(V) {
     const R = S.ui.rev, rv = V.rev, cur = rv.cur;
     const nChecked = rv.drafts.filter(i => R.checked[i.id]).length, all = rv.drafts.length > 0 && nChecked === rv.drafts.length;
@@ -856,7 +874,8 @@
   const bigButton = kind => '<button type="button" class="ibtn bigbtn" title="' + (S.prefs.notifLarge === kind ? 'Réduire ' : 'Agrandir ') + BIG_LABEL[kind] + '" aria-label="' + (S.prefs.notifLarge === kind ? 'Réduire ' : 'Agrandir ') + BIG_LABEL[kind] + '" aria-pressed="' + (S.prefs.notifLarge === kind ? 'true' : 'false') + '" '
     + da('rev-big', { v: kind }) + '><span class="bigon">' + ic('shrink', 's') + '</span><span class="bigoff">' + ic('expand', 's') + '</span></button>';
   function reviewHtml(V) {
-    if (!V.rev.items.length) return vemptyHtml('Aucun projet relié', 'Reliez les projets à notifier aux points de l\'ordre du jour : ils apparaissent ici.');
+    if (!V.rev.all.length) return vemptyHtml('Aucun projet relié', 'Reliez les projets à notifier aux points de l\'ordre du jour : ils apparaissent ici.');
+    if (!V.rev.items.length) return vemptyHtml('Aucune notification pour ce programme', 'Le filtre par programme masque les ' + plural(V.rev.all.length, 'notification', 'notifications') + ' de la séance.', '<button type="button" class="pillbtn" ' + da('rev-prog-all') + '>Tout afficher</button>');
     return '<div class="rev' + (S.prefs.notifLarge ? ' big-' + S.prefs.notifLarge : '') + '">' + reviewListPane(V) + reviewMailPane(V) + reviewDocPane(V) + '</div>';
   }
 
@@ -1309,7 +1328,7 @@
     const statusText = V.curDone ? (L.validatedInfo(stepKey, V.ctx, V.nameOf) || 'Validé') : (stepKey === V.firstOpen ? 'En cours' : 'À venir');
     const canValidate = V.missing.length === 0;
     let h = '<section class="panel" aria-live="polite"><div class="ph"><h2>' + (V.stepIdx + 1) + ' · ' + esc(V.curStep.label) + '</h2><span class="stt ' + (V.curDone ? 'ok' : (stepKey === V.firstOpen ? 'cur' : '')) + '">' + (V.curDone ? ic('check', 's') : '') + esc(statusText) + '</span>'
-      + (stepKey === 'cr' ? crFoldHtml(V) : '') + (stepKey === 'notifs' ? notifVueSeg(V) : '') + '<span class="sp"></span>'
+      + (stepKey === 'cr' ? crFoldHtml(V) : '') + (stepKey === 'notifs' ? notifVueSeg(V) + notifProgHtml(V) : '') + '<span class="sp"></span>'
       + (V.alerts.length ? '<span class="alert-pill" title="' + esc(V.alerts.join(' · ')) + '">' + ic('warn', 's') + V.alerts.length + '</span>' : '')
       + (!V.curDone && !V.dateStep ? '<button type="button" class="rbtn primary" title="' + esc(canValidate ? "Valider l'étape" : 'À compléter : ' + V.missing.join(', ')) + '" aria-label="Valider l\'étape" ' + (canValidate ? '' : 'disabled ') + da('validate') + '>' + ic('check') + '</button>' : '')
       + (V.curDone ? '<button type="button" class="rbtn" title="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" aria-label="' + (V.dateStep ? 'Effacer la date' : "Rouvrir l'étape") + '" ' + da('reopen') + '>' + ic('reopen') + '</button>' : '') + '</div>';
@@ -1422,10 +1441,11 @@
   }
   // Sélecteur du contrôle de la vue « Relecture & envoi » (ou de son sélecteur) qui a le focus, pour le lui rendre après un rendu.
   function reviewFocusSel(el) {
-    if (!el || !el.closest || !el.closest('.in-rev, .in-seg[aria-label="Affichage des notifications"]')) return '';
+    if (!el || !el.closest || !el.closest('.in-rev, .in-seg[aria-label="Affichage des notifications"], .in-ph .in-menu')) return '';
     const d = el.dataset || {}, kind = d.act ? 'act' : (d.chg ? 'chg' : '');
     if (!kind) return '';
-    return '[data-' + kind + '="' + d[kind] + '"]' + (d.id ? '[data-id="' + d.id + '"]' : '') + (d.v ? '[data-v="' + d.v + '"]' : '');
+    const val = v => String(v).replace(/["\\]/g, '\\$&'); // un libellé de programme peut contenir des guillemets
+    return '[data-' + kind + '="' + d[kind] + '"]' + (d.id ? '[data-id="' + val(d.id) + '"]' : '') + (d.v ? '[data-v="' + val(d.v) + '"]' : '');
   }
   function render() {
     const root = rootEl(); if (!root) return;
@@ -1997,6 +2017,14 @@
     },
     // notifications : vue « Relecture & envoi »
     'notif-vue': el => { if (NOTIF_VUES.indexOf(el.dataset.v) < 0) return; S.prefs.notifVue = el.dataset.v; S.ui.menu = null; S.ui.rev.focusSel = '[data-act="notif-vue"][data-v="' + el.dataset.v + '"]'; render(); savePrefs(); },
+    // Filtre par programme (menu de l'en-tête, qui reste ouvert pour cocher plusieurs programmes) ; la sélection est retenue par utilisateur.
+    'rev-prog': el => {
+      const name = el.dataset.v, list = S.prefs.notifProgs, at = list.indexOf(name);
+      if (at >= 0) list.splice(at, 1); else list.push(name);
+      S.ui.rev.focusSel = '[data-act="rev-prog"][data-v="' + name.replace(/["\\]/g, '\\$&') + '"]'; // le rendu recrée le menu : le focus clavier revient sur la valeur cochée (reviewFocusSel pour les rendus suivants)
+      render(); savePrefs();
+    },
+    'rev-prog-all': () => { S.prefs.notifProgs = []; S.ui.menu = null; render(); savePrefs(); },
     'rev-pick': el => { S.ui.rev.active = Number(el.dataset.id); S.ui.rev.focusSel = '[data-act="rev-pick"][data-id="' + Number(el.dataset.id) + '"]'; render(); },
     // Agrandir le mail ou le courrier : la classe du conteneur change, rien d'autre (pas de rendu, aucune relecture) ; le zoom de la feuille suit le volet (ResizeObserver).
     'rev-big': el => {
@@ -2270,7 +2298,7 @@
     open: ensureLoaded, render, state: S, _setToday: iso => { todayOverride = iso; }, _setWarm: on => { warmEnabled = !!on; }, _setReader: (on, opts) => { reader.on = !!on; reader.target = opts && opts.target || null; reader.opts = opts && opts.pace || {}; }, _reader: () => S.ui.rev.doc.reader, _setGfsTarget: target => { viewer.targetOverride = target; }, _gfs: viewer.gfs, _onGfsWrite: onGfsWrite, _init: init, _reset() {
       clearTimeout(renderTimer); renderTimer = null;
       S.loaded = false; S.loading = null; S.error = ''; S.errorHtml = ''; S.store = null; S.model = null; S.view = null; S.drag = null;
-      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '' }; S.prefsRowId = null; S.personId = 0;
+      S.prefs = { instanceId: null, seances: {}, etape: 'macro', vue: DEFAULT_VUE, odjVue: 'timing', cadre: defaultCadre(), invTri: '', notifVue: 'suivi', messagerie: '', notifLarge: '', notifProgs: [] }; S.prefsRowId = null; S.personId = 0;
       releaseDoc(true); releaseInv(true); S.ui = { menu: null, settings: false, subs: {}, repShown: false, rev: newRev(), inv: newInv() };
       setRaw({}); dropGfs(); releasePdf(); viewer.uploading.clear(); viewer.pdfKey = ''; viewer.token = null; viewer.mode = 'edit'; viewer.targetOverride = null;
       document.body.classList.remove('in-plein-body');

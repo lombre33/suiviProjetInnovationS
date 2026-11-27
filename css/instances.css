@@ -533,6 +533,9 @@ select.in-inp{padding-right:28px}
 .in-editbtn{flex:none;padding:0 9px;gap:0}
 .in-editbtn .in-elabel{display:none}
 @container rpane (min-width: 640px){.in-editbtn{padding:0 14px;gap:7px}.in-editbtn .in-elabel{display:inline}}
+/* Filtre par programme de la vue « Relecture & envoi » : dans l'en-tête de l'étape, à côté du sélecteur « Suivi | Relecture & envoi ». */
+.in-progbtn .in-plabel{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.in-root .in-pillbtn.in-ghost.in-progbtn.in-on{background:var(--accent-s);border-color:var(--accent-sb);color:var(--accent-h)}
 .in-rdocbody{position:relative;flex:1 1 auto;min-height:420px;background:var(--sunken)}
 /* Étape Mail d'invitation (27/11/2026) : la vue « Relecture & envoi » à deux volets (liste + mail lu par Publipostage+) ; pas de volet courrier. */
 .in-rev.in-inv .in-rpane.in-rlist{flex:0 1 280px;min-width:240px}
