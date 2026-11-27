@@ -1077,12 +1077,13 @@
         await settleResize();
         const row = point(1), box = sel => row.querySelector(sel).getBoundingClientRect();
         const left = Math.round(box('.in-ptitle').left - row.getBoundingClientRect().left);
-        // avant : poignée 22 + flèches 20 + colonne d'heures figée à 108 px, soit plus de 160 px avant le titre
-        assertTrue(left <= 112, 'le titre commence à ' + left + ' px du bord de la ligne (112 px au plus)');
+        // avant : poignée 22 + flèches 20 + colonne d'heures figée à 108 px, soit plus de 160 px avant le titre. Les seuils laissent de la marge à la police de la
+        // machine (la colonne des heures épouse leur largeur : le titre est à ≈ 109 px avec Inter, ≈ 114 px avec DejaVu Sans, la police de repli de la CI) mais restent sous l'ancien rendu.
+        assertTrue(left <= 135, 'le titre commence à ' + left + ' px du bord de la ligne (135 px au plus)');
         assertEqual(text('.in-pt[data-pt="1"] .in-ptime'), '09:30–09:40', 'le texte des heures reste « début–fin »');
         const t = box('.in-ptime'), start = box('.in-ptime b'), end = box('.in-ptime i');
         assertTrue(end.top >= start.bottom - 1, 'la fin est sous le début');
-        assertTrue(t.width < 56, 'la colonne des heures est étroite (' + Math.round(t.width) + ' px)');
+        assertTrue(t.width < 70, 'la colonne des heures est étroite (' + Math.round(t.width) + ' px), bien moins que les 108 px d\'avant');
         assertTrue(Math.round(row.getBoundingClientRect().height) < 56, 'la ligne ne grandit pas pour autant');
       });
     });
