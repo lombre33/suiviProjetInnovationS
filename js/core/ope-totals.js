@@ -229,7 +229,12 @@
     const custom = result.untouched.filter(item => item.reason !== 'colonne absente');
     const created = result.created || [];
     const refreshed = result.refreshed || [];
-    if (!result.adapted.length && !custom.length && !created.length && !refreshed.length) return result;
+    // Un message seulement quand le widget a réellement créé ou modifié une colonne (demande d'Antoine du 27/11/2026 : « pas à chaque fois »). Une formule
+    // modifiée à la main reste telle quelle à chaque nouvelle session : elle n'est signalée que si d'autres colonnes viennent d'être créées ou adaptées.
+    if (!result.adapted.length && !created.length && !refreshed.length) {
+      if (custom.length && global.console && global.console.info) global.console.info('Totaux de Projets non adaptés (formules modifiées à la main) :', custom.map(item => `${item.colId} (${item.reason})`).join(', '));
+      return result;
+    }
     const message = [];
     const perOpe = created.filter(id => /_OPE_\d$/.test(id)), cross = created.filter(id => !/_OPE_\d$/.test(id));
     if (perOpe.length) message.push(`${perOpe.length} colonnes de totaux par OPE créées dans Projets (Total_OPE_1, Total_2026_OPE_1, Total_Fonctionnement_OPE_1…).`);

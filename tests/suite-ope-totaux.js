@@ -631,6 +631,41 @@
       assertTrue(toastEl().classList.contains('error'));
     });
 
+    it('formule modifiée à la main seule, tout le reste déjà en place : aucun message, à chaque nouvelle session (le rouge ne revient pas à chaque enregistrement)', async function () {
+      await installMeta(2, { Total_2028: `return ${sum3(2028)} + 1` });
+      const first = await T().adapt(2); // première session : les colonnes manquantes sont créées, les formules reconnues adaptées
+      assertTrue(first.created.length > 0 && first.adapted.length > 0, 'la première session a bien quelque chose à faire');
+      for (let session = 1; session <= 3; session += 1) {
+        T()._reset(); // nouvelle ouverture du widget
+        toastEl().classList.add('hidden'); toastEl().textContent = ''; toastEl().classList.remove('error');
+        const result = await T().adaptAndNotify(2);
+        assertTrue(result.untouched.some(item => item.colId === 'Total_2028' && item.reason === 'formule personnalisée'), 'la formule modifiée à la main est toujours reconnue comme telle');
+        assertEqual(toastEl().textContent, '', `session ${session} : rien n'a été créé ni modifié, donc aucun message`);
+        assertFalse(toastEl().classList.contains('error'), 'ni message rouge');
+      }
+    });
+
+    it('colonnes créées : un message au premier enregistrement seulement, ni au suivant (même session) ni à la session d\'après', async function () {
+      await installMeta(1);
+      await T().adaptAndNotify(1);
+      assertIncludes(flat(toastEl().textContent), 'colonnes de totaux par OPE créées dans Projets');
+      toastEl().classList.add('hidden'); toastEl().textContent = '';
+      await T().adaptAndNotify(1);
+      assertEqual(toastEl().textContent, '', 'second enregistrement de la même session : rien');
+      T()._reset();
+      await T().adaptAndNotify(1);
+      assertEqual(toastEl().textContent, '', 'session suivante, colonnes déjà là : rien');
+    });
+
+    it('formule modifiée à la main ET colonnes à créer : le message mentionne les deux (une seule fois)', async function () {
+      await installMeta(2, { Total_2028: `return ${sum3(2028)} + 1` });
+      await T().adaptAndNotify(2);
+      const text = flat(toastEl().textContent);
+      assertIncludes(text, 'colonnes de totaux par OPE créées');
+      assertIncludes(text, 'Non modifiés : Total_2028 (formule personnalisée)');
+      assertTrue(toastEl().classList.contains('error'), 'point d\'attention : une formule n\'a pas pu être adaptée');
+    });
+
     it('rien à faire (déjà adapté) : aucun message', async function () {
       await installMeta(2);
       await T().adapt(2);
@@ -714,6 +749,30 @@
       } finally { window.grist.docApi.fetchTable = original; }
       assertEqual(modifies().length, 5, 'rien de plus au second enregistrement');
       assertEqual(metaReads, 0, 'et aucune relecture des métadonnées : déjà vérifié dans cette session');
+    });
+
+    it('enregistrements successifs : le message ne vient qu\'avec la création ou la modification d\'une colonne, jamais à chaque clic sur Enregistrer', async function () {
+      await loadFixtureState();
+      await installMeta(1, { Total_Fonctionnement: 'return rec.c2026_M10_Fonctionnement + 1' }); // une formule du document modifiée à la main, qui le reste
+      await loadFixtureState();
+      const clearToast = () => { toastEl().classList.add('hidden'); toastEl().textContent = ''; toastEl().classList.remove('error'); };
+      clearToast();
+      window.ProjectModal.open(projectRecord(11));
+      await saveButton().onclick();
+      assertIncludes(flat(toastEl().textContent), 'colonnes de totaux par OPE créées', 'premier enregistrement : des colonnes sont créées, le widget le dit');
+      for (let save = 2; save <= 4; save += 1) {
+        clearToast();
+        window.ProjectModal.open(projectRecord(10 + (save % 2)));
+        await saveButton().onclick();
+        assertEqual(toastEl().textContent, '', `enregistrement ${save} de la même session : aucun message`);
+      }
+      T()._reset(); // le widget est rouvert, la formule modifiée à la main est toujours là
+      clearToast();
+      window.ProjectModal.open(projectRecord(11));
+      await saveButton().onclick();
+      assertEqual(toastEl().textContent, '', 'nouvelle session : rien n\'est à créer ni à adapter, aucun message (pas de rouge)');
+      assertFalse(toastEl().classList.contains('error'));
+      assertTrue(modalEl().classList.contains('cp-hidden'), 'le projet est bien enregistré');
     });
 
     it('Grist refuse de modifier les formules : le projet est quand même enregistré et le refus est dit', async function () {
